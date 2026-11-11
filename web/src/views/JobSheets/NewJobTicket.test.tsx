@@ -113,4 +113,13 @@ describe('NewJobSheet: the Orbit ticket', () => {
     await startJob(dialog);
     expect(post).toHaveBeenCalledWith('/api/jobs', expect.objectContaining({ ticket: undefined }));
   });
+
+  it('a bug ticket opens the laptop’s form on Bug fix, and the kind goes with the job', async () => {
+    const { post, wrap } = setup();
+    wrap(<NewJobSheet onClose={vi.fn()} kind="bug" ticket={{ key: 'ORBIT-479', title: 'Feedback API', url: null }} />);
+    const dialog = screen.getByRole('dialog', { name: 'Start a new job' });
+    expect(within(dialog).getByRole('radio', { name: 'Bug fix' })).toBeChecked();
+    await startJob(dialog);
+    expect(post).toHaveBeenCalledWith('/api/jobs', expect.objectContaining({ kind: 'bug' }));
+  });
 });

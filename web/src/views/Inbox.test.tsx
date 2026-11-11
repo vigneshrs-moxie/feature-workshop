@@ -8,7 +8,7 @@ import { hrefFor, parseHash } from '../app/router';
 import { UiProvider, useUi, type SheetState } from '../app/ui';
 import { createStore, WorkshopContext } from '../state/store';
 import { LEVELS, snapshot } from '../state/test-fixtures';
-import { InboxView, levelWord, needsDecision, nextTicket, sortInbox, startText, statusWord, type InboxAnswer, type InboxItem, type OrbitStatus, type OrbitStream } from './Inbox';
+import { InboxView, levelWord, nextTicket, queueOrder, sortInbox, toStart, startText, statusWord, type InboxAnswer, type InboxItem, type OrbitStatus, type OrbitStream } from './Inbox';
 import { OrbitTokenSettings } from './Settings/OrbitTokenSettings';
 import { setGuideFirstVisit } from '../components/page/Page';
 import { pickOption } from '../components/Select.testing';
@@ -109,11 +109,11 @@ describe('Inbox', () => {
   it('lists each ticket with severity, key, title, age and who is on it, all in words, most severe then oldest; no priority', async () => {
     const { wrap } = setup();
     wrap(<InboxView openStream={() => null} />);
-    // Two groups (packet R): Needs a decision (no job yet, and severe or not triaged), then Can wait.
+    // Two groups: To start (no job yet), then Already started, each in the queue order.
     const tables = await screen.findAllByRole('table');
     expect(tables.map((t) => t.querySelector('caption')?.textContent)).toEqual([
-      'Tickets that need a decision, 2, most severe first, then oldest.',
-      'Tickets that can wait, 1, most severe first, then oldest.',
+      'Tickets to start, 2, in your queue order.',
+      'Tickets already started, 1, in your queue order.',
     ]);
     const [decide, wait] = tables;
     const rows = within(decide).getAllByRole('row').slice(1);
@@ -145,9 +145,13 @@ describe('Inbox', () => {
       item(6, { severity: 'high', createdAt: daysAgo(2) }),
     ];
     expect(sortInbox(list).map((i) => i.number)).toEqual([4, 3, 6, 5, 1, 2]);
-    expect(nextTicket(list)?.key).toBe('ORBIT-4');
-    expect(nextTicket([item(4, { job: { slug: 'x', title: 'x' } }), item(3, { createdAt: daysAgo(9) }), item(7, { assignee: null })])?.key).toBe('ORBIT-7');
+    expect(nextTicket(list)?.item.key).toBe('ORBIT-4');
+    expect(nextTicket(list)?.why).toBe('order');
+    expect(nextTicket([item(4, { job: { slug: 'x', title: 'x' } }), item(3, { createdAt: daysAgo(9) }), item(7, { assignee: null })])?.item.key).toBe('ORBIT-3');
     expect(nextTicket([item(4, { job: { slug: 'x', title: 'x' } })])).toBeNull();
+    const sending = { id: 1, state: 'sending' as const, laptop: { id: 1, name: 'Mac', online: true }, at: daysAgo(0) };
+    expect(nextTicket([item(4, { start: sending }), item(5)])?.item.key).toBe('ORBIT-5');
+    expect(nextTicket([item(4, { start: { ...sending, state: 'failed' } })])?.item.key).toBe('ORBIT-4');
   });
 
   it('the next-step bar says which ticket and why, and Start in it (or s with no row focused) starts that one', async () => {
@@ -311,14 +315,25 @@ describe('Inbox', () => {
     expect(await screen.findByRole('dialog', { name: 'ORBIT-12: Sample ticket 12' })).toBeInTheDocument();
   });
 
-  it('splits the tickets: Needs a decision (no job, and critical, high, not triaged or hidden), then Can wait', () => {
-    expect(needsDecision(item(1))).toBe(true);
-    expect(needsDecision(item(2, { severity: 'high' }))).toBe(true);
-    expect(needsDecision(item(3, { severity: null }))).toBe(true);
-    expect(needsDecision(item(4, { severity: 'medium' }))).toBe(false);
-    expect(needsDecision(item(5, { severity: 'low' }))).toBe(false);
-    expect(needsDecision(item(6, { job: { slug: 'x', title: 'X' } }))).toBe(false);
-    expect(needsDecision(item(7, { severity: null, url: 'https://orbit.example.com/feedback/7' }))).toBe(true);
+  it('splits the tickets: To start has no job and nothing on its way; the rest are already started', () => {
+    const sending = { id: 1, state: 'sending' as const, laptop: { id: 1, name: 'Mac', online: true }, at: daysAgo(0) };
+    expect(toStart(item(1))).toBe(true);
+    expect(toStart(item(2, { severity: 'low' }))).toBe(true);
+    expect(toStart(item(3, { severity: null }))).toBe(true);
+    expect(toStart(item(6, { job: { slug: 'x', title: 'X' } }))).toBe(false);
+    expect(toStart(item(7, { start: sending }))).toBe(false);
+    expect(toStart(item(8, { start: { ...sending, state: 'failed' } }))).toBe(true);
+  });
+
+  // The same table as dashboard/test/orbit.test.js, "queue order matches Plan my queue".
+  it('rows follow Plan my queue', () => {
+    const mk = (key: string, severity: string | null, queuePosition: number | null, createdAt = '2026-10-01T00:00:00Z') =>
+      item(Number(key.charCodeAt(0)), { key, severity, queuePosition, createdAt });
+    const sorted = [mk('e', null, null), mk('c', 'high', 2), mk('a', 'critical', 1), mk('d', null, 3), mk('b', 'critical', null)];
+    expect(sortInbox(sorted).map((i) => i.key)).toEqual(['a', 'b', 'c', 'd', 'e']);
+    expect([...sorted].sort(queueOrder).map((i) => i.key)).toEqual(['a', 'b', 'c', 'd', 'e']);
+    const unranked = [mk('x', 'low', null, '2026-10-05T00:00:00Z'), mk('y', 'low', null, '2026-10-02T00:00:00Z'), mk('z', 'low', 4)];
+    expect(sortInbox(unranked).map((i) => i.key)).toEqual(['z', 'y', 'x']);
   });
 
   it('tabs: Mine, then your saved views from Orbit, each read when opened', async () => {
@@ -400,5 +415,83 @@ describe('Settings → Orbit token', () => {
   it('an expired token says so in words', async () => {
     settings({ ...STATUS, expired: true, expiresAt: daysAgo(2) });
     expect(await screen.findByText(/It expired on .*: paste a new one\./)).toBeInTheDocument();
+  });
+});
+
+// Spec 4.1: the Queue column, the two groups and the bar that offers the lowest free number.
+describe('the Inbox follows your queue', () => {
+  const queued = (n: number, queuePosition: number | null, extra: Partial<InboxItem> = {}) => item(n, { queuePosition, workOrder: null, size: null, queueKnown: true, ...extra });
+  const JOB = { slug: 'x', title: 'X' };
+  const rowKeys = (table: HTMLElement) => within(table).getAllByRole('row').slice(1).map((r) => r.getAttribute('data-ticket'));
+
+  it('the queue number shows on each ranked row and Not ranked on the rest', async () => {
+    const { wrap } = setup({ answer: { ...INBOX, items: [queued(1, 3), queued(2, null, { severity: 'low' })] } });
+    wrap(<InboxView openStream={() => null} />);
+    const [table] = await screen.findAllByRole('table');
+    expect(within(table).getAllByRole('columnheader')[0]).toHaveTextContent('Queue');
+    expect(within(table).getByRole('columnheader', { name: 'Queue' })).toHaveAttribute('aria-sort', 'ascending');
+    expect(within(table).getByRole('columnheader', { name: 'Severity' })).not.toHaveAttribute('aria-sort');
+    const ranked = within(table).getByText('#3');
+    expect(ranked).toHaveAttribute('title', 'Number 3 in your queue in Orbit (Plan my queue).');
+    const none = within(table).getByText('Not ranked');
+    expect(none).toHaveAttribute('title', "Not ranked in Orbit's Plan my queue yet.");
+    expect(none).toHaveClass('muted');
+  });
+
+  it('no Queue column when Orbit sent no queue numbers, and the order is severity then oldest', async () => {
+    const { wrap } = setup({ answer: { ...INBOX, items: [item(1, { severity: 'low', createdAt: daysAgo(9) }), item(2, { createdAt: daysAgo(2) }), item(3, { createdAt: daysAgo(8) })] } });
+    wrap(<InboxView openStream={() => null} />);
+    const [table] = await screen.findAllByRole('table');
+    expect(within(table).queryByRole('columnheader', { name: 'Queue' })).toBeNull();
+    expect(within(table).getByRole('columnheader', { name: 'Severity' })).toHaveAttribute('aria-sort', 'ascending');
+    expect(rowKeys(table)).toEqual(['ORBIT-3', 'ORBIT-2', 'ORBIT-1']);
+  });
+
+  it('the bar offers the lowest number without a job', async () => {
+    const { wrap } = setup({ answer: { ...INBOX, items: [queued(11, 1, { job: JOB }), queued(12, 2), queued(13, 3, { severity: 'critical' })] } });
+    wrap(<InboxView openStream={() => null} />);
+    const bar = await screen.findByRole('region', { name: 'Next step' });
+    expect(bar).toHaveTextContent('ORBIT-12 is number 2 in your queue');
+    expect(bar).toHaveTextContent('The lowest number in your Orbit queue without a job. Start a job and the Foreman reads the ticket first.');
+    expect(within(bar).getByRole('button', { name: /Start ORBIT-12/ })).toBeInTheDocument();
+  });
+
+  it('the bar offers the lowest number even when a more severe ticket has a higher one', async () => {
+    const { wrap } = setup({ answer: { ...INBOX, items: [queued(51, 5, { severity: 'critical' }), queued(52, 1, { severity: 'high' })] } });
+    wrap(<InboxView openStream={() => null} />);
+    const bar = await screen.findByRole('region', { name: 'Next step' });
+    expect(bar).toHaveTextContent('ORBIT-52 is number 1 in your queue');
+    expect(nextTicket([queued(51, 5, { severity: 'critical' }), queued(52, 1, { severity: 'high' })])?.item.key).toBe('ORBIT-52');
+  });
+
+  it('two rows numbered 2: the bar offers the first in order, and only one row is marked next', async () => {
+    const { wrap } = setup({ answer: { ...INBOX, items: [queued(21, 2, { createdAt: daysAgo(1) }), queued(20, 2, { createdAt: daysAgo(5) })] } });
+    wrap(<InboxView openStream={() => null} />);
+    const bar = await screen.findByRole('region', { name: 'Next step' });
+    expect(bar).toHaveTextContent('ORBIT-20 is number 2 in your queue');
+    const [table] = screen.getAllByRole('table');
+    expect(table.querySelectorAll('tr.is-next')).toHaveLength(1);
+    expect(table.querySelector('tr.is-next')).toHaveAttribute('data-ticket', 'ORBIT-20');
+  });
+
+  it("with nothing ranked the bar offers the first free ticket in order with today's words", async () => {
+    const { wrap } = setup({ answer: { ...INBOX, items: [queued(31, null, { severity: 'low' }), queued(32, null, { severity: 'critical' })] } });
+    wrap(<InboxView openStream={() => null} />);
+    const bar = await screen.findByRole('region', { name: 'Next step' });
+    expect(bar).toHaveTextContent('ORBIT-32 is critical and yours');
+    expect(bar).toHaveTextContent('Start a job and the Foreman reads the ticket first.');
+    expect(bar).not.toHaveTextContent('lowest number');
+  });
+
+  it('a ticket with a job is under Already started', async () => {
+    const { wrap } = setup({ answer: { ...INBOX, items: [queued(41, 1, { job: JOB }), queued(42, 2)] } });
+    wrap(<InboxView openStream={() => null} />);
+    const tables = await screen.findAllByRole('table');
+    expect(screen.getByRole('heading', { name: /To start/ })).toBeInTheDocument();
+    expect(screen.getByText('No job yet, in your Orbit queue order')).toBeInTheDocument();
+    expect(rowKeys(tables[0])).toEqual(['ORBIT-42']);
+    expect(screen.getByText('Already started')).toBeInTheDocument();
+    expect(screen.getByText('A job is on each of these already')).toBeInTheDocument();
+    expect(rowKeys(tables[1])).toEqual(['ORBIT-41']);
   });
 });

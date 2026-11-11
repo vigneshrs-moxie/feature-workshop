@@ -35,7 +35,7 @@ import { OLD_STATE_FOLDER, State, WORKFLOW_CHOICES } from '../lib/state.js';
 import { Driver, Busy } from '../lib/driver.js';
 import { renderMarkdown, indexIds } from '../lib/markdown.js';
 import * as git from '../lib/git.js';
-import { recentRepos, checkRepo, reposDoor, ticketRepo } from '../lib/repos.js';
+import { recentRepos, checkRepo, reposDoor, ticketRepo, repoByName } from '../lib/repos.js';
 import { HttpError } from '../lib/http-guard.js';
 import { restartJob } from '../lib/restart.js';
 import { liveTerminals } from '../lib/live.js';
@@ -72,6 +72,9 @@ import { noticeBody, Notifier, validateNotifyPatch } from '../lib/notify.js';
 import { Integrator, IntegrateError } from '../lib/integrate.js';
 import { MCP_NAME, OrbitError, OrbitInbox, canonicalKey, clearToken, jobsByTicket, removeMcpEntry, sessionEnv, normalizeOrbitUrl, orbitClient, setToken } from '../lib/orbit.js';
 import { tokenStore } from '../lib/orbit-token.js';
+import { InboxSuggester, SUGGEST_MODEL, askHaiku, demoAsk, suggestPrompt } from '../lib/inbox-suggest.js';
+import { TICKET_FILE, readTicketFile } from '../lib/ticket-file.js';
+import { writeFileAtomic } from '../lib/atomic-write.js';
 import { UsageLog, TurnMeter, turnLines, usageDir, starbaseUser, claudeAccountId } from '../lib/usage-log.js';
 import { statusTicketKey, slugTicketKey } from '../lib/orbit.js';
 import { telemetry as telemetryOf } from '../lib/telemetry.js';
@@ -1495,9 +1498,44 @@ export async function createRunner(config) {
   }
 
 
+  // The suggested order for tickets Orbit has not ranked (lib/inbox-suggest.js): Haiku on this
+  // computer, asked when the list changes and at most every 30 minutes. Settings → Workflow turns it off.
+  // The demo, and a test that passes suggestAsk, use no model.
+  let suggestOn = true;
+  const suggestAsk = config.suggestAsk ?? (DEMO
+    ? demoAsk
+    : (input) => askHaiku(suggestPrompt(input), { queryFn, cliPath: claudePath, cwd: path.join(state.dir, 'inbox-suggest') }));
+  const suggester = new InboxSuggester({ ask: suggestAsk, enabled: () => suggestOn });
+
+  /** The open jobs with a worktree, newest first, as the suggestion's "files already being changed". */
+  async function suggestJobs() {
+    const open = (await features()).filter((f) => f.worktree && !f.closed)
+      .sort((a, b) => String(b.updatedAt ?? '').localeCompare(String(a.updatedAt ?? '')));
+    const out = [];
+    for (const f of open.slice(0, 8)) {
+      const key = [...(await jobsByTicket([f])).keys()][0] ?? null;
+      out.push({ title: f.title ?? f.slug, ticket: key, repo: f.repoPath ? path.basename(f.repoPath) : '', paths: (await changedPathsFor(f).catch(() => null)) ?? [] });
+    }
+    return out;
+  }
+  let considering = Promise.resolve();
+  function considerSuggestion() {
+    considering = considering.then(async () => {
+      if (!suggestOn) return;
+      const v = orbitInbox.view();
+      suggester.consider({ items: await withJobs(v.items), rows: orbitInbox.rows, jobs: await suggestJobs() });
+    }).catch((err) => console.error('inbox suggestion:', err.message));
+  }
+  orbitInbox.on('change', considerSuggestion);
+  function setSuggestOn(on) {
+    suggestOn = on !== false;
+    if (suggestOn) considerSuggestion(); else suggester.off();
+  }
+
   /** Reads the saved address and starts the poller when there is a token. At start and after a save. */
   async function startOrbit() {
     const o = await orbitSettings();
+    suggestOn = (await state.getSettings()).workflow?.inboxSuggest !== false;
     orbitUrl = o.url ? (() => { try { return normalizeOrbitUrl(o.url); } catch { return null; } })() : null;
     if (!orbitUrl && env.STARBASE_ORBIT_URL) { try { orbitUrl = normalizeOrbitUrl(env.STARBASE_ORBIT_URL); } catch { /* ignored: Settings says what is missing */ } }
     if (orbitUrl && await orbitStore.get().catch(() => null)) orbitInbox.start(); else orbitInbox.stop();
@@ -1534,6 +1572,12 @@ export async function createRunner(config) {
     }).catch((err) => console.error('usage log:', err.message));
   }
   driver.on('usage', (e) => logTurn(turnMeter.onMessage(e)));
+  // The inbox suggestion's Haiku call: one line, no job, Claude Code's own cost.
+  let suggestCalls = 0;
+  suggester.onCall = ({ costUsd, tokens }) => logTurn({
+    runId: `inbox-suggest-${Date.now()}-${++suggestCalls}`, slug: null, featureDir: null, sessionId: null, total: costUsd, runPrev: null,
+    groups: [{ worker: 'inbox-suggest', agentType: null, model: SUGGEST_MODEL, tokens }],
+  });
   // Your Claude Code use outside this app (packet U, lib/claude-code-usage.js): this computer's
   // Claude Code logs, read for usage numbers only, in the background, cached in the state folder.
   // Never in the demo. The first read starts a little after the dashboard does (when the setting
@@ -1620,6 +1664,12 @@ export async function createRunner(config) {
       // A ticket's Start from the hosted site names no folder (the site doesn't know this laptop's):
       // the registered repository for Orbit's tickets (lib/repos.js ticketRepo).
       let repoPath = str(body.repoPath, 1000);
+      // The site's Start form names a repository this laptop registered, by its name. The laptop
+      // matches it itself; a name it doesn't know (or two share) fails the start.
+      if (!repoPath && typeof body.repo === 'string' && body.repo) {
+        repoPath = await repoByName(local.registry, body.repo);
+        if (!repoPath) throw new HttpError(400, `This laptop doesn't have a repository called "${body.repo.slice(0, 100)}". Pick another in the form.`);
+      }
       if (!repoPath && body.ticket) {
         repoPath = await ticketRepo(local.registry);
         if (!repoPath) throw new HttpError(400, 'This laptop doesn’t know which repository a ticket’s job goes in. Add the repository in Settings → Repos on the laptop, then press Start again.');
@@ -1668,8 +1718,17 @@ export async function createRunner(config) {
       const { detail: fromDetail, ...fromRecord } = from ?? {};
       const optionsOut = from ? { ...options, from_session: fromRecord } : options;
       await writeOptions(featureDir, options, { title: description, repo: repo.path, kind, from_session: from ? fromRecord : undefined, ticket: ticket ?? undefined, branch: ticket ? ticketBranch(kind, slug, { profile, ticket }) : undefined });
+      // The ticket's safe details go in ticket.md before the Foreman's first message (lib/ticket-file.js).
+      // Orbit being slow or down never stops a start: no file, and the message says so.
+      let detailsRead = false;
+      if (ticket) {
+        const md = await readTicketFile(orbit, ticket);
+        if (md) {
+          try { await fsp.mkdir(featureDir, { recursive: true }); await writeFileAtomic(path.join(featureDir, TICKET_FILE), md, { mode: 0o600 }); detailsRead = true; } catch { /* the job starts without it */ }
+        }
+      }
       // A ticket's job starts with a status.json of schema version 2 holding the ticket block.
-      const fromTicket = ticket ? await startFromTicket(featureDir, { ticket, slug, title: description, kind, level: options.level, repo: repo.path, profile }) : null;
+      const fromTicket = ticket ? await startFromTicket(featureDir, { ticket, slug, title: description, kind, level: options.level, repo: repo.path, profile, detailsRead }) : null;
       if (fromDetail) await fsp.writeFile(path.join(featureDir, 'history.md'), historyMarkdown(fromDetail), { mode: 0o600 });
       // The /feature (or /bugfix) command must come first in the message, or it doesn't run. A bug job
       // goes to /bugfix when that skill is installed; an older install still gets /feature with a note.
@@ -1993,9 +2052,10 @@ export async function createRunner(config) {
         const w = body.workflow;
         if (!w || typeof w !== 'object' || Array.isArray(w)) throw new HttpError(400, 'The workflow settings must be an object.');
         const keys = Object.keys(w);
-        for (const k of keys) if (!['finishLine', 'wireframes', 'clarify', 'autoLevel', 'countClaudeCode'].includes(k)) throw new HttpError(400, `Unknown workflow setting: ${String(k).slice(0, 40)}.`);
-        if (!keys.length) throw new HttpError(400, 'Send a workflow setting to change: finishLine, wireframes, clarify, autoLevel or countClaudeCode.');
+        for (const k of keys) if (!['finishLine', 'wireframes', 'clarify', 'autoLevel', 'countClaudeCode', 'inboxSuggest'].includes(k)) throw new HttpError(400, `Unknown workflow setting: ${String(k).slice(0, 40)}.`);
+        if (!keys.length) throw new HttpError(400, 'Send a workflow setting to change: finishLine, wireframes, clarify, autoLevel, inboxSuggest or countClaudeCode.');
         if (w.autoLevel !== undefined && typeof w.autoLevel !== 'boolean') throw new HttpError(400, 'Choose the level for me: on or off.');
+        if (w.inboxSuggest !== undefined && typeof w.inboxSuggest !== 'boolean') throw new HttpError(400, 'Suggest what to start next: on or off.');
         if (w.countClaudeCode !== undefined && typeof w.countClaudeCode !== 'boolean') throw new HttpError(400, 'Count my Claude Code use outside the app: on or off.');
         if (w.finishLine !== undefined && !FINISH_LINES.includes(w.finishLine)) throw new HttpError(400, 'The finish line is PR #1 open, PR #1 merged, in staging, in main, or when you mark it done.');
         for (const k of ['wireframes', 'clarify']) if (w[k] !== undefined && !WORKFLOW_CHOICES.includes(w[k])) throw new HttpError(400, `${k === 'wireframes' ? 'Screens' : 'Clarify questions'} for new jobs: Auto, Always or Off.`);
@@ -2006,6 +2066,7 @@ export async function createRunner(config) {
         const next = { ...was, ...rest };
         await state.setSettings({ workflow: next });
         finishLineNow = next.finishLine;
+        if (rest.inboxSuggest !== undefined) setSuggestOn(rest.inboxSuggest);
         if (next.finishLine !== was.finishLine) {
           // Every card's group may move: the pages fetch again. The ledger counts quests by the new
           // line, muted (what it finds was earned before). The Done notices start over: the next look
@@ -2194,6 +2255,8 @@ export async function createRunner(config) {
 
   const read = {
     meta,
+    /** The registered repositories and the ticket default, for the site's Start form (the link sends names only). */
+    startRepos: async () => ({ repos: (await local.registry?.listRepos().catch(() => [])) ?? [], defaultPath: await ticketRepo(local.registry).catch(() => null) }),
     /** Everything the new UI needs to draw itself (GET /api/snapshot), apart from the event log's seq and epoch. */
     async snapshot(pageMeta) {
       const list = await features();
@@ -2465,7 +2528,7 @@ export async function createRunner(config) {
     },
     teapot: TEAPOT,
     orbit: {
-      status: orbitStatus, inbox: orbitInbox, client: orbit, url: () => orbitUrl, withJobs, httpError: orbitHttpError,
+      status: orbitStatus, inbox: orbitInbox, suggester, client: orbit, url: () => orbitUrl, withJobs, httpError: orbitHttpError,
       /** Save a pasted token (and wire up the Foreman's MCP entry). Throws OrbitError in plain words. */
       async saveToken(body) {
         const was = await orbitSettings();
@@ -2482,7 +2545,7 @@ export async function createRunner(config) {
         }
         orbitInbox.reset();
         await startOrbit();
-        await orbitInbox.refresh({ full: true }); // says at once whether Orbit takes the token
+        await orbitInbox.refresh(); // says at once whether Orbit takes the token
         return orbitStatus();
       },
       /** Forget the token: out of the store, and the MCP entry out of Claude Code's settings. */

@@ -5,5 +5,5 @@
 -- Orbit says the token reads as (tech or participant), kept for the line the Inbox says about it.
 -- Both have defaults, so this is safe to run before the code that writes them is released.
 
-ALTER TABLE orbit_tokens ADD COLUMN assignee_ignored boolean NOT NULL DEFAULT false;
-ALTER TABLE orbit_tokens ADD COLUMN orbit_audience text NOT NULL DEFAULT 'tech';
+ALTER TABLE orbit_tokens ADD COLUMN IF NOT EXISTS assignee_ignored boolean NOT NULL DEFAULT false;
+ALTER TABLE orbit_tokens ADD COLUMN IF NOT EXISTS orbit_audience text NOT NULL DEFAULT 'tech';

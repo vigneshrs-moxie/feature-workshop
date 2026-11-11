@@ -7,12 +7,17 @@
 // from the level chip in the job header.
 //
 // The Orbit ticket (plan D1): a job started from a ticket shares its key; the dashboard names the
-// job's folder orbit-<n>-<short-title> and its branch feature/ (or fix/) plus that, and the Foreman
-// reads the ticket through the orbit-feedback MCP server. Started from the Inbox (a `ticket`, or a
+// job's folder orbit-<n>-<short-title> and its branch feature/ (or fix/) plus that, and Starbase
+// writes the ticket's details to ticket.md in the job's folder for the Foreman. Started from the Inbox (a `ticket`, or a
 // description the Inbox filled in as "ORBIT-<n>: <title>"), the field is filled in and read-only;
 // otherwise you may type a key yourself, or leave it empty.
+//
+// On the hosted website (the `hosted` prop) the same form starts a job on one of your laptops: the
+// repositories are the chosen laptop's (names only), there is no past conversation, and Start job
+// hands the choices to `hosted.onStart` instead of POSTing /api/jobs.
 import { useEffect, useId, useMemo, useState } from 'react';
 import type { HistoryList, HistoryRow, LevelNumber, ModelChoice, Repo } from '../../api/types';
+import { BRAND } from '../../app/brand';
 import { navigate } from '../../app/router';
 import { HowThisWorks } from '../../components/HowThisWorks';
 import { Sheet } from '../../components/Sheet';
@@ -37,6 +42,23 @@ const SHOWN_ROWS = 8;
 
 /** A ticket a job starts from: the key (ORBIT-<n>), and its title and link when the Inbox knows them. */
 export interface TicketRef { key: string; title?: string | null; url?: string | null }
+
+/** What the website's Start sends: the form's choices; the laptop checks them again. */
+export interface StartChoices {
+  description: string; kind: 'feature' | 'bug'; laptopId: number; repo?: string; model?: string;
+  options: { level?: LevelNumber; stack?: true; all_fable?: true };
+}
+/** The website's side of the form: each laptop with the repository names it offered, and what to do with the choices. */
+export interface HostedStart {
+  laptops: { id: number; name: string; online: boolean; repos: { name: string; default: boolean }[] }[];
+  onStart: (choices: StartChoices) => Promise<void>;
+}
+/** The Foreman models, for the form where the laptop's own list isn't to hand (the website). */
+const SITE_MODELS: ModelChoice[] = [
+  { id: 'claude-opus-5-5', label: 'Opus 5.5', note: 'The everyday Foreman: strong and much cheaper than Fable.' },
+  { id: 'claude-fable-5-2', label: 'Fable 5.2', note: 'Best judgment, highest cost and quickest to use up your limits.' },
+  { id: 'claude-haiku-5-5', label: 'Haiku 5.5', note: `Cheapest. For trying ${BRAND.name} out, not real jobs.` },
+];
 
 export const TICKET_KEY_PROBLEM = 'That isn’t a ticket key: use ORBIT- and the number, like ORBIT-479.';
 /** ORBIT-<n> for ORBIT-479, orbit-479, orbit479, #479 or 479; else null (the dashboard's own rule). */
@@ -159,22 +181,30 @@ function PastConversation({ picked, onPick, mode, onMode, canContinue }: {
   );
 }
 
-export function NewJobSheet({ onClose, description: initialDescription = '', ticket: givenTicket, stack: startAsStack = false }: { onClose: () => void; description?: string; ticket?: TicketRef | null; stack?: boolean }) {
+export function NewJobSheet({ onClose, description: initialDescription = '', ticket: givenTicket, stack: startAsStack = false, kind: initialKind = 'feature', hosted }: {
+  onClose: () => void; description?: string; ticket?: TicketRef | null; stack?: boolean; kind?: 'feature' | 'bug'; hosted?: HostedStart;
+}) {
   const { api } = useWorkshop();
   const { meta } = useWorkshopState();
-  const models: ModelChoice[] = meta?.models ?? [];
+  const models: ModelChoice[] = hosted ? SITE_MODELS : meta?.models ?? [];
   const [description, setDescription] = useState(initialDescription || (givenTicket ? `${givenTicket.key}: ${givenTicket.title ?? ''}`.trim() : ''));
   // From the Inbox: fixed. Typed here: optional, checked when you start.
   const [fromInbox] = useState<TicketRef | null>(() => givenTicket ?? ticketFromDescription(initialDescription));
   const [ticketText, setTicketText] = useState(fromInbox?.key ?? '');
   const ticketId = useId();
-  const [kind, setKind] = useState<'feature' | 'bug'>('feature');
+  const [kind, setKind] = useState<'feature' | 'bug'>(initialKind);
   // Run as a stack (views/Stack): ticked by the Inbox's Start as stack.
   const [asStack, setAsStack] = useState(startAsStack);
   // The whole job on Fable: the Foreman too, so its model picker is fixed on Fable while this is on.
   const [allFable, setAllFable] = useState(false);
-  const [repos, setRepos] = useState<Repos>({ state: 'loading' });
+  const [repos, setRepos] = useState<Repos>(hosted ? { state: 'ready', list: [] } : { state: 'loading' });
   const [repo, setRepo] = useState<string>('');
+  // The website: which laptop. One laptop, or one that is on, is picked for you.
+  const [laptopId, setLaptopId] = useState<number | null>(() => {
+    if (!hosted) return null;
+    const on = hosted.laptops.filter((l) => l.online);
+    return hosted.laptops.length === 1 ? hosted.laptops[0].id : on.length === 1 ? on[0].id : null;
+  });
   const [otherPath, setOtherPath] = useState('');
   const [model, setModel] = useState<string>(models[0]?.id ?? '');
   const [from, setFrom] = useState<HistoryRow | null>(null);
@@ -190,7 +220,16 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
   const repoId = useId();
   const pathId = useId();
 
+  // The website: the repositories are the chosen laptop's, by name; its default first.
   useEffect(() => {
+    if (!hosted) return;
+    const mine = hosted.laptops.find((l) => l.id === laptopId)?.repos ?? [];
+    setRepos({ state: 'ready', list: mine.map((r) => ({ path: r.name, name: r.name })) });
+    setRepo((mine.find((r) => r.default) ?? mine[0])?.name ?? '');
+  }, [hosted, laptopId]);
+
+  useEffect(() => {
+    if (hosted) return;
     let cancelled = false;
     api.get<{ repos: Repo[] }>('/api/repos').then(
       (r) => {
@@ -203,7 +242,7 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
       (err) => { if (!cancelled) { setRepos({ state: 'error', message: message(err) }); setRepo((cur) => cur || OTHER); } },
     );
     return () => { cancelled = true; };
-  }, [api]);
+  }, [api, hosted]);
 
   useEffect(() => { if (!model && models[0]) setModel(models[0].id); }, [model, models]);
 
@@ -224,6 +263,19 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
     const text = description.trim();
     const repoPath = repo === OTHER ? otherPath.trim() : repo;
     if (text.length < 4) { setError('Describe the job in a few words.'); return; }
+    if (hosted) {
+      if (laptopId === null) { setError('Pick which laptop starts it.'); return; }
+      setBusy(true);
+      setError(null);
+      try {
+        await hosted.onStart({
+          description: text, kind, laptopId, ...(repoPath ? { repo: repoPath } : {}), ...((allFable ? FABLE : model) ? { model: allFable ? FABLE : model } : {}),
+          options: { ...(level !== null ? { level } : {}), ...(asStack ? { stack: true as const } : {}), ...(allFable ? { all_fable: true as const } : {}) },
+        });
+        onClose();
+      } catch (err) { setError(message(err)); setBusy(false); }
+      return;
+    }
     if (!repoPath) { setError('Pick the repository, or type the full path of its folder.'); return; }
     const key = ticketText.trim() ? ticketKeyOf(ticketText) : null;
     if (ticketText.trim() && !key) { setError(TICKET_KEY_PROBLEM); return; }
@@ -252,7 +304,7 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
         <p>Describe the job in a line and pick where it runs. A Foreman (a Claude Code session) starts on it straight away: it writes up what it will do and asks you before any code changes. Pushes and pull requests always ask you too.</p>
         <p><strong>Levels</strong> set how much process the job gets. <strong>L0 Tweak</strong>: one build, the checks, and you look at the diff. <strong>L1 Small</strong>: a quick plan you approve, one reviewer. <strong>L2 Standard</strong>: a short spec and plan, the tester, 3–4 reviewers. <strong>L3 Large</strong>: the full workflow, every reviewer and Fable second looks. Each level shows what runs next to it.</p>
         <p>As you type, the rules suggest a level from your description (no AI involved): risky areas such as sign-in, data scoping or migrations need at least L2 or L3. Pick another level any time; after that the suggestion no longer changes your pick. If you pick below what the rules suggest, the Foreman asks before building. The Foreman also suggests a level in its first brief; if it differs, a card in the conversation lets you choose. Change it later with the level chip in the job header.</p>
-        <p>The level sets the job’s <strong>options</strong> (stages, reviewers); fine-tune them later with <strong>Notes and options…</strong> in the job menu. To pick up something you already discussed with Claude Code, open <strong>Start from a past conversation</strong>.</p>
+        <p>The level sets the job’s <strong>options</strong> (stages, reviewers); fine-tune them later with <strong>Notes and options…</strong> in the job menu.{!hosted && <> To pick up something you already discussed with Claude Code, open <strong>Start from a past conversation</strong>.</>}</p>
       </HowThisWorks>
       <form onSubmit={(e) => { e.preventDefault(); void submit(); }}>
         <fieldset className="sheet-fields" disabled={busy}>
@@ -271,6 +323,23 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
             />
           </div>
 
+          {hosted && hosted.laptops.length > 1 && (
+            <fieldset className="field hosted-laptop-choice">
+              <legend className="field-label">Which laptop starts it?</legend>
+              {[...hosted.laptops].sort((a, b) => Number(b.online) - Number(a.online)).map((l) => (
+                <OptionRow key={l.id} type="radio" name="start-laptop" value={String(l.id)} checked={laptopId === l.id} onChange={() => setLaptopId(l.id)}>
+                  <span className="option-body">
+                    <span className="option-title">{l.name}</span>
+                    <span className="option-desc">{l.online ? 'Online: it starts in a moment.' : 'Off: it starts when the laptop is back.'}</span>
+                  </span>
+                </OptionRow>
+              ))}
+            </fieldset>
+          )}
+
+          {hosted && laptopId !== null && list.length === 0 ? (
+            <p className="field-hint">This laptop hasn’t told {BRAND.name} about a repository yet, so it picks the one a ticket goes in. Add repositories in Settings → Repos on the laptop.</p>
+          ) : (
           <div className="field">
             <label className="field-label" htmlFor={repoId}>Repository</label>
             <Select
@@ -282,13 +351,14 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
               title="The git repository the job works in. The ones you used most recently with Claude Code are listed first."
               options={[
                 ...(repos.state === 'loading' ? [{ value: '', label: 'Loading your repositories…' }] : []),
-                ...options.map((r) => ({ value: r.path, label: <><span className="repo-name">{r.name}</span><span className="repo-path">{tilde(r.path)}</span></>, text: r.name })),
-                { value: OTHER, label: 'Another folder…' },
+                ...options.map((r) => ({ value: r.path, label: hosted ? <span className="repo-name">{r.name}</span> : <><span className="repo-name">{r.name}</span><span className="repo-path">{tilde(r.path)}</span></>, text: r.name })),
+                ...(hosted ? [] : [{ value: OTHER, label: 'Another folder…' }]),
               ]}
             />
             {repos.state === 'error' && <p className="field-hint">Couldn’t list your repositories ({repos.message}). Type the folder’s path instead.</p>}
           </div>
-          {repo === OTHER && (
+          )}
+          {!hosted && repo === OTHER && (
             <div className="field">
               <label className="field-label" htmlFor={pathId}>Folder path</label>
               <TextInput
@@ -372,7 +442,7 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
             </span>
           </OptionRow>
 
-          <PastConversation picked={from} onPick={pick} mode={fromMode} onMode={setFromMode} canContinue={canContinue} />
+          {!hosted && <PastConversation picked={from} onPick={pick} mode={fromMode} onMode={setFromMode} canContinue={canContinue} />}
         </fieldset>
 
         <p className="sheet-fine">Runs with your own Claude Code login. {allFable ? 'Every worker and reviewer runs on Fable 5.2.' : 'Workers use the models set in their agent files.'}{meta?.demo ? ' Demo mode: a pretend Foreman answers; nothing real runs.' : ''}</p>

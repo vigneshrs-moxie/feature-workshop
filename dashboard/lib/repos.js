@@ -441,6 +441,15 @@ export async function ticketRepo(registry) {
 }
 
 /**
+ * The folder of the registered repository with exactly this name, else null (an unknown name, two
+ * with one name, or no registry). The site's Start form sends names; this laptop finds the folder.
+ */
+export async function repoByName(registry, name) {
+  const same = ((await registry?.listRepos().catch(() => [])) ?? []).filter((r) => r.ok && r.name === name);
+  return same.length === 1 ? same[0].path : null;
+}
+
+/**
  * What Settings → Repos asks the runner (site/routes-repos.js). recent(): the folders to look at on
  * a first start (recentRepos's entries, or plain paths).
  */

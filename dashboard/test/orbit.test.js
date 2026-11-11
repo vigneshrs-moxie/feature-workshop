@@ -15,7 +15,7 @@ import { spawn } from 'node:child_process';
 import {
   checkToken, normalizeOrbitUrl, mcpEntry, writeMcpEntry, removeMcpEntry, setToken, clearToken, sessionEnv,
   parseTicketKey, canonicalKey, OrbitError, orbitClient, retryAfterMs, fromDay,
-  OrbitInbox, INBOX_QUERIES, assigneeApplied, inboxItem, sortItems, OPEN_EVERY_MS, IDLE_EVERY_MS, FULL_EVERY_MS, scrub, scrubDeep, rememberSecret,
+  OrbitInbox, INBOX_QUERIES, assigneeApplied, inboxItem, sortItems, queueOrder, OPEN_EVERY_MS, IDLE_EVERY_MS, scrub, scrubDeep, rememberSecret,
 } from '../lib/orbit.js';
 import { State } from '../lib/state.js';
 import { fileStore, keychainStore, layeredStore, tokenStore } from '../lib/orbit-token.js';
@@ -454,19 +454,31 @@ test('an answer with no ignored field counts as applied', () => {
   assert.equal(assigneeApplied({ ignored: ['status', 'assignee'] }), false);
 });
 
-test('between full reads only changes are fetched (from=<day>), merged into the list; a full read every hour', async () => {
+test('every poll is a whole read', async () => {
   const clock = fakeTime();
   const { inbox, settle } = inboxWith(clock);
   inbox.start();
   await clock.advance(0, settle);
   fake.requests.length = 0;
   await clock.advance(IDLE_EVERY_MS, settle);
-  assert.ok(fake.requests.length >= 1);
-  for (const q of fake.requests) assert.equal(q.query.get('from'), '2026-10-27', 'since the last poll, from the day before');
-  assert.equal(inbox.view().items.length, 53, 'the list is kept, changes merged in');
-  fake.requests.length = 0;
-  await clock.advance(FULL_EVERY_MS - IDLE_EVERY_MS, settle);
-  assert.ok(fake.requests.some((q) => q.query.get('from') === null), 'a full read after an hour');
+  await clock.advance(IDLE_EVERY_MS, settle);
+  const asked = fake.requests.filter((q) => q.path.endsWith('/tickets'));
+  assert.ok(asked.length >= 2);
+  for (const q of asked) {
+    assert.equal(q.query.get('datefield'), null, 'no datefield on the second and third poll');
+    assert.equal(q.query.get('from'), null);
+  }
+  assert.equal(inbox.view().items.length, 53);
+  // A ticket re-ranked with no new activity time shows its new number after the next poll.
+  const row = (n, q) => ({ number: n, subject: 't', status: 'open', severity: 'high', createdAt: '2026-10-01T00:00:00Z', activityAt: '2026-10-20T00:00:00Z', queuePosition: q, workOrder: q });
+  let rows = [row(1, 1), row(2, 2)];
+  fake.override((req, url) => (url.pathname.endsWith('/tickets') ? { status: 200, body: { audience: 'tech', total: rows.length, tickets: rows } } : null));
+  await clock.advance(IDLE_EVERY_MS, settle);
+  assert.deepEqual(inbox.view().items.map((i) => [i.key, i.queuePosition]), [['ORBIT-1', 1], ['ORBIT-2', 2]]);
+  rows = [row(1, 2), row(2, 1)]; // same activityAt, new numbers
+  await clock.advance(IDLE_EVERY_MS, settle);
+  fake.override(null);
+  assert.deepEqual(inbox.view().items.map((i) => [i.key, i.queuePosition]), [['ORBIT-2', 1], ['ORBIT-1', 2]]);
   inbox.stop();
 });
 
@@ -540,14 +552,61 @@ test('an inbox row: key, title, priority, severity, age, assignee; a participant
   assert.equal(part.severity, null);
   assert.deepEqual(part.assignee, { name: 'Sam', you: false });
   assert.equal(part.url, 'https://o.example.com/feedback/ORBIT-14');
-  const order = sortItems([
-    { key: 'a', severity: null, priority: 'high', changedAt: '1' },
-    { key: 'b', severity: 'low', priority: 'low', changedAt: '1' },
-    { key: 'c', severity: 'critical', priority: 'low', changedAt: '1' },
-    { key: 'd', severity: 'critical', priority: 'high', changedAt: '0' },
-    { key: 'e', severity: 'critical', priority: 'high', changedAt: '2' },
-  ]).map((i) => i.key);
-  assert.deepEqual(order, ['e', 'd', 'c', 'b', 'a']);
+});
+
+test('an inbox row keeps the queue number, the rank and the size', () => {
+  const item = inboxItem({ number: 20, subject: 's', queuePosition: 3, workOrder: 1, storyPoints: 5 });
+  assert.equal(item.queuePosition, 3);
+  assert.equal(item.workOrder, 1);
+  assert.equal(item.size, 5);
+  assert.equal(item.queueKnown, true);
+  assert.equal(inboxItem({ number: 21, subject: 's', queuePosition: 0 }).queuePosition, null, 'a queue number is 1 or more');
+  assert.equal(inboxItem({ number: 22, subject: 's', queuePosition: 2.5 }).queuePosition, null, 'and whole');
+});
+
+test('an unranked row says so', () => {
+  const item = inboxItem({ number: 23, subject: 's', queuePosition: null, workOrder: null, storyPoints: null });
+  assert.equal(item.queuePosition, null);
+  assert.equal(item.workOrder, null);
+  assert.equal(item.size, null);
+  assert.equal(item.queueKnown, true);
+});
+
+test('an older Orbit with no queue fields', () => {
+  const item = inboxItem({ number: 24, subject: 's' });
+  assert.equal(item.queuePosition, null);
+  assert.equal(item.workOrder, null);
+  assert.equal(item.size, null);
+  assert.equal(item.queueKnown, false);
+});
+
+test('a participant row has none', () => {
+  const item = inboxItem({ number: 25, subject: 's', queuePosition: 2, workOrder: 1, storyPoints: 3 }, { audience: 'participant' });
+  assert.equal(item.queuePosition, null);
+  assert.equal(item.workOrder, null);
+  assert.equal(item.size, null);
+  assert.equal(item.queueKnown, false);
+});
+
+test('queue order matches Plan my queue', () => {
+  const mk = (key, severity, queuePosition, createdAt = '2026-10-01T00:00:00Z') => ({ key, number: Number(key.slice(1)), severity, queuePosition, createdAt });
+  const sorted = [
+    mk('e', null, null), mk('c', 'high', 2), mk('a', 'critical', 1), mk('d', null, 3), mk('b', 'critical', null),
+  ];
+  assert.deepEqual(sortItems(sorted).map((i) => i.key), ['a', 'b', 'c', 'd', 'e']);
+  assert.deepEqual([...sorted].sort(queueOrder).map((i) => i.key), ['a', 'b', 'c', 'd', 'e']);
+  const unranked = [mk('x', 'low', null, '2026-10-05T00:00:00Z'), mk('y', 'low', null, '2026-10-02T00:00:00Z'), mk('z', 'low', 4)];
+  assert.deepEqual(sortItems(unranked).map((i) => i.key), ['z', 'y', 'x'], 'ranked first, then oldest first');
+});
+
+test('two rows with the same number keep a stable order', () => {
+  const rows = [
+    { key: 'ORBIT-9', number: 9, severity: 'high', queuePosition: 2, createdAt: '2026-10-01T00:00:00Z' },
+    { key: 'ORBIT-4', number: 4, severity: 'high', queuePosition: 2, createdAt: '2026-10-01T00:00:00Z' },
+    { key: 'ORBIT-7', number: 7, severity: 'high', queuePosition: 2, createdAt: '2026-10-01T00:00:00Z' },
+  ];
+  assert.deepEqual(sortItems(rows).map((i) => i.key), ['ORBIT-4', 'ORBIT-7', 'ORBIT-9']);
+  assert.deepEqual(sortItems([...rows].reverse()).map((i) => i.key), ['ORBIT-4', 'ORBIT-7', 'ORBIT-9']);
 });
 
 // ---------- Step 4: scrub ----------

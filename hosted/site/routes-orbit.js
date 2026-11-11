@@ -124,10 +124,16 @@ export default function orbitRoutes(ctx) {
     });
   }
 
+  /** My laptops and the repositories each offers the Start form (names only). */
+  async function laptopRepos(personId) {
+    const repos = new Map((await db.query('SELECT id, repos FROM runners WHERE person_id = $1 AND revoked_at IS NULL', [personId])).rows.map((r) => [Number(r.id), parse(r.repos)]));
+    return (await ctx.laptopsOf(personId)).map((l) => ({ id: l.id, name: l.name, online: l.online, repos: Array.isArray(repos.get(l.id)) ? repos.get(l.id) : [] }));
+  }
+
   async function inboxAnswer(personId) {
     const row = await tokens.row(personId);
     const filter = { audience: row?.audience ?? 'tech', ignored: row?.assigneeIgnored ? ['assignee'] : [], applied: !row?.assigneeIgnored };
-    return scrubDeep({ ...(await status(personId)), filter, items: await items(personId) });
+    return scrubDeep({ ...(await status(personId)), filter, laptops: await laptopRepos(personId), items: await items(personId) });
   }
 
   return [
@@ -178,8 +184,11 @@ export default function orbitRoutes(ctx) {
         const key = canonicalKey(b.key);
         if (!key) throw new HttpError(400, 'That isn’t a ticket key: use ORBIT- and the number, like ORBIT-479.');
         const row = (await db.query('SELECT item FROM orbit_inbox WHERE person_id = $1 AND ticket_key = $2', [person.id, key])).rows[0];
-        if (!row) throw new HttpError(404, `${key} isn’t in your inbox on the site. Read your inbox again, then press Start.`);
+        const notInbox = () => new HttpError(404, `${key} isn’t in your inbox on the site. Read your inbox again, then press Start.`);
+        if (!row) throw notInbox();
         const item = parse(row.item);
+        // Only what the inbox shows may be started: assigned to this person, while Orbit applies the filter.
+        if (!Array.isArray(item.why) || !item.why.includes('assigned') || (await tokens.row(person.id))?.assigneeIgnored) throw notInbox();
         const job = (await jobsByTicket(person.id)).get(key);
         if (job) throw new HttpError(409, `You’re already on this: ${job.title}.`, { code: 'already-on' });
         const pending = (await startsByTicket(person.id)).get(key);
@@ -201,6 +210,10 @@ export default function orbitRoutes(ctx) {
           ticket: { key, title: title.slice(0, 300) || null, url: typeof item.url === 'string' ? item.url : null },
           kind: item.type === 'bug' ? 'bug' : 'feature',
         };
+        // The choices of the New job form. Each is checked again when the command is queued
+        // (lib/protocol.js), and the laptop checks them once more.
+        if (typeof b.description === 'string' && b.description.trim()) command.description = b.description.replace(/\s+/g, ' ').trim().slice(0, 600);
+        for (const field of ['kind', 'repo', 'model', 'options']) if (b[field] !== undefined && b[field] !== null) command[field] = b[field];
         const commandId = await ctx.queueCommand(laptop.id, command, { by: person.id });
         await db.query('INSERT INTO inbox_starts (person_id, ticket_key, runner_id, command_id, created_at) VALUES ($1, $2, $3, $4, $5)', [person.id, key, laptop.id, commandId, iso(now())]);
         const start = (await startsByTicket(person.id)).get(key) ?? null;

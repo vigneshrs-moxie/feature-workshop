@@ -1,7 +1,7 @@
 // Packet 2C: the Orbit inbox on the site. A pretend Orbit (test/fake-orbit.js) and made-up people
 // and tokens only. Covered: the token's encryption (a round trip, a wrong key, another person's
 // row), Settings → Orbit (one check call, a refused token kept nowhere, Remove), the cron job
-// (refused without its secret; everyone in turn; paging; only what changed; an hour's full read;
+// (refused without its secret; everyone in turn; paging; every read whole;
 // one person's failure kept to them; expiry and a refused token; Retry-After; the time box),
 // the open Inbox's refresh at most once a minute, Start (one laptop online, offline, two laptops,
 // already on it, cancel) through the real link to a pretend runner, and, at the end of each test,
@@ -15,7 +15,7 @@ import { openPglite } from '../site/db.js';
 import { migrate } from '../site/migrate.js';
 import { createSite } from '../site/router.js';
 import { readTokenKey, seal, unseal, TokenKeyError } from '../lib/token-store.js';
-import { FULL_EVERY_MS, REFRESH_MS } from '../lib/poller.js';
+import { REFRESH_MS } from '../lib/poller.js';
 import { browser, inProcessFetch, signIn, SITE, TEST_ENV } from './helpers.js';
 import { card, fakeRunner, laptop, paired, until } from './laptops.js';
 import { FAKE_ORBIT, fakeOrbit, testToken, ticket } from './fake-orbit.js';
@@ -291,36 +291,50 @@ test('the next clean read clears it', async () => {
   } finally { await s.close(); }
 });
 
-test('between full reads only what changed is fetched (datefield=updated&from=<day>, then to the minute); a full read each hour drops what left', async () => {
+test('every read is whole: a re-rank shows at the next read, and a ticket that left is dropped', async () => {
   const s = await makeOrbitSite();
   const olive = browser(s.fetch);
   await signIn(olive, { email: OLIVE });
   const token = testToken('olive');
-  const who = s.orbit.person(token, { assigned: [ticket(1), ticket(2)] });
+  const who = s.orbit.person(token, { assigned: [ticket(1, { severity: 'high', queuePosition: 1, workOrder: 1 }), ticket(2, { severity: 'high', queuePosition: 2, workOrder: 2 })] });
   try {
     await saveToken(olive, token);
     await s.cron();
-    // Three minutes on: ticket 2 changes, ticket 3 comes; ticket 1 was resolved (it leaves the list).
+    let items = (await olive.json('/api/orbit/inbox')).body.items;
+    assert.deepEqual(items.map((i) => [i.key, i.queuePosition]), [['ORBIT-1', 1], ['ORBIT-2', 2]]);
+    // Three minutes on: the two swap places with no new activity time, ticket 1 is resolved (leaves), ticket 3 comes.
     s.clock.t += 3 * 60_000;
-    who.assigned = [ticket(2, { subject: 'Renamed', activityAt: new Date(s.clock.t - 30_000).toISOString() }), ticket(3, { activityAt: new Date(s.clock.t - 60_000).toISOString() }),
-      ticket(4, { activityAt: '2026-10-30T15:59:30.000Z' })]; // changed yesterday's day but before the last read's minute: left out
+    const quiet = '2026-10-20T10:00:00.000Z';
+    who.assigned = [ticket(2, { severity: 'high', queuePosition: 1, workOrder: 1, activityAt: quiet }), ticket(3, { severity: 'high', queuePosition: 2, workOrder: 2 })];
     s.orbit.requests.length = 0;
     await s.cron();
     const asked = s.orbit.by(token);
     assert.ok(asked.length >= 1);
-    for (const r of asked) {
-      assert.equal(r.query.datefield, 'updated');
-      assert.equal(r.query.from, '2026-10-29', 'the day before the last read');
-    }
-    let keys = (await olive.json('/api/orbit/inbox')).body.items.map((i) => [i.key, i.title]);
-    assert.deepEqual(keys, [['ORBIT-1', 'Sample ticket 1'], ['ORBIT-2', 'Renamed'], ['ORBIT-3', 'Sample ticket 3']], 'only what changed since the last read, to the minute; ticket 1 stays until the full read');
-    // An hour after the last full read: everything again, and ticket 1 is gone.
-    s.clock.t += FULL_EVERY_MS;
+    for (const r of asked) assert.ok(!r.query.datefield && !r.query.from, 'a whole read');
+    items = (await olive.json('/api/orbit/inbox')).body.items;
+    assert.deepEqual(items.map((i) => [i.key, i.queuePosition]), [['ORBIT-2', 1], ['ORBIT-3', 2]], 'the new number shows, and ticket 1 is gone');
+    // And again, with no hour in between: still a whole read.
+    s.clock.t += 3 * 60_000;
     s.orbit.requests.length = 0;
     await s.cron();
-    assert.ok(s.orbit.by(token).every((r) => !r.query.datefield));
-    keys = (await olive.json('/api/orbit/inbox')).body.items.map((i) => i.key);
-    assert.deepEqual(keys, ['ORBIT-2', 'ORBIT-3', 'ORBIT-4']);
+    assert.ok(s.orbit.by(token).every((r) => !r.query.datefield && !r.query.from));
+    await noTokenAnywhere(s, [token]);
+  } finally { await s.close(); }
+});
+
+test('the stored item keeps queuePosition, workOrder and size', async () => {
+  const s = await makeOrbitSite();
+  const olive = browser(s.fetch);
+  await signIn(olive, { email: OLIVE });
+  const token = testToken('olive');
+  s.orbit.person(token, { assigned: [ticket(1, { queuePosition: 3, workOrder: 1, storyPoints: 5 }), ticket(2, { queuePosition: null, workOrder: null, storyPoints: null }), ticket(3)] });
+  try {
+    await saveToken(olive, token);
+    await s.cron();
+    const by = Object.fromEntries((await olive.json('/api/orbit/inbox')).body.items.map((i) => [i.key, i]));
+    assert.deepEqual([by['ORBIT-1'].queuePosition, by['ORBIT-1'].workOrder, by['ORBIT-1'].size, by['ORBIT-1'].queueKnown], [3, 1, 5, true]);
+    assert.deepEqual([by['ORBIT-2'].queuePosition, by['ORBIT-2'].workOrder, by['ORBIT-2'].size, by['ORBIT-2'].queueKnown], [null, null, null, true]);
+    assert.deepEqual([by['ORBIT-3'].queuePosition, by['ORBIT-3'].queueKnown], [null, false]);
     await noTokenAnywhere(s, [token]);
   } finally { await s.close(); }
 });
@@ -606,5 +620,78 @@ test('a route that fails unexpectedly logs nothing of the token (the router’s 
     assert.ok(!all.includes('orbfb_'));
     assert.equal(scrub(all), all);
     await noTokenAnywhere(s, [token]);
+  } finally { await s.close(); }
+});
+
+const SENT_REPOS = { defaultPath: '/Users/olive/Projects/orbit', repos: [{ name: 'orbit', path: '/Users/olive/Projects/orbit', ok: true }, { name: 'starbase', path: '/Users/olive/Projects/starbase', ok: true }] };
+
+test('the inbox answer lists each laptop’s repositories, names only', async () => {
+  const s = await makeOrbitSite();
+  const olive = await paired(s, OLIVE, 'Olive’s Mac');
+  const token = testToken('olive');
+  s.orbit.person(token, { assigned: [ticket(12)] });
+  const runner = fakeRunner([]);
+  runner.startRepos = SENT_REPOS;
+  const lap = await laptop(s, olive.token, { runner });
+  try {
+    await saveToken(olive.person, token);
+    await s.cron();
+    await until(async () => (await olive.person.json('/api/orbit/inbox')).body.laptops?.[0]?.repos?.length === 2, { what: 'the laptop’s repositories' });
+    const { laptops } = (await olive.person.json('/api/orbit/inbox')).body;
+    assert.equal(laptops.length, 1);
+    assert.equal(laptops[0].name, 'Olive’s Mac');
+    assert.deepEqual(laptops[0].repos, [{ name: 'orbit', default: true }, { name: 'starbase', default: false }]);
+    assert.ok(!JSON.stringify(laptops).includes('/Users'), 'no path on the site');
+  } finally { lap.link.stop(); await s.close(); }
+});
+
+test('the start route stores the choices: a queued start at level 1 on Fable reaches the laptop with them', async () => {
+  const s = await makeOrbitSite();
+  const olive = await paired(s, OLIVE, 'Olive’s Mac');
+  const token = testToken('olive');
+  s.orbit.person(token, { assigned: [ticket(12, { subject: 'Tidy the export button', type: 'bug' })] });
+  const runner = fakeRunner([]);
+  const lap = await laptop(s, olive.token, { runner });
+  try {
+    await saveToken(olive.person, token);
+    await s.cron();
+    await until(async () => (await olive.person.json('/api/laptops')).body.laptops[0]?.online, { what: 'the laptop to call in' });
+    const bad = await olive.person.send('POST', '/api/orbit/start', { key: 'ORBIT-12', model: 'claude-made-up' });
+    assert.equal(bad.status, 400);
+    const r = await olive.person.send('POST', '/api/orbit/start', {
+      key: 'ORBIT-12', description: 'ORBIT-12: Tidy the export button, only the label', kind: 'feature', repo: 'starbase', model: 'claude-fable-5-2', options: { level: 1, auto: true, evidence: 'always' },
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    await until(() => runner.handled.length === 1, { what: 'the laptop to get the start command' });
+    const got = runner.handled[0];
+    assert.equal(got.options.level, 1);
+    assert.equal(got.model, 'claude-fable-5-2');
+    assert.deepEqual(got, {
+      type: 'start', description: 'ORBIT-12: Tidy the export button, only the label', kind: 'feature', repo: 'starbase', model: 'claude-fable-5-2', options: { level: 1 },
+      ticket: { key: 'ORBIT-12', title: 'Tidy the export button', url: `${FAKE_ORBIT}/admin/feedback/ORBIT-12` },
+    });
+  } finally { lap.link.stop(); await s.close(); }
+});
+
+test('Start is refused, as for a missing row, for a stored ticket that was not assigned, and while Orbit ignores the filter', async () => {
+  const s = await makeOrbitSite();
+  const olive = await paired(s, OLIVE, 'Olive’s Mac');
+  const token = testToken('olive');
+  s.orbit.person(token, { assigned: [ticket(12)] });
+  try {
+    await saveToken(olive.person, token);
+    await s.cron();
+    const person = (await s.db.query('SELECT person_id FROM orbit_tokens')).rows[0].person_id;
+    const old = { key: 'ORBIT-77', number: 77, title: 'Watched only', why: ['watching'], changedAt: null };
+    await s.db.query("INSERT INTO orbit_inbox (person_id, number, ticket_key, item, changed_at, stored_at) VALUES ($1, 77, 'ORBIT-77', $2, NULL, '2026-10-30T16:00:00Z')", [person, JSON.stringify(old)]);
+    const missing = await olive.person.send('POST', '/api/orbit/start', { key: 'ORBIT-999' });
+    const watched = await olive.person.send('POST', '/api/orbit/start', { key: 'ORBIT-77' });
+    assert.equal(watched.status, 404);
+    assert.equal(watched.body.error, missing.body.error.replace('ORBIT-999', 'ORBIT-77'));
+    await s.db.query('UPDATE orbit_tokens SET assignee_ignored = true');
+    const ignored = await olive.person.send('POST', '/api/orbit/start', { key: 'ORBIT-12' });
+    assert.equal(ignored.status, 404);
+    assert.equal(ignored.body.error, missing.body.error.replace('ORBIT-999', 'ORBIT-12'));
+    assert.equal((await s.db.query('SELECT count(*)::int AS n FROM commands')).rows[0].n, 0, 'nothing was queued');
   } finally { await s.close(); }
 });

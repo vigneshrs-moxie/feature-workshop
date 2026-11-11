@@ -128,6 +128,7 @@ details[open] > summary .fold-chevron, .fold-chevron.is-up { transform: rotate(1
 .ticket-key { flex: none; font-size: var(--text-xs); color: var(--text-2); font-family: var(--font-mono); }
 .ticket-title { font-weight: var(--weight-medium); }
 .ticket-job { display: block; font-size: var(--text-sm); }
+.inbox-table .cell-queue { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .inbox-table .cell-age { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .inbox-table .cell-act { text-align: right; white-space: nowrap; }
 .inbox-table .cell-act .btn + .btn { margin-left: var(--space-2); }
@@ -137,7 +138,7 @@ details[open] > summary .fold-chevron, .fold-chevron.is-up { transform: rotate(1
 .inbox-table tr.is-peeked { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
 .inbox-table .row-link { border-radius: var(--radius-sm); }
 
-/* The two groups: Needs a decision (open), Can wait (a fold). */
+/* The two groups: To start (open), Already started (a fold). */
 .inbox-group { display: flex; flex-direction: column; gap: var(--space-3); }
 .inbox-group-head { display: flex; align-items: center; gap: var(--space-2); margin: 0; font-size: var(--text-sm); font-weight: var(--weight-bold); color: var(--text-1); }
 .inbox-group-icon.is-decide { color: var(--status-warn); }
@@ -199,8 +200,9 @@ details[open] > summary .fold-chevron, .fold-chevron.is-up { transform: rotate(1
   /* The Inbox's rows become cards: severity and age on top, the title, then who and Start. */
   .inbox-table thead { display: none; }
   .inbox-table table, .inbox-table tbody { display: block; }
-  .inbox-table tbody tr { display: grid; grid-template-columns: 1fr auto; grid-template-areas: 'sev age' 'ticket ticket' 'who act'; gap: var(--space-1) var(--space-3); padding: var(--space-3); border-bottom: 1px solid var(--border-1); }
+  .inbox-table tbody tr { display: grid; grid-template-columns: auto 1fr auto; grid-template-areas: 'queue sev age' 'ticket ticket ticket' 'who who act'; gap: var(--space-1) var(--space-3); padding: var(--space-3); border-bottom: 1px solid var(--border-1); }
   .inbox-table tbody tr > * { display: block; padding: 0; border: 0; }
+  .inbox-table .cell-queue { grid-area: queue; }
   .inbox-table .cell-sev { grid-area: sev; }
   .inbox-table .cell-age { grid-area: age; text-align: right; }
   .inbox-table .cell-ticket { grid-area: ticket; }

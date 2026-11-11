@@ -1,11 +1,12 @@
 // The Inbox (#/inbox): your Portal Feedback tickets, read from Orbit with your own read-only token
 // (dashboard/lib/orbit.js). Tabs: Mine (assigned to you, open ones only), then
-// your saved views from Orbit. Most severe first, then oldest; severity only (no priority here).
+// your saved views from Orbit. In the order of your queue in Orbit (Plan my queue): severity,
+// then ranked before unranked, then the queue number, then oldest. Severity only (no priority here).
 // Each row: severity (icon and word), key and title, age, who is on it, and Start, or the way to
 // the job already on that ticket. A row opens the ticket: its facts, description, links (branches,
 // PRs) and timeline, read again every minute while open.
 //
-// The next-step bar names one ticket: the most severe with no job, nobody on it first. Start (key s)
+// The next-step bar names one ticket: the lowest queue number with no job (else the first free one in order). Start (key s)
 // works on the open ticket, the row with the focus, else the bar's ticket. It opens New job with the
 // ticket filled in (read-only) and "ORBIT-<n>: <title>" as the description. The s key is the
 // registry's (inbox-start, app/keyRegistry.ts): never while typing, with a dialog open, or with keys off.
@@ -87,12 +88,15 @@ const message = (err: unknown) => (err instanceof Error ? err.message : String(e
 /** What New job is filled in with: the ticket's key and title. */
 export const startText = (item: Pick<InboxItem, 'key' | 'title'>) => `${item.key}: ${item.title}`;
 
+/** A bug ticket opens New job on Bug fix; any other type on Feature. */
+export const kindOfTicket = (item: Pick<InboxItem, 'type'>): 'feature' | 'bug' => (item.type === 'bug' ? 'bug' : 'feature');
+
 /** When to use Start as stack, in one sentence (its button says it). */
 export const STACK_WHEN = 'For a big ticket: the work is split into parts that are built side by side, then joined in order.';
 
 /** New job on a ticket, to run as a stack (Start as stack, S). */
-export function stackSheet(item: Pick<InboxItem, 'key' | 'title' | 'url'>): SheetState {
-  return { kind: 'new-job', description: startText(item), ticket: { key: item.key, title: item.title, url: item.url }, stack: true };
+export function stackSheet(item: Pick<InboxItem, 'key' | 'title' | 'url' | 'type'>): SheetState {
+  return { kind: 'new-job', description: startText(item), ticket: { key: item.key, title: item.title, url: item.url }, stack: true, jobKind: kindOfTicket(item) };
 }
 
 // ---------- Severity, and the order ----------
@@ -101,30 +105,47 @@ export function stackSheet(item: Pick<InboxItem, 'key' | 'title' | 'url'>): Shee
 const SEVERITY_RANK: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
 const SEVERITY_ICON: Record<string, IconName> = { critical: 'flame', high: 'alert', medium: 'circle-dot', low: 'circle' };
 const rankOf = (sev: string | null) => (sev && sev in SEVERITY_RANK ? SEVERITY_RANK[sev] : 9);
-const opened = (i: InboxItem) => (i.createdAt ? Date.parse(i.createdAt) || Infinity : Infinity);
 
 /** A participant's rows come without severity: their address is the public one, not /admin/. */
 export const severityHidden = (i: Pick<InboxItem, 'severity' | 'url'>) => !i.severity && Boolean(i.url) && !i.url!.includes('/admin/feedback/');
 
-/** The Inbox's order: most severe first, then the oldest. */
-export function sortInbox(items: readonly InboxItem[]): InboxItem[] {
-  return [...items].sort((a, b) => rankOf(a.severity) - rankOf(b.severity) || opened(a) - opened(b));
+/**
+ * The Inbox's order, the same rule as the server's (dashboard/lib/orbit.js) and Orbit's Plan my queue:
+ * severity (critical first, none last), ranked before unranked, queue number ascending, oldest first,
+ * then ticket number.
+ */
+export function queueOrder(a: InboxItem, b: InboxItem): number {
+  const ranked = (i: InboxItem) => (Number.isInteger(i.queuePosition) ? 0 : 1);
+  return rankOf(a.severity) - rankOf(b.severity)
+    || ranked(a) - ranked(b)
+    || (ranked(a) === 0 ? a.queuePosition! - b.queuePosition! : 0)
+    || String(a.createdAt ?? '').localeCompare(String(b.createdAt ?? ''))
+    || a.number - b.number;
 }
 
-/** The ticket the next-step bar names: no job on it yet, nobody on it first, then the order above. */
-export function nextTicket(items: readonly InboxItem[]): InboxItem | null {
-  const free = sortInbox(items).filter((i) => !i.job);
-  return free.find((i) => !i.assignee) ?? free[0] ?? null;
+export function sortInbox(items: readonly InboxItem[]): InboxItem[] {
+  return [...items].sort(queueOrder);
 }
+
+/** The ticket the next-step bar offers, and why: by its queue number, by a suggestion, or just first in order. */
+export interface NextPick { item: InboxItem; why: 'queue' | 'suggested' | 'order'; reason?: string }
+
+/** Free to start: no job on it, and no Start on its way to a laptop. */
+export const toStart = (i: Pick<InboxItem, 'job' | 'start'>) => !i.job && !onItsWay(i);
 
 /**
- * The two groups (like Linear's Priority tab): a ticket needs a decision while it has no job yet and
- * is critical, high, not triaged, or its severity is hidden from you; everything else can wait.
+ * The ticket the bar offers: the free ticket with the lowest queue number (a tie goes to the first in
+ * the order above); else the first free one in `picks`; else the first free ticket in the order.
  */
-export function needsDecision(i: Pick<InboxItem, 'job' | 'severity' | 'url'>): boolean {
-  if (i.job) return false;
-  if (severityHidden(i)) return true;
-  return !i.severity || i.severity === 'critical' || i.severity === 'high';
+export function nextTicket(items: readonly InboxItem[], picks: readonly InboxItem[] = []): NextPick | null {
+  const free = sortInbox(items).filter(toStart);
+  // The minimum queue number; `free` is in queueOrder, so a tie keeps the earlier row.
+  const byNumber = free.reduce<InboxItem | undefined>((best, i) => (Number.isInteger(i.queuePosition) && (!best || i.queuePosition! < best.queuePosition!) ? i : best), undefined);
+  if (byNumber) return { item: byNumber, why: 'queue' };
+  const keys = new Set(free.map((i) => i.key));
+  const suggested = picks.find((i) => keys.has(i.key));
+  if (suggested) return { item: free.find((i) => i.key === suggested.key)!, why: 'suggested' };
+  return free[0] ? { item: free[0], why: 'order' } : null;
 }
 
 export function Severity({ item, hidden = severityHidden(item) }: { item: Pick<InboxItem, 'severity' | 'url'>; hidden?: boolean }) {
@@ -153,7 +174,7 @@ const INBOX_GUIDE: GuideSpec = {
   title: 'How the Inbox works',
   done: 'Show me my tickets',
   cards: [
-    { icons: ['inbox'], title: 'Your Orbit tickets', say: 'The Portal Feedback tickets assigned to you, most severe first, then oldest.' },
+    { icons: ['inbox'], title: 'Your Orbit tickets', say: 'The Portal Feedback tickets assigned to you, in the order of your queue in Orbit (Plan my queue).' },
     { icons: ['inbox', 'clipboard'], title: 'Start makes a job', say: 'Start opens a new job on the ticket. The Foreman reads the ticket first and writes a brief.' },
     { icons: ['hand', 'check'], title: 'You say go at each step', say: 'Nothing moves on without you: each step waits on the Desk for your go or no go.' },
   ],
@@ -195,7 +216,7 @@ const HOSTED_GUIDE: GuideSpec = {
   title: 'How the Inbox works here',
   done: 'Show me my tickets',
   cards: [
-    { icons: ['inbox'], title: 'Your Orbit tickets, laptop or not', say: 'The site reads the tickets assigned to you every few minutes, with your own token, even while your laptop is closed.' },
+    { icons: ['inbox'], title: 'Your Orbit tickets, laptop or not', say: 'The site reads the tickets assigned to you every few minutes, with your own token, even while your laptop is closed. They are in the order of your queue in Orbit.' },
     { icons: ['send'], title: 'Start sends it to your laptop', say: 'The job runs on your laptop. If the laptop is off, it starts when the laptop is back.' },
     { icons: ['hand', 'check'], title: 'You say go at each step', say: 'The Foreman reads the ticket first, on the laptop, and nothing moves on without you.' },
   ],
@@ -273,7 +294,7 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
   const start = useCallback((item: InboxItem) => {
     if (item.job || onItsWay(item)) return;
     if (onHostedStart) { onHostedStart(item); return; }
-    ui.openSheet({ kind: 'new-job', description: startText(item), ticket: { key: item.key, title: item.title, url: item.url } });
+    ui.openSheet({ kind: 'new-job', description: startText(item), ticket: { key: item.key, title: item.title, url: item.url }, jobKind: kindOfTicket(item) });
   }, [ui, onHostedStart]);
   // Start as stack (S): New job with the ticket filled in, to run as a stack (views/Stack). Not on the site.
   const startStack = useCallback((item: InboxItem) => {
@@ -283,7 +304,9 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
 
   const shown = tab === 'mine' ? mine : viewList ?? { state: 'loading' as const };
   const items = useMemo(() => (shown.state === 'ready' ? sortInbox(shown.data.items) : []), [shown]);
-  const pick = useMemo(() => nextTicket(items.filter((i) => !onItsWay(i))), [items]);
+  const next = useMemo(() => nextTicket(items), [items]);
+  const pick = next?.item ?? null;
+  const showQueue = items.some((i) => i.queueKnown);
   // The ticket in the quick look (#/inbox?peek=ORBIT-12): from this list, else the last one seen.
   // Orbit set "assigned to me" aside for this token: the list is empty on purpose, and we say why.
   const notApplied = tab === 'mine' && ready?.filter?.applied === false;
@@ -342,15 +365,16 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
     </>
   ) : null;
 
-  const decide = items.filter((i) => !onItsWay(i) && needsDecision(i));
-  const wait = items.filter((i) => onItsWay(i) || !needsDecision(i));
-  const order = [...decide, ...wait].map((i) => i.key);
+  const todo = items.filter(toStart);
+  const started = items.filter((i) => !toStart(i));
+  const order = [...todo, ...started].map((i) => i.key);
   const table = (rows: InboxItem[], caption: string) => (
     <TicketTable
       items={rows}
       caption={caption}
       jobs={jobs}
       pick={pick}
+      showQueue={showQueue}
       now={now}
       peeked={open?.key ?? null}
       onOpen={(item) => setPeek(item.key)}
@@ -376,8 +400,10 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
             <NextBar
               tone="stop"
               icon={SEVERITY_ICON[pick.severity ?? ''] ?? 'inbox'}
-              say={`${pick.key} is ${pick.severity ? levelWord(pick.severity).toLowerCase() : 'not triaged yet'}${pick.assignee ? pick.assignee.you ? ' and yours' : `, with ${pick.assignee.name}` : ' and nobody is on it'}`}
-              sub={isHosted ? 'Start sends it to your laptop, and the Foreman reads the ticket there first.' : 'Start a job and the Foreman reads the ticket first.'}
+              say={next?.why === 'queue' ? `${pick.key} is number ${pick.queuePosition} in your queue` : `${pick.key} is ${pick.severity ? levelWord(pick.severity).toLowerCase() : 'not triaged yet'}${pick.assignee ? pick.assignee.you ? ' and yours' : `, with ${pick.assignee.name}` : ' and nobody is on it'}`}
+              sub={next?.why === 'queue'
+                ? (isHosted ? 'The lowest number in your Orbit queue without a job. Start sends it to your laptop, and the Foreman reads the ticket there first.' : 'The lowest number in your Orbit queue without a job. Start a job and the Foreman reads the ticket first.')
+                : (isHosted ? 'Start sends it to your laptop, and the Foreman reads the ticket there first.' : 'Start a job and the Foreman reads the ticket first.')}
             >
               {!isHosted && (
                 <Button size="lg" keyId="inbox-start-stack" onClick={() => startStack(pick)} title={`${STACK_WHEN} Opens New job on ${pick.key}, run as a stack (key: Shift+S).`}>
@@ -398,14 +424,14 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
               <section className="inbox-group" aria-labelledby="inbox-decide">
                 <h3 className="inbox-group-head" id="inbox-decide">
                   <Icon name="hand" size={16} className="inbox-group-icon is-decide" />
-                  Needs a decision <span className="inbox-group-count num">{decide.length}</span>
-                  <span className="inbox-group-note">No job yet, and severe or not triaged</span>
+                  To start <span className="inbox-group-count num">{todo.length}</span>
+                  <span className="inbox-group-note">No job yet, in your Orbit queue order</span>
                 </h3>
-                {decide.length ? table(decide, `Tickets that need a decision, ${decide.length}, most severe first, then oldest.`) : <p className="lane-empty">Nothing needs a decision right now</p>}
+                {todo.length ? table(todo, `Tickets to start, ${todo.length}, in your queue order.`) : <p className="lane-empty">Nothing left to start</p>}
               </section>
-              {wait.length > 0 && (
-                <More screen="inbox" id="can-wait" label="Can wait" count={wait.length} icon="clock" note="Already on a job, or less severe" className="inbox-wait">
-                  {table(wait, `Tickets that can wait, ${wait.length}, most severe first, then oldest.`)}
+              {started.length > 0 && (
+                <More screen="inbox" id="can-wait" label="Already started" count={started.length} icon="clock" note={isHosted ? 'A job is on each of these, or one is on its way' : 'A job is on each of these already'} className="inbox-wait">
+                  {table(started, `Tickets already started, ${started.length}, in your queue order.`)}
                 </More>
               )}
             </>
@@ -431,7 +457,7 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
 const SETUP_STEPS = [
   { title: 'Make a token', say: 'On Orbit’s API tokens page. It can only read: nothing here writes to Orbit.' },
   { title: 'Paste it in Settings', say: 'With Orbit’s address, in Settings → Workflow. It is kept in your Keychain.' },
-  { title: 'Your tickets show here', say: 'Most severe first, then oldest, checked every few minutes while this page is open.' },
+  { title: 'Your tickets show here', say: 'In your Orbit queue order, checked every few minutes while this page is open.' },
 ] as const;
 
 /** Before a token: what the Inbox is, the three steps as a numbered list, and the one action. */
@@ -557,8 +583,8 @@ function HostedStatusLine({ status, now, settingsHref }: { status: OrbitStatus; 
   );
 }
 
-function TicketTable({ items, caption, jobs, pick, now, peeked, onOpen, onStart, onStartStack, onFocusRow, hosted }: {
-  items: InboxItem[]; caption: string; jobs: readonly Job[]; pick: InboxItem | null; now: Date; peeked: string | null;
+function TicketTable({ items, caption, jobs, pick, showQueue, now, peeked, onOpen, onStart, onStartStack, onFocusRow, hosted }: {
+  items: InboxItem[]; caption: string; jobs: readonly Job[]; pick: InboxItem | null; /** Some row has a queue number: the Queue column shows. */ showQueue: boolean; now: Date; peeked: string | null;
   onOpen: (item: InboxItem) => void; onStart: (item: InboxItem) => void; onStartStack: (item: InboxItem) => void; onFocusRow: (item: InboxItem | null) => void;
   hosted?: HostedInbox;
 }) {
@@ -568,7 +594,8 @@ function TicketTable({ items, caption, jobs, pick, now, peeked, onOpen, onStart,
         <caption className="sr-only">{caption}</caption>
         <thead>
           <tr>
-            <th scope="col" aria-sort="ascending">Severity</th>
+            {showQueue && <th scope="col" aria-sort="ascending">Queue</th>}
+            <th scope="col" aria-sort={showQueue ? undefined : 'ascending'}>Severity</th>
             <th scope="col">Ticket</th>
             <th scope="col">Age</th>
             <th scope="col">Who’s on it</th>
@@ -587,6 +614,13 @@ function TicketTable({ items, caption, jobs, pick, now, peeked, onOpen, onStart,
                 onFocus={() => onFocusRow(i)}
                 onBlur={() => onFocusRow(null)}
               >
+                {showQueue && (
+                  <td className="cell-queue num">
+                    {Number.isInteger(i.queuePosition)
+                      ? <span title={`Number ${i.queuePosition} in your queue in Orbit (Plan my queue).`}>#{i.queuePosition}</span>
+                      : <span className="muted" title="Not ranked in Orbit's Plan my queue yet.">Not ranked</span>}
+                  </td>
+                )}
                 <td className="cell-sev"><Severity item={i} /></td>
                 <th scope="row" className="cell-ticket">
                   <button

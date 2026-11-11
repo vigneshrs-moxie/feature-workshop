@@ -32,7 +32,7 @@ export const SECTIONS_AT_ONCE = Object.freeze({ default: 3, max: 20 });
 export const sectionsAtOnceOf = (raw) => (Number.isInteger(raw) && raw >= 1 && raw <= SECTIONS_AT_ONCE.max ? raw : SECTIONS_AT_ONCE.default);
 export function workflowSettings(raw = {}) {
   const w = raw && typeof raw === 'object' ? raw : {};
-  return { finishLine: finishLineOf(w.finishLine), wireframes: workflowChoiceOf(w.wireframes), clarify: workflowChoiceOf(w.clarify), autoLevel: w.autoLevel === true, ...(w.sectionsAtOnce !== undefined ? { sectionsAtOnce: sectionsAtOnceOf(w.sectionsAtOnce) } : {}) };
+  return { finishLine: finishLineOf(w.finishLine), wireframes: workflowChoiceOf(w.wireframes), clarify: workflowChoiceOf(w.clarify), autoLevel: w.autoLevel === true, inboxSuggest: w.inboxSuggest !== false, ...(w.sectionsAtOnce !== undefined ? { sectionsAtOnce: sectionsAtOnceOf(w.sectionsAtOnce) } : {}) };
 }
 
 // Settings from before the finish line kept the quest rule under play.questDone. The first read

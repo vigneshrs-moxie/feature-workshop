@@ -21,7 +21,7 @@ test('on connect the runner says hello and sends its job list; a change sends a 
   try {
     const ev = await until(async () => { const e = await storedEvents(s, runnerId); return e.length >= 2 && e; }, { what: 'hello and job-list' });
     assert.deepEqual(ev.map((e) => e.type), ['hello', 'job-list']);
-    assert.deepEqual(ev[0].data, { name: 'Test Laptop', os: os.platform() === 'darwin' ? 'macOS' : ev[0].data.os, version: '0.1.0', protocol: PROTOCOL_VERSION });
+    assert.deepEqual(ev[0].data, { name: 'Test Laptop', os: os.platform() === 'darwin' ? 'macOS' : ev[0].data.os, version: '0.1.0', protocol: PROTOCOL_VERSION, repos: [] });
     assert.deepEqual(ev[1].data.jobs.map((j) => [j.slug, j.ticket, j.state, j.now]), [
       ['add-export', null, 'working', 'Builder: Writing the tests'],
       ['orbit-479-tidy-button', 'ORBIT-479', 'needs-you', 'Needs you: the plan'],

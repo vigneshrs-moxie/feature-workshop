@@ -97,7 +97,7 @@ export function WorkflowSettings({ children }: { children?: ReactNode }) {
           <p className="muted" role="note">{BRAND.name} didn’t send the finish line’s choices. Update it and start it again; until then it uses {finishLineLabel(w.finishLine, undefined)}.</p>
         )}
       </SettingGroup>
-      <SettingsMore id="workflow-more" label="More: GitHub, what new jobs start with, the level, stacks, Claude Code use and the Orbit token" holds={['github-every', 'pr-route', 'wireframes', 'clarify', 'auto-level', 'sections-at-once', 'count-claude-code', 'orbit-token']}>
+      <SettingsMore id="workflow-more" label="More: GitHub, what new jobs start with, the level, stacks, Claude Code use and the Orbit token" holds={['github-every', 'pr-route', 'wireframes', 'clarify', 'auto-level', 'inbox-suggest', 'sections-at-once', 'count-claude-code', 'orbit-token']}>
         <GithubEvery />
         <RouteTable />
         {CHOICES.map((c) => (
@@ -118,6 +118,13 @@ export function WorkflowSettings({ children }: { children?: ReactNode }) {
             Choose the level for me
           </label>
           <p className="muted settings-note-under">The higher of the rules’ level and the Foreman’s wins, and it is never lowered. After each build the real changes are checked again and the level raised if a rule says so; the Foreman then stops before any PR. You are asked instead when L3 applies, the two differ by 2 or more, or the request is too short to judge.</p>
+        </SettingGroup>
+        <SettingGroup className="workflow-choice" disabled={busy} setting="inbox-suggest" title="Inbox" saved={<Saved tick={saved.tick('inbox')} />}>
+          <label className="check">
+            <Choice type="checkbox" checked={w.inboxSuggest !== false} onChange={(e) => void save({ inboxSuggest: e.currentTarget.checked }, 'inbox')} />
+            Suggest what to start next
+          </label>
+          <p className="muted settings-note-under">When none of your tickets is ranked in Orbit, Haiku on this laptop picks up to three to start next and says why. It reads each ticket’s title, type, severity, age, size and the start of its description, and which files your open jobs are changing. Never names, emails, internal notes or comments. It asks again only when your list changes, at most every 30 minutes, for less than a cent each time.</p>
         </SettingGroup>
         <SettingGroup className="workflow-choice" disabled={busy} setting="sections-at-once" title="Stacks" saved={<Saved tick={saved.tick('stacks')} />}>
           <div className="check">

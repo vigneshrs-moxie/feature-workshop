@@ -426,6 +426,8 @@ export interface WorkflowSettings {
   clarify?: WorkflowChoice;
   /** Let the dashboard pick each job's level (dashboard/lib/auto-level.js). Off by default. */
   autoLevel?: boolean;
+  /** Suggest what to start next in the Inbox (dashboard/lib/inbox-suggest.js). On unless turned off. */
+  inboxSuggest?: boolean;
   /** Count my Claude Code use outside the app in Telemetry (dashboard/lib/claude-code-usage.js). On unless turned off. */
   countClaudeCode?: boolean;
   /** Sections of stacks that build at once, across every stack (1 to 20; absent: the default, 3). Saved by POST /api/stacks/cap. */
@@ -1756,6 +1758,12 @@ export interface InboxItem {
   description?: string | null;
   /** The hosted site: Start on its way to a laptop (packet 2C). */
   start?: InboxStart | null;
+  /** The number in the person's Orbit queue (Plan my queue); null when not ranked. Absent on a row stored before the queue was read. */
+  queuePosition?: number | null;
+  workOrder?: number | null;
+  size?: number | null;
+  /** Orbit sent queue numbers for this read: the Inbox shows its Queue column. */
+  queueKnown?: boolean;
 }
 
 /**
@@ -1778,7 +1786,10 @@ export interface InboxStart {
  */
 export interface InboxFilter { audience: 'tech' | 'participant'; ignored: string[]; applied: boolean }
 
-export type InboxAnswer = OrbitStatus & { items: InboxItem[]; filter?: InboxFilter; view?: string; checkedAt?: string; truncated?: boolean };
+/** A laptop and the repositories it offers the website's Start form (names only; the laptop finds the folder). */
+export interface InboxLaptop { id: number; name: string; online: boolean; repos: { name: string; default: boolean }[] }
+
+export type InboxAnswer = OrbitStatus & { items: InboxItem[]; laptops?: InboxLaptop[]; filter?: InboxFilter; view?: string; checkedAt?: string; truncated?: boolean };
 
 // ---------- The Stage: one stop of a job (dashboard/lib/stage-view.js, GET /api/job/:slug/stage/:stop) ----------
 

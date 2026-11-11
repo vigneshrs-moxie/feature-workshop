@@ -506,6 +506,28 @@ test('Settings → Workflow → Count my Claude Code use outside the app: on by 
   }
 });
 
+test('Settings → Workflow → Suggest what to start next is on by default, saved through POST /api/settings { workflow }, and refused when not on or off', { timeout: 60_000 }, async () => {
+  const d = await startDashboard();
+  try {
+    const meta = async () => (await (await fetch(`${d.base}/api/meta`)).json()).settings.workflow;
+    assert.equal((await meta()).inboxSuggest, true, 'on unless turned off');
+    for (const bad of ['no', 0, null]) {
+      const r = await d.write('POST', '/api/settings', { workflow: { inboxSuggest: bad } });
+      assert.equal(r.status, 400, JSON.stringify(bad));
+      assert.equal(r.body.error, 'Suggest what to start next: on or off.');
+    }
+    const off = await d.write('POST', '/api/settings', { workflow: { inboxSuggest: false } });
+    assert.equal(off.status, 200);
+    assert.equal(off.body.workflow.inboxSuggest, false);
+    assert.equal(off.body.workflow.finishLine, 'pr1-merged', 'the other workflow settings stay');
+    assert.equal((await meta()).inboxSuggest, false);
+    assert.equal((await d.write('POST', '/api/settings', { workflow: { inboxSuggest: true } })).body.workflow.inboxSuggest, true);
+    assert.equal((await meta()).inboxSuggest, true);
+  } finally {
+    await d.stop();
+  }
+});
+
 test('every turn of a sample job gives one usage line in the state folder (demo dashboard, no model)', { timeout: 60_000 }, async () => {
   const slug = 'orbit-479-sample';
   const d = await startDashboard(async (dirs) => {

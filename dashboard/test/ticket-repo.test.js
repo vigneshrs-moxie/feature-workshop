@@ -7,7 +7,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { Registry, ticketRepo } from '../lib/repos.js';
+import { Registry, repoByName, ticketRepo } from '../lib/repos.js';
 
 const g = (dir, ...args) => execFileSync('git', ['-C', dir, ...args], { stdio: 'pipe' }).toString();
 
@@ -39,5 +39,21 @@ test('ticketRepo: the registered Orbit repository; else the only one; none, or s
     assert.equal(await ticketRepo(reg), null, 'two, neither Orbit: not a guess');
     assert.equal((await reg.addRepo(orbit)).ok, true, 'Orbit’s bundled profile');
     assert.equal(await ticketRepo(reg), orbit);
+  } finally { await fs.rm(root, { recursive: true, force: true }); }
+});
+
+test('repoByName: the laptop finds its own registered repository by name; an unknown name, or a path, is null', async () => {
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'gc-repo-name-')));
+  try {
+    const widgets = await repo(root, 'widgets', 'git@github.com:acme/widgets.git');
+    await fs.writeFile(path.join(root, 'Widgets.md'), profile('Widgets'));
+    const reg = new Registry({ dir: path.join(root, 'state') });
+    assert.equal(await repoByName(reg, 'Widgets'), null, 'nothing registered');
+    assert.equal((await reg.addRepo(widgets, { profileFile: path.join(root, 'Widgets.md') })).ok, true);
+    const name = (await reg.listRepos())[0].name;
+    assert.equal(await repoByName(reg, name), widgets);
+    assert.equal(await repoByName(reg, 'gadgets'), null);
+    assert.equal(await repoByName(reg, widgets), null, 'a path is not a name');
+    assert.equal(await repoByName(null, name), null);
   } finally { await fs.rm(root, { recursive: true, force: true }); }
 });
