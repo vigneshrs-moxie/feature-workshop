@@ -187,6 +187,7 @@ export default function mirrorRoutes(ctx) {
     async commits() { return { commits: [], note: 'The commits show on your laptop.' }; },
     async render() { throw new HttpError(409, ON_LAPTOP); },
     async screen() { throw new HttpError(404, 'The Screens page opens on your laptop.'); },
+    async wireframesPack() { throw new HttpError(404, 'The Screens PDF is on your laptop.'); },
   };
 
   /** A live answer from the laptop (a commit's diff): sealed to this request, never stored readable. */

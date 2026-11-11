@@ -11,6 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { PRODUCT, stateDirFor } from './state.js';
 import { writeFileAtomic } from './atomic-write.js';
+import { cleanTicketText } from './ticket-file.js';
 
 const firstLine = (text, max = 160) => {
   const line = String(text ?? '').split('\n').map((l) => l.trim()).find(Boolean) ?? '';
@@ -106,6 +107,21 @@ export function gateAnswers(text) {
   return out;
 }
 
+/** The decisions you changed in a gate reply ("Decided on my behalf, changed: ORBIT-9.D2: note"). */
+export function gateChanges(text) {
+  const out = [];
+  for (const l of String(text ?? '').split('\n').map((x) => x.trim())) {
+    const m = /^Decided on my behalf, changed:\s*(\S+?):\s+(.+)$/.exec(l);
+    if (m) out.push({ id: m[1], note: m[2] });
+  }
+  return out;
+}
+
+/** Today's date (YYYY-MM-DD) where the person is, not in UTC. */
+export function localDay(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 const day = (at) => (typeof at === 'string' && /^\d{4}-\d{2}-\d{2}/.test(at) ? at.slice(0, 10) : '');
 
 function briefQuestion(e, briefs) {
@@ -130,12 +146,13 @@ export function decisionRows(audit = [], { prefix = 'job', person = 'You', brief
     if (!e || typeof e !== 'object') continue;
     if (e.action === 'send' && GATE_KINDS.includes(e.kind)) {
       for (const a of gateAnswers(e.text)) add(e, { kind: 'answer', question: a.question, choice: a.choice });
+      for (const c of gateChanges(e.text)) add(e, { kind: 'answer', question: c.id, choice: c.note });
       add(e, { kind: e.kind === 'changes' ? 'send-back' : 'gate', question: briefQuestion(e, briefs), options: 'approve · send back · stop', choice: GATE_CHOICE[e.kind], why: gateNote(e.kind, e.text) });
     } else if (e.action === 'options') {
       const level = e.options?.level;
       if (!Number.isInteger(level) || level === e.was) continue;
       const why = [Number.isInteger(e.was) ? `was L${e.was}` : '', e.overrode === 'auto' ? 'over the automatic pick' : '', e.via === 'gate' ? 'from a gate' : ''].filter(Boolean).join(', ');
-      add(e, { kind: 'level', question: 'Level for this job', options: 'L0 · L1 · L2 · L3', choice: `L${level}`, why });
+      add(e, { kind: 'level', question: 'Level for this job', options: 'L0 · L1 · L2 · L3', choice: `L${level}`, why, ...(e.overrode === 'auto' ? { overrode: 'auto' } : {}) });
     } else if (e.action === 'permission') {
       const answers = e.answers && typeof e.answers === 'object' ? Object.entries(e.answers) : [];
       if (answers.length) for (const [q, label] of answers) add(e, { kind: 'answer', question: oneLine(q), choice: oneLine(label), why: oneLine(e.note) });
@@ -329,15 +346,15 @@ const ORBIT_KINDS = new Set(['answer', 'send-back']);
  * "Not doing" lines. No names of people. No cut. Returns { text, count }.
  */
 export function orbitCopy(rows = [], { ticket = null, title = null, today = '', notDoing = [] } = {}) {
-  const kept = rows.filter((r) => ORBIT_KINDS.has(r.kind));
+  const kept = rows.filter((r) => ORBIT_KINDS.has(r.kind) || (r.kind === 'level' && r.overrode === 'auto'));
   const head = [oneLine(ticket || title || 'Job', 120), 'decisions'].join(' ') + (dayMonth(today) ? `, ${dayMonth(today)}` : '');
-  const not = notDoing.map((l) => String(l).trim().replace(/^[-*]\s+/, '')).filter(Boolean);
+  const not = notDoing.map((l) => cleanTicketText(String(l).trim().replace(/^[-*]\s+/, ''))).filter(Boolean);
   if (!kept.length && !not.length) return { text: `${head}\nNo product decisions recorded yet.`, count: 0 };
   const out = [head];
   kept.forEach((r, i) => {
-    const said = r.kind === 'send-back' ? 'Sent back.' : oneLine(r.choice, 400);
-    out.push(`${i + 1}. ${oneLine(r.question, 300)} ${said}${r.by === 'auto' ? ' (Auto)' : ''}`.replace(/\s+$/, ''));
-    if (oneLine(r.why)) out.push(`   Why: ${oneLine(r.why, 400)}`);
+    const said = r.kind === 'send-back' ? 'Sent back.' : cleanTicketText(oneLine(r.choice, 400));
+    out.push(`${i + 1}. ${cleanTicketText(oneLine(r.question, 300))} ${said}${r.by === 'auto' ? ' (Auto)' : ''}`.replace(/\s+$/, ''));
+    if (oneLine(r.why)) out.push(`   Why: ${cleanTicketText(oneLine(r.why, 400))}`);
   });
   if (not.length) out.push(`Not doing: ${not.join('; ')}`);
   return { text: out.join('\n'), count: kept.length };

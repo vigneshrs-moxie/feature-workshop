@@ -193,6 +193,7 @@ function JobView({ job }: { job: Job }) {
           <section className="job-strip" aria-label="The job’s stops"><StopMap job={{ ...job, lane }} compact hrefFor={(s) => stageHref(job.slug, s)} label="The job’s stops: each opens who works on it" /></section>
           {narrow && <PartOfStack slug={job.slug} index={stacks} />}
           <span className="spacer" />
+          <CopyDecisions slug={job.slug} />
           <JobMenu job={job} dir={thread.detail?.dir} policyOverride={thread.detail?.policyOverride} run={run} worktree={thread.detail?.worktree} gear />
         </>
       )}

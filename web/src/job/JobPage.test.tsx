@@ -72,7 +72,13 @@ describe('the Job page', () => {
 
   it('has Copy decisions in the job’s details, beside the ticket number', () => {
     setup();
-    expect(within(screen.getByRole('main', { name: 'Job' })).getByRole('button', { name: 'Copy decisions' })).toBeInTheDocument();
+    const inDetails = screen.getAllByRole('button', { name: 'Copy decisions' }).filter((b) => b.closest('.job-details'));
+    expect(inDetails).toHaveLength(1);
+  });
+  it('also has Copy decisions in the page’s head, outside the folded Details', () => {
+    setup();
+    const inHead = screen.getAllByRole('button', { name: 'Copy decisions' }).filter((b) => !b.closest('.job-details'));
+    expect(inHead).toHaveLength(1);
   });
   it('Play full puts the crew member’s face on each stop', () => {
     setup({ play: 'full' });
