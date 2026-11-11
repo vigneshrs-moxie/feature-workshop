@@ -851,3 +851,8 @@ test('N12: a path glued to a short option, after a second =, after : or , or fil
     for (const c of ['npm test -- --reporter=json', 'npm test -- --coverage.reporter=text,html', 'npx vitest run src/a.test.ts:12']) assert.equal(bash(c, ctx), null, c);
   } finally { d.done(); }
 });
+
+test('N11: CDPATH set before a cd stops (where a plain cd name goes is no longer known)', () => {
+  const ctx = C5CTX();
+  for (const c of [`CDPATH=${HOME} cd Documents && touch x`, `export CDPATH=${HOME}; cd Documents && touch x`]) assert.equal(bash(c, ctx), 'outside', c);
+});

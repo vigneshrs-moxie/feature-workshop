@@ -884,7 +884,7 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
 const DEPLOY_ANY = new Set(['vercel', 'netlify', 'surge', 'gh-pages', 'semantic-release', 'np', 'release-it', 'heroku', 'fly', 'flyctl', 'railway', 'eas', 'amplify']);
 const DEPLOY_SUB = { firebase: /^(deploy|hosting:channel:deploy)$/, wrangler: /^(deploy|publish|pages)$/, changeset: /^publish$/, lerna: /^publish$/, expo: /^publish$/, twine: /^upload$/, serverless: /^deploy$/, sls: /^deploy$/, cdk: /^deploy$/, pulumi: /^up$/, terraform: /^apply$/, npm: /^publish$/, yarn: /^publish$/, pnpm: /^publish$/ };
 const deploys = (cmd, a) => DEPLOY_ANY.has(cmd) || Boolean(DEPLOY_SUB[cmd]?.test(a.find((x) => !x.startsWith('-')) ?? ''));
-const REDIRECT_VAR = /^(GIT_.*|PATH|HOME|NODE_OPTIONS|LD_.*|DYLD_.*|SHELL|EDITOR|VISUAL|.*_PAGER|BASH_ENV|ENV|npm_config_.*|PIP_.*)$/i;
+const REDIRECT_VAR = /^(GIT_.*|PATH|CDPATH|HOME|NODE_OPTIONS|LD_.*|DYLD_.*|SHELL|EDITOR|VISUAL|.*_PAGER|BASH_ENV|ENV|npm_config_.*|PIP_.*)$/i;
 const PUBLISH = [['cargo', 'publish'], ['poetry', 'publish'], ['uv', 'publish'], ['yarn', 'npm', 'publish'], ['pnpm', 'publish'], ['npm', 'publish'], ['twine', 'upload'], ['gem', 'push']];
 
 // The folder a git command acts in: its -C folders in turn from the one it runs in; null when one can't be placed.
