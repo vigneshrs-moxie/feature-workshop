@@ -196,7 +196,10 @@ function crewModel(entry, stage, agents) {
   return [...rows].sort((a, b) => (b.usd ?? 0) - (a.usd ?? 0))[0]?.model ?? null;
 }
 
-function crewRow(entry, index, { stage, agents, pending, platform }) {
+// Its last actions (the activity's recent lines), when the activity has them; an older Starbase's has not (not known).
+const feedOf = (entry) => (Array.isArray(entry?.recent) ? { feed: entry.recent } : {});
+
+function crewRow(entry, index, { stage, agents, pending, platform, stop }) {
   const ask = entry.state === 'running' ? pendingFor(pending, entry) : null;
   const status = ask ? 'waiting' : STATUS_OF[entry.state] ?? 'stopped';
   const why = crewBlocked(entry, { platform });
@@ -210,6 +213,9 @@ function crewRow(entry, index, { stage, agents, pending, platform }) {
     status,
     terminal: { kind: 'watch', ready: !why, why },
     ref: crewRef(entry, index),
+    ...feedOf(entry),
+    // The Tester's last command at Test: the command, when, and the end of its output (the website's copy has no output).
+    ...(entry.who === 'feature-tester' && stop === 'test' ? { command: entry.lastCommand ?? null } : {}),
   };
 }
 
@@ -246,7 +252,8 @@ function foremanRow(job, state, { activity, agents, pending, platform, stop }) {
     status = 'stopped';
     doing = job.paused ? 'Paused' : 'Not working right now';
   }
-  return row({ model, doing, since: now?.since ?? own?.since ?? null, lastAt: now?.lastAt ?? own?.lastAt ?? null, status });
+  // Its last actions here; on a stop it has been through they would be another stop's, so none there.
+  return row({ model, doing, since: now?.since ?? own?.since ?? null, lastAt: now?.lastAt ?? own?.lastAt ?? null, status, ...feedOf(own) });
 }
 
 const byRole = (a, b) => {
@@ -280,7 +287,7 @@ export function stageView(job, stop, { activity = job.activity ?? [], agents = j
     const stage = stageOfCrew(entry.who, entry.description);
     const where = stopOf(stage) ?? (current && entry.state !== 'finished' && entry.state !== 'stopped' ? stop : null);
     if (where !== stop) return;
-    crew.push(crewRow(entry, index, { stage, agents, pending, platform }));
+    crew.push(crewRow(entry, index, { stage, agents, pending, platform, stop }));
   });
 
   // The Foreman: on the stop it is at (working, waiting or stopped there), and among the finished

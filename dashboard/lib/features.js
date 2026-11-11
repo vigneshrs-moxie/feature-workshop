@@ -207,6 +207,8 @@ export function summariseSessions(sessions, now = Date.now()) {
       who: 'conductor', name: agentInfo('conductor').name, sessionId: s.parsed.sessionId, model: s.parsed.lastModel ?? null,
       state: activityState(s.parsed), quiet: quietHint(s.parsed, now), doing: s.parsed.lastAction?.text ?? null,
       since: s.parsed.lastAction?.at ?? s.parsed.lastAt, lastAt: s.parsed.lastAt,
+      // The job page's live feed (lib/session-log.js): its last actions, and its last command.
+      recent: s.parsed.recent ?? [], lastCommand: s.parsed.lastCommand ?? null,
     });
     for (const sub of s.subagents) {
       activity.push({
@@ -216,6 +218,7 @@ export function summariseSessions(sessions, now = Date.now()) {
         model: Object.entries(usageByModel(sub.parsed)).sort((a, b) => b[1].tokens.output - a[1].tokens.output)[0]?.[0] ?? null,
         sessionId: s.parsed.sessionId, state: workerState(sub, s.parsed), quiet: quietHint(sub.parsed, now),
         doing: sub.parsed.lastAction?.text ?? null, startedAt: sub.parsed.firstAt, lastAt: sub.parsed.lastAt,
+        recent: sub.parsed.recent ?? [], lastCommand: sub.parsed.lastCommand ?? null,
       });
     }
   }

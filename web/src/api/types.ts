@@ -142,6 +142,8 @@ export interface NowDoing {
   since?: string | null;
   lastAt?: string | null;
   quietMs?: number | null;
+  /** The model's label (Fable 5.2, Opus 5.5…); null or missing: not known. */
+  model?: string | null;
 }
 
 /** Who holds a job elsewhere (dashboard/lib/lock.js; a refused send's 409 carries the same). */
@@ -1922,6 +1924,23 @@ export interface StageAgent {
   terminal: { kind: 'continue' | 'watch'; ready: boolean; why: string | null };
   /** Its index in the job's activity, which the terminal command names. */
   ref: string;
+  /** Its last actions in plain words, oldest first (six at most); missing: not known. */
+  feed?: FeedLine[];
+  /** The Tester at Test only: its last command (null: none yet). The website's copy has no output (tail null). */
+  command?: StageCommand | null;
+}
+
+/** One line of an agent's live feed: what it did, and when. */
+export interface FeedLine {
+  text: string;
+  at: string | null;
+}
+
+/** A crew member's last command: cut at 200 characters, and the last 12 lines of its output (null until it answers, and on the website). */
+export interface StageCommand {
+  command: string;
+  at: string | null;
+  tail: string | null;
 }
 
 export interface StageView {

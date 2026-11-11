@@ -112,3 +112,15 @@ test('the job record carries page', () => {
   assert.equal(makeEvent('record', { kind: 'job', key: 'x', value: r }).ok, true);
   assert.deepEqual(jobRecord({ slug: 'y', page: { ticket: null, building: null, check: null } }).page, { ticket: null, building: null, check: null });
 });
+
+test('a command’s output never goes up', () => {
+  const entry = { who: 'feature-tester', state: 'running', doing: 'Run the tests', recent: [{ text: 'Run the tests', at: 'T1' }], lastCommand: { command: 'npm test', at: 'T1', tail: 'secret' } };
+  const r = jobRecord({ slug: 'x', thread: [], activity: [entry, { who: 'conductor', lastCommand: null }], costDetail: { totalUsd: 1, activity: [entry] } });
+  assert.equal(JSON.stringify(r).includes('secret'), false);
+  assert.deepEqual(r.activity[0].lastCommand, { command: 'npm test', at: 'T1', tail: null }, 'the command itself and when it ran go up');
+  assert.deepEqual(r.activity[0].recent, entry.recent, 'the feed goes up');
+  assert.equal(r.activity[1].lastCommand, null);
+  assert.equal(r.costDetail.activity[0].lastCommand.tail, null);
+  assert.equal(entry.lastCommand.tail, 'secret', 'the laptop’s own copy is untouched');
+  assert.equal(makeEvent('record', { kind: 'job', key: 'x', value: r }).ok, true);
+});

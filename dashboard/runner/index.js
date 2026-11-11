@@ -30,7 +30,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { loadFeatures, loadGateStates, SessionIndex } from '../lib/features.js';
 import { STAGES, AGENTS } from '../lib/stages.js';
-import { PRICES, PRICES_AS_OF, whatIfConductor, costCsv, costMarkdown } from '../lib/cost.js';
+import { PRICES, PRICES_AS_OF, whatIfConductor, costCsv, costMarkdown, modelLabel } from '../lib/cost.js';
 import { OLD_STATE_FOLDER, State, WORKFLOW_CHOICES, restartTimes } from '../lib/state.js';
 import { Driver, Busy } from '../lib/driver.js';
 import { renderMarkdown, indexIds } from '../lib/markdown.js';
@@ -880,9 +880,11 @@ export async function createRunner(config) {
     const nowDoing = running.map((a) => ({
       who: a.who, name: a.name, doing: a.doing, quietMs: a.quiet?.quietMs ?? null,
       since: a.who === 'conductor' ? a.since : a.startedAt ?? a.since, lastAt: a.lastAt,
+      // The model's label (Fable 5.2, Opus 5.5…); null when its log doesn't say.
+      model: a.model ? modelLabel(a.model) : null,
     }));
     if (active && !nowDoing.length) {
-      nowDoing.push({ who: 'conductor', name: 'Foreman', doing: active.lastAction ?? 'Reading your message', since: active.startedAt });
+      nowDoing.push({ who: 'conductor', name: 'Foreman', doing: active.lastAction ?? 'Reading your message', since: active.startedAt, model: active.model ? modelLabel(active.model) : null });
     }
     // Marked done or dropped, and nothing has happened since: off the board. A crew member still
     // counted as running brings it back only if its log moved after the mark.

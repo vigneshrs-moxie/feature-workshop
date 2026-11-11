@@ -36,6 +36,21 @@ function lastTextOf(content) {
   return t || null;
 }
 
+// The job page's live feed: how many last actions a log keeps, and how much of the last command.
+const RECENT_ACTIONS = 6;
+const COMMAND_MAX = 200;
+const TAIL_LINES = 12;
+const TAIL_MAX = 1200;
+
+// The last lines of a command's output: 12 at most, 1,200 characters at most (only the end is read).
+function outputTail(content) {
+  const text = typeof content === 'string' ? content
+    : Array.isArray(content) ? content.filter((c) => c?.type === 'text' && typeof c.text === 'string').map((c) => c.text).join('\n') : '';
+  let end = text.length;
+  while (end > 0 && /\s/.test(text[end - 1])) end--;
+  return text.slice(Math.max(0, end - TAIL_MAX), end).split('\n').slice(-TAIL_LINES).join('\n');
+}
+
 // Parse one JSONL log's text.
 export function parseSessionLog(text) {
   const out = {
@@ -51,6 +66,10 @@ export function parseSessionLog(text) {
     dispatches: [], // Agent/Task tool calls: { toolUseId, agentType, description, at }
     prLinks: [], // PRs created in the session (pr-link lines): { url, number, at }
     lastAction: null, // { text, at }
+    // The last six actions in words, oldest first; a repeat of the line before it is left out.
+    recent: [], // { text, at }
+    // The last Bash call: its command (200 characters at most), and the end of its output once it answers.
+    lastCommand: null, // { command, at, tail: string | null }
     lastStopReason: null,
     lastMessageId: null,
     lastAssistantText: null,
@@ -70,6 +89,8 @@ export function parseSessionLog(text) {
   // The timestamp of the nearest line before this one that had one: a pr-link line without its own
   // timestamp is dated by it (when the PR was created, as near as the log says).
   let prevAt = null;
+  // The tool call behind lastCommand, until its result comes back.
+  let commandId = null;
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;
     let d;
@@ -104,6 +125,10 @@ export function parseSessionLog(text) {
       if (said && !d.isMeta && !toolResultLine) out.handedBack = false;
       for (const x of Array.isArray(c) ? c : []) {
         if (x?.type === 'tool_result' && x.tool_use_id) out.answeredToolUses.set(x.tool_use_id, d.timestamp ?? before ?? null);
+        if (x?.type === 'tool_result' && commandId && x.tool_use_id === commandId) {
+          out.lastCommand.tail = outputTail(x.content);
+          commandId = null;
+        }
       }
     } else if (d.type === 'cost-state' && typeof d.totalCostUSD === 'number') {
       // Cumulative for the whole session (a resumed run includes earlier runs), so keep the latest.
@@ -123,6 +148,15 @@ export function parseSessionLog(text) {
       for (const c of Array.isArray(m.content) ? m.content : []) {
         if (c?.type === 'tool_use') {
           out.lastAction = { text: describeTool(c.name, c.input), at: d.timestamp ?? null };
+          if (out.recent.at(-1)?.text !== out.lastAction.text) {
+            out.recent.push(out.lastAction);
+            if (out.recent.length > RECENT_ACTIONS) out.recent.shift();
+          }
+          if (c.name === 'Bash') {
+            const command = String(c.input?.command ?? '');
+            out.lastCommand = { command: command.length > COMMAND_MAX ? `${command.slice(0, COMMAND_MAX - 1)}…` : command, at: d.timestamp ?? null, tail: null };
+            commandId = c.id ?? null;
+          }
           out.lastToolName = c.name;
           out.pendingToolUse = true;
           out.handedBack = c.name === 'SubagentHandback';

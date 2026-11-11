@@ -17,6 +17,7 @@
 //   - A permission card goes up as its headline and risk, and the command for a shell step or the
 //     question for a question; the content of a file it would write or edit stays here.
 //   - The audit, Always-allow drafts and the write token stay here.
+//   - A crew member's last command goes up without its output (activity lastCommand.tail is null).
 //   - wireSafe() then drops any key named diff, patch, env or token at any depth, and carries a
 //     short label under `source` (a cost's "estimate") as `sourceTag`, which the site turns back.
 // Every value is then made by lib/protocol.js makeEvent (scrubbed of tokens) and checked again by
@@ -124,10 +125,18 @@ export function boardRecord(snap) {
   });
 }
 
+/** The crew's activity as it goes up: a command's output stays on the laptop (the command and when it ran go up). */
+function activityUp(list) {
+  if (!Array.isArray(list)) return list;
+  return list.map((a) => (isPlain(a) && isPlain(a.lastCommand) ? { ...a, lastCommand: { ...a.lastCommand, tail: null } } : a));
+}
+
 export function jobRecord(detail) {
   const { audit, lastReply, locate, runs, run, permissionsPending, thread, ...rest } = detail;
   return wireSafe({
     ...rest,
+    ...('activity' in rest ? { activity: activityUp(rest.activity) } : {}),
+    ...(isPlain(rest.costDetail) && 'activity' in rest.costDetail ? { costDetail: { ...rest.costDetail, activity: activityUp(rest.costDetail.activity) } } : {}),
     run: runState(run), runs: (runs ?? []).map(runState),
     permissionsPending: (permissionsPending ?? []).map(permissionCard).filter(Boolean),
     thread: (thread ?? []).map(threadItem).filter(Boolean),
