@@ -107,7 +107,8 @@ export function AutoStartGroup({ setting, tagsShown, tokenSet, busy = false, onS
       {needsTag && problem === AUTO_START_WORDS.needTag && <p className="field-problem" role="alert">{AUTO_START_WORDS.needTag}</p>}
       {on && tokenSet === false && <p className="field-problem" role="status">{AUTO_START_WORDS.needsToken}</p>}
       {on && tokenSet !== false && tagsShown === false && <p className="field-problem" role="status">{AUTO_START_WORDS.noTags}</p>}
-      {!on && offNote && <p className="field-problem" role="status">{AUTO_START_WORDS.offNeedsTag}</p>}
+      {/* M5: once the box has text again, the tag is no longer missing. */}
+      {!on && offNote && !trimmed && <p className="field-problem" role="status">{AUTO_START_WORDS.offNeedsTag}</p>}
       {problem && problem !== AUTO_START_WORDS.needTag && <p className="field-problem" role="alert">{problem}</p>}
       {laptopNote !== undefined && <p className="muted settings-note-under" role="status">{laptopNote ?? ''}</p>}
     </SettingGroup>

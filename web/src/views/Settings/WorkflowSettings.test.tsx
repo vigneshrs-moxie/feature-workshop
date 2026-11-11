@@ -176,6 +176,9 @@ describe('Settings → Workflow', () => {
     fireEvent.blur(tag);
     await waitFor(() => expect(post).toHaveBeenCalledWith('/api/settings', { workflow: { autoStart: { on: false, tag: '' } } }));
     expect(await within(group).findByText('Auto start is off: it needs a tag.')).toBeInTheDocument();
+    // M5: it goes as soon as the box has text again.
+    fireEvent.change(tag, { target: { value: 'n' } });
+    expect(within(group).queryByText('Auto start is off: it needs a tag.')).toBeNull();
   });
 
   it('Auto start with no Orbit token says it needs the token first', async () => {
