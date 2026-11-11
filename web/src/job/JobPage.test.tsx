@@ -752,6 +752,27 @@ describe('after a click on the go / no go bar', () => {
     expect(live()).toHaveTextContent('Held until Claude’s usage limit resets.');
   });
 
+  // Round 2, M7: Try again sends a decision only, never a Reply's words.
+  it('after a Reply, a brief decided elsewhere that stalls says to write to the Foreman, with no Try again', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const post = sentPost();
+    const { store } = setup({ jobs: waiting(), gate: GATE, post });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Reply' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
+    fireEvent.change(await screen.findByRole('textbox', { name: /Your answers or a note/ }), { target: { value: 'A note.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send the reply' }));
+    await waitFor(() => expect(bar()).toHaveTextContent(SENT_LINE));
+    // Another page decided the brief; the reply's run ends and nothing new comes.
+    server.answered.push(2);
+    act(() => { store.dispatch({ type: 'event', event: ev(200, 'run', 'alpha', { id: 'r_sent_1', slug: 'alpha', status: 'done', endedAt: new Date().toISOString() }) }); });
+    act(() => { store.dispatch({ type: 'event', event: ev(201, 'thread', 'alpha', {}) }); });
+    act(() => { vi.advanceTimersByTime(31_000); });
+    await waitFor(() => expect(bar()).toHaveTextContent('Nothing has moved yet.'));
+    expect(bar()).toHaveTextContent('Write to the Foreman');
+    expect(within(bar()).queryByRole('button', { name: 'Try again' })).toBeNull();
+    expect(gatePosts(post)).toHaveLength(1);
+  });
+
   // Round 2, N2: the stalled line is never said to a job that waits on something else, or has moved.
   const answeredAndEnded = (store: Store) => {
     server.answered.push(2);

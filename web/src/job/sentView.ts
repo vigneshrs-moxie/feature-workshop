@@ -118,7 +118,9 @@ export function useSentView(job: Job, detail: JobDetail | null | undefined, run:
   // Paused by the usage limit or a restart: that is why nothing moves, said as the page says it.
   const paused = resting ? pausedLines(job) : null;
   if (paused) return { ...paused, canRetry: false };
-  if (passed && checked) return { words: STUCK_WORDS, more: mine ? null : WRITE_TO_MOVE, canRetry: mine };
+  // M7: Try again sends a decision only (approve, changes, stop), never a Reply's words.
+  const retry = mine && a !== null && DECIDING_KINDS.includes(a.kind);
+  if (passed && checked) return { words: STUCK_WORDS, more: retry ? null : WRITE_TO_MOVE, canRetry: retry };
   return { ...view, canRetry: false };
 }
 
