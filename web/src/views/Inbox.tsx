@@ -179,6 +179,8 @@ export interface HostedInbox {
   version: number;
   /** What went wrong with the last Start or Cancel, in words. */
   notice?: string | null;
+  /** The ticket whose Start or Cancel is on its way (its button spins and can't be pressed again). */
+  sending?: string | null;
 }
 
 /** The hosted Inbox reads the site's list this often, and asks for a fresh read from Orbit every fourth time (once a minute). */
@@ -382,7 +384,7 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
                   Start as stack
                 </Button>
               )}
-              <Button kind="primary" size="lg" keyId="inbox-start" keyShown onClick={() => start(pick)} title={isHosted ? `Start a job on ${pick.key} on your laptop (key: s).` : `Start a job on ${pick.key}: opens New job with the key and title filled in (key: s).`}>
+              <Button kind="primary" size="lg" keyId="inbox-start" keyShown busy={hosted?.sending === pick.key} onClick={() => start(pick)} title={isHosted ? `Start a job on ${pick.key} on your laptop (key: s).` : `Start a job on ${pick.key}: opens New job with the key and title filled in (key: s).`}>
                 Start {pick.key}
               </Button>
             </NextBar>
@@ -418,7 +420,7 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
             </Hero>
           ))}
           {open && (hosted
-            ? <HostedTicketPeek key={open.key} item={open} order={order} onPick={(key) => setPeek(key)} onClose={() => setPeek(null)} onStart={start} onCancel={hosted.onCancel} />
+            ? <HostedTicketPeek key={open.key} item={open} order={order} onPick={(key) => setPeek(key)} onClose={() => setPeek(null)} onStart={start} onCancel={hosted.onCancel} sending={hosted.sending === open.key} />
             : <TicketPeek key={open.key} item={open} order={order} onPick={(key) => setPeek(key)} onClose={() => setPeek(null)} onStart={start} onStartStack={startStack} />)}
         </>
       )}
@@ -483,7 +485,7 @@ function ReadLine({ status, now, hosted = false }: { status: OrbitStatus; now: D
 }
 
 /** A Start on its way, in words with an icon (never colour alone); Cancel while the laptop hasn't taken it. */
-export function StartState({ start, onCancel }: { start: InboxStart; onCancel?: () => void }) {
+export function StartState({ start, onCancel, busy = false }: { start: InboxStart; onCancel?: () => void; /** The Cancel is on its way. */ busy?: boolean }) {
   const laptop = start.laptop.name;
   if (start.state === 'started') {
     return <span className="inbox-start is-started" role="status"><Icon name="check" size={14} />Started on {laptop}</span>;
@@ -496,7 +498,7 @@ export function StartState({ start, onCancel }: { start: InboxStart; onCancel?: 
         {waiting ? 'Starts when your laptop is back' : `Starting on ${laptop}…`}
       </span>
       {onCancel && !start.handedOut && (
-        <Button kind="quiet" size="sm" onClick={onCancel} title={`Don’t start it: ${laptop} hasn’t picked it up yet.`}>Cancel</Button>
+        <Button kind="quiet" size="sm" busy={busy} onClick={onCancel} title={`Don’t start it: ${laptop} hasn’t picked it up yet.`}>Cancel</Button>
       )}
     </span>
   );
@@ -608,7 +610,7 @@ function TicketTable({ items, caption, jobs, pick, now, peeked, onOpen, onStart,
                       {job?.lane === 'needs-you' || i.job.state === 'needs-you' ? 'Needs you' : 'Open its job'}
                     </Button>
                   ) : hosted && i.start && onItsWay(i) ? (
-                    <StartState start={i.start} onCancel={() => hosted.onCancel(i)} />
+                    <StartState start={i.start} onCancel={() => hosted.onCancel(i)} busy={hosted.sending === i.key} />
                   ) : (
                     <>
                       {!hosted && <Button
@@ -624,6 +626,7 @@ function TicketTable({ items, caption, jobs, pick, now, peeked, onOpen, onStart,
                       <Button
                         size="sm"
                         keyId={isPick ? 'inbox-start' : undefined}
+                        busy={hosted?.sending === i.key}
                         onClick={() => onStart(i)}
                         aria-label={`Start a job on ${i.key}`}
                         title={hosted ? `Start a job on ${i.key} on your laptop (key: s, with the focus on this row).` : `Start a job on ${i.key}: opens New job with the key and title filled in (key: s, with the focus on this row).`}
@@ -643,9 +646,11 @@ function TicketTable({ items, caption, jobs, pick, now, peeked, onOpen, onStart,
 }
 
 /** The quick look on the hosted site: what the site keeps; the ticket's links and timeline are on Orbit. */
-function HostedTicketPeek({ item, order, onPick, onClose, onStart, onCancel }: {
+function HostedTicketPeek({ item, order, onPick, onClose, onStart, onCancel, sending = false }: {
   item: InboxItem; order: readonly string[]; onPick: (key: string) => void; onClose: () => void;
   onStart: (item: InboxItem) => void; onCancel: (item: InboxItem) => void;
+  /** Its Start or Cancel is on its way. */
+  sending?: boolean;
 }) {
   const now = useNow();
   usePeekKeys({ current: item.key, order, onPick, onClose });
@@ -669,11 +674,11 @@ function HostedTicketPeek({ item, order, onPick, onClose, onStart, onCancel }: {
         {item.job ? (
           <p className="ticket-on">You are already on this: <a href={jobHref(item.job.slug)}>{item.job.title}</a></p>
         ) : item.start && onItsWay(item) ? (
-          <StartState start={item.start} onCancel={() => onCancel(item)} />
+          <StartState start={item.start} onCancel={() => onCancel(item)} busy={sending} />
         ) : (
           <>
             {item.start?.state === 'failed' && <StartProblem start={item.start} />}
-            <Button kind="primary" keyId="inbox-start" keyShown onClick={() => onStart(item)} title="Start a job on this ticket on your laptop (key: s).">
+            <Button kind="primary" keyId="inbox-start" keyShown busy={sending} onClick={() => onStart(item)} title="Start a job on this ticket on your laptop (key: s).">
               {item.start?.state === 'failed' ? 'Start again' : 'Start'}
             </Button>
           </>

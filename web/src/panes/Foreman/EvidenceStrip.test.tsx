@@ -136,6 +136,20 @@ describe('EvidenceStrip', () => {
     expect(screen.getByText('The local database copy isn’t running. Start it from Try it, then press Record again.')).toBeTruthy();
   });
 
+  it('Record spins on the click and cannot be pressed twice', async () => {
+    let answer: () => void = () => {};
+    const post = vi.fn(() => new Promise((res) => { answer = () => res({ ...VIEW, ok: true, started: true, recording: true }); }));
+    setup({ view: { ...VIEW, evidence: null }, post });
+    const record = await screen.findByRole('button', { name: 'Record' });
+    fireEvent.click(record);
+    fireEvent.click(record);
+    expect(record).toHaveAttribute('aria-busy', 'true');
+    expect(record.querySelector('.spin-ring')).not.toBeNull();
+    expect(post).toHaveBeenCalledTimes(1);
+    await act(async () => { answer(); });
+    expect(screen.getByText(/Recording the evidence now/)).toBeTruthy();
+  });
+
   it('a recording that couldn’t finish shows what to do and the line to run', async () => {
     setup({ view: { ...VIEW, evidence: null, problem: { commit: 'abc1234def5', message: 'Playwright’s Chromium isn’t installed on this computer. Run npx playwright install chromium, then press Record again.', fix: 'Run npx playwright install chromium', at: '2026-10-28T12:00:00Z' } } });
     await screen.findByRole('region', { name: /^Evidence/ });

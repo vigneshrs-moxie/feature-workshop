@@ -47,7 +47,8 @@ export function bodyFor(a: ReviewAction, view: ReviewView): Record<string, unkno
 export function ReviewBar({ view, act, problem, keys = true }: { view: ReviewView; act: Act; problem: string | null; keys?: boolean }) {
   const play = usePlay();
   const ui = useUi();
-  const [busy, setBusy] = useState(false);
+  // The action on its way (its button spins; the rest are off).
+  const [busy, setBusy] = useState<string | null>(null);
   const [asking, setAsking] = useState<'merge' | 'remind' | null>(null);
   const [login, setLogin] = useState<string>(view.bar?.reviewer?.login ?? '');
   const bar = view.bar!;
@@ -63,8 +64,8 @@ export function ReviewBar({ view, act, problem, keys = true }: { view: ReviewVie
     }
     if (a.confirm) { setAsking('merge'); return; }
     if (a.id === 'remind') { setAsking('remind'); return; }
-    setBusy(true);
-    try { await act(a.id, a.id === 'ask-review' ? { go: true, login: login.trim() } : bodyFor(a, view)); } finally { setBusy(false); }
+    setBusy(a.id);
+    try { await act(a.id, a.id === 'ask-review' ? { go: true, login: login.trim() } : bodyFor(a, view)); } finally { setBusy(null); }
   };
   const byKey = (k: string, pick: (a: ReviewAction) => boolean) => bar.actions.find((a) => a.key === k && a.enabled && pick(a));
   useKeyScope('review', {
@@ -97,7 +98,7 @@ export function ReviewBar({ view, act, problem, keys = true }: { view: ReviewVie
     const href = a.client ? linkFor(a, view) : null;
     if (href) return <Button key={a.id} kind={kind} size="lg" icon="external" keyId={keyId} keyShown={primary} href={href} target="_blank" rel="noopener noreferrer" title={title}>{words}</Button>;
     return (
-      <Button key={a.id} kind={kind} size="lg" keyId={keyId} keyShown={primary} disabled={!a.enabled || busy} onClick={() => void run(a)} title={title} data-review-action={a.id}>
+      <Button key={a.id} kind={kind} size="lg" keyId={keyId} keyShown={primary} busy={busy === a.id} disabled={!a.enabled || busy !== null} onClick={() => void run(a)} title={title} data-review-action={a.id}>
         {words}
       </Button>
     );
@@ -120,7 +121,7 @@ export function ReviewBar({ view, act, problem, keys = true }: { view: ReviewVie
       {view.state === 'fixing' && play.on && <ForemanConsole view={view} blink={play.full} />}
       {problem && <p className="field-problem" role="alert">{problem}</p>}
       {asking === 'merge' && merge && (
-        <Sheet title={merge.headline} onClose={() => setAsking(null)} busy={busy} className="review-ask-sheet">
+        <Sheet title={merge.headline} onClose={() => setAsking(null)} busy={busy !== null} className="review-ask-sheet">
           <p className="review-ask-label"><span className="next-label">{play.on ? 'Go / no go' : 'Asks first'} · {merge.hardLine}</span> <span className="chip review-hard"><Icon name="alert" size={14} /> {merge.hardLine}</span></p>
           <div className="review-step"><span className="muted">The exact step</span><code>{merge.step}</code></div>
           <div className="review-goes">
@@ -129,11 +130,12 @@ export function ReviewBar({ view, act, problem, keys = true }: { view: ReviewVie
           </div>
           <div className="sheet-actions">
             <span className="muted"><Icon name="alert" size={14} /> {merge.keyNote}</span>
-            <Button disabled={busy} onClick={() => setAsking(null)}>{play.on ? 'No go' : merge.noGo.label} <kbd className="kbd key-hint" aria-hidden="true">Esc</kbd></Button>
+            <Button disabled={busy !== null} onClick={() => setAsking(null)}>{play.on ? 'No go' : merge.noGo.label} <kbd className="kbd key-hint" aria-hidden="true">Esc</kbd></Button>
             <Button
               kind="primary"
-              disabled={busy}
-              onClick={async () => { setBusy(true); try { if (await act('merge', { go: true, confirm: `merge ${view.pr.label}` })) setAsking(null); } finally { setBusy(false); } }}
+              busy={busy === 'merge'}
+              disabled={busy !== null}
+              onClick={async () => { if (busy) return; setBusy('merge'); try { if (await act('merge', { go: true, confirm: `merge ${view.pr.label}` })) setAsking(null); } finally { setBusy(null); } }}
             >
               {play.on ? merge.go.playLabel : merge.go.label}
             </Button>
@@ -159,8 +161,9 @@ function RemindSheet({ view, act, problem, onClose }: { view: ReviewView; act: A
         <Button disabled={busy} onClick={onClose}>Cancel <kbd className="kbd key-hint" aria-hidden="true">Esc</kbd></Button>
         <Button
           kind="primary"
-          disabled={busy || !text.trim()}
-          onClick={async () => { setBusy(true); try { if (await act('remind', { go: true, text: text.trim() })) onClose(); } finally { setBusy(false); } }}
+          busy={busy}
+          disabled={!text.trim()}
+          onClick={async () => { if (busy) return; setBusy(true); try { if (await act('remind', { go: true, text: text.trim() })) onClose(); } finally { setBusy(false); } }}
         >
           Post the comment
         </Button>

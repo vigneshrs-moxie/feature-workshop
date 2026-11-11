@@ -73,7 +73,10 @@ function LaptopJobMenu({ job, dir, policyOverride, run, worktree, gear = false }
     return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
   }, [open]);
 
-  async function act(fn: () => Promise<unknown>) {
+  const [reopening, setReopening] = useState(false);
+  async function act(fn: () => Promise<unknown>, reopen = false) {
+    if (busy) return;
+    setReopening(reopen);
     setBusy(true);
     setError(null);
     try {
@@ -120,10 +123,11 @@ function LaptopJobMenu({ job, dir, policyOverride, run, worktree, gear = false }
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => void act(() => reopenJob(api, slug))}
+                aria-busy={reopening || undefined}
+                onClick={() => void act(() => reopenJob(api, slug), true)}
                 title={job.closed ? 'Put it back among the open jobs. Nothing else changes; the Foreman isn’t contacted.' : 'It was marked done or dropped earlier and has changed since. Keep it open for good.'}
               >
-                {job.closed ? 'Reopen' : 'Keep it open'}
+                {busy && reopening ? 'Reopening…' : job.closed ? 'Reopen' : 'Keep it open'}
               </button>
             </li>
           )}

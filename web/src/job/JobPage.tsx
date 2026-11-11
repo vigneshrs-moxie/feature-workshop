@@ -8,7 +8,7 @@
 // evidence and Try it, Review, Decisions, Ship), the folded conversation, and the message box (c).
 import { isOpen, queuedOf } from '../views/Hosted/QueuedDecision';
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import type { Job, JobDocEntry, StopId } from '../api/types';
+import type { Job, JobDocEntry, Run, StopId } from '../api/types';
 import { jobHref, navigate, screensHref, stageHref } from '../app/router';
 import { useUi } from '../app/ui';
 import { useDetail, useShown } from '../app/detail';
@@ -28,6 +28,7 @@ import { EvidenceStrip } from '../panes/Foreman/EvidenceStrip';
 import { ThreadList, useCurrentJob, useJobConversation } from '../panes/Foreman/ForemanPane';
 import { Composer } from '../panes/Foreman/Composer';
 import { GateSlot } from '../panes/Foreman/GateCard';
+import { useGateSent, type GateSent } from '../panes/Foreman/gateSent';
 import { JobGithub } from '../panes/Foreman/JobGithub';
 import { JobMenu } from '../panes/Foreman/JobHeader';
 import { LevelChip } from '../panes/Foreman/LevelChip';
@@ -41,7 +42,7 @@ import { ReviewBar } from '../views/Review/ReviewBar';
 import { ReviewPanel } from '../views/Review/ReviewPanel';
 import { isRoundCard, ROUND_NUDGES, useReview } from '../views/Review/useReview';
 import { jobBySlug } from '../state/reducer';
-import { useWorkshopState } from '../state/store';
+import { useWorkshop, useWorkshopState } from '../state/store';
 import { CodeTab } from './CodeTab';
 import { PartOfStack, StackSuggestion, useStackIndex } from '../views/Stack/StackRows';
 
@@ -273,12 +274,75 @@ export function NextStep({ job, conversation, now, onShip, foldCard = false }: {
   const state = useWorkshopState();
   const play = usePlay();
   const review = useReview(job.slug);
-  const { thread } = conversation;
+  const { thread, run } = conversation;
+  const after = useAfterSend(job, run, thread.reload);
   const perms = state.permissions.filter((p) => p.slug === job.slug && !isRoundCard(p));
   if (perms.length > 0) return <PermissionAlert permissions={perms} now={now} />;
-  if (thread.detail?.gate) return <GoBar job={job} detail={thread.detail} now={now} reload={thread.reload} call={play.on} foldCard={foldCard} />;
+  const problem = after.problem && <p className="field-problem" role="alert">{after.problem}</p>;
+  if (thread.detail?.gate) return <><GoBar job={job} detail={thread.detail} now={now} reload={thread.reload} call={play.on} foldCard={foldCard} after={after} />{problem}</>;
   if (review.view) return <ReviewBar view={review.view} act={review.act} problem={review.problem} />;
-  return <StateBar job={job} onShip={onShip} />;
+  return <><StateBar job={job} onShip={onShip} after={after} />{problem}</>;
+}
+
+/** The bar after a decision was taken (spec 1.2): its words, and Try again once nothing has moved. */
+const SENT_WORDS = 'Sent. Waiting for the Foreman to start.';
+const STUCK_WORDS = 'Nothing has moved yet.';
+
+interface AfterSend {
+  decision: GateSent;
+  /** What the bar says instead of its own words, while a decision waits for the Foreman (null: nothing waits). */
+  say: ReactNode;
+  stuck: boolean;
+  /** Try again is out (it spins; the bar's other calls rest). */
+  retrying: boolean;
+  tryAgain(): void;
+  /** Why Try again sent nothing: the server's own sentence. */
+  problem: string | null;
+}
+
+/**
+ * The decision this job's gate card sent, as the bar shows it: watched here (gateSent.ts clears it
+ * once the job moves on), with Try again sending the same decision once more.
+ */
+function useAfterSend(job: Job, run: Run | null, reload: () => void): AfterSend {
+  const { api } = useWorkshop();
+  const decision = useGateSent(job, run);
+  const [retrying, setRetrying] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const out = decision.state;
+  useEffect(() => { if (out === 'sending' && !retrying) setProblem(null); }, [out, retrying]);
+  async function tryAgain() {
+    if (out === 'sending') return;
+    setProblem(null);
+    setRetrying(true);
+    try {
+      const r = await decision.retry(api);
+      if (!r?.sent && r?.message) setProblem(r.message);
+    } catch (err) {
+      setProblem(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRetrying(false);
+      reload();
+    }
+  }
+  const waits = out === 'sent' || out === 'stuck' || (retrying && out === 'sending');
+  const words = out === 'sent' ? SENT_WORDS : STUCK_WORDS;
+  return {
+    decision,
+    say: waits ? <span role="status">{words}</span> : null,
+    stuck: out === 'stuck' || retrying,
+    retrying: retrying && out === 'sending',
+    tryAgain: () => { void tryAgain(); },
+    problem,
+  };
+}
+
+function TryAgain({ after }: { after: AfterSend }) {
+  return (
+    <Button size="lg" busy={after.retrying} onClick={after.tryAgain} title="Send the same decision to the Foreman once more.">
+      Try again
+    </Button>
+  );
 }
 
 /**
@@ -286,7 +350,7 @@ export function NextStep({ job, conversation, now, onShip, foldCard = false }: {
  * the decisions made for you, a stale plan, the evidence); its own row of buttons is hidden, and
  * the bar's two calls press them. Go is off while the card asks a question: a never answers one.
  */
-function GoBar({ job, detail, now, reload, call, foldCard = false }: { job: Job; detail: NonNullable<ReturnType<typeof useJobConversation>['thread']['detail']>; now: Date; reload(): void; call: boolean; foldCard?: boolean }) {
+function GoBar({ job, detail, now, reload, call, foldCard = false, after }: { job: Job; detail: NonNullable<ReturnType<typeof useJobConversation>['thread']['detail']>; now: Date; reload(): void; call: boolean; foldCard?: boolean; after: AfterSend }) {
   const [cardShown, setCardShown] = useShown('stage', 'brief');
   const folded = foldCard && !cardShown;
   const body = useRef<HTMLDivElement>(null);
@@ -308,18 +372,22 @@ function GoBar({ job, detail, now, reload, call, foldCard = false }: { job: Job;
   const press = (what: 'approve' | 'revise') => body.current?.querySelector<HTMLButtonElement>(`[data-gate="${what}"]:not(:disabled)`)?.click();
   const gate = detail.gate;
   const goWords = go.words || 'Approve';
+  // The call pressed spins while its decision is out (the card's own button was pressed for it).
+  const out = after.decision.state === 'sending' && !after.retrying;
+  const spins = (kind: string) => out && after.decision.kind === kind;
   return (
     <div className="job-go">
       <NextBar
         tone="go"
         icon="clipboard"
         label={call ? 'Go / no go' : null}
-        say={gate?.headline || (typeof job.headline === 'string' && job.headline) || 'The Foreman waits for your go-ahead'}
+        say={after.say ?? (gate?.headline || (typeof job.headline === 'string' && job.headline) || 'The Foreman waits for your go-ahead')}
         sub={gate?.nextProposed ? `Say go and the Foreman goes ahead: ${gate.nextProposed}` : job.laneReason}
       >
         {/* On the hosted site a Go made there waits for the laptop (the card under this says so): no calls meanwhile. */}
         {!isOpen(queuedOf(detail.queued)) && <>
-        <Button size="lg" keyId="gate-revise" disabled={go.backOff} onClick={() => press('revise')} title={go.backOff ? 'Off for now: the card under this says why.' : 'No go: say what should change. The Foreman stays at this stop and revises; nothing is approved (key: r).'}>
+        {after.stuck && <TryAgain after={after} />}
+        <Button size="lg" keyId="gate-revise" busy={spins('changes')} disabled={go.backOff} onClick={() => press('revise')} title={go.backOff ? 'Off for now: the card under this says why.' : 'No go: say what should change. The Foreman stays at this stop and revises; nothing is approved (key: r).'}>
           {call ? 'No go: send back' : 'Send back'}
         </Button>
         {/* Go is on whenever the card's own Approve is: with questions it sends your answers too (the
@@ -329,6 +397,7 @@ function GoBar({ job, detail, now, reload, call, foldCard = false }: { job: Job;
           size="lg"
           keyId={go.asks ? undefined : 'gate-approve'}
           keyShown
+          busy={spins('approve')}
           disabled={go.off}
           onClick={() => press('approve')}
           title={go.off ? 'Go is off for now: the card under this says why.' : go.asks ? `${goWords}, with your answers to the questions under this. The a key never answers a question.` : `${goWords} (key: a).`}
@@ -352,13 +421,13 @@ function GoBar({ job, detail, now, reload, call, foldCard = false }: { job: Job;
 }
 
 /** No gate and no permission: what is happening, in words, and the one thing you can do. */
-function StateBar({ job, onShip }: { job: Job; onShip?: () => void }) {
+function StateBar({ job, onShip, after }: { job: Job; onShip?: () => void; after: AfterSend }) {
   const lane = laneOf(job);
   const at = stopOf(job.stage);
   const doing = job.nowDoing?.[0]?.doing ?? null;
   let tone: NextTone = 'quiet';
   let icon: IconName = 'clock';
-  let say = 'Nothing to do right now';
+  let say: ReactNode = 'Nothing to do right now';
   let sub: string | null | undefined = doing ?? job.laneReason;
   let action: ReactNode = <Button size="lg" disabled title="Greyed until there is something to approve.">{at ? STOP_ACTION[at] : 'Approve'}</Button>;
   const prs = onShip
@@ -385,6 +454,8 @@ function StateBar({ job, onShip }: { job: Job; onShip?: () => void }) {
   } else if (lane === 'resting') {
     icon = 'moon'; say = 'Nothing happening'; sub = 'It waits for your next message.'; action = write;
   }
+  // A decision was taken and the Foreman hasn't started yet: the bar says so (and Try again once stuck).
+  if (after.say) { say = after.say; if (after.stuck) action = <TryAgain after={after} />; }
   return <NextBar tone={tone} icon={icon} say={say} sub={sub}>{action}</NextBar>;
 }
 

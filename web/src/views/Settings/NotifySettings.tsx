@@ -60,6 +60,7 @@ export function NotifySettings() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tested, setTested] = useState<string | null>(null);
+  const [testing, setTesting] = useState(false);
   const saved = useSaved();
 
   useEffect(() => {
@@ -76,12 +77,14 @@ export function NotifySettings() {
     finally { setBusy(false); }
   }
   async function test() {
+    if (testing) return;
+    setTesting(true);
     setTested(null);
     try {
       const e = await api.post<{ sent: boolean; why?: string }>('/api/notifications/test', {});
       setTested(e.sent ? `Sent: look at the top right of your screen.${e.why ? ` ${e.why}` : ''}` : `Not sent: ${e.why ?? 'The computer didn’t show it.'}`);
       setView(await api.get<NotificationsView>('/api/notifications'));
-    } catch (err) { setTested(err instanceof Error ? err.message : String(err)); }
+    } catch (err) { setTested(err instanceof Error ? err.message : String(err)); } finally { setTesting(false); }
   }
 
   return (
@@ -153,7 +156,7 @@ export function NotifySettings() {
         </div>
         <AlertSettings />
         <div className="perm-actions" data-setting="notify-test">
-          <Button onClick={() => void test()} title="Send a test notification to macOS now, even while you’re looking at this page.">Send a test</Button>
+          <Button busy={testing} onClick={() => void test()} title="Send a test notification to macOS now, even while you’re looking at this page.">Send a test</Button>
           {tested && <span className="muted" role="status">{tested}</span>}
         </div>
         <section className="notify-history" data-setting="notify-history" aria-labelledby="notify-history-title">

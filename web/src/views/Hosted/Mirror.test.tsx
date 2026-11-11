@@ -4,7 +4,7 @@
 // when the site ends one, and polls every 5 seconds when it can't have one.
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ApiClient } from '../../api/client';
+import { ApiError, type ApiClient } from '../../api/client';
 import type { Gate, JobDetail, Permission } from '../../api/types';
 import { DeskView } from '../../home/DeskView';
 import { deskQueue } from '../../home/homeModel';
@@ -75,6 +75,61 @@ describe('a decision from the site, on its card', () => {
     expect(screen.getByText(/Allow: waiting for your laptop/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Allow once' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+  });
+});
+
+// Spec 1.2 on the website: a decision taken by the site says it went to your laptop; after 30 seconds
+// with nothing moved it says so, and Try again sends the same decision once (the site's answer shows).
+describe('a decision from the site, after the click', () => {
+  it('a queued decision says “Sent to your laptop.”, and at 30 seconds “Nothing has moved yet.”', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    desk(queued('sent', 'Go: sent to your laptop. It runs there in a moment.', { canCancel: true }));
+    const line = await screen.findByText('Sent to your laptop.');
+    expect(line.closest('[role="status"]')).not.toBeNull();
+    act(() => { vi.advanceTimersByTime(29_000); });
+    expect(screen.queryByText('Nothing has moved yet.')).toBeNull();
+    act(() => { vi.advanceTimersByTime(1_000); });
+    expect(screen.getByText('Nothing has moved yet.').closest('[role="status"]')).not.toBeNull();
+    expect(screen.queryByText('Sent to your laptop.')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+  });
+
+  it('a settled decision says neither', async () => {
+    desk(queued('changed', 'This changed on your laptop. Look again. The Foreman moved on to brief 2.', { canCancel: false }));
+    expect(await screen.findByText(/This changed on your laptop/)).toBeInTheDocument();
+    expect(screen.queryByText('Sent to your laptop.')).toBeNull();
+  });
+
+  it('Go spins on the click; once queued, Try again at 30 seconds sends the same decision once and shows the site’s answer', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const store = createStore();
+    store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [ALPHA], meta: { token: null, settings: { play: { mode: 'off' } } } as never }) });
+    let q: QueuedView | null = null;
+    const get = vi.fn(async (): Promise<JobDetail> => ({ slug: 'alpha', thread: [], threadMore: false, gate: GATE, answeredBriefs: [], heldReply: null, options: { level: 1 }, latestBrief: { html: '<p>The plan.</p>', number: 2 }, queued: q }));
+    let answer: (v: unknown) => void = () => {};
+    const post = vi.fn((path: string, _body?: unknown): Promise<unknown> => {
+      if (!path.endsWith('/gate')) return Promise.resolve({ ok: true });
+      if (q) return Promise.reject(new ApiError(409, 'You decided this already. It waits for your laptop; cancel it first to decide again.', { code: 'already-queued' }));
+      return new Promise((res) => { answer = res; });
+    });
+    const api = { get, post, hosted: () => true } as unknown as ApiClient;
+    render(<WorkshopContext.Provider value={{ store, api }}><DeskView items={deskQueue([ALPHA], [])} now={NOW} layout="one" /></WorkshopContext.Provider>);
+    const go = await screen.findByRole('button', { name: /^Approve/ });
+    fireEvent.click(go);
+    fireEvent.click(go);
+    expect(go).toHaveAttribute('aria-busy', 'true');
+    q = queued('sent', 'Go: sent to your laptop. It runs there in a moment.', { canCancel: true });
+    await act(async () => { answer({ ok: true, sent: false, held: true, queued: q, text: '', message: q!.words }); });
+    expect(await screen.findByText('Sent to your laptop.')).toBeInTheDocument();
+    act(() => { vi.advanceTimersByTime(30_000); });
+    const again = screen.getByRole('button', { name: 'Try again' });
+    fireEvent.click(again);
+    fireEvent.click(again);
+    expect(await screen.findByText('You decided this already. It waits for your laptop; cancel it first to decide again.')).toHaveAttribute('role', 'alert');
+    const gatePosts = post.mock.calls.filter(([p]) => p === '/api/job/alpha/gate');
+    expect(gatePosts).toHaveLength(2);
+    expect(gatePosts[1][1]).toEqual(gatePosts[0][1]);
+    expect(screen.getByText('Sent to your laptop.')).toBeInTheDocument();
   });
 });
 

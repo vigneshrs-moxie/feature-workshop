@@ -5,7 +5,7 @@
 // Invented jobs, documents and requests only; no model calls.
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ApiClient } from '../api/client';
+import { ApiError, type ApiClient } from '../api/client';
 import type { Gate, JobDoc, JobDocEntry, JobDetail, Permission } from '../api/types';
 import { installKeyListener } from '../app/keyRegistry';
 import { UiProvider, useUi } from '../app/ui';
@@ -34,7 +34,7 @@ const GATE: Gate = {
   level: 1, suggestedLevel: null, levelReason: null, usage: null,
 };
 
-function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions = [] as Permission[], play = 'subtle', gate = null as Gate | null, slug = 'alpha', extra = null as React.ReactNode } = {}) {
+function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions = [] as Permission[], play = 'subtle', gate = null as Gate | null, slug = 'alpha', extra = null as React.ReactNode, post = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({ ok: true })) } = {}) {
   const store: Store = createStore();
   store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs, permissions, meta: { token: 't', settings: { play: { mode: play } } } as never }) });
   const detail = (s: string): JobDetail => ({ slug: s, thread: [], threadMore: false, gate, answeredBriefs: [], heldReply: null, options: { level: 1 } } as JobDetail);
@@ -49,7 +49,6 @@ function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions =
     if (path.endsWith('/local')) return null;
     return detail(path.split('/')[3]);
   });
-  const post = vi.fn(async (): Promise<unknown> => ({ ok: true }));
   const api = { get, post } as unknown as ApiClient;
   const utils = render(<WorkshopContext.Provider value={{ store, api }}><UiProvider>{extra}<JobPage slug={slug} /></UiProvider></WorkshopContext.Provider>);
   return { ...utils, get, post, store };
@@ -123,6 +122,166 @@ describe('the go / no go bar', () => {
     expect(await screen.findByRole('button', { name: /^Approve/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Send back/ })).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Next step' })).not.toHaveTextContent('Go / no go');
+  });
+});
+
+// Spec 1.2: a decision shows it is on its way (the pressed call spins and can't send twice), then
+// that it was sent, until the job moves; after 30 seconds of nothing it says so and offers Try again.
+describe('after a click on the go / no go bar', () => {
+  const waiting = (extra = {}) => [job('alpha', 'needs-you', { stage: 'plan', lane: 'needs-you', waitingFor: 'approval', headline: 'The plan is ready. Start building?', ...extra })];
+  const SENT_LINE = 'Sent. Waiting for the Foreman to start.';
+  /** A POST to the gate that answers only when told to. */
+  function held() {
+    let answer: (v: unknown) => void = () => {};
+    const post = vi.fn((path: string, _body?: unknown): Promise<unknown> => (path.endsWith('/gate') ? new Promise((res) => { answer = res; }) : Promise.resolve({ ok: true })));
+    return { post, answer: (v: unknown = { ok: true, sent: true, text: 'sent' }) => act(async () => { answer(v); }) };
+  }
+  const sentPost = () => vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({ ok: true, sent: true, text: 'sent' }));
+  const gatePosts = (post: ReturnType<typeof vi.fn>) => post.mock.calls.filter(([p]) => p === '/api/job/alpha/gate');
+  const bar = () => screen.getByRole('region', { name: 'Next step' });
+  /** No go: send back, a note, then the card's Send the changes. */
+  async function sendBack(note = 'Use the small table.') {
+    fireEvent.click(await screen.findByRole('button', { name: /^No go: send back/ }));
+    fireEvent.change(await screen.findByRole('textbox', { name: /What should change\?/ }), { target: { value: note } });
+    return screen.getByRole('button', { name: 'Send the changes' });
+  }
+
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('Go spins on the click and cannot be pressed twice', async () => {
+    const { post, answer } = held();
+    setup({ jobs: waiting(), gate: GATE, post });
+    const go = await screen.findByRole('button', { name: /^Go: approve/ });
+    fireEvent.click(go);
+    fireEvent.click(go);
+    await waitFor(() => expect(go).toHaveAttribute('aria-busy', 'true'));
+    expect(go).toBeDisabled();
+    expect(go.querySelector('.spin-ring')).not.toBeNull();
+    expect(screen.getByRole('button', { name: /^No go: send back/ })).toBeDisabled();
+    expect(gatePosts(post)).toHaveLength(1);
+    expect(gatePosts(post)[0][1]).toEqual(expect.objectContaining({ kind: 'approve' }));
+    await answer();
+  });
+
+  it('after the server accepts, the bar says "Sent. Waiting for the Foreman to start."', async () => {
+    setup({ jobs: waiting(), gate: GATE, post: sentPost() });
+    fireEvent.click(await screen.findByRole('button', { name: /^Go: approve/ }));
+    expect(await within(bar()).findByText(SENT_LINE)).toHaveAttribute('role', 'status');
+    expect(screen.getByRole('button', { name: /^Go: approve/ })).not.toHaveAttribute('aria-busy');
+  });
+
+  it('after 30 seconds with no change it says "Nothing has moved yet." and offers Try again', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    setup({ jobs: waiting(), gate: GATE, post: sentPost() });
+    fireEvent.click(await screen.findByRole('button', { name: /^Go: approve/ }));
+    await within(bar()).findByText(SENT_LINE);
+    act(() => { vi.advanceTimersByTime(29_000); });
+    expect(within(bar()).queryByText('Nothing has moved yet.')).toBeNull();
+    act(() => { vi.advanceTimersByTime(1_000); });
+    expect(within(bar()).getByText('Nothing has moved yet.')).toHaveAttribute('role', 'status');
+    expect(within(bar()).queryByText(SENT_LINE)).toBeNull();
+    expect(within(bar()).getByRole('button', { name: 'Try again' })).toBeEnabled();
+  });
+
+  it('Try again sends the same decision once', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const post = sentPost();
+    setup({ jobs: waiting(), gate: GATE, post });
+    fireEvent.click(await screen.findByRole('button', { name: /^Go: approve/ }));
+    await within(bar()).findByText(SENT_LINE);
+    act(() => { vi.advanceTimersByTime(30_000); });
+    const again = within(bar()).getByRole('button', { name: 'Try again' });
+    fireEvent.click(again);
+    fireEvent.click(again);
+    expect(await within(bar()).findByText(SENT_LINE)).toBeInTheDocument();
+    const sent = gatePosts(post);
+    expect(sent).toHaveLength(2);
+    expect(sent[1][1]).toEqual(sent[0][1]);
+  });
+
+  it('Try again shows the server’s refusal where errors show, and the bar goes back to how it was', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let n = 0;
+    const post = vi.fn(async (path: string): Promise<unknown> => {
+      if (path.endsWith('/gate') && n++ > 0) throw new ApiError(409, 'The Foreman has moved on to brief 3 since this card was shown. Nothing was sent; decide on the new brief.', { code: 'stale-brief' });
+      return { ok: true, sent: true, text: 'sent' };
+    });
+    setup({ jobs: waiting(), gate: GATE, post });
+    fireEvent.click(await screen.findByRole('button', { name: /^Go: approve/ }));
+    await within(bar()).findByText(SENT_LINE);
+    act(() => { vi.advanceTimersByTime(30_000); });
+    fireEvent.click(within(bar()).getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText(/moved on to brief 3/)).toHaveAttribute('role', 'alert');
+    expect(within(bar()).queryByText('Nothing has moved yet.')).toBeNull();
+    expect(within(bar()).queryByRole('button', { name: 'Try again' })).toBeNull();
+  });
+
+  it('when the job moves on, the bar clears', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const { store } = setup({ jobs: waiting(), gate: GATE, post: sentPost() });
+    fireEvent.click(await screen.findByRole('button', { name: /^Go: approve/ }));
+    await within(bar()).findByText(SENT_LINE);
+    act(() => { store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: waiting({ stage: 'implement', waitingFor: null, lane: 'working' }), meta: { token: 't', settings: { play: { mode: 'subtle' } } } as never }) }); });
+    await waitFor(() => expect(within(bar()).queryByText(SENT_LINE)).toBeNull());
+    act(() => { vi.advanceTimersByTime(30_000); });
+    expect(within(bar()).queryByText('Nothing has moved yet.')).toBeNull();
+  });
+
+  it('Send back spins on the click and cannot be pressed twice', async () => {
+    const { post, answer } = held();
+    setup({ jobs: waiting(), gate: GATE, post });
+    const send = await sendBack();
+    fireEvent.click(send);
+    fireEvent.click(send);
+    await waitFor(() => expect(send).toHaveAttribute('aria-busy', 'true'));
+    expect(send.querySelector('.spin-ring')).not.toBeNull();
+    expect(screen.getByRole('button', { name: /^No go: send back/ })).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByRole('button', { name: /^Go: approve/ })).toBeDisabled();
+    expect(gatePosts(post)).toHaveLength(1);
+    expect(gatePosts(post)[0][1]).toEqual(expect.objectContaining({ kind: 'changes', note: 'Use the small table.' }));
+    await answer();
+  });
+
+  it('after the server accepts a send back, the bar says "Sent. Waiting for the Foreman to start."', async () => {
+    setup({ jobs: waiting(), gate: GATE, post: sentPost() });
+    fireEvent.click(await sendBack());
+    expect(await within(bar()).findByText(SENT_LINE)).toHaveAttribute('role', 'status');
+  });
+
+  it('after 30 seconds with no change to a send back it says "Nothing has moved yet."; Try again sends the same send back once', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const post = sentPost();
+    setup({ jobs: waiting(), gate: GATE, post });
+    fireEvent.click(await sendBack());
+    await within(bar()).findByText(SENT_LINE);
+    act(() => { vi.advanceTimersByTime(30_000); });
+    expect(within(bar()).getByText('Nothing has moved yet.')).toBeInTheDocument();
+    const again = within(bar()).getByRole('button', { name: 'Try again' });
+    fireEvent.click(again);
+    fireEvent.click(again);
+    await within(bar()).findByText(SENT_LINE);
+    const sent = gatePosts(post);
+    expect(sent).toHaveLength(2);
+    expect(sent[1][1]).toEqual(sent[0][1]);
+    expect(sent[1][1]).toEqual(expect.objectContaining({ kind: 'changes', note: 'Use the small table.' }));
+  });
+
+  it('when the job moves on after a send back, the bar clears', async () => {
+    const { store } = setup({ jobs: waiting(), gate: GATE, post: sentPost() });
+    fireEvent.click(await sendBack());
+    await within(bar()).findByText(SENT_LINE);
+    act(() => { store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: waiting({ waitingFor: null, lane: 'working' }), meta: { token: 't', settings: { play: { mode: 'subtle' } } } as never }) }); });
+    await waitFor(() => expect(within(bar()).queryByText(SENT_LINE)).toBeNull());
+  });
+
+  it('once the brief is answered and the gate goes, the bar without a gate still says it was sent', async () => {
+    setup({ jobs: waiting(), gate: GATE, post: sentPost() });
+    fireEvent.click(await screen.findByRole('button', { name: /^Go: approve/ }));
+    await within(bar()).findByText(SENT_LINE);
+    // The same job, its page drawn again without its gate (the Foreman's status no longer waits on it).
+    cleanup();
+    setup({ jobs: waiting(), gate: null, post: sentPost() });
+    expect(within(bar()).getByText(SENT_LINE)).toBeInTheDocument();
   });
 });
 

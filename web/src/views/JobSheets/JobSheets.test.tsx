@@ -67,6 +67,24 @@ describe('NewJobSheet', () => {
     expect(localStorage.getItem(LAST_REPO_KEY)).toBe('/tmp/fw-test/sample-two');
   });
 
+  it('Start spins on the click and cannot be pressed twice', async () => {
+    let answer: () => void = () => {};
+    const post = vi.fn(() => new Promise((res) => { answer = () => res({ slug: 'fix-the-typo' }); }));
+    const { onClose, wrap } = setup({ post });
+    wrap(<NewJobSheet onClose={onClose} />);
+    const dialog = screen.getByRole('dialog', { name: 'Start a new job' });
+    await waitFor(() => expect(within(dialog).getByRole('combobox', { name: 'Repository' })).toHaveAttribute('data-value', '/tmp/fw-test/sample-one'));
+    fireEvent.change(within(dialog).getByRole('textbox', { name: /What should the crew build/ }), { target: { value: 'Fix the typo on the login page' } });
+    const start = within(dialog).getByRole('button', { name: 'Start job' });
+    fireEvent.click(start);
+    fireEvent.click(start);
+    expect(start).toHaveAttribute('aria-busy', 'true');
+    expect(start.querySelector('.spin-ring')).not.toBeNull();
+    expect(post).toHaveBeenCalledTimes(1);
+    await act(async () => { answer(); });
+    expect(onClose).toHaveBeenCalled();
+  });
+
   it('can run the whole job on Fable 5.2: the Foreman picker is fixed on Fable and the option is sent', async () => {
     const { post, onClose, wrap } = setup();
     wrap(<NewJobSheet onClose={onClose} />);

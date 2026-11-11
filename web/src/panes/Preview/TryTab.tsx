@@ -107,6 +107,7 @@ export function TryTab({ slug, active }: { slug: string; active: boolean }) {
 
   const act = (action: string, extra: Record<string, unknown> = {}) => api.post<Record<string, unknown>>(base, { action, ...extra });
   async function run(key: string, fn: () => Promise<void>) {
+    if (busy !== null) return;
     setBusy(key);
     try { await fn(); } catch (err) { setNote({ text: (err as Error).message, tone: 'bad' }); } finally { setBusy(null); load(key === 'db'); }
   }
@@ -166,7 +167,7 @@ export function TryTab({ slug, active }: { slug: string; active: boolean }) {
   const appN = dbN + (v.db ? 1 : 0);
   const d = v.db;
   const btn = (key: string, label: string, fn: () => Promise<void>, kind: ButtonKind = 'secondary') => (
-    <Button kind={kind} disabled={busy !== null} onClick={() => run(key, fn)}>{busy === key ? '…' : label}</Button>
+    <Button kind={kind} busy={busy === key} disabled={busy !== null} onClick={() => run(key, fn)}>{label}</Button>
   );
   const dbButtons = d && d.available && !d.busy ? (
     <>
@@ -194,7 +195,7 @@ export function TryTab({ slug, active }: { slug: string; active: boolean }) {
         ) : s === 'starting' ? (
           <><Button className="try-big" disabled>Starting…</Button><p>Starting the app on port {v.port}. The first start takes a little while.</p></>
         ) : (
-          <><Button kind="primary" className="try-big" disabled={busy !== null} onClick={() => run('go', tryIt)}>▶ Try it</Button>
+          <><Button kind="primary" className="try-big" busy={busy === 'go'} disabled={busy !== null} onClick={() => run('go', tryIt)}>▶ Try it</Button>
             <p>Sets up anything missing, starts the app on port {v.port} and gives you the link. {signIn}</p></>
         )}
       </div>
@@ -279,7 +280,7 @@ export function TryTab({ slug, active }: { slug: string; active: boolean }) {
           <div className="try-presets">
             <h4 className="kp-label">Quick commands</h4>
             {v.presets.map((p) => (
-              <Button key={p.id} disabled={busy !== null} title={`${p.hint ? `${p.hint}. ` : ''}Runs: ${p.command}`} onClick={() => run('preset', async () => { await act('run', { preset: p.id }); })}>{p.label}</Button>
+              <Button key={p.id} busy={busy === `preset ${p.id}`} disabled={busy !== null} title={`${p.hint ? `${p.hint}. ` : ''}Runs: ${p.command}`} onClick={() => run(`preset ${p.id}`, async () => { await act('run', { preset: p.id }); })}>{p.label}</Button>
             ))}
           </div>
         )}
@@ -293,7 +294,7 @@ export function TryTab({ slug, active }: { slug: string; active: boolean }) {
           <div className="try-cmd-row">
             <span aria-hidden="true">$</span>
             <input type="text" value={command} spellCheck={false} placeholder="Type a command, for example: npm test" aria-label="Command to run in the job’s folder" onChange={(e) => setCommand(e.target.value)} onKeyDown={onCmdKey} />
-            <Button kind="primary" type="submit" disabled={busy !== null || !command.trim()}>Run</Button>
+            <Button kind="primary" type="submit" busy={busy === 'cmd'} disabled={busy !== null || !command.trim()}>Run</Button>
           </div>
           <p className="muted try-fine">Runs in the job’s folder. Commands can’t ask you questions here; for those, use Open terminal here. ↑ and ↓ bring back earlier commands.</p>
         </form>

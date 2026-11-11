@@ -24,6 +24,7 @@ export function UsageBanner() {
   const { usage } = useWorkshopState();
   const now = useNow();
   const [busy, setBusy] = useState(false);
+  const [resuming, setResuming] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,6 +51,8 @@ export function UsageBanner() {
       : `Claude didn’t say when it resets, so ${BRAND.name} tries again at about ${at}.`;
 
   async function resume() {
+    if (busy) return;
+    setResuming(true);
     setBusy(true);
     setError(null);
     try {
@@ -59,6 +62,7 @@ export function UsageBanner() {
       setError(message(err));
     } finally {
       setBusy(false);
+      setResuming(false);
     }
   }
 
@@ -85,6 +89,7 @@ export function UsageBanner() {
       <div className="usage-actions">
         <Button
           kind="primary"
+          busy={resuming}
           disabled={busy}
           onClick={() => void resume()}
           title="Start the paused jobs again now, for example after you turned on extra usage. If the limit is still in force they pause again."

@@ -270,7 +270,7 @@ function countOf(items: ReviewItemView[]): string {
 
 function ItemRow({ item: i, act, editable, who }: { item: ReviewItemView; act: Act; editable: boolean; who: ReviewRoundPanel['reviewer'] }) {
   const [busy, setBusy] = useState(false);
-  const doIt = async (action: string, body: Record<string, unknown>) => { setBusy(true); try { await act(action, body); } finally { setBusy(false); } };
+  const doIt = async (action: string, body: Record<string, unknown>) => { if (busy) return; setBusy(true); try { await act(action, body); } finally { setBusy(false); } };
   const quote = i.type === 'check' ? (i.quote ?? `${i.name ?? 'A check'} failed`) : i.quote ?? '(no words)';
   const done = DONE.has(i.state);
   const time = clockOf(i.at);
@@ -304,7 +304,7 @@ function ItemRow({ item: i, act, editable, who }: { item: ReviewItemView; act: A
         )}
         {i.state === 'wont_change' && i.reason && <p className="review-plan"><span className="next-label">Why</span> <InlineText text={i.reason} /> <span className="muted">It is never resolved by us: the reviewer decides.</span></p>}
         {i.changeAfterAll && (
-          <Button kind="quiet" size="sm" disabled={busy} onClick={() => void doIt('change-after-all', { id: i.id })} title="Turn this into a fix after all: the Foreman fixes it and the reply says so.">
+          <Button kind="quiet" size="sm" busy={busy} onClick={() => void doIt('change-after-all', { id: i.id })} title="Turn this into a fix after all: the Foreman fixes it and the reply says so.">
             {i.changeAfterAll.label}
           </Button>
         )}
@@ -403,6 +403,7 @@ function FollowUpChoice({ step, ready, reload }: { step: ReviewSendStep; ready: 
   if (!ready) return step.mergeFollowUp === false && step.choice ? <p className="muted">{step.choice}</p> : null;
   const on = step.mergeFollowUp !== false;
   const flip = async (merge: boolean) => {
+    if (busy) return;
     setBusy(true);
     setProblem(null);
     try { await api.post('/api/review/settings', { mergeFollowUp: merge }); await reload(); } catch (err) { setProblem(err instanceof Error ? err.message : String(err)); } finally { setBusy(false); }
@@ -413,7 +414,7 @@ function FollowUpChoice({ step, ready, reload }: { step: ReviewSendStep; ready: 
         <Choice type="checkbox" role="switch" checked={on} disabled={busy} onChange={(e) => void flip(e.currentTarget.checked)} aria-label="This go also merges PR #1 once its checks pass" />
         <span>{on ? 'This go also merges PR #1 once its checks pass' : 'I’ll merge PR #1 myself: the replies and the review request wait until it is merged'}</span>
       </label>
-      {on && <button type="button" className="link-button" disabled={busy} onClick={() => void flip(false)} title="Stop after opening PR #1. Steps 3 to 5 run on their own once GitHub shows it merged.">I’ll merge PR #1 myself</button>}
+      {on && <button type="button" className="link-button" disabled={busy} aria-busy={busy || undefined} onClick={() => void flip(false)} title="Stop after opening PR #1. Steps 3 to 5 run on their own once GitHub shows it merged.">{busy ? 'Saving…' : 'I’ll merge PR #1 myself'}</button>}
       <span className="muted review-choice-note">Remembered for the next round too.</span>
       {problem && <p className="field-problem" role="alert">{problem}</p>}
     </div>
@@ -434,7 +435,7 @@ function ReplyCard({ item: i, act, ready }: { item: ReviewItemView; act: Act; re
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(i.reply ?? '');
   const [busy, setBusy] = useState(false);
-  const doIt = async (body: Record<string, unknown>) => { setBusy(true); try { return await act('item', { id: i.id, ...body }); } finally { setBusy(false); } };
+  const doIt = async (body: Record<string, unknown>) => { if (busy) return false; setBusy(true); try { return await act('item', { id: i.id, ...body }); } finally { setBusy(false); } };
   const save = async () => { if (await doIt({ reply: text.trim() })) setEditing(false); };
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void save(); }
@@ -453,16 +454,16 @@ function ReplyCard({ item: i, act, ready }: { item: ReviewItemView; act: Act; re
         {ready && editing && (
           <>
             <Button kind="quiet" size="sm" disabled={busy} onClick={() => { setText(i.reply ?? ''); setEditing(false); }} title="Keep the reply as it was (Esc).">Cancel</Button>
-            <Button kind="primary" size="sm" disabled={busy || !text.trim()} onClick={() => void save()} title="Save this reply (Enter; Shift+Enter for a new line).">Save <kbd className="kbd key-hint" aria-hidden="true">↵</kbd></Button>
+            <Button kind="primary" size="sm" busy={busy} disabled={!text.trim()} onClick={() => void save()} title="Save this reply (Enter; Shift+Enter for a new line).">Save <kbd className="kbd key-hint" aria-hidden="true">↵</kbd></Button>
           </>
         )}
         {ready && !editing && !i.replyDropped && (
           <>
             <Button kind="quiet" size="sm" icon="pencil" disabled={busy} onClick={() => { setText(i.reply ?? ''); setEditing(true); }} title="Change the words before they are posted.">Edit</Button>
-            <Button kind="quiet" size="sm" icon="x" disabled={busy} onClick={() => void doIt({ replyDropped: true })} title="Don’t post this reply. The comment stays open; you can put it back.">Drop</Button>
+            <Button kind="quiet" size="sm" icon="x" busy={busy} onClick={() => void doIt({ replyDropped: true })} title="Don’t post this reply. The comment stays open; you can put it back.">Drop</Button>
           </>
         )}
-        {ready && i.replyDropped && <Button kind="quiet" size="sm" disabled={busy} onClick={() => void doIt({ replyDropped: false })} title="Post this reply after all.">Put it back</Button>}
+        {ready && i.replyDropped && <Button kind="quiet" size="sm" busy={busy} onClick={() => void doIt({ replyDropped: false })} title="Post this reply after all.">Put it back</Button>}
         {!ready && i.replyState && <span className={`review-reply-state${failed ? ' is-fail' : ''}`}><Icon name={REPLY_ICON[i.replyState] ?? 'clock'} size={14} /> {i.replyState}</span>}
       </div>
     </li>

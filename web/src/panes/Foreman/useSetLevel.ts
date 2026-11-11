@@ -9,6 +9,8 @@ import { useWorkshop, useWorkshopState } from '../../state/store';
 
 export interface SetLevel {
   busy: boolean;
+  /** The level being set, while it is on its way. */
+  pending: LevelNumber | null;
   error: string | null;
   /** What the last change did, in words; null before one (or once cleared). */
   done: string | null;
@@ -20,12 +22,14 @@ export interface SetLevel {
 export function useSetLevel(slug: string, from: LevelNumber | null, stage: string | null = null, kind: string | null = null): SetLevel {
   const { api } = useWorkshop();
   const { meta } = useWorkshopState();
-  const [busy, setBusy] = useState(false);
+  // The level being set (its button spins; the others are off).
+  const [pending, setPending] = useState<LevelNumber | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
 
   async function set(level: LevelNumber) {
-    setBusy(true);
+    if (pending !== null) return false;
+    setPending(level);
     setError(null);
     try {
       await setJobLevel(api, slug, level);
@@ -36,9 +40,9 @@ export function useSetLevel(slug: string, from: LevelNumber | null, stage: strin
       setError(err instanceof Error ? err.message : String(err));
       return false;
     } finally {
-      setBusy(false);
+      setPending(null);
     }
   }
 
-  return { busy, error, done, set, clear: () => { setDone(null); setError(null); } };
+  return { busy: pending !== null, pending, error, done, set, clear: () => { setDone(null); setError(null); } };
 }

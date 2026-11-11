@@ -88,7 +88,11 @@ function StackBody({ stack, view: raw, guide, onHow }: { stack: StackState; view
   const peekPart = peekAt ? view.parts.find((p) => String(p.n) === peekAt) ?? null : null;
   const peek = peekPart !== null;
 
+  // The bar's button whose request is out spins (the others are off meanwhile).
+  const [pressed, setPressed] = useState<StackAction['kind'] | null>(null);
   function run(a: StackAction) {
+    if (stack.sending) return;
+    setPressed(a.kind);
     switch (a.kind) {
       case 'approve': void stack.act('approve-plan', { cap: draft.cap, autoIntegrate: draft.autoIntegrate }); break;
       case 'change': setSheet({ note: 'plan' }); break;
@@ -131,7 +135,7 @@ function StackBody({ stack, view: raw, guide, onHow }: { stack: StackState; view
   useKeyScope('stack', handlers, sheet === null && !details);
 
   const button = (b: StackButton | null, primary: boolean) => b && (
-    <Button size="lg" kind={primary ? 'primary' : 'secondary'} disabled={b.disabled || stack.sending} onClick={() => run(b.action)} title={b.hint} keyId={b.key} keyShown={primary}>
+    <Button size="lg" kind={primary ? 'primary' : 'secondary'} busy={stack.sending && pressed === b.action.kind} disabled={b.disabled || stack.sending} onClick={() => run(b.action)} title={b.hint} keyId={b.key} keyShown={primary}>
       {b.label}
     </Button>
   );
@@ -405,7 +409,7 @@ function NoteSheet({ kind, part, sending, onClose, onSend }: { kind: 'plan' | 'n
         />
         <div className="sheet-actions">
           <button type="button" className="btn btn-lg" onClick={onClose} disabled={sending}>Cancel</button>
-          <button type="submit" className="btn btn-primary btn-lg" disabled={!can || sending}>{plan ? 'Send to the Foreman' : 'Send back'}</button>
+          <Button type="submit" kind="primary" size="lg" busy={sending} disabled={!can}>{plan ? 'Send to the Foreman' : 'Send back'}</Button>
         </div>
       </form>
     </Sheet>
@@ -446,9 +450,9 @@ function PushBox({ view, play, sending, onClose, onGo }: { view: StackView; play
           <button type="button" className="btn btn-lg" onClick={onClose} disabled={sending} title="Nothing is pushed. You can push later from this page (Esc).">
             No go {hint('Esc')}
           </button>
-          <button ref={go} type="button" className="btn btn-primary btn-lg" onClick={onGo} disabled={sending} title="Go: the Foreman pushes the branch to your fork (p).">
+          <Button ref={go} kind="primary" size="lg" busy={sending} onClick={onGo} title="Go: the Foreman pushes the branch to your fork (p).">
             Go: push {hint('p')}
-          </button>
+          </Button>
         </div>
       </section>
     </div>

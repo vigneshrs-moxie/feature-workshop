@@ -211,7 +211,7 @@ function WhoIsOn({ job, view, now, faces, finishedOpen, setFinishedOpen }: { job
         <h3 id="stage-who-title">Who’s on it</h3>
         <span className="muted">{view.agents.length === 0 ? 'Nobody right now' : working ? `${working} working` : `${view.agents.length} here`}</span>
         <span className="spacer" />
-        <Button kind="quiet" icon="folder" disabled={busy !== null} onClick={() => void openFolder()} title="Open a terminal in the job’s folder (its worktree).">
+        <Button kind="quiet" icon="folder" busy={busy === 'folder'} disabled={busy !== null} onClick={() => void openFolder()} title="Open a terminal in the job’s folder (its worktree).">
           Open the job’s folder in a terminal
         </Button>
         {apps.length > 1 && (
@@ -262,6 +262,7 @@ function AgentRow({ a, now, faces, busy, onOpen }: { a: StageAgent; now: Date; f
         <Button
           kind={cont ? 'secondary' : 'quiet'}
           icon={cont ? 'terminal' : 'scroll'}
+          busy={busy}
           disabled={!a.terminal.ready || busy}
           onClick={onOpen}
           title={a.terminal.ready ? (cont ? 'Open the Foreman in a terminal and carry on its session there.' : `Follow the ${role}’s log in a terminal. Read-only: nothing you type reaches it.`) : a.terminal.why ?? 'Not available now.'}

@@ -89,11 +89,12 @@ export function LevelChip({ job, ready = true }: { job: Job; ready?: boolean }) 
                   <button
                     type="button"
                     disabled={choice.busy || now}
+                    aria-busy={choice.pending === n || undefined}
                     aria-current={now ? 'true' : undefined}
                     onClick={() => void choice.set(n)}
                     title={now ? 'The level this job runs at now.' : `Run this job at ${levelLabel(n, levels, job.kind)} from the next stage. ${levelChange(level, n, levels, names, stage, job.kind).text}.`}
                   >
-                    {now ? `✓ ${levelLabel(n, levels, job.kind)} (now)` : `Use ${levelLabel(n, levels, job.kind)}`}
+                    {now ? `✓ ${levelLabel(n, levels, job.kind)} (now)` : choice.pending === n ? `Setting ${levelLabel(n, levels, job.kind)}…` : `Use ${levelLabel(n, levels, job.kind)}`}
                   </button>
                 </li>
               );

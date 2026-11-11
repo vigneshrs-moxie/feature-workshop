@@ -77,7 +77,7 @@ export function SendPreview({
   }, [busy, onClose]);
 
   async function send() {
-    if (blocked) return;
+    if (blocked || busy) return;
     if (!text.trim()) { setError('The message is empty.'); return; }
     if (askTerminal && !noTerminal) { setError('Check the open terminals first, then tick the box.'); return; }
     setBusy(true);
@@ -122,8 +122,8 @@ export function SendPreview({
         {blocked && <p className="perm-warn" role="alert">{blocked}</p>}
         {error && <p className="field-problem" role="alert">{error}</p>}
         <div className="sheet-actions">
-          <Button kind="primary" onClick={() => void send()} disabled={busy || Boolean(blocked)} title={blocked ?? sendHint}>
-            {busy ? 'Sending…' : sendLabel}
+          <Button kind="primary" onClick={() => void send()} busy={busy} disabled={Boolean(blocked)} title={blocked ?? sendHint}>
+            {sendLabel}
           </Button>
           <Button kind="quiet" onClick={onClose} disabled={busy} title="Go back without sending. Nothing is lost.">Back</Button>
         </div>
@@ -182,7 +182,7 @@ export function Composer({ slug, detail, run }: { slug: string; detail: JobDetai
 
   async function steer() {
     // A gate reply goes as its own message once the Foreman finishes, never into the reply in progress.
-    if (!running || empty || gate) return;
+    if (!running || empty || gate || busy) return;
     setBusy('steer');
     setError(null);
     setNote(null);
@@ -201,7 +201,7 @@ export function Composer({ slug, detail, run }: { slug: string; detail: JobDetai
   }
 
   async function stop() {
-    if (!running) return;
+    if (!running || busy) return;
     setBusy('stop');
     setError(null);
     try {
@@ -301,19 +301,21 @@ export function Composer({ slug, detail, run }: { slug: string; detail: JobDetai
             <Button
               kind="danger"
               onClick={() => void stop()}
+              busy={busy === 'stop'}
               disabled={stopping || busy !== null}
               title="End the Foreman’s reply now. Anything waiting for your answer is declined, your draft is kept, and the job waits for your next message."
             >
-              {stopping || busy === 'stop' ? 'Stopping…' : 'Stop'}
+              {stopping ? 'Stopping…' : 'Stop'}
             </Button>
             <Button
               kind="primary"
               onClick={() => void steer()}
+              busy={busy === 'steer'}
               disabled={empty || stopping || busy !== null || gateWaits}
               title={gateWaits ? `This is your reply to brief ${gate?.brief}; it goes as its own message once the Foreman finishes. Make it a plain message to steer it.`
                 : stopping ? 'The reply is stopping. Send your message once it has stopped.' : 'Add your message to the reply in progress. The Foreman reads it at its next step; its state shows on your message.'}
             >
-              {busy === 'steer' ? 'Steering…' : 'Steer'}
+              Steer
             </Button>
           </>
         ) : (

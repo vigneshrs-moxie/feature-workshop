@@ -11,6 +11,8 @@ import { createStore, WorkshopContext, type Store } from '../../state/store';
 import { job, LEVELS, REVIEWERS, snapshot } from '../../state/test-fixtures';
 import { Composer, draftKey } from './Composer';
 import { GateSlot } from './GateCard';
+import { gateSentKey } from './gateSent';
+import { clearAllSent, useSent } from '../../lib/sentState';
 
 // An invented job and gate; no real job names.
 const QUESTIONS: Gate['questions'] = [
@@ -789,5 +791,96 @@ describe('GateCard: the screens stage', () => {
     expect(screen.queryByRole('group', { name: 'The screens' })).toBeNull();
     show(detail({ questions: [QUESTIONS[0]] }));
     expect(screen.queryByRole('group', { name: 'The screens' })).toBeNull();
+  });
+});
+
+// Spec 1.2: the card's own buttons spin while their decision is out and can't send twice; the
+// decision is shared with the job page's bar (gateSent.ts), sent only when it went to the Foreman.
+describe('GateCard: a decision on its way', () => {
+  beforeEach(disclosuresOpen);
+
+  /** A POST to the gate that answers only when told to. */
+  function held() {
+    let answer: (v: unknown) => void = () => {};
+    let refuse: (e: unknown) => void = () => {};
+    const post = vi.fn((path: string, _body?: unknown): Promise<unknown> => (path.endsWith('/gate') ? new Promise((res, rej) => { answer = res; refuse = rej; }) : Promise.resolve({})));
+    return { post, answer: (v: unknown = SENT) => act(async () => { answer(v); }), refuse: (e: unknown) => act(async () => { refuse(e); }) };
+  }
+  const gatePosts = (post: ReturnType<typeof vi.fn>) => post.mock.calls.filter(([p]) => p === '/api/job/alpha/gate');
+  function Probe() { const s = useSent(gateSentKey('alpha')); return <output data-testid="sent">{s.state}</output>; }
+
+  it('Approve spins on the click and cannot be pressed twice; the other calls rest meanwhile', async () => {
+    const { post, answer } = held();
+    setup({ det: oneQ(), post });
+    const approve = button(/^Approve/);
+    fireEvent.click(approve);
+    fireEvent.click(approve);
+    expect(approve).toHaveAttribute('aria-busy', 'true');
+    expect(approve.querySelector('.spin-ring')).not.toBeNull();
+    expect(button(/^Revise with feedback/)).toBeDisabled();
+    expect(gatePosts(post)).toHaveLength(1);
+    await answer();
+    expect(approve).not.toHaveAttribute('aria-busy');
+  });
+
+  it('Send the guidance spins on the click and cannot be pressed twice', async () => {
+    const { post, answer } = held();
+    setup({ det: oneQ(), post });
+    fireEvent.click(button('Other guidance'));
+    fireEvent.change(within(card()!).getByRole('textbox', { name: /Your guidance or question/ }), { target: { value: 'Is the CSV in scope?' } });
+    const send = button('Send the guidance');
+    fireEvent.click(send);
+    fireEvent.click(send);
+    expect(send).toHaveAttribute('aria-busy', 'true');
+    expect(gatePosts(post)).toHaveLength(1);
+    await answer();
+  });
+
+  it('Stop the job spins on the click and cannot be pressed twice', async () => {
+    const { post, answer } = held();
+    setup({ det: oneQ(), post });
+    fireEvent.click(button('More actions'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Stop job…' }));
+    fireEvent.change(within(card()!).getByRole('textbox', { name: /Type the job’s name/ }), { target: { value: 'alpha' } });
+    const stop = button('Stop the job');
+    await act(async () => { fireEvent.click(stop); });
+    fireEvent.click(stop);
+    expect(stop).toHaveAttribute('aria-busy', 'true');
+    expect(gatePosts(post)).toHaveLength(1);
+    await answer();
+  });
+
+  it('a refusal stops the spinner, says why on the card, and the card can send again', async () => {
+    const { post, refuse } = held();
+    setup({ det: oneQ(), post });
+    render(<Probe />);
+    fireEvent.click(button(/^Approve/));
+    expect(screen.getByTestId('sent')).toHaveTextContent('sending');
+    await refuse(new ApiError(400, 'The reply is too long.'));
+    expect(screen.getByTestId('sent')).toHaveTextContent('idle');
+    expect(within(card()!).getByRole('alert')).toHaveTextContent('The reply is too long.');
+    expect(button(/^Approve/)).toBeEnabled();
+    expect(button(/^Approve/)).not.toHaveAttribute('aria-busy');
+  });
+
+  it('sent once it went to the Foreman; a reply held for the limit, given back, or queued by the website is not', async () => {
+    const outcomes: [unknown, string][] = [
+      [SENT, 'sent'],
+      [{ ok: true, sent: false, held: true, text: '', message: 'Held until Claude’s usage limit resets.' }, 'idle'],
+      [{ ok: true, sent: false, queued: false, text: 'Approved.', message: 'still working' }, 'idle'],
+      [{ ok: true, sent: false, held: true, queued: { id: 'd_1', state: 'waiting' }, text: '', message: 'Go: waiting for your laptop.' }, 'idle'],
+    ];
+    for (const [answer, state] of outcomes) {
+      const post = vi.fn(async () => answer);
+      const { unmount } = setup({ det: oneQ(), post });
+      const probe = render(<Probe />);
+      await act(async () => { fireEvent.click(button(/^Approve/)); });
+      expect(screen.getByTestId('sent'), JSON.stringify(answer)).toHaveTextContent(state);
+      unmount();
+      probe.unmount();
+      clearAllSent();
+      localStorage.clear();
+      disclosuresOpen();
+    }
   });
 });

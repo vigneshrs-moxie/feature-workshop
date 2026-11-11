@@ -12,6 +12,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Job, StackSummary } from '../../api/types';
 import { jobHref, stackHref } from '../../app/router';
+import { Button } from '../../components/Button';
 import { Icon } from '../../components/Icon';
 import { relativeTime } from '../../lib/time';
 import { useWorkshop } from '../../state/store';
@@ -119,6 +120,7 @@ export function StackSuggestion({ job, index }: { job: Job; index: StackIndex })
   const why = typeof job.stackSuggested === 'string' && job.stackSuggested.trim() ? job.stackSuggested.trim() : null;
   if (!why || index.stackOf(job.slug) || index.partOf(job.slug)) return null;
   async function run() {
+    if (sent !== 'no') return;
     setSent('sending');
     setProblem(null);
     try {
@@ -138,7 +140,7 @@ export function StackSuggestion({ job, index }: { job: Job; index: StackIndex })
       </p>
       {sent === 'yes'
         ? <span className="muted" role="status">Sent. The Foreman writes the stack’s plan next.</span>
-        : <button type="button" className="btn" disabled={sent === 'sending'} onClick={() => void run()} title="Tell the Foreman to split the work into parts that are built side by side, then joined in order.">Run as a stack instead</button>}
+        : <Button busy={sent === 'sending'} onClick={() => void run()} title="Tell the Foreman to split the work into parts that are built side by side, then joined in order.">Run as a stack instead</Button>}
       {problem && <p className="field-problem" role="alert">{problem}</p>}
     </section>
   );

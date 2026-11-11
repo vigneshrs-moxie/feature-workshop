@@ -34,6 +34,7 @@ import { StopMap } from '../components/stops/StopMap';
 import { Card } from '../components/permissions/PendingCards';
 import { fullTime, relativeTime } from '../lib/time';
 import { GateSlot } from '../panes/Foreman/GateCard';
+import { useGateSent } from '../panes/Foreman/gateSent';
 import { ServerHtml } from '../panes/Foreman/ServerHtml';
 import { useJobThread } from '../panes/Foreman/useJobThread';
 import { CrewMember } from '../play/CrewMember';
@@ -87,6 +88,9 @@ function DeskGateOne({ job, now, briefOpen, toggleBrief, call }: { job: Job; now
   const body = useRef<HTMLDivElement>(null);
   const [go, setGo] = useState({ words: '', off: true, asks: false });
   const [extras, setExtras] = useState<HTMLDivElement | null>(null);
+  // The call pressed spins while its decision is out (the card's own button was pressed for it).
+  const decision = useGateSent(job, state.runs[job.slug] ?? thread.detail?.run ?? null);
+  const spins = (kind: string) => decision.state === 'sending' && decision.kind === kind;
   // The gate card's own key for Adjust the next step opens the Details it lives in; Esc closes them.
   useEffect(() => {
     if (!extras) return;
@@ -158,10 +162,10 @@ function DeskGateOne({ job, now, briefOpen, toggleBrief, call }: { job: Job; now
       </div>
       {gate ? (
         <div className={`desk-calls${call ? ' is-call' : ''}`}>
-          <Button kind="quiet" keyId="desk-reply" className="desk-call-reply" onClick={() => press('guidance')} title="Ask or tell the Foreman something without deciding: nothing is approved (key: c).">
+          <Button kind="quiet" keyId="desk-reply" className="desk-call-reply" busy={spins('message')} disabled={decision.state === 'sending'} onClick={() => press('guidance')} title="Ask or tell the Foreman something without deciding: nothing is approved (key: c).">
             Reply
           </Button>
-          <Button size={phone ? 'lg' : undefined} keyId="desk-send-back" className="desk-call-no" onClick={() => press('revise')} title="No go: say what should change. The Foreman stays at this stop and revises; nothing is approved (key: r).">
+          <Button size={phone ? 'lg' : undefined} keyId="desk-send-back" className="desk-call-no" busy={spins('changes')} disabled={decision.state === 'sending'} onClick={() => press('revise')} title="No go: say what should change. The Foreman stays at this stop and revises; nothing is approved (key: r).">
             {call ? <>No go<span className="call-long">: send back</span></> : 'Send back'}
           </Button>
           {/* Go is on whenever the card's own Approve is: with questions it sends your answers too, but
@@ -172,6 +176,7 @@ function DeskGateOne({ job, now, briefOpen, toggleBrief, call }: { job: Job; now
             keyId={go.asks ? undefined : 'desk-approve'}
             keyShown
             className="desk-call-go"
+            busy={spins('approve')}
             disabled={go.off}
             onClick={() => press('approve')}
             title={go.off ? 'Go is off for now: the card says why.' : go.asks ? `${goWords}, with your answers to the questions on the card. The a key never answers a question.` : `${goWords} (key: a).`}

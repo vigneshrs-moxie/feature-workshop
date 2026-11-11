@@ -26,7 +26,7 @@ const ticket = (n: number, extra: Partial<InboxItem> = {}): InboxItem => ({
 });
 const lap = (id: number, name: string, online: boolean): Laptop => ({ id, name, os: 'macOS', version: '0.1.0', pairedAt: ago(86_400_000 * 5), lastSeenAt: ago(online ? 5_000 : 3_600_000), online });
 
-interface Site { status: OrbitStatus; items: InboxItem[]; filter?: InboxFilter; laptops: Laptop[]; calls: { method: string; path: string; body?: Record<string, unknown> }[]; startFails?: string }
+interface Site { status: OrbitStatus; items: InboxItem[]; filter?: InboxFilter; laptops: Laptop[]; calls: { method: string; path: string; body?: Record<string, unknown> }[]; startFails?: string; /** Start answers only once this settles. */ hold?: Promise<void> }
 
 function site(over: Partial<Site> = {}) {
   const s: Site = { status: STATUS, items: [ticket(12), ticket(13, { severity: 'low' })], laptops: [lap(7, 'Olive’s Mac', true)], calls: [], ...over };
@@ -46,6 +46,7 @@ function site(over: Partial<Site> = {}) {
     }
     if (path === '/api/orbit/token' && method === 'DELETE') { s.status = { ...STATUS, tokenPresent: false, expiresAt: null }; return json(200, s.status); }
     if (path === '/api/orbit/start' && method === 'POST') {
+      if (s.hold) await s.hold;
       if (s.startFails) return json(409, { error: s.startFails });
       const l = s.laptops.find((x) => x.id === body?.laptopId)!;
       const start: InboxStart = { id: 41, state: l.online ? 'sending' : 'waiting', laptop: { id: l.id, name: l.name, online: l.online }, at: new Date().toISOString() };
@@ -107,6 +108,22 @@ describe('the hosted Inbox', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(s.calls.some((c) => c.method === 'DELETE' && c.path === '/api/orbit/start/41')).toBe(true));
     expect(await screen.findByRole('button', { name: 'Start a job on ORBIT-12' })).toBeInTheDocument();
+  });
+
+  it('Start spins on the click and cannot be pressed twice', async () => {
+    let release: () => void = () => {};
+    const { s, api } = site({ hold: new Promise<void>((res) => { release = res; }) });
+    render(<HostedApp api={api} />);
+    const start = await screen.findByRole('button', { name: 'Start a job on ORBIT-12' });
+    fireEvent.click(start);
+    fireEvent.click(start);
+    await waitFor(() => expect(start).toHaveAttribute('aria-busy', 'true'));
+    expect(start.querySelector('.spin-ring')).not.toBeNull();
+    await waitFor(() => expect(s.calls.filter((c) => c.path === '/api/orbit/start')).toHaveLength(1));
+    expect(s.calls.filter((c) => c.path === '/api/laptops')).toHaveLength(1);
+    release();
+    expect(await screen.findByText('Starting on Olive’s Mac…')).toBeInTheDocument();
+    expect(s.calls.filter((c) => c.path === '/api/orbit/start')).toHaveLength(1);
   });
 
   it('with the laptop off the row says “Starts when your laptop is back”', async () => {

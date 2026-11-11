@@ -36,7 +36,8 @@ export function OrbitTokenSettings() {
   const [url, setUrl] = useState('');
   const [token, setToken] = useState('');
   const [days, setDays] = useState<string>('');
-  const [busy, setBusy] = useState(false);
+  // Saving the token (its button says so) or forgetting it (its button spins).
+  const [busy, setBusy] = useState<'save' | 'forget' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
 
@@ -50,7 +51,8 @@ export function OrbitTokenSettings() {
 
   async function save(e: FormEvent) {
     e.preventDefault();
-    setBusy(true);
+    if (busy) return;
+    setBusy('save');
     setError(null);
     setSaved(null);
     try {
@@ -61,12 +63,13 @@ export function OrbitTokenSettings() {
     } catch (err) {
       setError(message(err));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
   async function forget() {
-    setBusy(true);
+    if (busy) return;
+    setBusy('forget');
     setError(null);
     setSaved(null);
     try {
@@ -75,7 +78,7 @@ export function OrbitTokenSettings() {
     } catch (err) {
       setError(message(err));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -106,9 +109,9 @@ export function OrbitTokenSettings() {
         <label htmlFor={`${id}-days`}>How long it lasts</label>
         <Select id={`${id}-days`} value={days} onChange={setDays} options={[{ value: '', label: 'I don’t know' }, ...LIFETIMES.map((l) => ({ value: String(l.days), label: l.label }))]} />
         <div className="doc-actions">
-          <Button type="submit" disabled={busy || !token.trim()} title="Keep the token on this computer and check it with Orbit.">{busy ? 'Saving…' : 'Save the token'}</Button>
+          <Button type="submit" disabled={busy !== null || !token.trim()} title="Keep the token on this computer and check it with Orbit.">{busy === 'save' ? 'Saving…' : 'Save the token'}</Button>
           {status?.tokenPresent && (
-            <Button kind="quiet" disabled={busy} onClick={() => void forget()} title="Remove the token from this computer and the Foreman’s Orbit entry from Claude Code’s settings.">Forget the token</Button>
+            <Button kind="quiet" busy={busy === 'forget'} disabled={busy !== null} onClick={() => void forget()} title="Remove the token from this computer and the Foreman’s Orbit entry from Claude Code’s settings.">Forget the token</Button>
           )}
         </div>
       </form>

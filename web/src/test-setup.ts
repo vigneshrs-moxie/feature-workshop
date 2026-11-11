@@ -4,6 +4,8 @@ import { cleanup, configure } from '@testing-library/react';
 import { setCrewClock } from './play/eggs';
 import { setGuideFirstVisit } from './components/page/Page';
 import { setDefaultDetail } from './app/detail';
+import { clearAllSent } from './lib/sentState';
+import { clearGateSent } from './panes/Foreman/gateSent';
 
 // Packets build side by side on one Mac, so the suite often runs under heavy load. Give findBy and
 // waitFor 4 s rather than 1 s, so a slow machine waits longer instead of failing; a real failure
@@ -17,4 +19,5 @@ beforeEach(() => setCrewClock(() => new Date(2026, 5, 17, 12)));
 beforeEach(() => setGuideFirstVisit(false));
 // Every detail shows (Settings → Look → Detail: Full) unless a test asks for Simple, the default.
 beforeEach(() => setDefaultDetail('full'));
-afterEach(() => cleanup());
+// A send outlives the page that made it (lib/sentState.ts): each test starts with none out.
+afterEach(() => { cleanup(); clearAllSent(); clearGateSent(); });

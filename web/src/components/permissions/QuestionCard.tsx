@@ -65,7 +65,7 @@ function QuestionGroup({ q, i, pick, onChange, disabled }: { q: AskedQuestion; i
 }
 
 export function QuestionCard({ permission: p, now, showJob = false }: { permission: Permission; now: Date; showJob?: boolean }) {
-  const { busy, error, send } = useAnswer(p);
+  const { busy, pending, error, send } = useAnswer(p);
   const questions = Array.isArray(p.input?.questions) ? p.input.questions : [];
   const [picks, setPicks] = useState<Pick[]>(() => questions.map(() => EMPTY));
   const [denying, setDenying] = useState(false);
@@ -88,7 +88,7 @@ export function QuestionCard({ permission: p, now, showJob = false }: { permissi
         {isOpen(queued) && <QueuedDecision queued={queued} />}
         {!denying && !isOpen(queued) && (
           <div className="perm-actions">
-            <Button type="submit" kind="primary" disabled={busy || !ready} title={ready ? 'Send your answers to the Foreman.' : 'Answer every question first.'}>Send answers</Button>
+            <Button type="submit" kind="primary" busy={pending === 'allow'} disabled={busy || !ready} title={ready ? 'Send your answers to the Foreman.' : 'Answer every question first.'}>Send answers</Button>
             <Button kind="quiet" disabled={busy} onClick={() => setDenying(true)} title="Don’t answer. The Foreman carries on without your choice; you can tell it why.">Don’t answer…</Button>
           </div>
         )}

@@ -52,7 +52,7 @@ function Side() {
 
 export function HomeView({ view }: { view: Exclude<View, 'desk'> }) {
   const state = useWorkshopState();
-  const { flow, refresh, problem } = useFlow();
+  const { flow, refresh, refreshing, problem } = useFlow();
   const ui = useUi();
   const now = useNow();
   const [filterRaw, setFilter] = useStored(MAP_FILTER_KEY);
@@ -83,9 +83,9 @@ export function HomeView({ view }: { view: Exclude<View, 'desk'> }) {
         {view === 'table' && (
           <>
             <span className="muted home-read" role="status" title={flow?.nextFetchAt ? `The next read is due ${relativeTime(flow.nextFetchAt, now) || 'soon'}. Local counts are redone every minute.` : undefined}>
-              {flow?.refreshing ? 'Reading branches and PRs…' : read}
+              {refreshing ? 'Reading branches and PRs…' : read}
             </span>
-            <Button onClick={() => void refresh()} disabled={flow?.refreshing} title="Fetch the branches and read the PRs now (read-only: git fetch and gh).">Refresh</Button>
+            <Button onClick={() => void refresh()} disabled={refreshing} title="Fetch the branches and read the PRs now (read-only: git fetch and gh).">Refresh</Button>
           </>
         )}
         <Button onClick={() => ui.openSheet({ kind: 'new-job' })} title="Start a new job (key: c).">New job</Button>
@@ -101,7 +101,7 @@ export function HomeView({ view }: { view: Exclude<View, 'desk'> }) {
                 <p><strong>main ↑3 ↓2</strong> means the branch has 3 commits main doesn’t, and main has 2 it doesn’t: main moved on, so bring it in before the next push. <strong>not pushed</strong> and <strong>uncommitted</strong> count what is only on your machine. Each repo’s line is its release train: how many commits wait in staging, the open release PR, the last release.</p>
                 <p>Keys: <strong>j</strong> and <strong>k</strong> move the highlight, <strong>Enter</strong> opens the job, <strong>o</strong> its newest PR, <strong>/</strong> jumps to the chips, <strong>1</strong>–<strong>4</strong> pick them. The branches are fetched and the PRs read every 10 minutes (read-only); the counts are redone every minute. Refresh reads them now.</p>
               </HowThisWorks>
-              <FlowMap repos={repos} now={now} finishLine={finishLine} withClosed={filter === 'all'} setWithClosed={(on) => setFilter(on ? 'all' : 'open')} read={read} refreshing={Boolean(flow?.refreshing)} onRefresh={() => void refresh()} />
+              <FlowMap repos={repos} now={now} finishLine={finishLine} withClosed={filter === 'all'} setWithClosed={(on) => setFilter(on ? 'all' : 'open')} read={read} refreshing={refreshing} onRefresh={() => void refresh()} />
               {!repos.length && (
                 <p className="muted home-empty">{flow ? 'No job has a repository and a branch yet. They show here once their Foreman sets one up.' : 'Opening the map…'}</p>
               )}

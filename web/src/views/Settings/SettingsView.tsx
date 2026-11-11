@@ -91,12 +91,14 @@ function PolicyChoice() {
   const current: PolicyId = settings?.policy ?? 'hands-off';
   const auto = autoModeOf(settings);
   const blocked = autoBlockedReason(auto);
-  const [busy, setBusy] = useState(false);
+  // What is being saved: a policy picked, or Check again (which spins).
+  const [busy, setBusy] = useState<'policy' | 'recheck' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const saved = useSaved();
 
   async function post(body: Record<string, unknown>) {
-    setBusy(true);
+    if (busy) return;
+    setBusy(body.recheckAuto ? 'recheck' : 'policy');
     setError(null);
     try {
       store.dispatch({ type: 'settings', settings: await api.post<Settings>('/api/settings', body) });
@@ -104,7 +106,7 @@ function PolicyChoice() {
     } catch (err) {
       setError(message(err));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -117,7 +119,7 @@ function PolicyChoice() {
         <p>If your installed <code>/feature</code> skill is older than {BRAND.name} (it doesn’t know levels yet), a warning shows here with how to update it.</p>
       </HowThisWorks>
       <SkillWarning />
-      <fieldset className="rule-options policy-options" disabled={busy} data-setting="policy">
+      <fieldset className="rule-options policy-options" disabled={busy !== null} data-setting="policy">
         <legend className="sr-only">How much the Foreman may do without asking you</legend>
         {POLICIES.map((p) => {
           const off = p.id === 'auto' && blocked !== null && current !== 'auto';
@@ -134,7 +136,7 @@ function PolicyChoice() {
         })}
       </fieldset>
       {blocked && (
-        <Button kind="quiet" className="policy-recheck" disabled={busy} onClick={() => void post({ recheckAuto: true })} title="Forget that auto mode wasn’t available, so you can pick it and the next reply tries it again.">
+        <Button kind="quiet" className="policy-recheck" busy={busy === 'recheck'} disabled={busy !== null} onClick={() => void post({ recheckAuto: true })} title="Forget that auto mode wasn’t available, so you can pick it and the next reply tries it again.">
           Check again
         </Button>
       )}

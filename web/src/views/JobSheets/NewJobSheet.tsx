@@ -220,6 +220,7 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
   }
 
   async function submit() {
+    if (busy) return;
     const text = description.trim();
     const repoPath = repo === OTHER ? otherPath.trim() : repo;
     if (text.length < 4) { setError('Describe the job in a few words.'); return; }
@@ -378,8 +379,8 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
         {error && <p className="field-problem" role="alert">{error}</p>}
         <div className="sheet-actions">
           <Button onClick={onClose} disabled={busy} title="Close without starting anything.">Cancel</Button>
-          <Button type="submit" kind="primary" disabled={busy} title="Start the job now. Its Foreman reads your request and replies in the conversation.">
-            {busy ? 'Starting…' : 'Start job'}
+          <Button type="submit" kind="primary" busy={busy} title="Start the job now. Its Foreman reads your request and replies in the conversation.">
+            Start job
           </Button>
         </div>
       </form>

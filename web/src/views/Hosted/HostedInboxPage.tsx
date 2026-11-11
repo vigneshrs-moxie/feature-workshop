@@ -6,7 +6,7 @@
 //   several          a sheet asks which, one row each (R's Choice control), saying which are on
 //   none             the sheet says how to pair one
 // A 401 from any of it (the session ended) brings the sign-in page back.
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { ApiError, type ApiClient } from '../../api/client';
 import type { InboxItem } from '../../api/types';
 import { Button } from '../../components/Button';
@@ -87,13 +87,24 @@ export function HostedInboxPage({ api: given, onSignedOut }: HostedProps) {
   const [version, setVersion] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
   const [choosing, setChoosing] = useState<Choosing | null>(null);
+  // The ticket whose Start or Cancel is out: its button spins, and nothing else starts meanwhile.
+  const [sending, setSending] = useState<string | null>(null);
+  const out = useRef(false);
 
   const send = useCallback(async (item: InboxItem, laptopId?: number) => {
     await api.post('/api/orbit/start', laptopId === undefined ? { key: item.key } : { key: item.key, laptopId });
     setVersion((v) => v + 1);
   }, [api]);
 
-  const onStart = useCallback(async (item: InboxItem) => {
+  /** Run one Start or Cancel at a time, its button spinning meanwhile. */
+  const sendingFor = useCallback(async (item: InboxItem, fn: () => Promise<void>) => {
+    if (out.current) return;
+    out.current = true;
+    setSending(item.key);
+    try { await fn(); } finally { out.current = false; setSending(null); }
+  }, []);
+
+  const onStart = useCallback((item: InboxItem) => sendingFor(item, async () => {
     setNotice(null);
     let laptops: Laptop[];
     try { laptops = (await api.get<{ laptops: Laptop[] }>('/api/laptops')).laptops; } catch (err) {
@@ -106,7 +117,7 @@ export function HostedInboxPage({ api: given, onSignedOut }: HostedProps) {
     }
     const online = laptops.filter((l) => l.online);
     setChoosing({ item, laptops, picked: online.length === 1 ? online[0].id : null, busy: false, problem: null });
-  }, [api, send]);
+  }), [api, send, sendingFor]);
 
   const startPicked = useCallback(async () => {
     if (!choosing || choosing.picked === null) return;
@@ -120,16 +131,17 @@ export function HostedInboxPage({ api: given, onSignedOut }: HostedProps) {
     }
   }, [choosing, send]);
 
-  const onCancel = useCallback(async (item: InboxItem) => {
-    if (!item.start) return;
+  const onCancel = useCallback((item: InboxItem) => sendingFor(item, async () => {
+    const start = item.start;
+    if (!start) return;
     setNotice(null);
-    try { await api.del(`/api/orbit/start/${item.start.id}`); } catch (err) {
+    try { await api.del(`/api/orbit/start/${start.id}`); } catch (err) {
       if (!isSignedOut(err)) setNotice(`${item.key} wasn’t cancelled: ${words(err)}`);
     }
     setVersion((v) => v + 1);
-  }, [api]);
+  }), [api, sendingFor]);
 
-  const hosted: HostedInbox = { settingsHref: ORBIT_SETTINGS_HREF, onStart: (i) => { void onStart(i); }, onCancel: (i) => { void onCancel(i); }, version, notice };
+  const hosted: HostedInbox = { settingsHref: ORBIT_SETTINGS_HREF, onStart: (i) => { void onStart(i); }, onCancel: (i) => { void onCancel(i); }, version, notice, sending };
   return (
     <WorkshopContext.Provider value={workshop}>
       <InboxView hosted={hosted} openStream={NO_STREAM} />

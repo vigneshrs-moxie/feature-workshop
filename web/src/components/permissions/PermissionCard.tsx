@@ -69,7 +69,7 @@ export function DenyBox({ busy, label, onDeny, onCancel }: { busy: boolean; labe
         />
       </label>
       <div className="perm-actions">
-        <Button kind="danger" disabled={busy} onClick={() => onDeny(note)} title="Send your no (and note, if you wrote one).">{label}</Button>
+        <Button kind="danger" busy={busy} onClick={() => onDeny(note)} title="Send your no (and note, if you wrote one).">{label}</Button>
         <Button kind="quiet" disabled={busy} onClick={onCancel} title="Don’t say no after all; the card keeps waiting.">Cancel</Button>
       </div>
     </div>
@@ -77,7 +77,7 @@ export function DenyBox({ busy, label, onDeny, onCancel }: { busy: boolean; labe
 }
 
 export function PermissionCard({ permission: p, now, showJob = false }: { permission: Permission; now: Date; showJob?: boolean }) {
-  const { busy, error, send } = useAnswer(p);
+  const { busy, pending, error, send } = useAnswer(p);
   const [denying, setDenying] = useState(false);
   const [sheet, setSheet] = useState(false);
   const alwaysBtn = useRef<HTMLButtonElement>(null);
@@ -121,9 +121,9 @@ export function PermissionCard({ permission: p, now, showJob = false }: { permis
         <DenyBox busy={busy} label="Deny" onDeny={(note) => void send({ decision: 'deny', note })} onCancel={() => setDenying(false)} />
       ) : (
         <div className="perm-actions">
-          <Button kind="primary" keyId={!p.hardLine && !p.defaultToNo ? 'desk-approve' : undefined} keyShown disabled={busy} onClick={() => void send({ decision: 'allow' })} title="Let it do exactly this, one time. It asks again next time.">Allow once</Button>
+          <Button kind="primary" keyId={!p.hardLine && !p.defaultToNo ? 'desk-approve' : undefined} keyShown busy={pending === 'allow'} disabled={busy} onClick={() => void send({ decision: 'allow' })} title="Let it do exactly this, one time. It asks again next time.">Allow once</Button>
           {p.canAllowForRun && (
-            <Button disabled={busy} onClick={() => void send({ decision: 'allow-run' })} title="Let it do this kind of step without asking again until this reply is finished. Nothing is saved.">Allow for this reply</Button>
+            <Button busy={pending === 'allow-run'} disabled={busy} onClick={() => void send({ decision: 'allow-run' })} title="Let it do this kind of step without asking again until this reply is finished. Nothing is saved.">Allow for this reply</Button>
           )}
           <Button keyId="desk-deny" disabled={busy} onClick={() => setDenying(true)} title="Say no. It skips this and carries on; you can tell it why.">Deny…</Button>
           {draft && (

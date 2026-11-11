@@ -11,6 +11,7 @@ import { ApiError } from '../../api/client';
 import type { EvidenceCriterion, EvidenceRecordResult, EvidenceView } from '../../api/types';
 import { useWorkshop } from '../../state/store';
 import { BRAND } from '../../app/brand';
+import { Button } from '../../components/Button';
 
 /** The gates that show the strip: the test gate and every one after it. */
 export const EVIDENCE_STAGES = ['test', 'review', 'pr1', 'pr2', 'staging-qa', 'pr3'];
@@ -141,6 +142,7 @@ export function EvidenceStrip({ slug, tested = null, refresh = null }: { slug: s
   }
 
   async function record() {
+    if (busy) return;
     setBusy(true);
     setNote(null);
     try {
@@ -189,9 +191,9 @@ export function EvidenceStrip({ slug, tested = null, refresh = null }: { slug: s
           <button type="button" className="link-button" onClick={copyLink} title="Copy the evidence folder’s address, to paste on the ticket.">Copy link</button>
         )}
         {canRecord && (
-          <button type="button" className="link-button" disabled={busy} onClick={record} title="Record the evidence for the commit the test report names now: starts this job’s app, plays each acceptance line in a browser and keeps the pictures and video.">
+          <Button kind="quiet" size="sm" busy={busy} onClick={() => void record()} title="Record the evidence for the commit the test report names now: starts this job’s app, plays each acceptance line in a browser and keeps the pictures and video.">
             {ev || view.problem ? 'Record again' : 'Record'}
-          </button>
+          </Button>
         )}
       </p>
       {note && <p className={note.tone === 'ok' ? 'muted gate-evidence-note' : 'perm-warn gate-evidence-note'} role="status">{note.text}</p>}

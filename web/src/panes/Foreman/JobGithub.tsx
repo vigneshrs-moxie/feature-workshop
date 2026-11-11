@@ -37,7 +37,8 @@ export function JobGithub({ job, check: withCheck = true, hide }: { job: Job; ch
     }
   }
   async function settle(id: string, what: 'yes' | 'dismiss') {
-    setBusy(id);
+    if (busy !== null) return;
+    setBusy(`${id} ${what}`);
     setError(null);
     try {
       await api.post(nudgePath(job.slug, id, what), {});
@@ -64,12 +65,12 @@ export function JobGithub({ job, check: withCheck = true, hide }: { job: Job; ch
           <p className="job-github-text">{n.text}</p>
           <div className="perm-actions">
             {n.action && (
-              <Button kind="primary" disabled={busy !== null} onClick={() => void settle(n.id, 'yes')} title={`The Foreman gets “${n.action.send}” and takes it from there.`}>
+              <Button kind="primary" busy={busy === `${n.id} yes`} disabled={busy !== null} onClick={() => void settle(n.id, 'yes')} title={`The Foreman gets “${n.action.send}” and takes it from there.`}>
                 {n.id.endsWith('-merged') ? 'Yes, tell the Foreman' : 'Yes, ask the Foreman'}
               </Button>
             )}
             {n.link && <Button href={n.link} target="_blank" rel="noopener noreferrer" title={`Open it on GitHub, in a new tab. ${BRAND.name} never merges or approves anything itself.`}>Open on GitHub</Button>}
-            <Button kind="quiet" disabled={busy !== null} onClick={() => void settle(n.id, 'dismiss')} title="Put this away for this job. The job is unchanged.">Not now</Button>
+            <Button kind="quiet" busy={busy === `${n.id} dismiss`} disabled={busy !== null} onClick={() => void settle(n.id, 'dismiss')} title="Put this away for this job. The job is unchanged.">Not now</Button>
           </div>
         </div>
       ))}

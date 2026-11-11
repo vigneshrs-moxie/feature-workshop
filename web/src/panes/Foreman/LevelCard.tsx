@@ -83,12 +83,12 @@ export function LevelCard({ job, detail }: { job: Job; detail: JobDetail | null 
         <>
           <div className="perm-actions">
             {target !== null && (
-              <Button kind="primary" disabled={choice.busy} onClick={() => void choice.set(target)} title={`Run this job at ${label(target)} from the next stage. ${consequence(target)}.`}>
+              <Button kind="primary" busy={choice.pending === target} disabled={choice.busy} onClick={() => void choice.set(target)} title={`Run this job at ${label(target)} from the next stage. ${consequence(target)}.`}>
                 Use L{target}
               </Button>
             )}
             {other !== null && (
-              <Button disabled={choice.busy} onClick={() => void choice.set(other)} title={`Run this job at ${label(other)}, as the rules suggest, from the next stage. ${consequence(other)}.`}>
+              <Button busy={choice.pending === other} disabled={choice.busy} onClick={() => void choice.set(other)} title={`Run this job at ${label(other)}, as the rules suggest, from the next stage. ${consequence(other)}.`}>
                 Use L{other}
               </Button>
             )}

@@ -13,6 +13,7 @@ import { ApiError } from '../../api/client';
 import { BRAND } from '../../app/brand';
 import { useKeyScope } from '../../app/keyRegistry';
 import { stacksHref } from '../../app/router';
+import { Button } from '../../components/Button';
 import { Icon } from '../../components/Icon';
 import { Kbd } from '../../components/Kbd';
 import { FoldShow, NextBar, Page } from '../../components/page/Page';
@@ -128,22 +129,27 @@ export function BuildStackPage({ openStream }: { openStream?: (url: string) => E
   const logRef = useRef<HTMLPreElement>(null);
   useEffect(() => { const el = logRef.current; if (el) el.scrollTop = el.scrollHeight; }, [log]);
 
-  const attempt = useCallback(async (p: Promise<unknown>) => {
+  // The request on its way ('merge', 'slots', or '<packet>|tests', '<packet>|up', '<packet>|down',
+  // '<packet>|order'): its button spins, and nothing else here sends meanwhile.
+  const [posting, setPosting] = useState<string | null>(null);
+  const attempt = useCallback(async (key: string, p: Promise<unknown>) => {
     setProblem(null);
-    try { await p; } catch (err) { setProblem(message(err)); }
+    setPosting(key);
+    try { await p; } catch (err) { setProblem(message(err)); } finally { setPosting(null); }
   }, []);
-  const busy = running !== null;
+  const busy = running !== null || posting !== null;
   const canMerge = Boolean(view?.next) && view?.next?.state !== 'missing' && view?.next?.state !== 'empty';
   const mergeNext = () => {
     if (busy || !canMerge) return;
     setOutputOpen(true);
-    void attempt((async () => { setLog(''); const r = await api.post<{ step: IntegrateStep | null }>('/api/integrate/merge-next', {}); started(r?.step); })());
+    void attempt('merge', (async () => { setLog(''); const r = await api.post<{ step: IntegrateStep | null }>('/api/integrate/merge-next', {}); started(r?.step); })());
   };
   const runTests = (id: string) => {
+    if (busy) return;
     setOutputOpen(true);
-    void attempt((async () => { setLog(''); const r = await api.post<{ step: IntegrateStep | null }>('/api/integrate/run-tests', { id }); started(r?.step); await load(); })());
+    void attempt(`${id}|tests`, (async () => { setLog(''); const r = await api.post<{ step: IntegrateStep | null }>('/api/integrate/run-tests', { id }); started(r?.step); await load(); })());
   };
-  const saveOrder = (order: string[]) => attempt(api.post('/api/integrate/order', { order }).then(load));
+  const saveOrder = (key: string, order: string[]) => { if (!busy) void attempt(key, api.post('/api/integrate/order', { order }).then(load)); };
   useKeyScope('stack', { 'stack-merge': () => { if (busy || !canMerge) return false; mergeNext(); } }, !settings);
 
   const title = BUILD_NAME;
@@ -175,7 +181,7 @@ export function BuildStackPage({ openStream }: { openStream?: (url: string) => E
     bar = (
       <NextBar tone="stop" icon="warn" className="stack-bar-problem" say={`Packet ${last.id ?? ''} clashes with ${view.base}`.replace('  ', ' ')} sub={`${last.files?.length ? `${last.files.join(', ')}. ` : ''}Settle it in the packet’s worktree, then Merge next again.`}>
         <a className="btn btn-lg" href={editorHref(view.root, '')} title="Open the main checkout in your editor.">Open in editor</a>
-        <button type="button" className="btn btn-primary btn-lg" disabled={!next} onClick={mergeNext} title="Try the merge again (key: m).">Merge next <Kbd id="stack-merge" /></button>
+        <Button kind="primary" size="lg" busy={posting === 'merge'} disabled={!next} onClick={mergeNext} title="Try the merge again (key: m).">Merge next <Kbd id="stack-merge" /></Button>
       </NextBar>
     );
   } else if (last?.outcome === 'merged' && last.tests && !last.tests.ok) {
@@ -191,7 +197,7 @@ export function BuildStackPage({ openStream }: { openStream?: (url: string) => E
   } else if (next) {
     bar = (
       <NextBar tone="go" icon="merge" say={`${nextName} is next to merge`} sub={`Merge next merges it into ${view.base}, then runs npm test and the web tests. Nothing is pushed.`}>
-        <button type="button" className="btn btn-primary btn-lg" onClick={mergeNext} title={`Merge ${nextName} into ${view.base}, then run both test suites (key: m).`}>Merge next <Kbd id="stack-merge" /></button>
+        <Button kind="primary" size="lg" busy={posting === 'merge'} onClick={mergeNext} title={`Merge ${nextName} into ${view.base}, then run both test suites (key: m).`}>Merge next <Kbd id="stack-merge" /></Button>
       </NextBar>
     );
   } else if (parts.length) {
@@ -227,11 +233,12 @@ export function BuildStackPage({ openStream }: { openStream?: (url: string) => E
             n={i + 1}
             part={x}
             busy={busy}
+            sending={posting?.startsWith(`${x.id}|`) ? posting.slice(x.id.length + 1) : null}
             first={i === 0}
             last={i === view.order.length - 1}
             onTests={() => runTests(x.id)}
-            onMove={(by) => { const ids = view.order.map((o) => o.id); const j = i + by; [ids[i], ids[j]] = [ids[j], ids[i]]; void saveOrder(ids); }}
-            onOrder={() => void saveOrder(x.inOrder ? view.order.map((o) => o.id).filter((id) => id !== x.id) : [...view.order.map((o) => o.id), x.id])}
+            onMove={(by) => { const ids = view.order.map((o) => o.id); const j = i + by; [ids[i], ids[j]] = [ids[j], ids[i]]; saveOrder(`${x.id}|${by < 0 ? 'up' : 'down'}`, ids); }}
+            onOrder={() => saveOrder(`${x.id}|order`, x.inOrder ? view.order.map((o) => o.id).filter((id) => id !== x.id) : [...view.order.map((o) => o.id), x.id])}
           />
         ))}
       </ol>
@@ -239,13 +246,15 @@ export function BuildStackPage({ openStream }: { openStream?: (url: string) => E
         <summary className="fold-head"><Icon name="terminal" size={16} /><span className="fold-name">Output</span><span className="muted fold-note">· {running ? 'running now' : log ? 'the last step' : 'nothing has run yet'}</span><FoldShow /></summary>
         <div className="fold-body"><pre ref={logRef} className="stack-tail" role="log" aria-label="Output of the running step">{log || 'Nothing has run yet.'}</pre></div>
       </details>
-      {settings && <SlotsSheet view={view} onClose={() => setSettings(false)} onSave={(n) => void attempt(api.post('/api/integrate/slots', { slots: n }).then(load)).then(() => setSettings(false))} />}
+      {settings && <SlotsSheet view={view} busy={posting === 'slots'} onClose={() => setSettings(false)} onSave={(n) => { if (!posting) void attempt('slots', api.post('/api/integrate/slots', { slots: n }).then(load)).then(() => setSettings(false)); }} />}
     </Page>
   );
 }
 
-function PacketCard({ n, part, busy, first, last, onTests, onMove, onOrder }: {
+function PacketCard({ n, part, busy, sending, first, last, onTests, onMove, onOrder }: {
   n: number; part: ReturnType<typeof buildParts>[number]; busy: boolean; first: boolean; last: boolean;
+  /** This packet's request on its way ('tests', 'up', 'down', 'order'): that button spins. */
+  sending: string | null;
   onTests: () => void; onMove: (by: -1 | 1) => void; onOrder: () => void;
 }) {
   const p = part.packet;
@@ -280,17 +289,17 @@ function PacketCard({ n, part, busy, first, last, onTests, onMove, onOrder }: {
           </> : <><dt>Branch</dt><dd>No worktree for this packet yet.</dd></>}
         </dl>
         <div className="stack-part-actions">
-          {p && <button type="button" className="btn btn-quiet" disabled={busy} onClick={onTests} title={`Run npm test and the web tests in ${p.path}.`}>Run tests</button>}
-          {part.inOrder && <button type="button" className="btn btn-quiet" disabled={first} onClick={() => onMove(-1)} aria-label={`Move packet ${part.id} up`} title="One place earlier in the order.">↑</button>}
-          {part.inOrder && <button type="button" className="btn btn-quiet" disabled={last} onClick={() => onMove(1)} aria-label={`Move packet ${part.id} down`} title="One place later in the order.">↓</button>}
-          <button type="button" className="btn btn-quiet" onClick={onOrder}>{part.inOrder ? 'Take out of the order' : 'Add to the order'}</button>
+          {p && <Button kind="quiet" busy={sending === 'tests'} disabled={busy} onClick={onTests} title={`Run npm test and the web tests in ${p.path}.`}>Run tests</Button>}
+          {part.inOrder && <Button kind="quiet" busy={sending === 'up'} disabled={first || busy} onClick={() => onMove(-1)} aria-label={`Move packet ${part.id} up`} title="One place earlier in the order.">↑</Button>}
+          {part.inOrder && <Button kind="quiet" busy={sending === 'down'} disabled={last || busy} onClick={() => onMove(1)} aria-label={`Move packet ${part.id} down`} title="One place later in the order.">↓</Button>}
+          <Button kind="quiet" busy={sending === 'order'} disabled={busy} onClick={onOrder}>{part.inOrder ? 'Take out of the order' : 'Add to the order'}</Button>
         </div>
       </details>
     </li>
   );
 }
 
-function SlotsSheet({ view, onClose, onSave }: { view: IntegrateView; onClose: () => void; onSave: (n: number) => void }) {
+function SlotsSheet({ view, busy, onClose, onSave }: { view: IntegrateView; /** Save is on its way. */ busy: boolean; onClose: () => void; onSave: (n: number) => void }) {
   const [raw, setRaw] = useState(String(view.slots));
   const n = Number(raw);
   const ok = Number.isInteger(n) && n >= 1 && n <= 20;
@@ -305,7 +314,7 @@ function SlotsSheet({ view, onClose, onSave }: { view: IntegrateView; onClose: (
         {!ok && <p className="field-problem">Pick a whole number from 1 to 20.</p>}
         <div className="sheet-actions">
           <button type="button" className="btn btn-lg" onClick={onClose}>Cancel</button>
-          <button type="submit" className="btn btn-primary btn-lg" disabled={!ok}>Save</button>
+          <Button type="submit" kind="primary" size="lg" busy={busy} disabled={!ok}>Save</Button>
         </div>
       </form>
     </Sheet>

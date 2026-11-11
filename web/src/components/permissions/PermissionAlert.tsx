@@ -48,7 +48,7 @@ export const oneKeyAllow = (p: Permission) => p.kind !== 'question' && !p.hardLi
 export const offersJobAlways = (p: Permission) => p.canAllowForJob === true && !p.hardLine && !p.defaultToNo;
 
 function Alert({ p, now, more }: { p: Permission; now: Date; more: number }) {
-  const { busy, error, send } = useAnswer(p);
+  const { busy, pending, error, send } = useAnswer(p);
   const [denying, setDenying] = useState(false);
   const [sheet, setSheet] = useState(false);
   const alwaysBtn = useRef<HTMLButtonElement>(null);
@@ -97,17 +97,17 @@ function Alert({ p, now, more }: { p: Permission; now: Date; more: number }) {
       ) : (
         <div className="perm-actions perm-alert-actions">
           {p.canAllowForRun && !hard && (
-            <Button kind="quiet" disabled={busy} onClick={() => void send({ decision: 'allow-run' })} title="Let it do this kind of step without asking again until this reply is finished. Nothing is saved.">Allow for this reply</Button>
+            <Button kind="quiet" busy={pending === 'allow-run'} disabled={busy} onClick={() => void send({ decision: 'allow-run' })} title="Let it do this kind of step without asking again until this reply is finished. Nothing is saved.">Allow for this reply</Button>
           )}
           {jobAlways ? (
-            <Button kind="quiet" disabled={busy} onClick={() => void send({ decision: 'allow-job' })} title="Let steps like this run without asking for the rest of this job. Other jobs still ask; rules for every job are in Settings.">Always allow for this job</Button>
+            <Button kind="quiet" busy={pending === 'allow-job'} disabled={busy} onClick={() => void send({ decision: 'allow-job' })} title="Let steps like this run without asking for the rest of this job. Other jobs still ask; rules for every job are in Settings.">Always allow for this job</Button>
           ) : draft && (
             <Button ref={alwaysBtn} kind="quiet" disabled={busy} onClick={() => setSheet(true)} title="Save a rule so steps like this run without asking, in every job. You choose how narrow it is and confirm it first; remove it any time in Settings.">Always allow…</Button>
           )}
           {!keyOk && <span className="perm-reason"><Icon name="help" size={14} /> {hard ? 'A key never allows a hard line.' : 'A key never allows a risky step.'}</span>}
           <span className="spacer" />
           <Button icon="x" keyId="alert-deny" disabled={busy} onClick={() => setDenying(true)} title="Say no. It skips this and carries on; you can tell it why.">Deny…</Button>
-          <Button kind="primary" icon="check" keyId={keyOk ? 'alert-allow' : undefined} keyShown busy={busy} onClick={() => void send({ decision: 'allow' })} title="Let it do exactly this, one time. It asks again next time.">Allow once</Button>
+          <Button kind="primary" icon="check" keyId={keyOk ? 'alert-allow' : undefined} keyShown busy={pending === 'allow'} disabled={busy} onClick={() => void send({ decision: 'allow' })} title="Let it do exactly this, one time. It asks again next time.">Allow once</Button>
         </div>
       )}
       <More screen="job" id="perm-what" label="What each answer does" icon="help" className="perm-what-more">

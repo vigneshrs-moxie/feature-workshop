@@ -142,6 +142,56 @@ describe('Composer', () => {
     expect(screen.getByRole('button', { name: 'Send…' })).toBeEnabled();
     expect(box()).toHaveValue('Half-written idea');
   });
+  // Spec 1.2: each spins on the click and can't be pressed twice while its request is out.
+  /** A POST that answers only when told to. */
+  function held(value: unknown = { ok: true }) {
+    let answer: () => void = () => {};
+    const post = vi.fn(() => new Promise((res) => { answer = () => res(value); }));
+    return { post, answer: () => act(async () => { answer(); }) };
+  }
+
+  it('Send spins on the click and cannot be pressed twice', async () => {
+    const { post, answer } = held();
+    setup({ post });
+    fireEvent.change(box(), { target: { value: 'Please check the export.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send…' }));
+    const send = screen.getByRole('button', { name: 'Send to the Foreman' });
+    fireEvent.click(send);
+    fireEvent.click(send);
+    expect(send).toHaveAttribute('aria-busy', 'true');
+    expect(send.querySelector('.spin-ring')).not.toBeNull();
+    expect(post).toHaveBeenCalledTimes(1);
+    await answer();
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('Steer spins on the click and cannot be pressed twice', async () => {
+    const { post, answer } = held({ steer: { id: 'st-2', runId: 'run-1', slug: 'alpha', text: 'Skip it.', state: 'queued' } });
+    setup({ run: RUNNING, post });
+    fireEvent.change(box(), { target: { value: 'Skip it.' } });
+    const steer = screen.getByRole('button', { name: 'Steer' });
+    fireEvent.click(steer);
+    fireEvent.click(steer);
+    expect(steer).toHaveAttribute('aria-busy', 'true');
+    expect(steer.querySelector('.spin-ring')).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeDisabled();
+    expect(post).toHaveBeenCalledTimes(1);
+    await answer();
+    expect(steer).not.toHaveAttribute('aria-busy');
+  });
+
+  it('Stop spins on the click and cannot be pressed twice', async () => {
+    const { post, answer } = held();
+    setup({ run: RUNNING, post });
+    const stop = screen.getByRole('button', { name: 'Stop' });
+    fireEvent.click(stop);
+    fireEvent.click(stop);
+    expect(stop).toHaveAttribute('aria-busy', 'true');
+    expect(stop.querySelector('.spin-ring')).not.toBeNull();
+    expect(post).toHaveBeenCalledTimes(1);
+    await answer();
+    expect(stop).not.toHaveAttribute('aria-busy');
+  });
 });
 
 describe('Foreman pane: steered messages show their delivery state', () => {
