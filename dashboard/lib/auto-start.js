@@ -107,7 +107,7 @@ const listOf = (v) => (Array.isArray(v) ? v.filter((e) => e && typeof e.key === 
  *   setting()  { on, tag }                            inbox()  the inbox view: { items, tagsShown }
  *   jobs()     { ticketsWithJobs, running }              paused() 'limit' | 'orbit' | null
  *   start(item, tag)  starts the job, returns { slug }, throws in plain words when it can't
- *   notify(n)  tells the person once per started job
+ *   notify(n)  tells the person once per started job, and once per failed start
  */
 export class AutoStarter {
   constructor({ file, setting, inbox, jobs, paused, start, notify = async () => {}, now = () => new Date().toISOString(), write = writeFileAtomic }) {
@@ -189,8 +189,12 @@ export class AutoStarter {
         await this.#save(); // refused for the limit: not a failed start, the ticket stays untried
         return { wait: 'paused-limit' };
       }
-      memory.failed.push({ key: it.key, at: this.now(), reason: String(err?.message ?? err).replace(/\s+/g, ' ').trim().slice(0, 300) || 'It did not start.' });
-      await this.#save();
+      const reason = String(err?.message ?? err).replace(/\s+/g, ' ').trim().slice(0, 300) || 'It did not start.';
+      memory.failed.push({ key: it.key, at: this.now(), reason });
+      try { await this.#save(); } finally {
+        // Told once per failed start (it is never tried again by itself): the row is not the only place it shows.
+        await this.notify({ level: 'problem', title: `Auto start could not start ${it.key}`, body: reason, slug: null, key: `auto-start-failed:${it.key}` });
+      }
       return { failed: it };
     }
     try { await this.#save(); } catch { this.dirty = true; } // the job exists: kept as started, saved again next pass

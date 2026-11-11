@@ -75,6 +75,22 @@ export function sinceRestart(lines) {
   return marks.length ? lines.slice(marks.at(-1)) : lines;
 }
 
+/**
+ * Each folder's last restart that still counts, by sinceRestart's rule: { [featureDir]: at }. A folder
+ * with none is not there. Session logs that ended at or before it are the old job's (lib/features.js).
+ */
+export function restartTimes(lines) {
+  const marks = new Map(); // featureDir → the times of its restarts that still count
+  for (const e of lines) {
+    if (!e?.featureDir) continue;
+    if (e.action === 'restart') { if (!marks.has(e.featureDir)) marks.set(e.featureDir, []); marks.get(e.featureDir).push(e.at); }
+    else if (e.action === 'restart-failed' && e.afterBoundary === true) marks.get(e.featureDir)?.pop();
+  }
+  const out = {};
+  for (const [dir, times] of marks) if (times.length && times.at(-1)) out[dir] = times.at(-1);
+  return out;
+}
+
 // Emits 'audit' (the entry as written) after each audit line is saved, so live views can say
 // which job's conversation just changed.
 export class State extends EventEmitter {
@@ -140,11 +156,17 @@ export class State extends EventEmitter {
   }
 
   /** Forget a job's session record (its Foreman); the caller has kept a copy. */
+  // The file is written first; the record is forgotten in memory only once that write worked, so a
+  // failed write leaves memory matching the file.
   async clearSession(featureDir) {
     const all = await this.allSessions();
     if (!(featureDir in all)) return;
-    delete all[featureDir];
-    await this.#writeJson(this.sessionsFile, all);
+    const record = all[featureDir];
+    const { [featureDir]: _left, ...rest } = all;
+    await this.#writeJson(this.sessionsFile, rest);
+    if (all[featureDir] === record) delete all[featureDir]; // unless it was set again meanwhile
+    // A write queued while this one ran took its picture with the record in it: write once more without it.
+    if (this.#writing.has(this.sessionsFile)) await this.#writeJson(this.sessionsFile, all);
   }
 
   // Starbase's settings.

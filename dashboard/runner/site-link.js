@@ -577,6 +577,7 @@ export function createSiteLink({ runner, stateDir, store, fetch: fetchFn = globa
   function onRunnerEvent(type, job) {
     if (job) records.dirty(job);
     if (type !== 'change' && type !== 'run') onChange();
+    if (type === 'settings') reposChanged().catch((err) => log(`site link: ${err.message}`));
   }
 
   // ---- the full mirror (runner/mirror.js) ----
@@ -908,17 +909,35 @@ export function createSiteLink({ runner, stateDir, store, fetch: fetchFn = globa
     offRunner = [runner.on('change', onChange), runner.on('run', onChange), runner.on('*', onRunnerEvent)];
     if (onAudit) offRunner.push(onAudit(onAuditLine) ?? (() => {}));
     const startRepos = await runner.read.startRepos?.().catch(() => null);
-    await send('hello', { name: file.name ?? thisLaptop().name, os: thisLaptop().os, version, protocol: PROTOCOL_VERSION, repos: repoChoices(startRepos ?? {}) });
+    helloBody = { name: file.name ?? thisLaptop().name, os: thisLaptop().os, version, protocol: PROTOCOL_VERSION, repos: repoChoices(startRepos ?? {}) };
+    await send('hello', helloBody);
     await sendJobList();
-    records.reset();
-    // A runner with a snapshot (every real one) mirrors its whole record, then says so.
-    if (runner.read.snapshot) {
-      await records.sync({ full: true }).catch((err) => log(`site link: the record couldn’t be read: ${err.message}`));
-      if (gen !== generation) return;
-      await send('record', { kind: 'synced', key: '', value: { at: new Date(timers.now()).toISOString() } });
-    }
+    if (!(await fullRecord(gen))) return;
     commandLoop(gen).catch((err) => log(`site link: ${err.message}`));
     usageLoop(gen).catch((err) => log(`site link: ${err.message}`));
+  }
+
+  // A runner with a snapshot (every real one) mirrors its whole record, then says so. False: the link moved on.
+  async function fullRecord(gen) {
+    records.reset();
+    if (!runner.read.snapshot) return true;
+    await records.sync({ full: true }).catch((err) => log(`site link: the record couldn’t be read: ${err.message}`));
+    if (gen !== generation) return false;
+    await send('record', { kind: 'synced', key: '', value: { at: new Date(timers.now()).toISOString() } });
+    return true;
+  }
+
+  // Settings changed: when the repositories the Start form offers changed too, hello again with them. The
+  // site takes a hello as the record starting over, so the whole record follows, as on connect.
+  let helloBody = null;
+  async function reposChanged() {
+    if (!site || !helloBody) return;
+    const gen = generation;
+    const repos = repoChoices((await runner.read.startRepos?.().catch(() => null)) ?? {});
+    if (gen !== generation || JSON.stringify(repos) === JSON.stringify(helloBody.repos)) return;
+    helloBody = { ...helloBody, repos };
+    await send('hello', helloBody);
+    await fullRecord(gen);
   }
 
   function disconnect(why) {

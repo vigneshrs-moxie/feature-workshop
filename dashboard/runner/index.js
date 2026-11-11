@@ -31,13 +31,13 @@ import crypto from 'node:crypto';
 import { loadFeatures, loadGateStates, SessionIndex } from '../lib/features.js';
 import { STAGES, AGENTS } from '../lib/stages.js';
 import { PRICES, PRICES_AS_OF, whatIfConductor, costCsv, costMarkdown } from '../lib/cost.js';
-import { OLD_STATE_FOLDER, State, WORKFLOW_CHOICES } from '../lib/state.js';
+import { OLD_STATE_FOLDER, State, WORKFLOW_CHOICES, restartTimes } from '../lib/state.js';
 import { Driver, Busy } from '../lib/driver.js';
 import { renderMarkdown, indexIds } from '../lib/markdown.js';
 import * as git from '../lib/git.js';
 import { recentRepos, checkRepo, reposDoor, ticketRepo, repoByName } from '../lib/repos.js';
 import { HttpError } from '../lib/http-guard.js';
-import { restartJob } from '../lib/restart.js';
+import { RestartFailed, restartJob } from '../lib/restart.js';
 import { liveTerminals } from '../lib/live.js';
 import { readHookSessions } from '../lib/hook-events.js';
 import { classify, githubOwner, matchRule, POLICIES } from '../lib/policy.js';
@@ -218,6 +218,7 @@ export async function createRunner(config) {
   const planUsage = new PlanUsage({ enabled: planUsageOn });
   // Trying a job's work on this computer (its own port, dev server, commands, terminal, database).
   const local = new LocalRunner({ state, demo: DEMO });
+  if (testHooks && typeof testHooks === 'object') testHooks.local = local; // tests only, as the driver above
   // The Orbit token's store, once it is open (below); the driver reads it for each session's env.
   let orbitStoreReady = null;
   // Jobs being marked done right now (sends and automatic carry-ons wait).
@@ -421,6 +422,28 @@ export async function createRunner(config) {
     autoLocks.set(dir, mine);
     return mine.finally(() => { if (autoLocks.get(dir) === mine) autoLocks.delete(dir); });
   }
+  /**
+   * Called under the job's Auto lock right before Auto's own answer goes (a gate reply or a card decision): refuses unless
+   * the job's level allows Auto (options.json, read first), Auto is on and not stopped, and the job is not being closed,
+   * restarted or archived, nor closed. The refusal's code, 'auto-gone', is one the pass treats as moved on: nothing is
+   * sent and no failure is counted.
+   *
+   * Keep the record check the last thing before driver.start / driver.decide. That there is no window between the check
+   * and the start rests on state.sessionFor answering from memory: nothing that reads a file (or waits on anything else)
+   * may be put between the record check and the start, or a click could land in between again.
+   */
+  async function autoMaySend(dir) {
+    const gone = () => new HttpError(409, 'Auto was switched off or stopped, the job left Auto for its level, or the job is being closed or restarted, before its answer went. Nothing was sent.', { code: 'auto-gone' });
+    // The level first (a file read): set to L3 at the door, the answer does not go.
+    let level = null;
+    try { level = (await readOptions(dir))?.level ?? null; } catch { level = null; }
+    if (!autoAllowed({ level: Number.isInteger(level) ? level : null }).ok) throw gone();
+    // Then the record, from memory, last.
+    const saved = await state.sessionFor(dir);
+    const rec = saved?.auto ?? null;
+    if (rec?.on === true && !rec.stopped && !saved?.closed && !closing.has(dir) && !restarting.has(dir) && !autoArchiving.has(dir)) return;
+    throw gone();
+  }
   const autoFieldsOf = (o) => ({ on: o?.auto === true, since: o?.auto_since, any: Boolean(o) && (Object.hasOwn(o, 'auto') || Object.hasOwn(o, 'auto_since')) });
   /** Options with Auto's two fields as the record says (autoOption), for any write of options.json. */
   function withAutoOf(options, record) {
@@ -460,18 +483,35 @@ export async function createRunner(config) {
   }
 
   let cached = null;
+  // features() is single flight: callers that arrive while a load runs share it. A change (invalidate) starts a new
+  // generation: a load begun before it neither serves later callers nor fills the cache.
+  let cacheGen = 0;
+  let loading = null; // { gen, promise }
+  function invalidate() { cached = null; cacheGen++; loading = null; }
   // Each job's stage at the last read, for a notification's text (lib/notify.js noticeBody).
   const knownStage = new Map();
   // Each job's title at the last read: auto-log.md is written from inside the Auto lock, where features() must not be called.
   const knownTitle = new Map();
   async function features() {
     if (cached && Date.now() - cached.at < 1500) return cached.list;
+    if (loading && loading.gen === cacheGen) return loading.promise;
+    const gen = cacheGen;
+    const promise = loadAll(gen).finally(() => { if (loading?.promise === promise) loading = null; });
+    loading = { gen, promise };
+    return promise;
+  }
+  async function loadAll(gen) {
+    testHooks?.featuresLoaded?.(); // tests only: one load of everything
     runEnds = await state.lastRunEnds();
     const saved = await state.allSessions();
     const overrides = Object.fromEntries(Object.entries(saved).filter(([, v]) => v.repoPath || v.branch).map(([k, v]) => [k, { repoPath: v.repoPath, branch: v.branch }]));
-    const list = await loadFeatures({ featuresDir: FEATURES_DIR, sessionIndex, overrides, knownRepos: await repoList() });
+    // A folder restarted (lib/restart.js) holds a new job: the old job's session logs are not its own.
+    const restartedAt = restartTimes(await state.auditAll());
+    const list = await loadFeatures({ featuresDir: FEATURES_DIR, sessionIndex, overrides, knownRepos: await repoList(), restartedAt });
     // Jobs you marked done or dropped (kept in the dashboard's own state; the job's records are untouched).
     for (const f of list) f.closed = saved[f.dir]?.closed ?? null;
+    // The folder's last restart that counts: runs and session logs from at or before it are the old job's.
+    for (const f of list) f.restartedAt = restartedAt[f.dir] ?? null;
     // Hand-off nudges you dismissed on this job, and the ones whose sentence already went to its
     // Foreman (lib/nudges.js), kept in the same record.
     for (const f of list) f.dismissedNudges = Array.isArray(saved[f.dir]?.dismissedNudges) ? saved[f.dir].dismissedNudges : [];
@@ -492,7 +532,7 @@ export async function createRunner(config) {
     // Code that holds autoLocked must never call features() or jobContext: they wait on the same lock.
     await mirrorAuto(list);
     for (const f of list) noteRaisedVersions(f);
-    cached = { at: Date.now(), list };
+    if (gen === cacheGen) cached = { at: Date.now(), list };
     for (const f of list) { knownStage.set(f.slug, f.stage ?? null); knownTitle.set(f.dir, f.title); }
     return list;
   }
@@ -673,7 +713,7 @@ export async function createRunner(config) {
     }
     if (changed) {
       await parking.save();
-      cached = null;
+      invalidate();
       broadcast('change', { at: Date.now() });
     }
   }
@@ -745,8 +785,16 @@ export async function createRunner(config) {
 
 
 
+  /**
+   * The runs of this job that the driver holds: in its folder, and started after the folder's last restart that counts
+   * (f.restartedAt, the bound the session logs use), so a restarted job lists none of the old job's runs.
+   */
+  function runsOf(f) {
+    const bound = Date.parse(f?.restartedAt ?? '');
+    return driver.list().filter((r) => r.featureDir === f.dir && !(Number.isFinite(bound) && Date.parse(r.startedAt) <= bound));
+  }
   function runFor(f) {
-    return driver.list().filter((r) => r.featureDir === f.dir).sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0] ?? null;
+    return runsOf(f).sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0] ?? null;
   }
 
   // When a reply sent from the dashboard ends, the process that ran it (and any workers inside it)
@@ -1004,7 +1052,7 @@ export async function createRunner(config) {
       latestBrief, briefs: f.briefs, approvals: f.approvals, history: f.history, artifacts: f.artifacts, recordedArtifacts: f.recordedArtifacts,
       costDetail: { ...f.cost, whatIf: whatIfConductor(f.cost.agents) },
       activity: f.activity.map((a) => (a.state === 'running' && !stillRunning(f, a, run && ACTIVE_RUN.has(run.status) ? run : null) ? { ...a, state: 'stopped' } : a)),
-      drive, run, runs: driver.list().filter((r) => r.featureDir === f.dir), overview, thread: page.items, threadMore: page.more, locate: f.locate,
+      drive, run, runs: runsOf(f), overview, thread: page.items, threadMore: page.more, locate: f.locate,
       // policy: the setting in force for this job; policyOverride: the job's own (null: it follows yours).
       // While Auto is on, 'auto' (lib/state.js policyFor), the job's own setting kept as it was.
       policy: await state.policyFor(f.dir), policyOverride: settings.jobPolicy?.[f.dir] ?? null, globalPolicy: settings.policy, autoMode: settings.autoMode,
@@ -1065,10 +1113,19 @@ export async function createRunner(config) {
    * by: 'auto' only from Auto's own code (gateDecision's third argument), never from a request.
    */
   async function startSend(f, out, { kind, gateBrief = null, by = 'you' }) {
-    const run = await driver.start({ ...out, kind, gateBrief, by, additionalDirectories: await readDirs() });
+    const additionalDirectories = await readDirs();
+    const go = () => driver.start({ ...out, kind, gateBrief, by, additionalDirectories });
+    let run;
+    if (by === 'auto') {
+      await testHooks?.atAutoDoor?.({ kind: 'gate', slug: f.slug }); // tests only: the person's click lands here
+      // Auto's reply: the last check and the start under the job's Auto lock (the switch, close and restart write under it).
+      run = await autoLocked(f.dir, async () => { await autoMaySend(f.dir); return go(); });
+    } else {
+      run = await go();
+    }
     if (by !== 'auto') await limits.forget(f.dir); // you've picked it up yourself
     await reopenIfClosed(f);
-    cached = null;
+    invalidate();
     return run;
   }
 
@@ -1128,7 +1185,7 @@ export async function createRunner(config) {
     if (!options) return;
     const written = await writeJobOptions(f, options, { title: f.options?.title ?? f.title, repo: f.options?.repo, kind: f.options?.kind, from_session: f.options?.from_session });
     await state.audit({ action: 'options', featureDir: f.dir, slug: f.slug, options: written.options, via: 'gate', was: f.options?.level ?? null });
-    cached = null;
+    invalidate();
     auto.pass(); // a level chip may have taken the job to L3: an Auto job leaves Auto now
   }
 
@@ -1157,10 +1214,16 @@ export async function createRunner(config) {
     return String(s).toLowerCase().normalize('NFKD').replace(/[^\w\s-]/g, '').trim().replace(/[\s_]+/g, '-').replace(/-+/g, '-').slice(0, 48).replace(/-$/, '') || 'job';
   }
 
-  async function uniqueSlug(base) {
-    const taken = new Set([...(await features()).map((f) => f.slug), ...driver.list().map((r) => r.slug)]);
+  // restartOf: the folder of the job a restart is starting again (its folder already moved aside). Its
+  // own runs, still held by the driver, don't take its name: the new job keeps it, and so its branch.
+  // Slugs a start has picked and not yet finished with (HANDLERS.start frees its own): two starts at once, say the person's
+  // Start and Auto start on one ticket, never get the same folder, so one's Auto record can't land on the other's job.
+  const startingSlugs = new Set();
+  async function uniqueSlug(base, { restartOf = null } = {}) {
+    const taken = new Set([...(await features()).map((f) => f.slug), ...driver.list().filter((r) => !(restartOf && r.featureDir === restartOf)).map((r) => r.slug), ...startingSlugs]);
     let slug = base;
     for (let i = 2; taken.has(slug) || fs.existsSync(path.join(FEATURES_DIR, slug)); i++) slug = `${base}-${i}`;
+    startingSlugs.add(slug);
     return slug;
   }
 
@@ -1201,16 +1264,16 @@ export async function createRunner(config) {
     cards.sort((a, b) => rank(a) - rank(b) || (a.needsYou ? String(a.waitingSince ?? '').localeCompare(String(b.waitingSince ?? '')) : 0));
     // Each card's lane on Jobs and the reason in words (lib/snapshot.js laneFor, packet M).
     const pending = driver.pendingPermissions();
-    return cards.map((c) => ({ ...c, ...laneFor(c, { lane: flowLanes.get(c.slug) ?? null, pending: pending.filter((p) => p.slug === c.slug) }) }));
+    return cards.map((c) => ({ ...c, ...laneFor(c, { lane: flowLanes.get(c.slug) ?? null, pending: pending.filter((p) => p.slug === c.slug), handled: (id) => auto.handlingCard(id) }) }));
   }
 
 
   let changeTimer = null;
   function notifyChange() {
     clearTimeout(changeTimer);
-    changeTimer = setTimeout(() => { cached = null; broadcast('change', { at: Date.now() }); events.emit('change', null, { at: Date.now() }); flowJobsChanged(); checkWaiting().catch(() => {}); checkLevels(); auto.pass(); }, 700);
+    changeTimer = setTimeout(() => { invalidate(); broadcast('change', { at: Date.now() }); events.emit('change', null, { at: Date.now() }); flowJobsChanged(); checkWaiting().catch(() => {}); checkLevels(); auto.pass(); }, 700);
   }
-  driver.on('run', (run) => { cached = null; broadcast('run', run); events.emit('run', run.slug, run); });
+  driver.on('run', (run) => { invalidate(); broadcast('run', run); events.emit('run', run.slug, run); });
   // Nudges on their way to the Foreman (run id -> the job's folder and the nudge id; the nudge route).
   // A nudge reply that ends in error never delivered its sentence, so the id leaves sentNudges and
   // the nudge comes back on the Desk.
@@ -1220,7 +1283,7 @@ export async function createRunner(config) {
     const sent = Array.isArray(saved?.sentNudges) ? saved.sentNudges : [];
     if (!sent.includes(id)) return;
     await state.setSession(featureDir, { sentNudges: sent.filter((x) => x !== id) });
-    cached = null;
+    invalidate();
     broadcast('change', { at: Date.now() }); events.emit('change', null, { at: Date.now() });
   }
   driver.on('run', (run) => {
@@ -1252,7 +1315,7 @@ export async function createRunner(config) {
     const mark = (l) => l && JSON.stringify([l.position, l.pr1?.state, l.pr2?.state, l.pr2?.review]);
     const moved = [...lanes].some(([slug, l]) => mark(flowLanes.get(slug)) !== mark(l)) || [...flowLanes.keys()].some((slug) => !lanes.has(slug));
     flowLanes = lanes;
-    if (moved) { cached = null; broadcast('change', { at: Date.now() }); events.emit('change', null, { at: Date.now() }); }
+    if (moved) { invalidate(); broadcast('change', { at: Date.now() }); events.emit('change', null, { at: Date.now() }); }
     events.emit('flow', null, view, { replay: false });
     if (!view.refreshing) flowNotices(view).catch((err) => console.error('flow notices:', err));
   });
@@ -1342,7 +1405,7 @@ export async function createRunner(config) {
       else if (e.outcome === 'left') await state.audit({ action: 'pr-feedback-left', ...line, note: e.note ?? undefined });
       else if (e.outcome === 'queued') await state.audit({ action: 'pr-feedback-queued', ...line });
       else if (e.outcome === 'waiting') await state.audit({ action: 'pr-feedback-not-sent', ...line, reason: e.reason ?? undefined });
-      cached = null;
+      invalidate();
     })().catch((err) => console.error('pr feedback:', err.message));
   });
 
@@ -1373,7 +1436,7 @@ export async function createRunner(config) {
     },
     audit: (line) => state.audit(line),
     emit: (slug, view) => events.emit('pr', slug, view, { replay: false }),
-    changed: () => { cached = null; notifyChange(); },
+    changed: () => { invalidate(); notifyChange(); },
     lockFor: (dir) => heldElsewhere(dir),
     readStatus: async (dir) => { try { const sj = parseStatusJson(await fsp.readFile(path.join(dir, 'status.json'), 'utf8')); return sj?.ok ? sj : null; } catch { return null; } },
     login: () => git.ghLogin({ gh: feedbackGh }),
@@ -1453,7 +1516,7 @@ export async function createRunner(config) {
     const options = levelOptions(f.options, level);
     await writeJobOptions(f, options, { title: f.options?.title, repo: f.options?.repo, kind: f.options?.kind, from_session: f.options?.from_session });
     await state.audit({ action: 'auto-level', featureDir: f.dir, slug: f.slug, level, was: f.level ?? null, ...record });
-    cached = null;
+    invalidate();
     auto.pass(); // a raise to L3 takes an Auto job out of Auto now
   }
   async function checkLevelsNow() {
@@ -1519,7 +1582,7 @@ export async function createRunner(config) {
       if (!next) return prev;
       await state.setSession(dir, { auto: next });
       try { await writeAutoOption(dir, autoOption(next, (await readOptions(dir))?.level ?? null)); } catch (err) { console.warn(`Auto: options.json for ${path.basename(dir)} not put in line now: ${err.message}`); }
-      cached = null;
+      invalidate();
       return next;
     });
   }
@@ -1542,7 +1605,7 @@ export async function createRunner(config) {
       await auditAuto({ action: 'auto', what: 'off', by: 'you', via, featureDir: f.dir, slug: f.slug, stage: f.stage ?? null, asked: '', chose: '', why: '', ...(owed ? { costUsd: owed } : {}) });
       try { await writeAutoOption(f.dir, autoOption(next, f.level ?? null)); } catch { /* the next pass puts options.json in line */ }
     });
-    if (wasOn) { cached = null; await driver.applyModes(); }
+    if (wasOn) { invalidate(); await driver.applyModes(); runAutoStart(); }
     return wasOn;
   }
 
@@ -1550,7 +1613,7 @@ export async function createRunner(config) {
   async function autoJobs(only = null) {
     const jobs = [];
     // One job asked for again (the pass looks again after the Approver has answered): read fresh.
-    if (only) cached = null;
+    if (only) invalidate();
     for (const f of await features()) {
       if (f.auto?.on !== true || (only && f.dir !== only)) continue;
       const { worktrees, specDirs } = await jobContext({ featureDir: f.dir, cwd: f.repoPath });
@@ -1562,15 +1625,22 @@ export async function createRunner(config) {
         dir: f.dir, slug: f.slug, title: f.title, auto: f.auto, level: Number.isInteger(f.level) ? f.level : null, suggestedLevel: Number.isInteger(f.suggestedLevel) ? f.suggestedLevel : null,
         needsYou: f.needsYou === true,
         stage: f.stage ?? null, stageState: f.stageState ?? null, ticketKey: f.options?.ticket?.key ?? null,
-        // The rules that read the description and the files the Foreman expects to touch (a migration stops Auto).
-        triggers: suggestLevel({ description: f.description, paths: f.predictedPaths ?? [] }).triggers,
+        // The rules that read the description, the files the Foreman expects to touch and the files the job's branch really
+        // changes (changedPathsFor: git, cached a minute per job, as the job page and the Inbox suggestion use): a migration stops Auto.
+        triggers: suggestLevel({ description: f.description, paths: [...(f.predictedPaths ?? []), ...((await changedPathsFor(f).catch(() => null)) ?? [])] }).triggers,
         statusCard: driver.pendingPermissions().some((p) => p.featureDir === f.dir && p.statusCard === true),
-        prOpen: finishLineReached({ prs: f.prs, closed: null }, null, 'pr1-open').reached,
+        // PR #1 open by status.json or by the flow map: the same sources the ordinary Done notice reads (flowNotices).
+        prOpen: finishLineReached({ prs: f.prs, closed: null }, flowLanes.get(f.slug) ?? null, 'pr1-open').reached,
         gate: g ? { ...g, briefNumber: cb?.number ?? null, headline: cb?.headline ?? null } : null,
-        answered: answeredBriefs(await state.auditFor(f.dir, 400), cb),
+        // All of the job's lines: a long reply after the person's own answer must not push it out of view.
+        answered: answeredBriefs(await state.auditFor(f.dir, Infinity), cb),
         briefPath: cb?.file ? path.join(f.dir, cb.file) : null,
+        // When the current brief was raised (its file's time): a message of the person's after it makes the step theirs.
+        briefAt: cb?.at ?? null,
         artifacts: (f.recordedArtifacts ?? []).map((a) => a?.path).filter((x) => typeof x === 'string' && x),
         running: Boolean(driver.activeRunFor({ featureDir: f.dir })), locked: Boolean(locked), restarting: restarting.has(f.dir), paused: limits.isLimited(),
+        // A reply cut off by a crash or a restart that could not carry it on: it waits for Resume, which only the person presses.
+        cutOff: restartPaused.get(f.dir)?.how === 'crash',
         worktrees, specDirs,
       });
     }
@@ -1621,7 +1691,20 @@ export async function createRunner(config) {
     decide: {
       gate: (kind, body, opts) => gateDecision(kind, body, opts),
       // A card answered for the person: only code passes by: 'auto' (a request's body never does).
-      permission: async (id, body, { by } = {}) => { if (!by) throw new TypeError('A decision for a card says who sent it.'); if (!(await driver.decide(id, { ...body, by }))) throw new Error('That card was already answered or has gone.'); },
+      permission: async (id, body, { by } = {}) => {
+        if (!by) throw new TypeError('A decision for a card says who sent it.');
+        const go = () => driver.decide(id, { ...body, by });
+        let ok;
+        if (by === 'auto') {
+          await testHooks?.atAutoDoor?.({ kind: 'card', id }); // tests only: the person's click lands here
+          const dir = driver.pendingRequest(id)?.featureDir ?? null;
+          // The last check and the decision under the card's job's Auto lock, as for a gate reply (startSend).
+          ok = dir ? await autoLocked(dir, async () => { await autoMaySend(dir); return go(); }) : false;
+        } else {
+          ok = await go();
+        }
+        if (!ok) throw new Error('That card was already answered or has gone.');
+      },
     },
     // A card as it waits now (with its full input), and what the fixed stop list needs to know of its reply.
     pendingCard: (id) => driver.pendingRequest(id),
@@ -1632,7 +1715,9 @@ export async function createRunner(config) {
       if (f) await setLevelAutomatically(f, level, { how: 'chose', note: `Level set to L${level} automatically (Foreman L${level}; the higher one wins).`, rules: null, foreman: level });
     },
     // A record changed that other parts show: a reply in progress changes its permission mode, the pages fetch again.
-    changed: () => { driver.applyModes().catch(() => {}); settingsChanged(); cached = null; },
+    changed: () => { driver.applyModes().catch(() => {}); settingsChanged(); invalidate(); },
+    // A job stopped or finished: its Auto start place is free, so a waiting tagged ticket starts now, not at the next Inbox poll.
+    freed: () => { invalidate(); runAutoStart(); },
   });
 
   // The finish line (lib/finish.js) and the flow map. "Done" is told once, when a job crosses the
@@ -1753,7 +1838,7 @@ export async function createRunner(config) {
     checkLevels();
   });
   planUsage.on('change', (view) => { events.emit('plan-usage', null, view); });
-  limits.on('change', () => { cached = null; broadcast('change', { at: Date.now() }); events.emit('usage', null, limits.view()); });
+  limits.on('change', () => { invalidate(); broadcast('change', { at: Date.now() }); events.emit('usage', null, limits.view()); });
   local.on('output', (e) => { broadcast('local', e); events.emit('local', e.slug ?? null, e, { replay: false }); }); // live only: see EventLog.emit
   local.on('changed', (e) => { broadcast('local-state', e); events.emit('local-state', e.slug ?? null, e); });
 
@@ -1772,6 +1857,7 @@ export async function createRunner(config) {
   function settingsChanged() {
     allSettings().then((s) => events.emit('settings', null, s)).catch(() => {});
   }
+  const afterRepoChange = (r) => { if (r?.ok) settingsChanged(); return r; }; // a repository added or forgotten (local_.repos)
   /** The settings, with Settings → Workflow's "Count my Claude Code use outside the app" (kept by lib/claude-code-usage.js). */
   async function allSettings() {
     const s = await state.getSettings();
@@ -1861,7 +1947,11 @@ export async function createRunner(config) {
   const suggestAsk = config.suggestAsk ?? (DEMO
     ? demoAsk
     : (input) => askHaiku(suggestPrompt(input), { queryFn, cliPath: claudePath, cwd: path.join(state.dir, 'inbox-suggest') }));
-  const suggester = new InboxSuggester({ ask: suggestAsk, enabled: () => suggestOn });
+  // Not while Claude can't be used: its limit is reached or a warning about it shows (Auto start's rule too).
+  const claudeHeld = () => limits.isLimited() || Boolean(limits.view().warning) || activeWarnings(planUsage.view()).length > 0;
+  const suggester = new InboxSuggester({ ask: suggestAsk, enabled: () => suggestOn, paused: claudeHeld });
+  limits.on('change', () => suggester.resume());
+  planUsage.on('change', () => suggester.resume());
 
   /** The open jobs with a worktree, newest first, as the suggestion's "files already being changed". */
   async function suggestJobs() {
@@ -1879,7 +1969,8 @@ export async function createRunner(config) {
     considering = considering.then(async () => {
       if (!suggestOn) return;
       const v = orbitInbox.view();
-      suggester.consider({ items: await withJobs(v.items), rows: orbitInbox.rows, jobs: await suggestJobs() });
+      // The open jobs' changed paths (git diff) are worked out only when a call is made (lib/inbox-suggest.js).
+      suggester.consider({ items: await withJobs(v.items), rows: orbitInbox.rows, jobs: suggestJobs });
     }).catch((err) => console.error('inbox suggestion:', err.message));
   }
   orbitInbox.on('change', considerSuggestion);
@@ -1942,6 +2033,7 @@ export async function createRunner(config) {
     notify: (n) => tell(n),
   });
   function runAutoStart() {
+    testHooks?.autoStartAsked?.(); // tests only: a place may be free
     if (!autoStartSetting.on) return;
     autoStarter.run().catch((err) => console.error('auto start:', err.message));
   }
@@ -2036,7 +2128,7 @@ export async function createRunner(config) {
     // `by` comes only from code (Auto's pass), never from a request. A reply Auto sends is read fresh,
     // carries no chips and no edited text, and is never held for the usage limit.
     const auto = by === 'auto';
-    if (auto) cached = null;
+    if (auto) invalidate();
     const f = await jobOf(body.slug);
     if (restarting.has(f.dir)) throw new HttpError(409, BEING_RESTARTED);
     const g = { kind, briefNumber: body.briefNumber ?? null, note: body.note ?? '', answers: body.answers ?? {}, verdicts: body.verdicts ?? {}, chips: auto ? [] : body.chips ?? [], edited: auto ? null : body.text ?? null, startAfterReset: !auto && body.startAfterReset === true };
@@ -2074,10 +2166,10 @@ export async function createRunner(config) {
     const out = sendPlan(f, drive, body, text, { holding: hold });
     if (!auto) await saveChipOptions(f, options);
     if (hold) {
-      const held = await limits.hold({ featureDir: f.dir, slug: f.slug, title: f.title, cwd: out.cwd, sessionId: out.sessionId, model: out.model, additionalDirectories: await readDirs() }, { text: out.text, kind: g.kind, gateBrief: g.briefNumber, ...(auto ? { by: 'auto' } : {}) });
+      const held = await limits.hold({ featureDir: f.dir, slug: f.slug, title: f.title, cwd: out.cwd, sessionId: out.sessionId, model: out.model, additionalDirectories: await readDirs() }, { text: out.text, kind: g.kind, gateBrief: g.briefNumber });
       await state.audit({ action: 'send-held', featureDir: f.dir, slug: f.slug, kind: g.kind, text, autoResume: held.autoResume, resetsAt: held.resetsAt, ...(g.briefNumber ? { gateBrief: g.briefNumber } : {}) });
       await reopenIfClosed(f);
-      cached = null;
+      invalidate();
       const when = new Date(held.resetsAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
       return { ...reply, sent: false, held: true, resetsAt: held.resetsAt, message: held.autoResume ? `Held: it goes to the Foreman when Claude’s usage limit resets (around ${when}).` : `Held: it goes to the Foreman when you press “Carry on now” after Claude’s usage limit resets (around ${when}).` };
     }
@@ -2087,7 +2179,8 @@ export async function createRunner(config) {
 
   const HANDLERS = {
     // POST /api/jobs: a new job.
-    // `internal` is only ever passed by Auto start (never from a request): { autoStart: { tag } } turns Auto on by that tag.
+    // `internal` is only ever passed by Auto start and the restart (never from a request): { autoStart: { tag } } turns Auto
+    // on by that tag; { restartOf: featureDir } is the job a restart starts again, whose name the new job keeps.
     async start(body, internal = {}) {
       const description = str(body.description, 600).replace(/\s+/g, ' ').trim();
       if (description.length < 4) throw new HttpError(400, 'Describe the job in a few words.');
@@ -2143,48 +2236,63 @@ export async function createRunner(config) {
       // The repository's profile names a ticket's folder and branch (lib/profile.js); none: the general case.
       const hit = ticket ? await local.registry.profileFor(repo.path).catch(() => null) : null;
       const profile = hit?.ok ? hit.profile : null;
-      const slug = await uniqueSlug(ticket ? ticketSlug(ticket, profile) : slugify(description));
+      const slug = await uniqueSlug(ticket ? ticketSlug(ticket, profile) : slugify(description), { restartOf: internal.restartOf ?? null });
       const featureDir = path.join(FEATURES_DIR, slug);
-      // The job's options go in its private folder (read before every stage) and in the first message.
-      const { detail: fromDetail, ...fromRecord } = from ?? {};
-      // Started in Auto (options.auto): its record first, so the Foreman's very first reply runs in
-      // Auto's permission mode, and options.json says so with the record's time. normalize has
-      // already dropped auto at L3.
-      let autoOn = null;
-      if (options.auto === true && autoAllowed({ level: options.level }).ok) {
-        autoOn = autoRecord(null, internal.autoStart ? { on: true, by: 'tag', tag: internal.autoStart.tag } : { on: true, by: 'you' });
-        await state.setSession(featureDir, { auto: autoOn });
-      }
-      options = withAutoOf(options, autoOn);
-      const optionsOut = from ? { ...options, from_session: fromRecord } : options;
-      await writeOptions(featureDir, options, { title: description, repo: repo.path, kind, from_session: from ? fromRecord : undefined, ticket: ticket ?? undefined, branch: ticket ? ticketBranch(kind, slug, { profile, ticket }) : undefined });
-      // The ticket's safe details go in ticket.md before the Foreman's first message (lib/ticket-file.js).
-      // Orbit being slow or down never stops a start: no file, and the message says so.
-      let detailsRead = false;
-      if (ticket) {
-        const md = await readTicketFile(orbit, ticket);
-        if (md) {
-          try { await fsp.mkdir(featureDir, { recursive: true }); await writeFileAtomic(path.join(featureDir, TICKET_FILE), md, { mode: 0o600 }); detailsRead = true; } catch { /* the job starts without it */ }
+      let autoWritten = false;
+      try {
+        // The job's options go in its private folder (read before every stage) and in the first message.
+        const { detail: fromDetail, ...fromRecord } = from ?? {};
+        // Started in Auto (options.auto): its record first, so the Foreman's very first reply runs in
+        // Auto's permission mode, and options.json says so with the record's time. normalize has
+        // already dropped auto at L3.
+        let autoOn = null;
+        if (options.auto === true && autoAllowed({ level: options.level }).ok) {
+          autoOn = autoRecord(null, internal.autoStart ? { on: true, by: 'tag', tag: internal.autoStart.tag } : { on: true, by: 'you' });
+          await state.setSession(featureDir, { auto: autoOn });
+          autoWritten = true;
         }
+        options = withAutoOf(options, autoOn);
+        const optionsOut = from ? { ...options, from_session: fromRecord } : options;
+        await writeOptions(featureDir, options, { title: description, repo: repo.path, kind, from_session: from ? fromRecord : undefined, ticket: ticket ?? undefined, branch: ticket ? ticketBranch(kind, slug, { profile, ticket }) : undefined });
+        // The ticket's safe details go in ticket.md before the Foreman's first message (lib/ticket-file.js).
+        // Orbit being slow or down never stops a start: no file, and the message says so.
+        let detailsRead = false;
+        if (ticket) {
+          const md = await readTicketFile(orbit, ticket);
+          if (md) {
+            try { await fsp.mkdir(featureDir, { recursive: true }); await writeFileAtomic(path.join(featureDir, TICKET_FILE), md, { mode: 0o600 }); detailsRead = true; } catch { /* the job starts without it */ }
+          }
+        }
+        // A ticket's job starts with a status.json of schema version 2 holding the ticket block.
+        const fromTicket = ticket ? await startFromTicket(featureDir, { ticket, slug, title: description, kind, level: options.level, repo: repo.path, profile, detailsRead }) : null;
+        if (fromDetail) await fsp.writeFile(path.join(featureDir, 'history.md'), historyMarkdown(fromDetail), { mode: 0o600 });
+        // The /feature (or /bugfix) command must come first in the message, or it doesn't run. A bug job
+        // goes to /bugfix when that skill is installed; an older install still gets /feature with a note.
+        await checkSkill();
+        const conductor = conductorFor(kind);
+        const tail = from?.mode === 'continue'
+          ? `\n\nThis conversation is now a ${PRODUCT} job: carry it on through the feature workflow from here. Everything said earlier in it is background, not approval.`
+          : '';
+        const text = `${conductor} ${description}${kind === 'bug' && conductor === '/feature' ? ' (This is a bug fix.)' : ''} Private folder: ${featureDir}\n\nJob options (also in options.json in that folder; read it before every stage):\n${kind === 'bug' ? '- Kind: bug fix.\n' : ''}${describeOptions(optionsOut).map((l) => `- ${l}`).join('\n')}${fromTicket ? `\n\n${fromTicket.brief}` : ''}${tail}`;
+        const run = await driver.start({ featureDir, slug, title: description, cwd, sessionId, model, text, kind, newJob: true, additionalDirectories: await readDirs() });
+        autoWritten = false; // the job has started: its record stays, whatever fails after
+        await state.audit({ action: 'new-job', featureDir, slug, repo: repo.path, model, description, options, fromSession: from ? { id: from.id, mode: from.mode, forkedTo: from.forkedTo } : undefined, ticket: ticket?.key });
+        if (autoOn) await auditAuto({ action: 'auto', what: 'on', by: autoOn.by, featureDir, slug, via: 'start', stage: null, asked: '', chose: '', why: '' });
+        invalidate();
+        // Start on a ticket's row works as usual and clears "couldn't start by itself".
+        if (ticket && !internal.autoStart) await autoStarter.clearFailed(ticket.key).catch(() => {});
+        return { run, slug };
+      } catch (err) {
+        // The start failed: the Auto record it wrote (and options.json's mirror of it) is taken out again, so no job
+        // is left in Auto that never started (nor was its `on` line written: that comes after the start).
+        if (autoWritten) {
+          try { await state.setSession(featureDir, { auto: null }); } catch (e) { console.warn(`Auto: the record of a failed start (${slug}) not taken out: ${e.message}`); }
+          try { await writeAutoOption(featureDir, { on: false, since: null }); } catch { /* no options.json yet */ }
+        }
+        throw err;
+      } finally {
+        startingSlugs.delete(slug);
       }
-      // A ticket's job starts with a status.json of schema version 2 holding the ticket block.
-      const fromTicket = ticket ? await startFromTicket(featureDir, { ticket, slug, title: description, kind, level: options.level, repo: repo.path, profile, detailsRead }) : null;
-      if (fromDetail) await fsp.writeFile(path.join(featureDir, 'history.md'), historyMarkdown(fromDetail), { mode: 0o600 });
-      // The /feature (or /bugfix) command must come first in the message, or it doesn't run. A bug job
-      // goes to /bugfix when that skill is installed; an older install still gets /feature with a note.
-      await checkSkill();
-      const conductor = conductorFor(kind);
-      const tail = from?.mode === 'continue'
-        ? `\n\nThis conversation is now a ${PRODUCT} job: carry it on through the feature workflow from here. Everything said earlier in it is background, not approval.`
-        : '';
-      const text = `${conductor} ${description}${kind === 'bug' && conductor === '/feature' ? ' (This is a bug fix.)' : ''} Private folder: ${featureDir}\n\nJob options (also in options.json in that folder; read it before every stage):\n${kind === 'bug' ? '- Kind: bug fix.\n' : ''}${describeOptions(optionsOut).map((l) => `- ${l}`).join('\n')}${fromTicket ? `\n\n${fromTicket.brief}` : ''}${tail}`;
-      const run = await driver.start({ featureDir, slug, title: description, cwd, sessionId, model, text, kind, newJob: true, additionalDirectories: await readDirs() });
-      await state.audit({ action: 'new-job', featureDir, slug, repo: repo.path, model, description, options, fromSession: from ? { id: from.id, mode: from.mode, forkedTo: from.forkedTo } : undefined, ticket: ticket?.key });
-      if (autoOn) await auditAuto({ action: 'auto', what: 'on', by: autoOn.by, featureDir, slug, via: 'start', stage: null, asked: '', chose: '', why: '' });
-      cached = null;
-      // Start on a ticket's row works as usual and clears "couldn't start by itself".
-      if (ticket && !internal.autoStart) await autoStarter.clearFailed(ticket.key).catch(() => {});
-      return { run, slug };
     },
 
     // POST /api/job/:slug/send (via 'box'), or the gate card's own message (via 'card').
@@ -2266,6 +2374,7 @@ export async function createRunner(config) {
     // POST /api/job/:slug/close
     async close(body) {
       const f = await jobOf(body.slug);
+      if (restarting.has(f.dir)) throw new HttpError(409, BEING_RESTARTED);
       if (driver.activeRunFor({ featureDir: f.dir })) throw new HttpError(409, 'The Foreman is working on a reply. Pause it first, then mark the job.');
       if (closing.has(f.dir)) throw new HttpError(409, 'This job is already being marked. Wait a moment.');
       const as = body.as === 'dropped' ? 'dropped' : 'done';
@@ -2290,15 +2399,16 @@ export async function createRunner(config) {
           if (!worktree.ok) throw new HttpError(409, worktree.partial ? `Not marked yet. ${worktree.reason}` : `Not marked yet: the worktree can’t be removed safely. ${worktree.reason}`);
         }
         if (driver.activeRunFor({ featureDir: f.dir })) throw new HttpError(409, 'The Foreman started a reply meanwhile. Not marked; try again once it’s done.');
+        // A closed or finished job is out of Auto, so reopening it does not start Auto again by itself. Switched off while
+        // the job is still marked as closing, so an answer of Auto's on its way is refused at its last check (autoMaySend).
+        try { await autoOff(f, 'close'); } catch (err) { console.warn(`Auto: ${f.slug} not switched off at close: ${err.message}`); }
       } finally {
         closing.delete(f.dir);
       }
-      // A closed or finished job is out of Auto, so reopening it does not start Auto again by itself.
-      try { await autoOff(f, 'close'); } catch (err) { console.warn(`Auto: ${f.slug} not switched off at close: ${err.message}`); }
       const closed = { as, note, at: new Date().toISOString(), worktreeRemoved: worktree?.ok ? f.worktree : null };
       await state.setSession(f.dir, { closed });
       await state.audit({ action: 'close', featureDir: f.dir, slug: f.slug, as, note: note ?? undefined, worktreeRemoved: closed.worktreeRemoved ?? undefined });
-      cached = null;
+      invalidate();
       return { ok: true, closed };
     },
     // POST /api/job/:slug/reopen
@@ -2306,7 +2416,7 @@ export async function createRunner(config) {
       const f = await jobOf(body.slug);
       await state.setSession(f.dir, { closed: null });
       await state.audit({ action: 'reopen', featureDir: f.dir, slug: f.slug, how: 'button' });
-      cached = null;
+      invalidate();
       return { ok: true };
     },
 
@@ -2342,7 +2452,7 @@ export async function createRunner(config) {
       const lastLevel = (await state.auditFor(f.dir, 400)).filter((e) => e.action === 'auto-level' || (e.action === 'options' && Number.isInteger(e.options?.level))).at(-1);
       const overrode = lastLevel?.action === 'auto-level' && options.level !== lastLevel.level ? 'auto' : undefined;
       await state.audit({ action: 'options', featureDir: f.dir, slug: f.slug, options, was: f.options?.level ?? null, overrode });
-      cached = null;
+      invalidate();
       auto.pass(); // L3 here takes an Auto job out of Auto now
       return { ok: true, options, summary: describeOptions(options), updated_at: updatedAt };
     },
@@ -2355,17 +2465,14 @@ export async function createRunner(config) {
       if (restarting.has(f.dir)) throw new HttpError(409, 'This job is already being started again. Wait for that to finish. Nothing was changed.');
       restarting.add(f.dir);
       try {
-        // Test hook: while the file named here exists the restart waits (it writes <file>.held first), so a test can
-        // act while a restart is under way without depending on timing. Unset in real use.
-        const hold = process.env.STARBASE_TEST_HOLD_RESTART;
-        if (hold && fs.existsSync(hold)) {
-          await fsp.writeFile(`${hold}.held`, f.slug);
-          const until = Date.now() + 30_000; // a test that forgets to release it cannot hang the server
-          while (fs.existsSync(hold) && Date.now() < until) await new Promise((r) => { setTimeout(r, 20); });
-        }
+        // Tests only: a runner made by a test can hold a restart here (testHooks.holdRestart), so the test can act
+        // while a restart is under way without depending on timing. A real Starbase has no such hook.
+        if (typeof testHooks?.holdRestart === 'function') await testHooks.holdRestart(f.slug);
         if (!MODELS.some((x) => x.id === body.model)) throw new HttpError(400, 'That isn’t a model the Foreman can run on.');
         const drive = await driveState(f);
         if (drive.mode === 'running' || closing.has(f.dir)) throw new HttpError(409, 'Stop the reply first.');
+        // Nothing from the job page may still be working in the worktree that is about to move (as close checks).
+        if (local.busy(f.slug)) throw new HttpError(409, 'A command from the job page is still running in its worktree. Stop it first, then try again. Nothing was changed.');
         // What would stop the new job from starting is checked before anything is moved.
         if (limits.isLimited()) throw new HttpError(409, limitMessage(), { code: 'limited' });
         const repoPath = f.repoPath ?? f.options?.repo ?? '';
@@ -2392,7 +2499,8 @@ export async function createRunner(config) {
             // The old job's own permission setting, pause and run end are cleared before the new job starts, so its
             // first tool call never runs under them; put back when the restart is undone.
             // Auto goes off only once no refusal can come any more (restartJob calls this just before it moves anything).
-            beforeMoves: async () => { autoWasOn = await autoOff(f, 'restart'); },
+            // The job page's app is stopped here too, once no refusal can come, so a refusal leaves it running.
+            beforeMoves: async () => { await local.stopServerAndWait(f.slug); autoWasOn = await autoOff(f, 'restart'); },
             clearOldState: async () => {
               // The boundary: the old folder is archived, nothing of the new job is written yet. Every reader of this
               // folder's lines starts here (state.auditFor). If it can't be written the restart is put back.
@@ -2408,15 +2516,21 @@ export async function createRunner(config) {
                 if (paused) restartPaused.set(f.dir, paused);
                 if (ended !== undefined) runEnds[f.dir] = ended;
                 if (policy) { policyCleared = false; await state.setJobPolicy(f.dir, policy); await driver.applyModes(); }
-                cached = null;
+                invalidate();
               };
             },
-            start: async (startBody) => { cached = null; return HANDLERS.start(startBody); },
+            start: async (startBody) => { invalidate(); return HANDLERS.start(startBody, { restartOf: f.dir }); },
           });
         } catch (err) {
           // A refusal or a failure (put back, or part way) is on the record too, with what it says.
           if (autoWasOn && err instanceof Error) err.message = /Nothing was changed\.$/.test(err.message) ? err.message.replace(/Nothing was changed\.$/, AUTO_OFF_ONLY_CHANGE) : err.message + AUTO_OFF_FOR_RESTART;
           await state.audit({ action: 'restart-failed', featureDir: f.dir, slug: f.slug, model: body.model, error: String(err?.message ?? err), ...(err?.moved?.length ? { stillMoved: err.moved } : {}), ...(boundary && !err?.moved?.length ? { afterBoundary: true } : {}) }).catch(() => {});
+          // The restart's own sentence (what moved, what was put back, what happened to Auto) is the answer the page shows:
+          // 409 when nothing, or only Auto, changed and everything was put back; 500 when the job was left part way.
+          if (err instanceof RestartFailed) {
+            const partWay = err.moved?.length > 0;
+            throw new HttpError(partWay ? 500 : 409, err.message, { code: 'restart-failed', ...(partWay ? { stillMoved: err.moved } : {}) });
+          }
           throw err;
         }
         // State kept by the old job's folder starts fresh: the new job's folder is often the same path (a ticket job).
@@ -2427,7 +2541,7 @@ export async function createRunner(config) {
         if (policyCleared) { try { await driver.applyModes(); settingsChanged(); } catch (err) { notes.push(`The permission modes could not be refreshed (${oneLine(err)}).`); } }
         if (autoWasOn) notes.push('A restart switches Auto off. Turn it on again on the new job if you want it.');
         try { await state.audit({ action: 'restart-done', featureDir: f.dir, slug: f.slug, newSlug: out.slug, model: body.model, was: drive.model ?? null, archive: out.archive, backupBranch: out.backupBranch, worktreeAside: out.worktreeAside }); } catch (err) { notes.push(`The restart could not be written to the record (${oneLine(err)}).`); }
-        cached = null;
+        invalidate();
         return { ok: true, slug: out.slug, archive: out.archive, backupBranch: out.backupBranch, worktreeAside: out.worktreeAside, notes };
       } finally {
         restarting.delete(f.dir);
@@ -2451,9 +2565,10 @@ export async function createRunner(config) {
         // Already so: nothing changes. On again never moves `since` or clears a stop (telling Auto to
         // carry on is its own action); off on a job never in Auto makes no record.
         if ((prev?.on === true) === body.on) return { record: prev, changed: false };
-        // Switching off carries the Approver's money not yet on a line (spent) onto the off line, and starts again from 0.
-        const owed = !body.on && prev?.spent > 0 ? prev.spent : 0;
-        const next = owed ? { ...autoRecord(prev, { on: false, by: 'you' }), spent: 0 } : autoRecord(prev, { on: body.on, by: 'you' });
+        // The switch, either way, carries the Approver's money not yet on a line (spent) onto its own line (off or on), and
+        // starts again from 0: money put on a record that was off (an answer that came after the off) is not lost.
+        const owed = prev?.spent > 0 ? prev.spent : 0;
+        const next = { ...autoRecord(prev, { on: body.on, by: 'you' }), spent: 0 };
         await state.setSession(f.dir, { auto: next });
         // Audited as soon as the record changed: a failed file write below can't leave it unsaid.
         await auditAuto({ action: 'auto', what: body.on ? 'on' : 'off', by: 'you', featureDir: f.dir, slug: f.slug, stage: f.stage ?? null, asked: '', chose: '', why: '', ...(owed ? { costUsd: owed } : {}) });
@@ -2475,7 +2590,8 @@ export async function createRunner(config) {
       if (!changed) return { ok: true, auto: { ...autoCardView(record, { level: f.level, suggestedLevel: f.suggestedLevel }), tag: record?.tag ?? null } };
       await driver.applyModes(); // a reply in progress switches mode now
       settingsChanged();
-      cached = null;
+      invalidate();
+      if (!body.on) runAutoStart(); // switched off: its Auto start place is free now
       return { ok: true, auto: { ...autoCardView(record, { level: f.level, suggestedLevel: f.suggestedLevel }), tag: record.tag ?? null } };
     },
 
@@ -2645,7 +2761,7 @@ export async function createRunner(config) {
           // line, muted (what it finds was earned before). The Done notices start over: the next look
           // seeds what is already past the new line (never told again), and a job told Done at the
           // old line but short of the new one is told again when it gets there.
-          cached = null;
+          invalidate();
           broadcast('change', { at: Date.now() });
           events.emit('change', null, { at: Date.now() });
           playbook.schedule(0, { muted: true });
@@ -2750,7 +2866,7 @@ export async function createRunner(config) {
         const dismissed = [...new Set([...listOf('dismissedNudges'), id])];
         await state.setSession(f.dir, { dismissedNudges: dismissed });
         await state.audit({ action: 'nudge-dismissed', featureDir: f.dir, slug: f.slug, nudge: id });
-        cached = null;
+        invalidate();
         return { ok: true, dismissed };
       }
       if (listOf('sentNudges').includes(id)) throw new HttpError(409, 'That was already sent to the Foreman. Nothing was sent again.', { code: 'nudge-sent' });
@@ -2763,7 +2879,7 @@ export async function createRunner(config) {
       const tracked = { featureDir: f.dir, nudge: id, failed: false };
       nudgeRuns.set(run.id, tracked);
       await state.setSession(f.dir, { sentNudges: [...new Set([...listOf('sentNudges'), id])] });
-      cached = null;
+      invalidate();
       if (tracked.failed) await unsendNudge(f.dir, id); // the reply already ended in error (a spawn failure): not sent after all
       await state.audit({ action: 'nudge', featureDir: f.dir, slug: f.slug, nudge: id, text: nudge.action.send, runId: run.id });
       return { ok: true, sent: true, text: nudge.action.send, run };
@@ -2778,7 +2894,7 @@ export async function createRunner(config) {
       if (branch && !/^(?!-)[\w./-]{1,200}$/.test(branch)) throw new HttpError(400, 'That doesn’t look like a branch name.');
       await state.setSession(f.dir, { repoPath: repo.path, branch });
       await state.audit({ action: 'repo-set', featureDir: f.dir, slug: f.slug, repo: repo.path, branch });
-      cached = null;
+      invalidate();
       return { ok: true, repoPath: repo.path };
     },
 
@@ -3089,7 +3205,8 @@ export async function createRunner(config) {
     /** The top bar's usage meters: read the plan's usage now instead of at the next minute. */
     checkPlanUsage: () => planUsage.check(),
     /** Settings → Repos (site/routes-repos.js): the registry's list, add, remove and check. On a first start the list is seeded from the recent repositories. */
-    repos: reposDoor(local.registry, { recent: () => repoList() }),
+    // A repository added or forgotten is a settings change: the site link offers the website's Start form the new list.
+    repos: ((door) => ({ ...door, add: async (x) => afterRepoChange(await door.add(x)), remove: async (p) => afterRepoChange(await door.remove(p)) }))(reposDoor(local.registry, { recent: () => repoList() })),
     evidence: (await import('./evidence.js')).evidenceRunner({ jobs: features, local, state, events, on, demo: DEMO, env }), // evidence at the test stage: runner/evidence.js, site/routes-evidence.js
     recordSecret,
     /**
@@ -3154,11 +3271,11 @@ export async function createRunner(config) {
       github: () => flow.view().github ?? null,
       httpError: (err) => (err instanceof ReviewRefused ? new HttpError(err.status, err.message, err.code ? { code: err.code } : undefined) : err),
     },
-    stacks: createStacks({ driver, state, featuresDir: FEATURES_DIR, registry: local.registry, integrator, readDirs, models: MODELS.map((m) => m.id), onChange: () => { cached = null; notifyChange(); }, onSettings: settingsChanged }), // Stacks (packet K): runner/stacks.js
+    stacks: createStacks({ driver, state, featuresDir: FEATURES_DIR, registry: local.registry, integrator, readDirs, models: MODELS.map((m) => m.id), onChange: () => { invalidate(); notifyChange(); }, onSettings: settingsChanged }), // Stacks (packet K): runner/stacks.js
     /** An integration board refusal (lib/integrate.js IntegrateError) as the answer the page has always had. */
     integrateHttpError: (err) => (err instanceof IntegrateError ? new HttpError(err.status, err.message) : err),
     /** Something outside the runner changed what the page shows (the screens server went down): every page fetches again. */
-    changed() { cached = null; notifyChange(); },
+    changed() { invalidate(); notifyChange(); },
   };
 
   // ---------- After a restart (runner/replay.js) ----------
@@ -3166,7 +3283,7 @@ export async function createRunner(config) {
   // Sending anything to the job, or marking it done, ends its restart pause.
   state.on('audit', (e) => {
     if (!e.featureDir || !restartPaused.has(e.featureDir)) return;
-    if (e.action === 'send' || e.action === 'close') { restartPaused.delete(e.featureDir); cached = null; }
+    if (e.action === 'send' || e.action === 'close') { restartPaused.delete(e.featureDir); invalidate(); }
   });
 
   // Replies a clean stop paused carry on by themselves: tried now and every few seconds while one
@@ -3189,7 +3306,7 @@ export async function createRunner(config) {
         if (!f || f.closed) { restartPaused.delete(dir); continue; }
         const drive = await driveState(f);
         // Picked up in a terminal meanwhile: that session is the terminal's now.
-        if (drive.mode === 'terminal') { restartPaused.delete(dir); cached = null; continue; }
+        if (drive.mode === 'terminal') { restartPaused.delete(dir); invalidate(); continue; }
         if (drive.mode === 'running') continue;
         const cwd = p.cwd ?? drive.cwd ?? f.repoPath;
         if (!cwd) { restartPaused.delete(dir); continue; }
@@ -3207,11 +3324,12 @@ export async function createRunner(config) {
             restartPaused.set(dir, { ...p, how: 'crash' });
           }
         }
-        cached = null;
+        invalidate();
       }
     } finally {
       resuming = false;
     }
+    testHooks?.carriedOn?.(); // tests only: one pass is done
     if (![...restartPaused.values()].some((p) => p.how === 'clean') && resumeTimer) { clearInterval(resumeTimer); resumeTimer = null; }
   }
   function startCarryingOn() {
@@ -3231,6 +3349,12 @@ export async function createRunner(config) {
       }
     }
     return jobs;
+  }
+  // Tests only: the replay start() makes, without the watchers and timers start() opens; a start with
+  // `internal` (as Auto start makes one), which no request can pass.
+  if (testHooks && typeof testHooks === 'object') {
+    testHooks.replay = replayRestart;
+    testHooks.startJob = (body, internal) => HANDLERS.start(body, internal);
   }
 
   // ---------- Start and stop ----------
@@ -3323,9 +3447,11 @@ export async function createRunner(config) {
     return () => out.off('event', listener);
   }
 
-  // `auto` is for code inside this computer (the tests, a later task): the pass, a decision sent as Auto, the set of
+  // `auto` is for code inside this computer (the tests, a later task): the pass, the set of
   // jobs being started again, the look at what waits for you. The site and the pages reach the runner only through handle and read.
-  return { handle, read, local: local_, on, start, stop, auto: { pass: auto.pass, decideGate: gateDecision, restarting, checkWaiting, checkLevels } };
+  // A decision sent as Auto ({ by: 'auto' }) is reachable only from inside: the pass, and a test's hooks, never this object.
+  if (testHooks && typeof testHooks === 'object') testHooks.decideGate = gateDecision;
+  return { handle, read, local: local_, on, start, stop, auto: { pass: auto.pass, restarting, checkWaiting, checkLevels } };
 
 
 }

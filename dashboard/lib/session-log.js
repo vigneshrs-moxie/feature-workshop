@@ -97,6 +97,11 @@ export function parseSessionLog(text) {
       const c = d.message.content;
       if (!out.firstPrompt && !d.isMeta) out.firstPrompt = lastTextOf(c);
       if (Array.isArray(c) && c.some((x) => x?.type === 'tool_result')) out.pendingToolUse = false;
+      // A new prompt: a worker resumed after its hand-back is working again. Not a line Claude Code marks isMeta, nor one
+      // that carries a tool's result (with or without text beside it): a finished worker stays finished.
+      const toolResultLine = Array.isArray(c) && c.some((x) => x?.type === 'tool_result');
+      const said = (typeof c === 'string' && c.trim()) || (Array.isArray(c) && c.some((x) => x?.type === 'text' && x.text?.trim()));
+      if (said && !d.isMeta && !toolResultLine) out.handedBack = false;
       for (const x of Array.isArray(c) ? c : []) {
         if (x?.type === 'tool_result' && x.tool_use_id) out.answeredToolUses.set(x.tool_use_id, d.timestamp ?? before ?? null);
       }

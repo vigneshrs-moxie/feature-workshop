@@ -14,6 +14,7 @@ import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { startDashboard } from './helpers/dashboard.js';
+import { HOLD_HOOK } from './helpers/hold-restart.js';
 import { OPUS, HAIKU, FABLE } from '../lib/options.js';
 import { parseCommand } from '../lib/protocol.js';
 import { State } from '../lib/state.js';
@@ -103,6 +104,35 @@ before(async () => {
     git('worktree', 'add', '-q', '-b', `feature/${slug}`, w);
     await started(slug, { branch: `feature/${slug}`, worktree: w, base_sha: baseSha }, { models: { foreman: OPUS, build: OPUS, checks: OPUS } });
   }
+  // I2: ticket jobs restarted. orbit-12-export has a worktree on the ticket's branch (the driver will
+  // hold a run of it); orbit-13-import has the old Foreman's session log, which names its folder;
+  // orbit-14-report's restart fails after the boundary (a provided file that is gone) and is put back.
+  const ticketJob = async (slug, key, title, extra = {}) => started(slug, { title, repo: { path: repo, base_branch: 'main' }, ...extra.status }, { title: `${key}: ${title}`, ticket: { key, title, url: null }, models: { foreman: OPUS, build: OPUS, checks: OPUS }, ...extra.options });
+  const wt12 = path.join(root, 'repo-worktrees', 'orbit-12-export');
+  git('worktree', 'add', '-q', '-b', 'feature/orbit-12-export', wt12);
+  await ticketJob('orbit-12-export', 'ORBIT-12', 'Export', { status: { branch: 'feature/orbit-12-export', worktree: wt12, base_sha: baseSha }, options: { branch: 'feature/orbit-12-export' } });
+  const oldLog = async (sessionId, dir) => {
+    const proj = path.join(dirs.projects, '-repo');
+    await fs.mkdir(path.join(proj, sessionId, 'subagents'), { recursive: true });
+    const line = (o) => JSON.stringify({ sessionId, cwd: repo, ...o });
+    const usage = { input_tokens: 2000, output_tokens: 90000, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
+    await fs.writeFile(path.join(proj, `${sessionId}.jsonl`), `${[
+      line({ type: 'user', timestamp: '2026-11-10T09:00:00Z', message: { role: 'user', content: `/feature Old run. Private folder: ${dir}` } }),
+      line({ type: 'assistant', timestamp: '2026-11-10T09:00:05Z', message: { id: `${sessionId}-f1`, model: OPUS, stop_reason: 'tool_use', usage, content: [{ type: 'tool_use', id: `toolu_${sessionId}`, name: 'Agent', input: { subagent_type: 'feature-implementer', description: 'Build it' } }] } }),
+      line({ type: 'pr-link', timestamp: '2026-11-10T09:40:00Z', prNumber: 7, prUrl: 'https://github.com/o/r/pull/7', prRepository: 'o/r' }),
+    ].join('\n')}\n`);
+    await fs.writeFile(path.join(proj, sessionId, 'subagents', 'agent-w1.jsonl'), `${[
+      line({ agentId: 'w1', isSidechain: true, type: 'user', timestamp: '2026-11-10T09:00:06Z', message: { role: 'user', content: 'Stage: Implement.' } }),
+      line({ agentId: 'w1', isSidechain: true, type: 'assistant', timestamp: '2026-11-10T09:10:00Z', message: { id: `${sessionId}-w1m`, model: OPUS, stop_reason: null, usage, content: [{ type: 'tool_use', id: `toolu_${sessionId}_B`, name: 'Bash', input: { command: 'npm test' } }] } }),
+    ].join('\n')}\n`);
+    await fs.writeFile(path.join(proj, sessionId, 'subagents', 'agent-w1.meta.json'), JSON.stringify({ agentType: 'feature-implementer', description: 'Build it', toolUseId: `toolu_${sessionId}` }));
+  };
+  const dir13 = await ticketJob('orbit-13-import', 'ORBIT-13', 'Import');
+  sessions[dir13] = { sessionId: 'old-sess-13', cwd: repo, model: OPUS };
+  await oldLog('old-sess-13', dir13);
+  const dir14 = await ticketJob('orbit-14-report', 'ORBIT-14', 'Report', { options: { provided: { spec: path.join(root, 'gone-spec.md') } } });
+  delete sessions[dir14]; // its Foreman session is known only from its log
+  await oldLog('old-sess-14', dir14);
   await started('term-job');
   await fs.mkdir(path.join(dirs.state, 'hook-events'), { recursive: true });
   await fs.writeFile(path.join(dirs.state, 'hook-events', 'events.jsonl'), `${new Date().toISOString()}\t${JSON.stringify({ session_id: 'term-1', hook_event_name: 'UserPromptSubmit', cwd: repo, prompt: `carry on with feature-work/term-job` })}\n`);
@@ -161,6 +191,7 @@ before(async () => {
       STARBASE_SKILLS_DIR: dirs.skills, STARBASE_STATE_DIR: dirs.state, STARBASE_TEST_HOLD_RESTART: path.join(root, 'hold-restart'),
     },
     output,
+    nodeArgs: ['--import', HOLD_HOOK], // the restart hold, a test hook only
   });
   ({ base } = dashboard);
 });
@@ -376,6 +407,77 @@ test('restart route: the job starts again on the new model; the old work is kept
   assert.equal(opts.title, 'Do the restart-me job');
   const audit = (await auditLines()).filter((l) => l.action === 'restart' && l.slug === 'restart-me');
   assert.equal(audit.length, 1);
+});
+
+// ---- I2: a restarted job keeps its name and its branch name, and nothing of the old run is the new job's ----
+
+const runsOf = async (slug) => (await getJson('/api/runs')).runs.filter((r) => r.slug === slug);
+const ACTIVE = new Set(['starting', 'running', 'waiting_permission', 'stopping']);
+async function untilNoReply(slug) {
+  for (let i = 0; i < 200; i++) {
+    const active = (await runsOf(slug)).filter((r) => ACTIVE.has(r.status));
+    if (!active.length) return;
+    for (const r of active) if (r.status !== 'stopping') await post(`/api/runs/${r.id}/stop`, {});
+    await pause(100);
+  }
+  throw new Error(`${slug} still has a reply running`);
+}
+
+test('I2 A: a ticket job restarted while the driver holds its old run keeps its name and its branch name', { timeout: 60_000 }, async () => {
+  const sent = await post('/api/job/orbit-12-export/send', { text: 'Carry on' });
+  assert.equal(sent.status, 200, JSON.stringify(sent.body));
+  await untilNoReply('orbit-12-export');
+  assert.ok((await runsOf('orbit-12-export')).length >= 1, 'the driver holds the old job’s run');
+  const res = await post('/api/job/orbit-12-export/restart', { model: FABLE });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(res.body.slug, 'orbit-12-export', 'the same name, no -2');
+  assert.match(res.body.backupBranch, /^backup\/feature\/orbit-12-export-\d{4}-\d\d-\d\d$/, 'the old branch under its backup name');
+  assert.equal((await optionsOf('orbit-12-export')).branch, 'feature/orbit-12-export', 'the same branch name');
+  const branches = execFileSync('git', ['-C', repo0, 'for-each-ref', '--format=%(refname:short)', 'refs/heads']).toString().split('\n');
+  assert.ok(branches.includes(res.body.backupBranch));
+  assert.ok(!(await fs.readdir(featuresDir)).some((n) => n.startsWith('orbit-12-export-')), 'no second folder');
+  await untilNoReply('orbit-12-export');
+});
+
+test('I2 B: after Starbase started again, a restarted ticket job shows nothing of the old Foreman and never resumes it', { timeout: 60_000 }, async () => {
+  const before = await getJson('/api/job/orbit-13-import');
+  assert.equal(before.drive.sessionId, 'old-sess-13', 'the old job, before: its Foreman is the old session');
+  assert.ok(before.costDetail.totalUsd > 0);
+  assert.equal((await runsOf('orbit-13-import')).length, 0, 'the driver holds nothing of it');
+  const res = await post('/api/job/orbit-13-import/restart', { model: FABLE });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(res.body.slug, 'orbit-13-import');
+  // From the first moment: whatever the new reply has got to, nothing of the old session is the new job's.
+  const job = await getJson('/api/job/orbit-13-import');
+  assert.notEqual(job.drive.sessionId, 'old-sess-13', 'no old session id');
+  assert.equal(job.drive.model, FABLE, 'the new model');
+  assert.equal(job.costDetail.totalUsd, 0, 'no old spend');
+  assert.deepEqual(job.activity.filter((a) => a.sessionId === 'old-sess-13'), [], 'no old crew');
+  const lines = await auditLines();
+  const boundary = lines.findLastIndex((l) => l.action === 'restart' && l.slug === 'orbit-13-import');
+  const sends = () => lines.slice(boundary).filter((l) => l.action === 'send' && l.slug === 'orbit-13-import');
+  assert.equal(sends()[0].sessionId, null, 'the first reply starts a new session');
+  // The next reply resumes the new Foreman, never the old one.
+  await untilNoReply('orbit-13-import');
+  const again = await post('/api/job/orbit-13-import/send', { text: 'Carry on' });
+  assert.equal(again.status, 200, JSON.stringify(again.body));
+  const next = (await auditLines()).filter((l) => l.action === 'send' && l.slug === 'orbit-13-import').at(-1);
+  assert.notEqual(next.sessionId, 'old-sess-13', 'the old session is never resumed');
+  assert.ok(next.sessionId, 'the new session is');
+  assert.equal(next.model, FABLE);
+  await untilNoReply('orbit-13-import');
+});
+
+test('I2: a restart that failed and was put back leaves the old logs counting again', { timeout: 60_000 }, async () => {
+  const res = await post('/api/job/orbit-14-report/restart', { model: FABLE });
+  assert.notEqual(res.status, 200, JSON.stringify(res.body));
+  const failed = (await auditLines()).filter((l) => l.slug === 'orbit-14-report' && /^restart/.test(l.action));
+  assert.deepEqual(failed.map((l) => [l.action, l.afterBoundary ?? null]), [['restart', null], ['restart-failed', true]]);
+  assert.match(failed[1].error, /Everything it had moved was put back/);
+  assert.equal(await fs.access(path.join(featuresDir, 'orbit-14-report', 'options.json')).then(() => true, () => false), true, 'the old job is back in its folder');
+  const job = await getJson('/api/job/orbit-14-report');
+  assert.equal(job.drive.sessionId, 'old-sess-14', 'the old Foreman is the job’s again');
+  assert.ok(job.costDetail.totalUsd > 0, 'and so is its spend');
 });
 
 test('F7: a terminal open on the job refuses the restart; nothing changed', { timeout: 60_000 }, async () => {

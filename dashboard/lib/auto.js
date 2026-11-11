@@ -81,3 +81,15 @@ export function autoCardView(sessionAuto, { level = null, suggestedLevel = null 
 // it and leave the mark itself out of the why.
 
 export const AUTO_MARK = "(Sent by Starbase's Auto for the person. options.json says auto: true.)";
+
+/**
+ * The text without Auto's mark at its end (however many copies, with any spaces or lines between), for every message
+ * Starbase sends to the Foreman other than Auto's own reply: only Auto's reply may end with the mark.
+ */
+export function withoutMark(text) {
+  const t = String(text ?? '');
+  let end = t.trimEnd();
+  if (!end.endsWith(AUTO_MARK)) return t;
+  while (end.endsWith(AUTO_MARK)) end = end.slice(0, -AUTO_MARK.length).trimEnd();
+  return end;
+}

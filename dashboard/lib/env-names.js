@@ -62,3 +62,6 @@ export function withOldNames(env = process.env) {
 
 /** One variable by its new name, falling back to the old one. */
 export const envOf = (env, name) => (set(env?.[name]) ? env[name] : OLD_NAMES[name] && set(env?.[OLD_NAMES[name]]) ? env[OLD_NAMES[name]] : undefined);
+
+/** Whether the demo is on: STARBASE_DEMO is 1 or true (any case). 0, false, empty or anything else is not the demo. */
+export const demoOn = (env = process.env) => /^(1|true)$/i.test(String(env?.STARBASE_DEMO ?? '').trim());

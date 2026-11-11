@@ -91,6 +91,7 @@ function firstObject(text) {
 function plainReason(text) {
   const s = String(text)
     .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\b(?:https?:\/\/|www\.)\S+/gi, '') // a bare web address goes, as a link's address does
     .replace(/[*_`#~>|\\[\]<>]/g, '')
     .replace(/\s+/g, ' ').trim();
   return s.length > REASON_MAX ? `${s.slice(0, REASON_MAX - 1).trimEnd()}…` : s;
@@ -162,16 +163,23 @@ export const SUGGEST_EVERY_MS = 30 * 60_000;
 
 /**
  * Asks for a suggestion when the list of unranked tickets changes, at most once in everyMs (a failure
- * counts as a try). ask(input) → { text, costUsd, tokens }; enabled() says whether the setting is on.
- *   consider({ items, rows, jobs })   the inbox changed (or the setting turned on)
+ * counts as a try; a failed list is tried once more when its window ends). ask(input) → { text, costUsd,
+ * tokens }; enabled() says whether the setting is on; paused() says Claude can't be used now (its limit
+ * is reached or its warning shows): nothing is asked then, and that is no try.
+ *   consider({ items, rows, jobs })   the inbox changed (or the setting turned on). jobs: the open jobs,
+ *                                     or a function giving them, called only when a call is made
+ *   resume()                          Claude can be used again: ask now if a call was held for it
  *   off()                             the setting turned off: cancel the timer, clear the view
  *   view()                            InboxSuggestion | null; 'change' is emitted with it
  * An `onCall` hook (optional) gets { costUsd, tokens } after each answered call, for the usage log.
  */
 export class InboxSuggester extends EventEmitter {
-  constructor({ ask, enabled = () => true, now = () => Date.now(), setTimer = setTimeout, clearTimer = clearTimeout, everyMs = SUGGEST_EVERY_MS, onCall = null }) {
+  constructor({ ask, enabled = () => true, paused = () => false, now = () => Date.now(), setTimer = setTimeout, clearTimer = clearTimeout, everyMs = SUGGEST_EVERY_MS, onCall = null }) {
     super();
-    Object.assign(this, { ask, enabled, now, setTimer, clearTimer, everyMs, onCall });
+    Object.assign(this, { ask, enabled, paused, now, setTimer, clearTimer, everyMs, onCall });
+    this.held = false; // a call waits for Claude to be usable again (paused)
+    this.retryOf = null; // the list (JSON) whose failure is tried once more when its window ends
+    this.retried = null; // the list (JSON) that was tried once more already
     this.latest = null; // the newest inputs given to consider()
     this.askedList = null; // the list last asked about (JSON of key + changedAt)
     this.lastTryAt = null;
@@ -199,12 +207,23 @@ export class InboxSuggester extends EventEmitter {
     this.latest = { items, rows, jobs };
     if (!this.enabled() || !needsSuggestion(items)) { this.#cancel(); this.#emit(); return; }
     const list = this.#list(items);
-    if (this.askedList && JSON.stringify(list) === JSON.stringify(this.askedList)) { this.#emit(); return; }
+    const same = this.askedList && JSON.stringify(list) === JSON.stringify(this.askedList);
+    // The same list: asked already, unless it failed and has its one more try left.
+    if (same && this.retryOf !== JSON.stringify(list)) { this.#emit(); return; }
     // A call is out: no timer meanwhile (it would fire at once, again and again). The end of #run
     // asks again, when the window allows, if the list changed during the call.
     if (this.busy) { this.#emit(); return; }
     if (this.lastTryAt !== null && this.now() - this.lastTryAt < this.everyMs) { this.#schedule(); this.#emit(); return; }
+    // Claude's limit is reached or its warning shows: not now, and no try counted. resume() asks.
+    if (this.paused()) { this.held = true; this.#emit(); return; }
+    if (same) { this.retried = this.retryOf; this.retryOf = null; }
     this.#run();
+  }
+
+  resume() {
+    if (!this.held || this.paused()) return;
+    this.held = false;
+    if (this.latest) this.consider(this.latest);
   }
 
   off() {
@@ -230,11 +249,14 @@ export class InboxSuggester extends EventEmitter {
     const candidates = suggestCandidates(items);
     const list = this.#list(items);
     const keys = candidates.map((c) => c.key);
-    this.busy = true; this.lastTryAt = this.now(); this.askedList = list;
+    this.busy = true; this.held = false; this.lastTryAt = this.now(); this.askedList = list;
+    if (JSON.stringify(list) !== this.retried) this.retried = null;
     this.state = { state: 'asking', at: this.state?.at ?? null, picks: this.state?.picks ?? [], forList: this.state?.forList ?? [], why: null };
     this.#emit();
     try {
-      const out = await this.ask(suggestInput(candidates, rows, jobs, { now: this.now() }));
+      // The open jobs (their changed paths need git) are worked out only now that a call is made.
+      const open = typeof jobs === 'function' ? await jobs() : jobs;
+      const out = await this.ask(suggestInput(candidates, rows, open, { now: this.now() }));
       try { this.onCall?.({ costUsd: out.costUsd, tokens: out.tokens }); } catch { /* the usage log must not stop the suggestion */ }
       const parsed = parseSuggestion(out.text, keys);
       this.state = parsed.error
@@ -244,8 +266,11 @@ export class InboxSuggester extends EventEmitter {
       this.state = { state: 'failed', at: new Date(this.now()).toISOString(), picks: [], forList: keys, why: err?.message === "Haiku didn't answer in time." ? err.message : "Haiku couldn't be reached." };
     }
     this.busy = false;
-    // The list changed during the call: ask again when the window allows.
-    if (this.enabled() && this.latest && needsSuggestion(this.latest.items) && JSON.stringify(this.#list(this.latest.items)) !== JSON.stringify(this.askedList)) this.#schedule();
+    // A failure is tried once more for the same list, when its window ends (never a second time).
+    const asked = JSON.stringify(this.askedList);
+    this.retryOf = this.state.state === 'failed' && this.retried !== asked ? asked : null;
+    // The list changed during the call, or a failure has its one more try: ask again when the window allows.
+    if (this.enabled() && this.latest && needsSuggestion(this.latest.items) && (JSON.stringify(this.#list(this.latest.items)) !== asked || this.retryOf === asked)) this.#schedule();
     this.#emit();
   }
 }

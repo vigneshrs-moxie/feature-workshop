@@ -11,10 +11,11 @@ import fsSync from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { STOP_HOOK } from '../lib/service.js';
+import { HOLD_HOOK } from './helpers/hold-restart.js';
 
 const DASHBOARD = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SERVER = path.join(DASHBOARD, 'server.js');
@@ -49,7 +50,8 @@ async function startDashboard(env) {
   const output = [];
   // Started the way the service's supervisor starts it (lib/service.js superviseServer): with
   // STOP_HOOK and a channel, so a clean stop works on Windows too, which has no SIGTERM to send.
-  const child = spawn(process.execPath, ['--import', STOP_HOOK, SERVER], { env: { ...process.env, ...env, PORT: String(port), WIREFRAMES_PORT: String(wport) }, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
+  // The restart hold (a test hook only) is preloaded when the test names its file.
+  const child = spawn(process.execPath, ['--import', STOP_HOOK, ...(env.STARBASE_TEST_HOLD_RESTART ? ['--import', HOLD_HOOK] : []), SERVER], { env: { ...process.env, ...env, PORT: String(port), WIREFRAMES_PORT: String(wport) }, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
   children.add(child);
   await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`The dashboard didn't start:\n${output.join('')}`)), 15000);
@@ -242,7 +244,10 @@ test('G1: a job due to carry on after a server restart is not started while its 
   const b = await startDashboard({ ...env, STARBASE_TEST_HOLD_RESTART: hold });
   const { restart } = await holdRestart(b, hold);
   await fs.rm(lockFile);
-  await sleep(4500); // longer than the carry-on's tick
+  // Two passes of the carry-on after the lock was freed: at least one ran whole with the job free to carry on.
+  const passes = () => fsSync.readFileSync(`${hold}.passes`, 'utf8').length;
+  const from = fsSync.existsSync(`${hold}.passes`) ? passes() : 0;
+  await b.waitFor(() => fsSync.existsSync(`${hold}.passes`) && passes() >= from + 2, 'two passes of the carry-on');
   const sentWhileHeld = audit().filter((e) => e.action === 'send' && e.kind === 'resume-after-restart');
   await fs.rm(hold);
   await restart;
@@ -277,6 +282,26 @@ function importsOf(file) {
   const text = fsSync.readFileSync(file, 'utf8');
   return [...text.matchAll(IMPORT)].map((m) => m[1] ?? m[2] ?? m[3]);
 }
+
+test('a failed restart answers with its own sentence: 409 when only Auto changed and everything was put back', async () => {
+  const { env, dirs } = await makeJob();
+  // The job's repository is a git repository, so the restart passes its checks and reaches its first move.
+  const repo = path.join(path.dirname(path.dirname(dirs.job)), 'sample-repo');
+  const git = (...a) => execFileSync('git', ['-C', repo, '-c', 'user.name=T', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false', ...a], { stdio: 'pipe' });
+  git('init', '-q', '-b', 'main');
+  git('commit', '-q', '--allow-empty', '-m', 'base');
+  const b = await startDashboard(env);
+  try {
+    const on = await b.write('/api/job/sample-job/auto', { on: true });
+    assert.equal(on.status, 200, JSON.stringify(on.body));
+    // The archive folder can't be made (a file is in its place): the first move fails and is put back.
+    await fs.writeFile(path.join(path.dirname(dirs.job), '.restarted'), 'not a folder');
+    const r = await b.write('/api/job/sample-job/restart', { model: 'claude-fable-5-2' });
+    assert.equal(r.status, 409, JSON.stringify(r.body));
+    assert.match(r.body.error, /^The restart did not start: .* Only Auto changed: it was switched off for the restart\. Turn it on again if you want it\.$/);
+    assert.equal(r.body.code, 'restart-failed');
+  } finally { await b.stop(); }
+});
 
 test('dashboard/site/ imports no driver, local runner, lock or child_process, directly or through what it imports', () => {
   const siteDir = path.join(DASHBOARD, 'site');

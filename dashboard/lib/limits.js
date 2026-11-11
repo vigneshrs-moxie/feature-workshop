@@ -137,11 +137,11 @@ export class LimitWatch extends EventEmitter {
    * newer one replaces it, and a message you send by hand meanwhile drops it (forget). Kept with
    * the paused jobs, so a restart doesn't lose it.
    * job: { featureDir, slug, title, cwd, sessionId, model, additionalDirectories }.
-   * send: { text (exactly what goes to the Foreman), kind, gateBrief, by? } (by: 'auto' is kept and goes out with the reply).
+   * send: { text (exactly what goes to the Foreman), kind, gateBrief }. Always the person's: Auto's replies are never held.
    */
   async hold(job, send) {
     if (!this.limit) throw new Error('No usage limit is in force, so there is nothing to wait for.');
-    const entry = { ...jobOf(job), send: { text: String(send.text), kind: send.kind ?? 'message', gateBrief: Number.isInteger(send.gateBrief) ? send.gateBrief : null, ...(send.by === 'auto' ? { by: 'auto' } : {}), at: new Date(this.now()).toISOString() } };
+    const entry = { ...jobOf(job), send: { text: String(send.text), kind: send.kind ?? 'message', gateBrief: Number.isInteger(send.gateBrief) ? send.gateBrief : null, at: new Date(this.now()).toISOString() } };
     this.limit.jobs = [...this.limit.jobs.filter((j) => j.featureDir !== job.featureDir), entry];
     this.queue = this.queue.filter((j) => j.featureDir !== job.featureDir);
     await this.#save();
@@ -194,7 +194,7 @@ export class LimitWatch extends EventEmitter {
           if (!this.queue.includes(job)) { outcome = this.limit ? LIMITED_AGAIN : MANUAL_SEND; break; }
           try {
             // A held reply (hold) goes in place of the carry-on message, as you composed it.
-            const send = job.send ? { text: job.send.text, kind: job.send.kind, gateBrief: job.send.gateBrief, ...(job.send.by === 'auto' ? { by: 'auto' } : {}) } : { text: RESUME_TEXT, kind: 'resume' };
+            const send = job.send ? { text: job.send.text, kind: job.send.kind, gateBrief: job.send.gateBrief } : { text: RESUME_TEXT, kind: 'resume' };
             await this.driver.start({ featureDir: job.featureDir, slug: job.slug, title: job.title, cwd: job.cwd, sessionId: job.sessionId, model: job.model, additionalDirectories: job.additionalDirectories, ...send });
             outcome = 'started';
           } catch (err) {

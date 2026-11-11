@@ -48,12 +48,12 @@ import { parseReviewFindings } from '../lib/play.js';
 import { FABLE_POINTS, flowFor, isLevel, levelLabel, OPUS, REVIEWERS, skippedFor } from '../lib/options.js';
 import { STAGES as STAGE_LIST, stagesFor } from '../lib/stages.js';
 
-// The pretend Foreman runs a feature job's stages (a demo bug job runs them too).
-const STAGES = stagesFor('feature');
+// The pretend Foreman runs a feature job's stages; a bug ticket's job (Auto start makes those) runs a bug job's
+// stages from its first brief on, as the real /bugfix does, so Starbase's gate rules see the stages they expect.
+const stagesOf = (s) => stagesFor(s?.kind === 'bug' ? 'bug' : 'feature');
 const LABEL = Object.fromEntries(STAGE_LIST.map((s) => [s.id, s.label]));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const RANK = { deny: 3, ask: 2, allow: 1 };
-const at = (stage) => STAGES.indexOf(stage);
 const now = () => new Date().toISOString();
 
 // The pretend safety model: 'allow', 'block' or 'unsure' (then it asks through canUseTool).
@@ -551,7 +551,10 @@ async function planReply(dir, reply, { sessionId }) {
   }
 
   // ----- An approval (or your answers): on to the next stage -----
-  const stage = s.stage ?? 'spec';
+  const order = stagesOf(s);
+  const at = (x) => order.indexOf(x);
+  // A bug job with no stage yet starts at the first of its own stages.
+  const stage = s.stage ?? (s.kind === 'bug' ? null : 'spec');
   const lv = chip('level');
   if (lv && lv.level > lv.was && at(stage) >= at('implement') && at(stage) < at('pr1') && !/^Which stages/.test(s.brief?.headline ?? '')) {
     // Raised after the build started: stop and ask which stages to add (job-options.md).
@@ -592,7 +595,7 @@ async function planReply(dir, reply, { sessionId }) {
   // PR #1 approved: "open" it (the demo pushes nothing), so status.json has its link.
   if (stage === 'pr1' && !s.prs?.[0]?.url) return openPr1(out, { dir, s, slug, title, done });
 
-  const next = STAGES.slice(at(stage) + 1).find((x) => !skipped.has(x)) ?? null;
+  const next = order.slice(at(stage) + 1).find((x) => !skipped.has(x)) ?? null;
   // A job in Starbase's Auto: the gate before PR #1 is Auto's last, so approving it opens PR #1 in this reply,
   // as the real Foreman does (a "PR #1 ready" brief of its own would be a gate to PR #2, and Auto stops there).
   if (out.starbaseAuto && next === 'pr1' && !s.prs?.[0]?.url) return openPr1(out, { dir, s, slug, title, done });

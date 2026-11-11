@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url';
 import { createRunner } from './runner/index.js';
 import { createSite } from './site/index.js';
 import { PRODUCT } from './lib/brand.js';
-import { withOldNames } from './lib/env-names.js';
+import { demoOn, withOldNames } from './lib/env-names.js';
 import { defaultStateDir, prepareStateFolder } from './lib/state.js';
 
 withOldNames(process.env); // again: the demo sets its STARBASE_* names after env-boot ran
@@ -38,7 +38,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CLAUDE_DIR = path.join(os.homedir(), '.claude');
 const FEATURES_DIR = path.resolve(process.env.STARBASE_FEATURES_DIR || path.join(CLAUDE_DIR, 'feature-work'));
 const PROJECTS_DIR = path.resolve(process.env.STARBASE_PROJECTS_DIR || path.join(CLAUDE_DIR, 'projects'));
-const DEMO = Boolean(process.env.STARBASE_DEMO);
+const DEMO = demoOn(process.env); // 1 or true only: STARBASE_DEMO=0 is not the demo
 const TOKEN = crypto.randomBytes(24).toString('hex');
 // The default state folder first, before anything writes to it: the folder from before the rename
 // becomes ~/.starbase (with a link by the old name), and the oldest folder's files move in
@@ -63,6 +63,8 @@ const runner = await createRunner({
   orbitStore: DEMO || process.env.STARBASE_ORBIT_STORE === 'file' ? 'file' : 'auto',
   integrateDir: path.resolve(process.env.STARBASE_DIR || ready?.dir || defaultStateDir()),
   integrateRoot: path.resolve(process.env.INTEGRATE_ROOT || path.join(HERE, '..')),
+  // Set only by a test's preload (test/helpers/hold-restart.js); a real Starbase never has it.
+  testHooks: globalThis.starbaseTestHooks ?? null,
 });
 // The site: the page, its routes and its streams, on PORT (site/index.js); the screens server's
 // pages on WIREFRAMES_PORT. Both ask the runner for everything.

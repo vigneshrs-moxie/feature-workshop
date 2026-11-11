@@ -50,7 +50,7 @@ export function groupCards(cards) {
 //   ready      a PR's checks passed and its approvals are in: merging is the next step
 // and two folded under the board: resting (nothing happening, nothing asked) and done.
 //
-// laneFor(card, { lane, pending }) → { lane, laneReason, paused? }. card: as boardCard builds it;
+// laneFor(card, { lane, pending, handled }) → { lane, laneReason, paused? }. card: as boardCard builds it;
 // lane: the job's flow lane (lib/flow.js laneOf: pr1, pr2 with state, review and checks), if known;
 // pending: the job's pending permission and question cards (driver.pendingPermissions()). Every
 // reason is a plain sentence the card shows, so the lane is never told by its colour alone.
@@ -79,16 +79,19 @@ function openPr(lane) {
   return null;
 }
 
-export function laneFor(card, { lane = null, pending = [] } = {}) {
+export function laneFor(card, { lane = null, pending = [], handled = null } = {}) {
   const needs = (laneReason) => ({ lane: 'needs-you', laneReason });
   if (card.closed) return { lane: 'done', laneReason: card.closed.as === 'dropped' ? 'Dropped' : 'Marked done' };
 
   // Cards waiting for a click: permissions, a crew member's question, PR feedback.
   const cards = pending.length ? pending : Array.from({ length: Number(card.permissions) || 0 }, () => ({}));
-  // An Auto job (lib/auto.js) with a gate or a card waiting: Auto is deciding it, unless it stopped.
+  // An Auto job (lib/auto.js) with a gate or a card waiting: Auto is deciding it, unless it stopped, or a card waits that
+  // Auto is not handling (handled(id): runner/auto.js handlingCard; one it left, one raised before Auto was switched on),
+  // which then shows as any card does.
+  const leftToYou = typeof handled === 'function' && cards.some((p) => p?.id && !handled(p.id));
   if (card.auto?.on === true && (cards.length || card.needsYou)) {
     if (card.auto.stopped) return needs(`Auto stopped: ${card.auto.stopped.reason ?? 'it waits for you'}`);
-    return { lane: 'working', laneReason: `Auto is deciding: ${STAGE_WORDS[card.stage] ?? 'the next step'}` };
+    if (!leftToYou) return { lane: 'working', laneReason: `Auto is deciding: ${STAGE_WORDS[card.stage] ?? 'the next step'}` };
   }
   if (cards.length) {
     // A review round's card (packet Q, lib/driver.js parkRoundCard) says what the reviewer asked for.
@@ -103,6 +106,8 @@ export function laneFor(card, { lane = null, pending = [] } = {}) {
   }
   // A stack part that failed its checks three times stops and needs you (lib/stack.js).
   if (card.stuck) return needs(`${card.stuck} is stuck and needs you`);
+  // An Auto job that stopped waits for you, whatever else holds it (paused by a restart, nothing running), until a reply runs.
+  if (card.auto?.on === true && card.auto.stopped && !card.working && !card.starting) return needs(`Auto stopped: ${card.auto.stopped.reason ?? 'it waits for you'}`);
 
   if (card.working || card.starting) {
     const doing = (Array.isArray(card.nowDoing) ? card.nowDoing : []).find((d) => d?.doing)?.doing;

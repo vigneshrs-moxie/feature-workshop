@@ -72,6 +72,45 @@ test('the laptop sends its repository names, never paths', () => {
   assert.deepEqual(repoChoices(null), []);
 });
 
+test('C-M12: a repository added later reaches the website: the laptop says hello again, then sends its whole record', async () => {
+  const dir = tmp();
+  writeSiteFile(dir, { url: 'https://starbase.example.test', deviceId: 'device-test-0012', runnerId: 1, name: 'Test Laptop' });
+  const store = await siteTokenStore({ stateDir: dir, prefer: 'file' });
+  await store.set('runner-token-for-a-test-only');
+  const ee = new EventEmitter();
+  const repo = (name) => ({ ok: true, name, path: `/code/${name}` });
+  let repos = [repo('orbit')];
+  const runner = {
+    read: { features: async () => ({ features: [] }), snapshot: async () => ({ jobs: [] }), startRepos: async () => ({ repos, defaultPath: '/code/orbit' }) },
+    on(type, fn) { ee.on(type, fn); return () => ee.off(type, fn); },
+  };
+  const posted = [];
+  const fetch = async (url, init) => {
+    const u = new URL(url);
+    let body = {};
+    if (u.pathname === '/api/runner/events') { posted.push(...JSON.parse(init.body).events); body = { refused: [] }; }
+    if (u.pathname === '/api/runner/commands') { await new Promise((r) => setTimeout(r, 300)); body = { commands: [] }; }
+    return { status: 200, json: async () => body };
+  };
+  const link = createSiteLink({ runner, stateDir: dir, store, fetch, waitSeconds: 1, debounceMs: 10, watchEveryMs: 0, log: () => {}, version: '0.1.0' }).start();
+  const hellos = () => posted.filter((e) => e.type === 'hello');
+  const synced = () => posted.filter((e) => e.type === 'record' && e.data.kind === 'synced');
+  const until = async (check, what) => { for (let i = 0; i < 200 && !check(); i++) await new Promise((r) => setTimeout(r, 25)); assert.ok(check(), what); };
+  try {
+    await until(() => synced().length === 1, 'the first sync');
+    assert.deepEqual(hellos().map((h) => h.data.repos.map((r) => r.name)), [['orbit']]);
+    ee.emit('*', 'settings', null, {}); // something else in Settings changed: no hello
+    await new Promise((r) => setTimeout(r, 200));
+    assert.equal(hellos().length, 1);
+    repos = [repo('orbit'), repo('starbase')];
+    ee.emit('*', 'settings', null, {}); // Settings → Repos added one
+    await until(() => synced().length === 2, 'the record sent again after the second hello');
+    assert.deepEqual(hellos().map((h) => h.data.repos.map((r) => r.name)), [['orbit'], ['orbit', 'starbase']]);
+    assert.equal(hellos()[1].data.name, 'Test Laptop');
+    assert.ok(posted.indexOf(hellos()[1]) < posted.indexOf(synced()[1]), 'hello first, then the record');
+  } finally { link.stop(); }
+});
+
 test('the laptop sends its last suggestion as an inbox-suggest record, and null when switched off', async () => {
   const dir = tmp();
   writeSiteFile(dir, { url: 'https://starbase.example.test', deviceId: 'device-test-0001', runnerId: 1, name: 'Test Laptop' });

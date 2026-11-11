@@ -56,7 +56,8 @@ const exited = (child, ms) => new Promise((resolve) => {
 /**
  * Start server.js and wait for its first line. env: added to (and over) process.env, after
  * STARBASE_DEMO=1; stateDir: STARBASE_STATE_DIR; output: an array the dashboard's output is pushed
- * to (the test's own, for its messages); ready: what the first line says. Rejects with the output
+ * to (the test's own, for its messages); ready: what the first line says; nodeArgs: Node's own arguments
+ * before server.js (a test's --import preload). Rejects with the output
  * when the dashboard exits or says nothing in time (and stops it first).
  */
 export async function startDashboard(opts = {}) {
@@ -72,13 +73,13 @@ export async function startDashboard(opts = {}) {
   }
 }
 
-async function startOnce({ env = {}, stateDir = null, output = [], ready = 'running at', startMs = 20_000 } = {}) {
+async function startOnce({ env = {}, stateDir = null, output = [], ready = 'running at', startMs = 20_000, nodeArgs = [] } = {}) {
   const port = await freePort();
   const screensPort = await freePort([port]);
   const childEnv = { ...process.env, STARBASE_DEMO: '1', ...env, PORT: String(port), WIREFRAMES_PORT: String(screensPort) };
   if (stateDir) childEnv.STARBASE_STATE_DIR = stateDir;
   if (env.HOME && !env.USERPROFILE) childEnv.USERPROFILE = env.HOME;
-  const child = spawn(process.execPath, [SERVER], { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32', windowsHide: true });
+  const child = spawn(process.execPath, [...nodeArgs, SERVER], { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32', windowsHide: true });
   running.add(child);
   child.once('exit', () => running.delete(child));
   // A test that times out never reaches its own stop(): the dashboard then doesn't hold the test

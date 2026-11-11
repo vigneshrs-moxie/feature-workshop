@@ -11,6 +11,7 @@ import fsSync from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { PRODUCT } from './brand.js';
+import { demoOn } from './env-names.js';
 
 
 /** The state folder's name in the home folder (G36), and the two it had before (G31, and before that). */
@@ -229,7 +230,7 @@ export function prepareStateFolder({ home = os.homedir(), now, link, platform, a
  */
 export function stateDirFor(env = process.env, home = os.homedir()) {
   if (env.STARBASE_STATE_DIR) return path.resolve(env.STARBASE_STATE_DIR);
-  if (env.STARBASE_DEMO) {
+  if (demoOn(env)) {
     const features = path.resolve(env.STARBASE_FEATURES_DIR || path.join(home, '.claude', 'feature-work'));
     return path.join(path.dirname(features), 'state');
   }

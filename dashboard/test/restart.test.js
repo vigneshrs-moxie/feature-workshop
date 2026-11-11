@@ -488,3 +488,18 @@ test('G7: the remote check never waits for an ssh password, unless the environme
   assert.equal(remoteEnv({ PATH: '/bin' }).GIT_TERMINAL_PROMPT, '0');
   assert.equal(remoteEnv({ GIT_SSH_COMMAND: 'ssh -i key' }).GIT_SSH_COMMAND, 'ssh -i key');
 });
+
+test('C-M4: the session record and the waiting replies are read before anything moves, so a failed read moves nothing', async () => {
+  const head = git(repo, 'rev-parse', 'feature/visit-audit');
+  for (const [what, opts] of [
+    ['session', { session: { read: async () => { throw new Error('sessions.json unreadable'); }, clear: async () => {}, write: async () => {} } }],
+    ['parked', { parked: { read: async () => { throw new Error('the paused jobs list unreadable'); }, forget: async () => {} } }],
+  ]) {
+    await assert.rejects(restartJob(job(), { model: 'claude-fable-5-2', start, today: TODAY, ...opts }), /unreadable/, what);
+    assert.equal(started, null, `${what}: no new job`);
+    assert.ok(await exists(path.join(features, 'visit-audit', 'options.json')), `${what}: the job folder is where it was`);
+    assert.ok(await exists(path.join(worktree, 'a.txt')), `${what}: the worktree is where it was`);
+    assert.equal(git(repo, 'rev-parse', 'feature/visit-audit'), head, `${what}: the branch keeps its name`);
+    assert.ok(!(await exists(path.join(features, '.restarted'))), `${what}: no archive`);
+  }
+});
