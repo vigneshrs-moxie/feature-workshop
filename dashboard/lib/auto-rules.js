@@ -697,7 +697,10 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
   if (deploys(cmd, a)) { hit('outside'); st.deploy = true; }
   // S1: a program is let in by name.
   const inside = cmdWord.t.includes('/') ? physicalPath(cmdWord.t, cwd) : null;
-  const ownBin = inside && inRoots(inside, st.roots) && /\/node_modules\/\.bin\/[^/]+$/.test(inside);
+  // A program of node_modules/.bin by the path as written (made absolute, the link not followed: a real install links each
+  // entry into its package), whose file really is the job's (R2).
+  const written = cmdWord.t.includes('/') ? writtenPath(cmdWord.t, cwd ?? st.hint ?? null) : null;
+  const ownBin = Boolean(written && inside) && inRoots(written, st.roots) && inRoots(inside, st.roots) && /\/node_modules\/\.bin\/[^/]+$/.test(written);
   const byFile = inside && inRoots(inside, st.roots) && !ownBin; // a file of the job's own, run by its path
   const known = byFile || (!cmdWord.t.includes('/') || ownBin) && (programGroup(cmd) || SHELLS.has(cmd) || cmd === 'eval' || cmd === 'source' || cmd === '.' || cmd === 'alias' || st.funcs.has(cmd.replace(/\(\)$/, '')));
   // A program found in the job's node_modules/.bin (as npx finds it, or a package script's own) and not otherwise known
@@ -705,8 +708,9 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
   const localBin = !known && /^[\w.-]+$/.test(cmd) && (ownBin || (!cmdWord.t.includes('/') && binNear(cmd, cwd ?? st.hint ?? null, st)));
   if (!known && !localBin) { hit('outside'); st.unknown = true; return; }
   if (localBin) {
-    if (!localPlain(cmd, a)) st.asks.push(`${cmd}, a program of the job's node_modules/.bin that Starbase does not read in this use`);
-    else if (cmd === 'husky' && a.length === 1 && a[0] !== 'install' && pathOutside(args[0], cwd ?? st.hint ?? null, st)) hit('outside');
+    // husky pointed at a folder outside the job stops, whatever the use: that test runs first (R2, finding 6).
+    if (cmd === 'husky' && args.some((x) => !x.t.startsWith('-') && (x.dyn || pathOutside(x, cwd ?? st.hint ?? null, st)))) hit('outside');
+    else if (!localPlain(cmd, a)) st.asks.push(`${cmd}, a program of the job's node_modules/.bin that Starbase does not read in this use`);
   }
   // T3c: a command that is not a read runs from a folder inside the job's (a cd moves it; a folder we can't tell stops).
   const readOnly = programGroup(cmd) === 'read' || (cmd === 'git' && GIT_READ.has(firstGitSub(args)));
@@ -749,7 +753,14 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
     }
     else if (!pos().filter((x) => x.t !== '-').length && !a.some((x) => NO_STDIN.test(x))) hit('outside'); // code from stdin
     if (cmd === 'perl' || cmd === 'ruby') { if (a.some((x) => /^-[A-Za-z]*i/.test(x))) writes(pos()); }
-    if (!(mod >= 0) && !a.some((x) => inline?.test(x))) { const file = interpreterFile(cmd, args); if (file) runtimeFile(file, cwd, st, depth); }
+    if (!(mod >= 0) && !a.some((x) => inline?.test(x))) {
+      const file = interpreterFile(cmd, args);
+      // node given a file of a package (node_modules/.bin/<name> or node_modules/<package>/…) runs that package's program (R2).
+      const prog = file && !file.dyn && (cmd === 'node' || cmd === 'nodejs') ? packageProgram(file.t, cwd ?? st.hint ?? null, st) : null;
+      if (prog?.bin) { simple([{ t: prog.bin, dyn: false }, ...args.slice(args.indexOf(file) + 1)], [], cwd, st, depth + 1, viaXargs); return; }
+      if (prog) st.asks.push(`a file of the package ${prog.pkg} in node_modules that is none of its programs`);
+      if (file) runtimeFile(file, cwd, st, depth);
+    }
     return;
   }
 
@@ -872,7 +883,7 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
         const how = packageScripts(cmd, args, cwd, st, depth);
         const at = args.findIndex((x) => x.t === sub1);
         if (/^(exec|dlx|x)$/.test(sub1)) runnerProgram(args, at + 1, cwd, st, depth, viaXargs);
-        else if (how === 'bin') runnerProgram(args, at, cwd, st, depth, viaXargs); // yarn, pnpm and bun run a program of that name when no script has it
+        else if (typeof how === 'number') runnerProgram(args, how, cwd, st, depth, viaXargs); // yarn, pnpm and bun run a program of that name when no script has it
       }
       return;
     }
@@ -978,7 +989,9 @@ function scanOther(text, st) {
 
 // Shell text (a .sh file, an npm script): every line goes through the same reading as a command, and the strictest
 // answer wins (stop over ask over pass). The cheap searches for Starbase's own places and database addresses stay.
-function scanShell(text, cwd, st, depth) {
+// tail: the words a package script is handed after its name, read by Auto's rules at the end of the text as npm puts them
+// there (R2); the plain reading checks them as paths where the command is read, as before.
+function scanShell(text, cwd, st, depth, tail = '') {
   if (DB_ADDRESS.test(text)) st.hits.add('database');
   const dir = st.ctx.stateDir;
   if (/\.starbase\b/i.test(text) || (typeof dir === 'string' && dir && text.includes(dir)) || namesStarbaseAddress(text, st.ctx.apiPort)) st.hits.add('outside');
@@ -989,7 +1002,7 @@ function scanShell(text, cwd, st, depth) {
     if (lines.length && lines[lines.length - 1].endsWith('\\')) lines[lines.length - 1] = `${lines[lines.length - 1].slice(0, -1)} ${line}`; else lines.push(line);
   }
   if (lines.length > MAX_SIMPLE) { st.hits.add('outside'); return; }
-  analyze(lines.join('\n'), cwd, st, depth + 1, null); // all of it at once: a cd on one line moves the lines after it
+  analyze(`${lines.join('\n')}${tail}`, cwd, st, depth + 1, null); // all of it at once: a cd on one line moves the lines after it
   for (const line of lines) {
     const why = plainWhy(line, plainEnv(st, cwd));
     if (why) st.asks.push(why);
@@ -1045,24 +1058,28 @@ function interpreterFile(cmd, args) {
   return list[0] && !/^python[\d.]*$/.test(cmd) || (list[0] && !args.some((x) => x.t === '-m')) ? list[0] : null;
 }
 
-// npm run <name>, npm test, pnpm <name>, yarn <name>: the scripts.<name> text (and its pre and post) in the nearest package.json.
+// npm run <name>, npm test, pnpm <name>, yarn <name>: the scripts.<name> text (and its pre and post) in the nearest package.json,
+// read together with the words handed on after the name (R2: `npm run hooks -- tools` is `husky tools`). Returns the index in
+// args of a program word when yarn, pnpm or bun (or npm run, read as strictly) would run a program of that name: no script has it.
 const PKG_VALUE = /^(--prefix|-C|--cwd|--dir|-w|--workspace|--filter|-F|--registry|--loglevel)$/;
 const PKG_BUILTIN = new Set(['install', 'i', 'ci', 'add', 'remove', 'rm', 'uninstall', 'update', 'up', 'upgrade', 'exec', 'dlx', 'x', 'init', 'create', 'list', 'ls', 'outdated', 'audit', 'why', 'pack', 'cache', 'config', 'info', 'view', 'link', 'unlink', 'prune', 'rebuild', 'dedupe', 'version', 'help', 'store', 'env', 'fetch', 'patch', 'import', 'root', 'bin', 'prefix', 'pkg', 'doctor', 'explain', 'diff', 'set', 'get', 'workspaces', 'workspace', 'global', 'dev', 'completion']);
+const RUN_WORD = /^(run|run-script|rum|urun)$/;
 function packageScripts(cmd, args, cwd, st, depth = 0) {
   let base = cwd ?? st.hint ?? null;
-  const rest = [];
+  const rest = []; // [word, index in args] of the words before -- that are not options
   for (let k = 0; k < args.length; k++) {
     const x = args[k].t;
     if (x === '--') break;
     if (/^(--prefix|-C|--cwd|--dir)$/.test(x)) { const d = args[++k]; base = d && !d.dyn && base ? physicalPath(d.t, base) : null; continue; }
     if (/^--(prefix|cwd|dir)=/.test(x)) { base = base ? physicalPath(x.slice(x.indexOf('=') + 1), base) : null; continue; }
     if (PKG_VALUE.test(x)) { k++; continue; }
-    if (!x.startsWith('-')) rest.push(x);
+    if (!x.startsWith('-')) rest.push([x, k]);
   }
   const names = [];
-  const sub = rest[0];
+  const sub = rest[0]?.[0];
   if (!sub) return;
-  if (/^(run|run-script|rum|urun)$/.test(sub)) { if (rest[1]) names.push(rest[1]); } else if (/^(test|t|tst|start|stop|restart)$/.test(sub)) names.push(sub === 't' || sub === 'tst' ? 'test' : sub);
+  let at = -1; // the index of the script's name: the words after it are handed on
+  if (RUN_WORD.test(sub)) { if (rest[1]) { names.push(rest[1][0]); at = rest[1][1]; } } else if (/^(test|t|tst|start|stop|restart)$/.test(sub)) { names.push(sub === 't' || sub === 'tst' ? 'test' : sub); at = rest[0][1]; }
   else if (/^(install|i|ci|add)$/.test(sub)) {
     // the project's own lifecycle scripts (prepublish too), unless --ignore-scripts turns them off. npm reads a true or false
     // after it as its value, so that spelling asks and the scripts are read (N6).
@@ -1071,8 +1088,9 @@ function packageScripts(cmd, args, cwd, st, depth = 0) {
     if (valued) st.asks.push('--ignore-scripts with a value after it');
     if (k < 0 || valued) names.push('install', 'prepare', 'prepublish');
   }
-  else if (cmd !== 'npm' && !PKG_BUILTIN.has(sub) && !(cmd === 'bun' && sub === 'test')) names.push(sub);
-  const binRun = names.length === 1 && names[0] === sub && cmd !== 'npm' && !/^(run|run-script|rum|urun|test|t|tst|start|stop|restart)$/.test(sub);
+  else if (cmd !== 'npm' && !PKG_BUILTIN.has(sub) && !(cmd === 'bun' && sub === 'test')) { names.push(sub); at = rest[0][1]; }
+  // A name that may be a program: yarn, pnpm and bun run one when no script has the name (npm run fails; read as strictly).
+  const maybeBin = at >= 0 && names.length === 1 && !/^(test|start|stop|restart)$/.test(names[0]) && /^[\w.-]+$/.test(names[0]) && (cmd !== 'npm' || binNear(names[0], base, st));
   if (!names.length) return;
   if (!base) { st.hits.add('outside'); return; }
   // The nearest package.json at or above the folder, inside the job's folders. None at all: npm would fail, nothing runs.
@@ -1085,18 +1103,54 @@ function packageScripts(cmd, args, cwd, st, depth = 0) {
     if (up === dir) break;
     dir = up;
   }
-  if (!file) return binRun ? 'bin' : undefined;
+  if (!file) return maybeBin ? at : undefined;
   let scripts;
   try {
     const info = fs.statSync(file);
     if (info.size > MAX_SCRIPT) { st.hits.add('outside'); return; }
     scripts = JSON.parse(fs.readFileSync(file, 'utf8'))?.scripts ?? {};
   } catch { st.hits.add('outside'); return; }
+  // The words handed on after the script's name: npm takes its own options before --; the others hand on everything.
+  const after = at >= 0 ? args.slice(at + 1) : [];
+  const dashes = after.findIndex((x) => x.t === '--');
+  const handed = cmd === 'npm' ? [...(dashes < 0 ? after : after.slice(0, dashes)).filter((x) => !x.t.startsWith('-')), ...(dashes < 0 ? [] : after.slice(dashes + 1))] : after[0]?.t === '--' ? after.slice(1) : after;
+  if (handed.some((x) => x.dyn)) st.asks.push('a word handed on to a package script that is not known until it runs');
+  const tail = handed.filter((x) => !x.dyn).map((x) => ` ${shellQuote(x.t)}`).join('');
   // A script finds the programs in its package's own node_modules/.bin wherever it cd's to.
   const before = st.scriptBin;
   st.scriptBin = dir;
-  try { for (const n of names) for (const key of [`pre${n}`, n, `post${n}`]) if (typeof scripts[key] === 'string') scanShell(scripts[key], dir, st, depth); } finally { st.scriptBin = before; }
-  return binRun && typeof scripts[sub] !== 'string' ? 'bin' : undefined;
+  try {
+    for (const n of names) for (const key of [`pre${n}`, n, `post${n}`]) if (typeof scripts[key] === 'string') scanShell(scripts[key], dir, st, depth, key === n && at >= 0 ? tail : '');
+  } finally { st.scriptBin = before; }
+  return maybeBin && typeof scripts[names[0]] !== 'string' ? at : undefined;
+}
+const shellQuote = (t) => (/^[\w@%+=:,./-]+$/.test(t) ? t : `'${t.replace(/'/g, "'\\''")}'`);
+
+// The path as written, made absolute from the folder, links not followed; null when it can't be placed.
+function writtenPath(t, base) {
+  if (typeof t !== 'string' || !t || /[$`\u0000*?[{]/.test(t)) return null;
+  const x = t === '~' ? os.homedir() : t.startsWith('~/') ? path.join(os.homedir(), t.slice(2)) : t.startsWith('~') ? null : t;
+  if (!x) return null;
+  if (path.isAbsolute(x)) return path.resolve(x);
+  return base && path.isAbsolute(base) ? path.resolve(base, x) : null;
+}
+
+// A file under node_modules/.bin/ or node_modules/<package>/ of the job's: the program it is ({ bin: the .bin entry's path as
+// written }), or { pkg } when it is none of the package's programs; null for any other file (R2).
+function packageProgram(t, base, st) {
+  const p = writtenPath(t, base);
+  const m = p ? /^(.*\/node_modules)\/(\.bin\/[^/]+|((?:@[^/]+\/)?[^/.][^/]*)\/.+)$/.exec(p) : null;
+  if (!m || !inRoots(p, st.roots)) return null;
+  if (m[2].startsWith('.bin/')) return { bin: p };
+  const real = physicalPath(p, null);
+  let entries = [];
+  try { entries = fs.readdirSync(path.join(m[1], '.bin')); } catch { entries = []; }
+  for (const e of entries.slice(0, 2000)) {
+    let to = null;
+    try { to = fs.realpathSync(path.join(m[1], '.bin', e)); } catch { to = null; }
+    if (to && real && to === real) return { bin: path.join(m[1], '.bin', e) };
+  }
+  return { pkg: m[3] };
 }
 
 // The program after a runner's own options (npx -y, -p <package>, --): judged as that program. A shell command handed to the runner (-c) stops.

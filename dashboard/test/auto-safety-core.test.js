@@ -917,3 +917,59 @@ test('R1: git that changes something passes only inside the job\'s worktrees, ne
   // Reads still pass in the spec folder.
   assert.equal(bash('cd docs/plans && git status --short && git log -1', C5CTX({ cwd: REPO })), null);
 });
+
+// A worktree with packages installed as npm installs them: each node_modules/.bin entry is a link into its package.
+function linkedWorld() {
+  const root = fsSync.realpathSync(fsSync.mkdtempSync(pathMod.join(os.tmpdir(), 'sb-linked-')));
+  const repo = pathMod.join(root, 'Projects', 'orbit');
+  const wt = pathMod.join(root, 'Projects', 'orbit-orbit-500-thing');
+  const put = (p, text) => { fsSync.mkdirSync(pathMod.dirname(p), { recursive: true }); fsSync.writeFileSync(p, text); };
+  const pkg = (dir, scripts) => {
+    put(pathMod.join(dir, 'package.json'), JSON.stringify({ name: pathMod.basename(dir), scripts }));
+    for (const [bin, file] of [['husky', 'husky/bin.js'], ['tsx', 'tsx/dist/cli.mjs'], ['prisma', 'prisma/build/index.js'], ['next', 'next/dist/bin/next']]) {
+      put(pathMod.join(dir, 'node_modules', file), "#!/usr/bin/env node\nimport f from 'fs'\nf.mkdirSync(process.argv[2] ?? '.husky', { recursive: true })\n");
+      put(pathMod.join(dir, 'node_modules', file.split('/')[0], 'package.json'), JSON.stringify({ name: file.split('/')[0], bin: { [bin]: file.split('/').slice(1).join('/') } }));
+      fsSync.mkdirSync(pathMod.join(dir, 'node_modules', '.bin'), { recursive: true });
+      fsSync.symlinkSync(`../${file}`, pathMod.join(dir, 'node_modules', '.bin', bin));
+    }
+  };
+  pkg(pathMod.join(wt, 'hk3'), { prepare: 'husky', hooks: 'husky' });
+  pkg(pathMod.join(wt, 'app'), { postinstall: 'prisma generate', prepare: 'cd .. && husky app/.husky', build: 'next build' });
+  pkg(pathMod.join(wt, 'hk-out'), { prepare: `cd .. && husky ${root}/Documents`, hooks: `cd .. && husky ${root}/Documents` });
+  for (const f of ['hk3/prisma/apply-migration.ts', 'hk3/scripts/seed.ts', 'hk3/scripts/backfill.ts', 'hk3/scripts/build-icons.ts', 'tools/pre-commit']) put(pathMod.join(wt, f), 'console.log(1)\n');
+  fsSync.mkdirSync(pathMod.join(root, 'Documents'), { recursive: true });
+  fsSync.mkdirSync(pathMod.join(repo, 'app'), { recursive: true });
+  return { root, repo, wt, done: () => fsSync.rmSync(root, { recursive: true, force: true }) };
+}
+
+test('R2: a package\'s program is that program however it is started: by its linked path, by node, by a script with words handed on', () => {
+  const o = linkedWorld();
+  try {
+    const ctx = orbitCtx(o);
+    const W = o.wt;
+    const rows = [
+      // finding 2: the control asks, and so does every other road to the same call
+      ['cd hk3 && npx husky tools', 'ask'], ['cd hk3 && ./node_modules/.bin/husky tools', 'ask'], ['cd hk3 && node_modules/.bin/husky tools', 'ask'],
+      [`./hk3/node_modules/.bin/husky ${W}/tools`, 'ask'], [`hk3/node_modules/.bin/husky ${W}/tools`, 'ask'], [`${W}/hk3/node_modules/.bin/husky ${W}/tools`, 'ask'],
+      ['cd hk3 && node node_modules/husky/bin.js tools', 'ask'], ['cd hk3 && node ./node_modules/husky/bin.js tools', 'ask'], ['cd hk3 && node node_modules/.bin/husky tools', 'ask'],
+      [`node hk3/node_modules/husky/bin.js ${W}/tools`, 'ask'], [`node ${W}/hk3/node_modules/husky/bin.js tools`, 'ask'],
+      ['cd hk3 && npm run hooks -- tools', 'ask'], ['cd hk3 && npm run hooks tools', 'ask'], ['cd hk3 && npm run prepare -- tools', 'ask'], ['cd hk3 && npm run-script hooks -- tools', 'ask'],
+      ['cd hk3 && yarn hooks tools', 'ask'], ['cd hk3 && yarn run hooks tools', 'ask'], ['cd hk3 && pnpm hooks tools', 'ask'], ['cd hk3 && pnpm run hooks tools', 'ask'], ['cd hk3 && pnpm run hooks -- tools', 'ask'], ['cd hk3 && bun run hooks tools', 'ask'],
+      [`cd hk3 && npm run hooks -- ${W}/tools`, 'ask'],
+      ['cd hk3 && yarn run husky tools', 'ask'], ['cd hk3 && yarn run -s husky tools', 'ask'], ['cd hk3 && pnpm run husky tools', 'ask'], ['cd hk3 && npm run husky tools', 'ask'], ['cd hk3 && bun run husky tools', 'ask'],
+      ['cd hk3 && npx husky init', 'ask'], ['cd hk3 && ./node_modules/.bin/husky init', 'ask'], ['cd hk3 && node node_modules/husky/bin.js init', 'ask'],
+      // finding 5: tsx (and prisma) on a migration or data file stop as database, as by npx
+      ['cd hk3 && npx tsx prisma/apply-migration.ts 0160_add_col', 'database'], ['cd hk3 && ./node_modules/.bin/tsx prisma/apply-migration.ts 0160_add_col', 'database'],
+      ['cd hk3 && node_modules/.bin/tsx scripts/seed.ts', 'database'], ['cd hk3 && node node_modules/.bin/tsx scripts/backfill.ts', 'database'],
+      ['cd hk3 && npx prisma migrate deploy', 'database'], ['cd hk3 && node node_modules/.bin/prisma migrate deploy', 'database'], ['cd hk3 && node node_modules/prisma/build/index.js migrate deploy', 'database'],
+      // finding 6: husky pointed outside the job stops, whatever the use
+      [`./hk3/node_modules/.bin/husky ${o.root}/Documents`, 'outside'], ['./app/node_modules/.bin/husky ~/Documents', 'outside'], [`cd hk3 && npx husky ${o.root}/Documents`, 'outside'],
+      [`cd hk3 && npm run hooks -- ${o.root}/Documents`, 'outside'], ['cd hk-out && npm ci', 'outside'], ['cd hk-out && npm run hooks', 'outside'],
+      // still plain: Orbit's own prepare line, the install, a build and husky with no folder
+      ['cd app && npm ci', null], [`cd ${W}/app && npm ci`, null], ['cd app && npm run prepare', null], ['cd app && ./node_modules/.bin/next build', null], ['cd app && node node_modules/.bin/next build', null],
+      ['cd hk3 && npm run hooks', null], ['cd hk3 && npx husky', null], ['cd hk3 && ./node_modules/.bin/husky', null],
+    ];
+    const wrong = rows.map(([c, want]) => ({ c, want, got: bash(c, ctx) })).filter((r) => r.want !== r.got);
+    assert.deepEqual(wrong, []);
+  } finally { o.done(); }
+});
