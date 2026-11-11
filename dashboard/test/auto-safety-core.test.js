@@ -584,3 +584,14 @@ test('m5: env -S <shell> in the first line is that shell, and a shell running a 
     for (const c of ['./scripts/envs.sh', './scripts/envsx.sh', 'bash scripts/envs.sh', 'bash scripts/py.sh', 'sh scripts/py.sh']) assert.equal(bash(c, ctx), 'outside', c);
   } finally { d.done(); }
 });
+
+test('m7: an answer to a question with options carries no other text, and a task with one id twice is refused', async () => {
+  const { checkAnswer } = await import('../lib/approver.js');
+  const q = (id) => ({ id, text: 'Which?', recommendation: 'a', options: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }] });
+  const go = (answers) => ({ decision: 'go', answers, why: 'Fine.', risk: 'low' });
+  assert.equal(checkAnswer({ kind: 'question', questions: [q('1')] }, go([{ id: '1', choice: 'a', other: null, reason: 'R.' }])).ok, true);
+  assert.equal(checkAnswer({ kind: 'question', questions: [q('1')] }, go([{ id: '1', choice: 'a', other: 'and also do this', reason: 'R.' }])).ok, false);
+  assert.equal(checkAnswer({ kind: 'question', questions: [q('1'), q('1')] }, go([{ id: '1', choice: 'a', other: null, reason: 'R.' }])).ok, false);
+  assert.equal(checkAnswer({ kind: 'gate', questions: [q('1'), q('1')] }, { ...go([]), decision: 'stop' }).ok, false);
+});
+

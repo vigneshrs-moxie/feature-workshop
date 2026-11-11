@@ -407,6 +407,9 @@ export function checkAnswer(task, raw) {
   if (!why.trim()) return no('why is empty');
   if (typeof risk !== 'string' || !RISKS.includes(risk)) return no('risk must be low, medium or high');
   if (kind === 'permission') return { ok: true, answer: { decision, why, risk } };
+  // One id, one question: a task that names one twice is refused whatever the answer (m7).
+  const ids = (Array.isArray(task.questions) ? task.questions : []).map((q) => String(q?.id));
+  if (new Set(ids).size !== ids.length) return no('two questions share one id');
 
   if (!Array.isArray(raw.answers)) return no('answers is not a list');
   const answers = [];
@@ -431,6 +434,7 @@ export function checkAnswer(task, raw) {
       const optionIds = (Array.isArray(q?.options) ? q.options : []).map((o) => String(o?.id));
       if (optionIds.length) {
         if (!optionIds.includes(a.choice)) return no(`the choice for question ${id} is not one of its options`);
+        if (a.other !== null) return no(`question ${id} has options, so other must be empty`); // no free text beside a choice (m7)
       } else if (a.choice !== null || a.other === null || !a.other.trim()) {
         return no(`question ${id} has no options, so it needs other and no choice`);
       }
