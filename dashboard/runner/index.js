@@ -1719,6 +1719,7 @@ export async function createRunner(config) {
   function settingsChanged() {
     allSettings().then((s) => events.emit('settings', null, s)).catch(() => {});
   }
+  const afterRepoChange = (r) => { if (r?.ok) settingsChanged(); return r; }; // a repository added or forgotten (local_.repos)
   /** The settings, with Settings → Workflow's "Count my Claude Code use outside the app" (kept by lib/claude-code-usage.js). */
   async function allSettings() {
     const s = await state.getSettings();
@@ -3041,7 +3042,8 @@ export async function createRunner(config) {
     /** The top bar's usage meters: read the plan's usage now instead of at the next minute. */
     checkPlanUsage: () => planUsage.check(),
     /** Settings → Repos (site/routes-repos.js): the registry's list, add, remove and check. On a first start the list is seeded from the recent repositories. */
-    repos: reposDoor(local.registry, { recent: () => repoList() }),
+    // A repository added or forgotten is a settings change: the site link offers the website's Start form the new list.
+    repos: ((door) => ({ ...door, add: async (x) => afterRepoChange(await door.add(x)), remove: async (p) => afterRepoChange(await door.remove(p)) }))(reposDoor(local.registry, { recent: () => repoList() })),
     evidence: (await import('./evidence.js')).evidenceRunner({ jobs: features, local, state, events, on, demo: DEMO, env }), // evidence at the test stage: runner/evidence.js, site/routes-evidence.js
     recordSecret,
     /**
@@ -3164,6 +3166,7 @@ export async function createRunner(config) {
     } finally {
       resuming = false;
     }
+    testHooks?.carriedOn?.(); // tests only: one pass is done
     if (![...restartPaused.values()].some((p) => p.how === 'clean') && resumeTimer) { clearInterval(resumeTimer); resumeTimer = null; }
   }
   function startCarryingOn() {

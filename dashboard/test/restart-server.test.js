@@ -244,7 +244,10 @@ test('G1: a job due to carry on after a server restart is not started while its 
   const b = await startDashboard({ ...env, STARBASE_TEST_HOLD_RESTART: hold });
   const { restart } = await holdRestart(b, hold);
   await fs.rm(lockFile);
-  await sleep(4500); // longer than the carry-on's tick
+  // Two passes of the carry-on after the lock was freed: at least one ran whole with the job free to carry on.
+  const passes = () => fsSync.readFileSync(`${hold}.passes`, 'utf8').length;
+  const from = fsSync.existsSync(`${hold}.passes`) ? passes() : 0;
+  await b.waitFor(() => fsSync.existsSync(`${hold}.passes`) && passes() >= from + 2, 'two passes of the carry-on');
   const sentWhileHeld = audit().filter((e) => e.action === 'send' && e.kind === 'resume-after-restart');
   await fs.rm(hold);
   await restart;

@@ -1839,6 +1839,22 @@ test('C-M6: the restart hold is a test hook only: the environment of a real Star
   }
 });
 
+test('C-M12: adding or forgetting a repository tells the site link (a settings event)', { timeout: 60_000 }, async () => {
+  const w = await world({ auto: null });
+  try {
+    const seen = [];
+    const off = w.runner.on('settings', (_job, data) => seen.push(data));
+    await fs.writeFile(path.join(w.dirs.repo, 'starbase.md'), '---\nname: sample\ngithub: acme/widgets\nremotes:\n  fork: origin\n  org: upstream\ntryIt:\n  ports: 4100-4110\n---\nNotes.\n');
+    const added = await w.runner.local.repos.add({ path: w.dirs.repo });
+    assert.equal(added.ok, true, JSON.stringify(added));
+    await w.until(() => seen.length === 1, 'a settings event');
+    const gone = await w.runner.local.repos.remove(w.dirs.repo);
+    assert.equal(gone.ok, true, JSON.stringify(gone));
+    await w.until(() => seen.length === 2, 'another one');
+    off();
+  } finally { await w.stop(); }
+});
+
 test('C-M3: mark done is refused while the job is being restarted', { timeout: 60_000 }, async () => {
   const w = await restartedWorld({ auto: null });
   try {

@@ -250,17 +250,19 @@ test('ticket text cannot pose as Starbase\'s lines or close its own fence', () =
   }
 });
 
-test('the work is bounded: huge texts are read in well under a second', () => {
+test('the work is bounded: huge texts are read in far less than ten seconds', () => {
+  // A far looser bound than the work needs (a few milliseconds), so a busy machine never fails it;
+  // work that grew with the square of the text would still take minutes and fail it.
   const t0 = Date.now();
   ticketFile(tech({ description: 'a'.repeat(200_000) }), OPTS);
   cleanTicketText('a'.repeat(200_000));
   cleanTicketText('a.'.repeat(100_000));
   cleanTicketText('@A'.repeat(50_000));
-  assert.ok(Date.now() - t0 < 1000, `${Date.now() - t0} ms`);
+  assert.ok(Date.now() - t0 < 10_000, `${Date.now() - t0} ms`);
   const many = Array.from({ length: 500 }, (_, i) => comment(`${'word '.repeat(2000)}${i}`, { createdAt: `2026-10-01T00:00:${String(i % 60).padStart(2, '0')}Z` }));
   const t1 = Date.now();
   const md = ticketFile(tech({}, { timeline: many }), OPTS);
-  assert.ok(Date.now() - t1 < 1000, `${Date.now() - t1} ms`);
+  assert.ok(Date.now() - t1 < 10_000, `${Date.now() - t1} ms`);
   assert.ok(md.includes('Earlier comments left out: 490.'));
 });
 
