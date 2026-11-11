@@ -349,6 +349,9 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
         held.delete(job.dir);
         askedAt = Date.now();
         task = taskFor(job, gate);
+        // The Approver never judges a step it cannot see whole (C4, N14): a question or a decision it would be shown cut stops instead.
+        const cut = approverCut(task);
+        if (cut) return stop(job, { rule: 'blocked', reason: `this ${cut} is too long for the Approver to read, so it needs you.` });
         const roots = approverRoots({ featureDir: job.dir, worktrees: job.worktrees, specDirs: job.specDirs });
         const res = await askApprover(task, { roots, job });
         // A run that timed out is charged the ceiling it was given, whatever partial cost it reported.
@@ -384,8 +387,9 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       brief: { number: gate.briefNumber, path: job.briefPath },
       paths: approverPaths({ featureDir: job.dir, artifacts: job.artifacts, roots }),
       questions: (gate.questions ?? []).map((q) => ({ id: q.id, text: q.text, recommendation: q.recommendation ?? null, options: (q.options ?? []).map((o) => ({ id: o.id, label: o.label })) })),
-      // What the Foreman decided for the person and has not confirmed: the Approver sees each, one line, capped like the questions.
-      decided: (gate.decided ?? []).filter((d) => !d.confirmed).map((d) => ({ id: oneLine(d.id ?? d.decision).slice(0, 200), decision: oneLine(d.decision).slice(0, 2000), why: oneLine(d.reason).slice(0, 2000) })),
+      // What the Foreman decided for the person and has not confirmed: the Approver sees each on one line, never sliced here:
+      // one longer than the Approver is shown stops Auto (approverCut, N14) instead of being confirmed half read.
+      decided: (gate.decided ?? []).filter((d) => !d.confirmed).map((d) => ({ id: oneLine(d.id ?? ''), decision: oneLine(d.decision), why: oneLine(d.reason) })),
       request: null,
     };
   }

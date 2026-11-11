@@ -2724,6 +2724,34 @@ test('N5: Starbase\'s own carry-on (via auto) does not clear the cut-off stop', 
   } finally { await w.stop(); }
 });
 
+// ---------- After the merge: N14, a gate is checked for cuts as a card is ----------
+
+const longGate = (over) => ({ gate: { briefNumber: 1, stale: false, questions: [], decided: [], headline: 'Plan v1', nextStage: 'implement', ...over } });
+
+test('N14: a gate whose question, or decision made for the person (or its reason), the Approver would see cut stops Auto before it is asked', { timeout: 30_000 }, async () => {
+  const q = `Which column should hold the visit time? ${'q'.repeat(2050)}`; // 2,092 characters
+  const d = `Rename visited to visited_at in every report. ${'d'.repeat(2085)} Keep the old column for one release.`;
+  for (const [over, what] of [
+    [{ questions: [{ id: '1', text: q, recommendation: 'a', options: [{ id: 'a', label: 'Yes' }] }] }, 'question'],
+    [{ decided: [{ id: 'D-1', decision: d, reason: 'because', confirmed: false }] }, 'decision made for the person'],
+    [{ decided: [{ id: 'D-1', decision: 'Keep it', reason: `because ${'r'.repeat(2100)}`, confirmed: false }] }, 'decision made for the person'],
+  ]) {
+    const u = unit({ decide: () => {}, job: () => longGate(over) });
+    await u.auto.pass();
+    assert.equal(u.asks.length, 0, `${what}: the Approver is not asked`);
+    assert.equal(u.decides.length, 0);
+    assert.deepEqual({ rule: u.record().stopped?.rule, reason: u.record().stopped?.reason }, { rule: 'blocked', reason: `this ${what} is too long for the Approver to read, so it needs you.` });
+    assert.equal(u.notes.length, 1);
+    assert.equal(u.lines.filter((l) => l.what === 'stop').length, 1);
+  }
+  // A gate of ordinary size goes as today, and its decision reaches the Approver whole.
+  const u = unit({ decide: () => {}, ask: (task) => goodAnswer(task, { why: 'Fine.' }), job: () => longGate({ questions: [{ id: '1', text: 'Which?', recommendation: 'a', options: [{ id: 'a', label: 'Yes' }] }], decided: [{ id: 'D-1', decision: 'd'.repeat(1990), reason: 'because', confirmed: false }] }) });
+  await u.auto.pass();
+  assert.equal(u.asks.length, 1);
+  assert.equal(u.asks[0].decided[0].decision.length, 1990);
+  assert.equal(u.decides.length, 1);
+});
+
 // ---------- I2: whether a brief was answered is read from all of the job's lines ----------
 
 test('I2: the person sent brief 1 back, then 401 lines; the reply ended with the gate still on brief 1: the Approver is not asked', { timeout: 30_000 }, async () => {
