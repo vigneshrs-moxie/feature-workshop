@@ -836,3 +836,18 @@ test('N13: a test name that starts with / is text in the routine list too, not a
     }
   } finally { d.done(); }
 });
+
+test('N12: a path glued to a short option, after a second =, after : or , or file:// is looked at', async () => {
+  const { classify } = await import('../lib/policy.js');
+  const d = diskWorktree();
+  try {
+    const ctx = ctxOf({ worktrees: [d.wt], specDirs: [], branches: [BRANCH] }, { cwd: d.wt });
+    const routine = (c) => classify('Bash', { command: c }, { mode: 'auto', stage: 'implement', featureDir: JOB, worktrees: [d.wt], repoPath: REPO, specDirs: [], cwd: d.wt, defaultToNo: false, rules: [] }).auto;
+    for (const c of [`npm test -- -o${HOME}/x.json`, `npm run lint -- -o${HOME}/.zshrc`, `npm run lint -- -c${HOME}/evil.config.js`, `npm test -- --outputFile=x=${HOME}/.zshrc`,
+      `npm test -- --reporter=json:${HOME}/.zshrc`, `npm test -- --import=file://${HOME}/x.mjs`, `npm test -- --typeRoots=types,${HOME}/types`]) {
+      assert.notEqual(bash(c, ctx), null, c);
+      assert.equal(routine(c), false, `routine list: ${c}`);
+    }
+    for (const c of ['npm test -- --reporter=json', 'npm test -- --coverage.reporter=text,html', 'npx vitest run src/a.test.ts:12']) assert.equal(bash(c, ctx), null, c);
+  } finally { d.done(); }
+});

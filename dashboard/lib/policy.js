@@ -507,6 +507,21 @@ function judgeWords(w, ctx, simple) {
 
 // A build or test command's words that could be paths (the part after the first = when there is one, when
 // it holds a /, starts with ~ or is ..) must land in the job's folders or a temp folder (C3).
+/**
+ * The parts of a word that could be a path (C3, N12): the word, the part after a glued short option (-o/abs), after each
+ * =, each piece between : and , and the rest of a file:// address; only those holding a /, starting with ~ or being ..
+ */
+export function pathCandidates(word) {
+  const w = String(word ?? '');
+  const out = new Set([w]);
+  const glued = /^-[A-Za-z](.+)$/.exec(w);
+  if (glued) out.add(glued[1]);
+  for (let i = w.indexOf('='); i >= 0; i = w.indexOf('=', i + 1)) out.add(w.slice(i + 1));
+  for (const x of [...out]) for (const piece of x.split(/[,:]/)) if (piece) out.add(piece);
+  for (const x of [...out]) if (/^file:\/\//i.test(x)) out.add(x.slice(7));
+  return [...out].filter((v) => v && (v.includes('/') || v.startsWith('~') || v === '..'));
+}
+
 // The values of these options are text (a test name, a pattern, a message), not paths, as in Auto's own reading (N13).
 const TEXT_OPTION = /^(-t|-k|-m|-g|--testNamePattern|--testPathPattern|--grep|--message|--title|--body)$/;
 function pathWordsInside(words, ctx) {
@@ -514,11 +529,11 @@ function pathWordsInside(words, ctx) {
     const w = words[k];
     if (TEXT_OPTION.test(w)) { k++; continue; }
     if (TEXT_OPTION.test(w.split('=')[0]) && w.includes('=')) continue;
-    const v = w.includes('=') ? w.slice(w.indexOf('=') + 1) : w;
-    if (!(v.includes('/') || v.startsWith('~') || v === '..')) continue;
-    const abs = resolvePath(v, ctx.cwd);
-    if (!abs && unplacedInside(v)) return 'names a path in a folder Starbase cannot place'; // not routine, but not outside: Auto's own reading decides (N8)
-    if (!abs || ![...ctx.writableDirs, ...TEMP_DIRS].some((d) => inside(abs, d))) { markOutside(ctx, abs); return 'names a path outside the job’s folders'; }
+    for (const v of pathCandidates(w).filter((x) => x !== w || !w.startsWith('-'))) {
+      const abs = resolvePath(v, ctx.cwd);
+      if (!abs && unplacedInside(v)) return 'names a path in a folder Starbase cannot place'; // not routine, but not outside: Auto's own reading decides (N8)
+      if (!abs || ![...ctx.writableDirs, ...TEMP_DIRS].some((d) => inside(abs, d))) { markOutside(ctx, abs); return 'names a path outside the job’s folders'; }
+    }
   }
   return 'ok';
 }

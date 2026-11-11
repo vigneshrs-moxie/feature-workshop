@@ -16,7 +16,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { githubOwner, isInside, prCreateProblem } from './policy.js';
+import { githubOwner, isInside, pathCandidates, prCreateProblem } from './policy.js';
 import { namesThisComputer, physicalPath } from './hard-lines.js';
 
 const inRoots = (p, roots, strict = false) => Boolean(p) && roots.some((r) => isInside(p, r) && !(strict && p === r));
@@ -190,23 +190,16 @@ function parse(sp, args, prog) {
 // ---------- paths ----------
 
 const pathlike = (t) => /^[/~]|^\.\.(\/|$)|=[/~]|=\.\.(\/|$)/.test(t);
-// Every word that could be a path (C3): the part after its first = when there is one, whenever that holds
-// a /, starts with ~ or is .. (a/../../x climbs out after its first part; --out=/abs is an absolute path).
-const pathPart = (word) => {
-  const t = String(word?.t ?? '');
-  const v = t.includes('=') ? t.slice(t.indexOf('=') + 1) : t;
-  return v.includes('/') || v.startsWith('~') || v === '..' ? { ...word, t: v } : null;
-};
 
 // The folders a command may be running in (after a cd joined by something other than && it may be either).
 const insideAll = (word, ctx, strict = false) => ctx.cands.every((c) => inRoots(physicalPath(word.t, c), ctx.roots, strict));
 function mustBeInside(word, ctx, strict = false, why = 'a path outside the job or one that cannot be placed') {
   if (!insideAll(word, ctx, strict)) ask(why);
 }
-/** A word that could be a path (pathPart) must be inside the job. */
+/** Every part of a word that could be a path (pathCandidates, lib/policy.js) must be inside the job. */
 function pathInside(word, ctx) {
-  const p = pathPart(word);
-  if (p) mustBeInside(p, ctx);
+  const t = String(word?.t ?? '');
+  for (const v of pathCandidates(t)) if (v !== t || !t.startsWith('-')) mustBeInside({ ...word, t: v }, ctx);
 }
 function readablePath(word, ctx) {
   if (/^~[^/]/.test(word.t)) ask("a path in another user's home");
