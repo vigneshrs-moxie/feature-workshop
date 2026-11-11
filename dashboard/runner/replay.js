@@ -27,6 +27,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { heldElsewhere } from '../lib/lock.js';
 import { answeredBriefs } from '../lib/gate.js';
+import { sinceRestart } from '../lib/state.js';
 import { PRODUCT } from '../lib/brand.js';
 
 /** The message the Foreman gets when a reply paused by a clean stop carries on. */
@@ -117,7 +118,7 @@ export async function replay({ state, featuresDir = null, pid = process.pid, isH
     if (!isDir(dir)) continue; // the folder is gone
     let held = false;
     try { held = isHeld(dir); } catch { held = false; }
-    const job = replayJob(lines, service, { session, held });
+    const job = replayJob(sinceRestart(lines), service, { session, held });
     job.featureDir = dir;
     if (job.cutOff === 'clean' && !job.sessionId) job.cutOff = null; // no session to carry on
     jobs.set(dir, job);

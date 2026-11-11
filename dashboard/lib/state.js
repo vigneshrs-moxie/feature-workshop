@@ -60,6 +60,21 @@ export {
 } from './state-folder.js';
 import { writeFileAtomic } from './atomic-write.js';
 
+/**
+ * One folder's audit lines (oldest first) cut at its last restart: a successful restart writes a
+ * `restart` line before the new job's first line, and the lines before it belong to the old job.
+ * A restart that failed and put everything back says so (`restart-failed` with `afterBoundary`), and
+ * its boundary no longer counts.
+ */
+export function sinceRestart(lines) {
+  const marks = [];
+  lines.forEach((e, i) => {
+    if (e?.action === 'restart') marks.push(i);
+    else if (e?.action === 'restart-failed' && e.afterBoundary === true) marks.pop();
+  });
+  return marks.length ? lines.slice(marks.at(-1)) : lines;
+}
+
 // Emits 'audit' (the entry as written) after each audit line is saved, so live views can say
 // which job's conversation just changed.
 export class State extends EventEmitter {
@@ -220,7 +235,12 @@ export class State extends EventEmitter {
     return [...entries];
   }
 
+  /**
+   * One job folder's lines, oldest first, from its last restart on (the `restart` line included), then the
+   * newest `limit`. A restart starts a new job in the same folder; the old job's lines stay in the file
+   * and are not the new job's. `limit` Infinity keeps all of them.
+   */
   async auditFor(featureDir, limit = 200) {
-    return (await this.auditAll()).filter((e) => e.featureDir === featureDir).slice(-limit);
+    return sinceRestart((await this.auditAll()).filter((e) => e.featureDir === featureDir)).slice(-limit);
   }
 }

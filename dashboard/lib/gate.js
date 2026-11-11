@@ -244,6 +244,12 @@ export class GateParking {
    * written before it (isAnswered with the brief's time).
    */
   noteAudit(slug, e) {
+    // A restart starts a new job under the same name: what was answered before it is not the new job's.
+    if (slug && e?.action === 'restart') {
+      for (const set of [this.answered, this.held]) for (const k of [...set]) if (k.startsWith(`${slug}#`)) set.delete(k);
+      this.decidedAt.delete(slug);
+      return;
+    }
     if (slug && isUnnumberedDecision(e) && Number.isFinite(Date.parse(e.at ?? ''))) {
       const was = this.decidedAt.get(slug);
       if (!was || Date.parse(e.at) > Date.parse(was)) this.decidedAt.set(slug, e.at);

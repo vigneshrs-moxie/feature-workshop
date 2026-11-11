@@ -460,7 +460,14 @@ export async function createRunner(config) {
   // Briefs answered from a gate card: read from the audit once at start, then kept up as replies are
   // sent (or held until the usage limit resets: you've decided, so the gate isn't parked, unless
   // that held reply is dropped). The same rule as answeredBriefs.
-  const noteAnswered = (e) => { if (e?.featureDir) parking.noteAudit(e.slug ?? path.basename(e.featureDir), e); };
+  const noteAnswered = (e) => {
+    if (!e?.featureDir) return;
+    parking.noteAudit(e.slug ?? path.basename(e.featureDir), e);
+    // A restart that failed and put everything back: the old job's answers count again.
+    if (e.action === 'restart-failed' && e.afterBoundary === true) {
+      state.auditFor(e.featureDir, Infinity).then((lines) => { for (const l of lines) parking.noteAudit(l.slug ?? path.basename(l.featureDir), l); }).catch(() => {});
+    }
+  };
   state.on('audit', noteAnswered);
 
   // decisions.md (lib/decisions.js): the job's decision file, written again from its audit lines
@@ -2274,6 +2281,7 @@ export async function createRunner(config) {
         };
         let out;
         let policyCleared = false;
+        let boundary = false;
         try {
           out = await restartJob(job, {
             model: body.model,
@@ -2282,6 +2290,10 @@ export async function createRunner(config) {
             // The old job's own permission setting, pause and run end are cleared before the new job starts, so its
             // first tool call never runs under them; put back when the restart is undone.
             clearOldState: async () => {
+              // The boundary: the old folder is archived, nothing of the new job is written yet. Every reader of this
+              // folder's lines starts here (state.auditFor). If it can't be written the restart is put back.
+              await state.audit({ action: 'restart', featureDir: f.dir, slug: f.slug, model: body.model, was: drive.model ?? null });
+              boundary = true;
               const policy = (await state.getSettings()).jobPolicy?.[f.dir] ?? null;
               const paused = restartPaused.get(f.dir);
               const ended = Object.hasOwn(runEnds, f.dir) ? runEnds[f.dir] : undefined;
@@ -2299,7 +2311,7 @@ export async function createRunner(config) {
           });
         } catch (err) {
           // A refusal or a failure (put back, or part way) is on the record too, with what it says.
-          await state.audit({ action: 'restart-failed', featureDir: f.dir, slug: f.slug, model: body.model, error: String(err?.message ?? err), ...(err?.moved?.length ? { stillMoved: err.moved } : {}) }).catch(() => {});
+          await state.audit({ action: 'restart-failed', featureDir: f.dir, slug: f.slug, model: body.model, error: String(err?.message ?? err), ...(err?.moved?.length ? { stillMoved: err.moved } : {}), ...(boundary && !err?.moved?.length ? { afterBoundary: true } : {}) }).catch(() => {});
           throw err;
         }
         // State kept by the old job's folder starts fresh: the new job's folder is often the same path (a ticket job).
@@ -2308,7 +2320,7 @@ export async function createRunner(config) {
         const notes = [...(out.notes ?? [])];
         const oneLine = (err) => String(err?.message ?? err).split('\n')[0];
         if (policyCleared) { try { await driver.applyModes(); settingsChanged(); } catch (err) { notes.push(`The permission modes could not be refreshed (${oneLine(err)}).`); } }
-        try { await state.audit({ action: 'restart', featureDir: f.dir, slug: f.slug, newSlug: out.slug, model: body.model, was: drive.model ?? null, archive: out.archive, backupBranch: out.backupBranch, worktreeAside: out.worktreeAside }); } catch (err) { notes.push(`The restart could not be written to the record (${oneLine(err)}).`); }
+        try { await state.audit({ action: 'restart-done', featureDir: f.dir, slug: f.slug, newSlug: out.slug, model: body.model, was: drive.model ?? null, archive: out.archive, backupBranch: out.backupBranch, worktreeAside: out.worktreeAside }); } catch (err) { notes.push(`The restart could not be written to the record (${oneLine(err)}).`); }
         cached = null;
         return { ok: true, slug: out.slug, archive: out.archive, backupBranch: out.backupBranch, worktreeAside: out.worktreeAside, notes };
       } finally {

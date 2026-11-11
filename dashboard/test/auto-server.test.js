@@ -1715,3 +1715,58 @@ test('N7: the person answers the status card through the route, and only that cl
     assert.ok((await w.lines()).some((l) => l.action === 'status_invalid_answer'), 'the real writer wrote the line');
   } finally { await w.stop(); }
 });
+
+// ---------- Fix round 1: K1 (a restart is a boundary), K2 (a restart and Auto's money) ----------
+
+/** A job whose brief 1 was approved, then started again on another model; the new job has the same slug and folder. */
+async function restartedWorld(extra = {}) {
+  const w = await world({ ...extra });
+  await fs.writeFile(path.join(w.dir, 'options.json'), JSON.stringify({ schema_version: 2, level: 1, flow: 'quick', title: 'Visit audit', repo: w.dirs.repo }, null, 2));
+  return w;
+}
+const restartIt = async (w) => {
+  const res = await w.runner.handle({ type: 'restart', slug: w.slug, model: FABLE }, { from: 'local' });
+  assert.equal(res.slug, w.slug, 'the new job has the old job\'s slug and folder');
+  return res;
+};
+const newBrief1 = async (w) => {
+  await fs.mkdir(path.join(w.dir, 'briefs'), { recursive: true });
+  await fs.writeFile(path.join(w.dir, 'briefs', '001-plan.md'), '**Visit audit · plan v1 ready**\n');
+  await w.writeStatus(status(1));
+};
+
+test('K1: a restarted job\'s new brief 1 waits for the person and can be approved (no Auto)', { timeout: 60_000 }, async () => {
+  const w = await restartedWorld({ auto: null });
+  try {
+    await auditLine(w, { at: AT(1), action: 'send', kind: 'approve', gateBrief: 1, text: 'go', sessionId: 's' });
+    assert.deepEqual((await w.runner.read.job(w.slug)).answeredBriefs, [1]);
+    await restartIt(w);
+    await w.idle();
+    await newBrief1(w);
+    const job = await w.until(async () => { const j = await w.runner.read.job(w.slug); return j.gate ? j : null; }, 'the new brief 1 to show as a gate card');
+    assert.deepEqual(job.answeredBriefs, [], 'the old job\'s answer is not the new job\'s');
+    assert.equal(job.gate?.briefNumber, 1);
+    await w.runner.handle({ type: 'approve', slug: w.slug, briefNumber: 1 }, { from: 'local' });
+    assert.equal((await w.sends()).filter((l) => l.gateBrief === 1).length, 2, 'the new brief 1 was approved too');
+  } finally { await w.stop(); }
+});
+
+test('K1: after a restart Auto turned on for the new job asks about brief 1; What Auto decided and the cost start from nothing', { timeout: 60_000 }, async () => {
+  const w = await restartedWorld();
+  try {
+    await w.pass();
+    await w.idle();
+    assert.equal(w.asks.length, 1);
+    await w.restart(); // Starbase started again: no reply of the old job is kept in memory, so the new job gets the same slug
+    await restartIt(w);
+    await w.idle();
+    await newBrief1(w);
+    await w.runner.handle({ type: 'auto', slug: w.slug, on: true }, { from: 'local' });
+    const before = await w.runner.read.job(w.slug);
+    assert.equal((await w.runner.read.autoLog(w.slug))?.entries?.length ?? 0, 0, 'no entry of the old job');
+    assert.equal(before.costDetail.agents.find((a) => /approver/i.test(a.name ?? a.agent ?? ''))?.costUsd ?? 0, 0, 'the cost row starts from 0');
+    await w.pass();
+    assert.equal(w.asks.length, 2, 'brief 1 of the new job is asked about');
+    assert.equal((await w.sends()).filter((l) => l.by === 'auto').length, 2);
+  } finally { await w.stop(); }
+});

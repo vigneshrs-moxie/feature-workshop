@@ -69,3 +69,17 @@ test('a stack section never takes its parent’s Auto', async () => {
   assert.deepEqual(o.provided, { spec: '/tmp/fw/section.md' });
   assert.equal(o.level, 2);
 });
+
+test('K1: a folder\'s lines start at its last restart; a restart that was put back does not count; a parked answer is forgotten at a restart', async () => {
+  const { sinceRestart } = await import('../lib/state.js');
+  const { GateParking } = await import('../lib/gate.js');
+  const a = [{ action: 'send', n: 1 }, { action: 'restart' }, { action: 'send', n: 2 }];
+  assert.deepEqual(sinceRestart(a).map((e) => e.action), ['restart', 'send']);
+  assert.deepEqual(sinceRestart([...a, { action: 'restart-failed', afterBoundary: true }]).map((e) => e.n ?? e.action), [1, 'restart', 2, 'restart-failed'], 'put back: all of it');
+  assert.equal(sinceRestart([{ action: 'send', n: 1 }, { action: 'restart-failed' }]).length, 2, 'a refusal before any boundary cancels nothing');
+  const p = new GateParking({ now: () => 0 });
+  p.noteAudit('job', { action: 'send', kind: 'approve', gateBrief: 1, at: '2026-10-01T10:00:00Z' });
+  assert.equal(p.isAnswered('job', 1), true);
+  p.noteAudit('job', { action: 'restart' });
+  assert.equal(p.isAnswered('job', 1), false);
+});
