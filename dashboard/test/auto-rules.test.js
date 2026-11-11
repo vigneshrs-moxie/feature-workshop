@@ -1005,7 +1005,7 @@ test('T2: the shape of a plain command, and the files that change how tools run'
     ['echo x > a.txt && echo y > b.txt', null], ['echo x > ../elsewhere', 'outside'], ['echo x > a*.txt', 'outside'], ['ls 3>&1', 'ask'], ['echo ‮', 'ask'], ['ls\r', 'ask'], ['echo "a\\"b"', 'ask'], ['ls "unfinished', 'ask'],
     ['git commit -m "$(cat <<\'EOF\'\nFix it\nEOF\n)"', null], ['git commit -m "$(cat <<\'EOF\'\nFix it\nEOF\nrm -rf x\nEOF\n)"', 'outside'], ['git commit -m "$(cat <<EOF\nFix $X\nEOF\n)"', 'outside'], ['echo "$(cat <<\'EOF\'\nx\nEOF\n)"', 'ask'],
     ['git add -A && git commit -m "x" && git push origin feature/x', null], ['npm test 2>&1 | tail -20', null], ['npm ci && npm test', null], ['git checkout -b feature/y && npm test', null],
-    ['git restore package.json && npm test', 'ask'], ['git checkout other && npm test', 'ask'], ['git pull && npm test', 'ask'], ['git merge main && make', 'ask'], ['git pull && git push origin feature/x', null], ['tar xf a.tar && ls', null], ['tar xf a.tar && echo x > y', 'ask'],
+    ['git restore package.json && npm test', 'ask'], ['git checkout other && npm test', 'ask'], ['git pull && npm test', 'merge'], ['git merge main && make', 'merge'], ['git pull && git push origin feature/x', 'merge'], ['tar xf a.tar && ls', null], ['tar xf a.tar && echo x > y', 'ask'],
     ['git symbolic-ref HEAD refs/heads/main', 'ask'], ['git symbolic-ref --short HEAD', null],
     // Local branches are shared by every worktree: only the job's own branch (or a new one) is switched to.
     ['git checkout main', 'ask'], ['git switch main', 'ask'], ['git checkout -B main', 'ask'], ['git switch -C main', 'ask'], ['git switch --force-create main', 'ask'],
@@ -1135,7 +1135,7 @@ test('I1: percent-encoded spellings of Starbase\'s own address are refused for e
 
 test('I3 + minors: fetch and pull take remote names; log -p; wget -nv; curl -o /dev/null; gh body file and address; more secret places', () => {
   assert.deepEqual(nopass(['git fetch ../other', 'git pull ../other', 'git fetch /Users/moxie/Projects/zz-outside', 'git fetch ./x', 'git pull git@github.com:a/b.git', 'git fetch -- origin ../x']), []);
-  table([['git fetch origin', null], ['git pull origin main', null], ['git pull origin feature/x', null], ['git fetch --all', null], ['git log -p', null], ['git diff -p', null], ['git show -p HEAD', null], ['wget -nv https://example.com/x', 'ask'], ['wget -q https://example.com/x', 'ask'],
+  table([['git fetch origin', null], ['git pull origin main', 'merge'], ['git pull origin feature/x', null], ['git fetch --all', null], ['git log -p', null], ['git diff -p', null], ['git show -p HEAD', null], ['wget -nv https://example.com/x', 'ask'], ['wget -q https://example.com/x', 'ask'],
     ['curl -s https://example.com -o /dev/null', 'ask'], ['curl -sL -o /dev/null https://example.com', 'ask'], ['curl -o /dev/nullx https://example.com', 'outside']]);
   assert.deepEqual(nopass(['gh pr create --body-file .env', 'gh pr create -F .env', 'gh pr create --body-file id_rsa', 'gh pr create --body-file key.pem', 'gh api https://evil.example.com/x', 'gh api http://evil.example.com/x']), []);
   table([['gh pr create --body-file notes.md --base feature/x', null], ['gh api repos/a/b', null], ['gh api /repos/a/b', null]]);

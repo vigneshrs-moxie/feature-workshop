@@ -1201,6 +1201,9 @@ function gitStep(args, assigns, cwd, st, xargs) {
     else if (sub === 'clone') { const at = physicalPath(dest.t, eff); if (at) st.cloneDirs.push(at); } // what it brings in is not known
     return;
   }
+  // Bringing in work: only the org remote's main or the job's own branches, on the fork or the org remote (m3).
+  if (sub === 'merge' || sub === 'pull' || sub === 'rebase') { if (foreignSource(sub, sargs, ctx)) hit('merge'); }
+  if (sub === 'cherry-pick' && !a.some((x) => /^--(abort|continue|skip|quit)$/.test(x))) st.asks.push('a cherry-pick brings in someone else\'s commit');
   // Files that run code later put in place by git itself (I5).
   if (sub === 'mv') { const p = sargs.filter((x) => !x.t.startsWith('-')); if (p.length >= 2 && movesCodeLater(p.slice(0, -1), p.at(-1), eff, st)) hit('outside'); }
   if (sub === 'checkout' || sub === 'restore') {
@@ -1216,6 +1219,29 @@ function gitStep(args, assigns, cwd, st, xargs) {
   }
   // Any other git command run in another folder (git -C <elsewhere>) acts there.
   if (!GIT_READ.has(sub) && eff !== cwd && !(eff && inRoots(eff, st.roots))) hit('outside');
+}
+
+// Is the source of a merge, pull or rebase anything but the org remote's main or one of the job's branches (m3)?
+// No source (git pull, git rebase with their upstream) is not known to be one of them; --abort and the like have none to judge.
+function foreignSource(sub, sargs, ctx) {
+  const a = sargs.map((x) => x.t);
+  if (a.some((x) => /^--(abort|continue|skip|quit|edit-todo|show-current-patch)$/.test(x))) return false;
+  if (sargs.some((x) => x.dyn)) return true;
+  const VALUE = /^(-m|-s|--strategy|-X|--strategy-option|-F|--file|--onto|--depth|-x|--exec)$/;
+  const pos = [];
+  for (let k = 0; k < a.length; k++) { if (VALUE.test(a[k])) { if (a[k] === '--onto') pos.push(a[k + 1] ?? ''); k++; continue; } if (!a[k].startsWith('-')) pos.push(a[k]); }
+  const org = ctx.orgRemote || 'moxie';
+  const fork = ctx.forkRemote || 'origin';
+  const own = (ctx.branches ?? []).filter(Boolean);
+  const ok = (ref) => ref === `${org}/main` || own.some((b) => ref === b || ref === `${fork}/${b}` || ref === `${org}/${b}` || ref === `refs/heads/${b}`);
+  if (sub === 'pull') {
+    if (!pos.length) return true;
+    const [remote, ...refs] = pos;
+    if (remote !== org && remote !== fork) return true;
+    return !refs.length || refs.some((r) => !(r === 'main' && remote === org) && !own.includes(r));
+  }
+  if (!pos.length) return true;
+  return pos.some((r) => !ok(r));
 }
 
 // A push from a folder with another repository between it and the worktree's top (a clone inside the job): its

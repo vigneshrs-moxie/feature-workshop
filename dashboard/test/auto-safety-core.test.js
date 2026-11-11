@@ -557,3 +557,12 @@ test('I9: above 100 KB a command is refused for every job, so a refusal can neve
   // under the limit, the refusals are found as before
   assert.equal(hardLine('Bash', { command: `echo hi; git push --force origin ${BRANCH}` }, { cwd: WT })?.decision, 'deny');
 });
+
+// ---------- minors ----------
+
+test('m3: a merge, pull or rebase from anything but the org remote\'s main or the job\'s own branches stops; a cherry-pick asks', () => {
+  const ctx = C5CTX({ orgRemote: 'moxie' });
+  for (const c of ['git merge origin/some-other-branch', 'git merge feature/other', 'git pull origin some-other-branch', 'git pull moxie staging', 'git rebase moxie/staging', 'git merge moxie/main feature/other', 'git pull', 'git rebase', 'git pull https://github.com/x/y main']) assert.equal(bash(c, ctx), 'merge', c);
+  for (const c of ['git merge moxie/main', `git merge origin/${BRANCH}`, `git merge ${BRANCH}`, 'git pull moxie main', `git pull origin ${BRANCH}`, 'git rebase moxie/main', 'git merge --abort', 'git rebase --continue', 'git merge --no-edit moxie/main']) assert.notEqual(bash(c, ctx), 'merge', c);
+  assert.equal(bash('git cherry-pick abc123', ctx), 'ask');
+});
