@@ -302,3 +302,30 @@ test('driver: pause interrupts and reports stopped, not an error', async () => {
   assert.equal(done.status, 'stopped');
   assert.equal(done.error, null);
 });
+
+test('driver: two answers to one card in the same tick: only the first is taken (the tool gets the first answer, one line)', async () => {
+  const state = await tmpState();
+  let decision = null;
+  const queryFn = fakeSession(async function* ({ options }) {
+    yield { type: 'system', subtype: 'init', session_id: 's-k3' };
+    decision = await options.canUseTool('Bash', { command: 'npm test' }, { signal: new AbortController().signal, toolUseID: 't', requestId: 'r' });
+    yield { type: 'result', subtype: 'success', is_error: false, result: 'ok', total_cost_usd: 0, permission_denials: [] };
+  });
+  const driver = new Driver({ queryFn, state, projectsDir: '/nonexistent' });
+  driver.idleGraceMs = 30;
+  const seen = [];
+  driver.on('permission', (p) => seen.push(p));
+  const run = await driver.start({ featureDir: '/f/k3', slug: 'k3', title: 'K3', cwd: '/repo', text: 'go' });
+  await until(driver, run.id, ['waiting_permission']);
+  const id = seen[0].id;
+  const [first, second] = await Promise.all([
+    driver.decide(id, { decision: 'allow', by: 'auto' }),
+    driver.decide(id, { decision: 'deny', note: 'no' }),
+  ]);
+  assert.deepEqual([first, second], [true, false], 'the first caller owns the card; the second is told it is gone');
+  await until(driver, run.id, ['done', 'error']);
+  assert.equal(decision.behavior, 'allow', 'the tool got the first answer');
+  const lines = (await state.auditFor('/f/k3')).filter((e) => e.action === 'permission');
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].decision, 'allow');
+});
