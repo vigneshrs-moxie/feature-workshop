@@ -57,7 +57,7 @@ export const READ_ONLY_TOOLS = Object.freeze(new Set([
 ]));
 /** Web lookups: what they send leaves the computer, so on an Auto job each one is a question for the Approver (C5). */
 const WEB_TOOLS = new Set(['WebFetch', 'WebSearch']);
-const READ_TOOLS = new Set(['Read', 'Glob', 'Grep', 'LS', 'NotebookRead']);
+const READ_TOOLS = new Set(['Read', 'Glob', 'Grep', 'LS', 'NotebookRead', 'ReadMcpResource']);
 // An address with a name and password in it (https://user:pass@host/).
 const URL_CREDENTIALS = /^[a-z][a-z0-9+.-]*:\/\/[^/?#\s]*@/i;
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
@@ -215,6 +215,7 @@ function toolPaths(input) {
   const out = [];
   for (const k of ['file_path', 'notebook_path', 'path']) if (typeof input?.[k] === 'string') out.push(input[k]);
   if (typeof input?.pattern === 'string' && /^[/~]/.test(input.pattern)) out.push(input.pattern);
+  if (typeof input?.uri === 'string' && /^file:\/\//i.test(input.uri)) { try { out.push(decodeURIComponent(new URL(input.uri).pathname)); } catch { out.push(input.uri.slice(7)); } } // a file:// resource (N16)
   return out;
 }
 

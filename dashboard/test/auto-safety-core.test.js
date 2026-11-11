@@ -856,3 +856,12 @@ test('N11: CDPATH set before a cd stops (where a plain cd name goes is no longer
   const ctx = C5CTX();
   for (const c of [`CDPATH=${HOME} cd Documents && touch x`, `export CDPATH=${HOME}; cd Documents && touch x`]) assert.equal(bash(c, ctx), 'outside', c);
 });
+
+test('N16: a file:// resource is a read path, and a gh word that is an address on another host asks', () => {
+  const ctx = C5CTX();
+  assert.equal(card('ReadMcpResource', { server: 'x', uri: `file://${HOME}/.zshrc` }, ctx), 'ask');
+  assert.equal(card('ReadMcpResource', { server: 'x', uri: `file://${HOME}/.ssh/id_rsa` }, ctx), 'outside');
+  assert.equal(card('ReadMcpResource', { server: 'x', uri: 'orbit://tickets/500' }, ctx), null);
+  assert.equal(bash('gh pr view https://collect.example.net/a/b/pull/1', ctx), 'ask');
+  assert.equal(bash('gh pr view https://github.com/moxie-org/orbit/pull/1', ctx), null);
+});

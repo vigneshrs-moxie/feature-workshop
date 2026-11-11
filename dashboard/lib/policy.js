@@ -517,9 +517,10 @@ export function pathCandidates(word) {
   const glued = /^-[A-Za-z](.+)$/.exec(w);
   if (glued) out.add(glued[1]);
   for (let i = w.indexOf('='); i >= 0; i = w.indexOf('=', i + 1)) out.add(w.slice(i + 1));
-  for (const x of [...out]) for (const piece of x.split(/[,:]/)) if (piece) out.add(piece);
+  const url = (x) => /^[a-z][a-z0-9+.-]*:\/\//i.test(x) && !/^file:\/\//i.test(x); // an address on the network is not a path
   for (const x of [...out]) if (/^file:\/\//i.test(x)) out.add(x.slice(7));
-  return [...out].filter((v) => v && (v.includes('/') || v.startsWith('~') || v === '..'));
+  for (const x of [...out]) if (!url(x)) for (const piece of x.split(/[,:]/)) if (piece && !/^\/\//.test(piece)) out.add(piece);
+  return [...out].filter((v) => v && !url(v) && !/^file:/i.test(v) && (v.includes('/') || v.startsWith('~') || v === '..'));
 }
 
 // The values of these options are text (a test name, a pattern, a message), not paths, as in Auto's own reading (N13).

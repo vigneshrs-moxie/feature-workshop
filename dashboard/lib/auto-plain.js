@@ -541,6 +541,11 @@ const GH = {
 function ghCheck(args, ctx) {
   const words = args.filter((x) => !x.t.startsWith('-'));
   if (args.length === 1 && (args[0].t === '--version')) return;
+  // An address on a host other than GitHub's is one the job chose: what gh sends there is not known (N16).
+  for (const x of args) {
+    const m = /^[a-z][a-z0-9+.-]*:\/\/([^/?#\s]*)/i.exec(x.t.includes('=') && x.t.startsWith('-') ? x.t.slice(x.t.indexOf('=') + 1) : x.t);
+    if (m && !/^(?:[\w-]+\.)*github\.com(?::\d+)?$/i.test(m[1].replace(/^.*@/, ''))) ask('an address gh would reach that is not GitHub');
+  }
   const [group, action] = words.map((x) => x.t);
   if (group === 'api') {
     const { pos } = check(spec('--paginate --jq: -q:', { pos: 'text' }), args.slice(args.findIndex((x) => x.t === 'api') + 1), ctx, 'gh api');
