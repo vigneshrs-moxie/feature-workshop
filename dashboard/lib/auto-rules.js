@@ -27,11 +27,12 @@
 // A deny hard line (a force push, an org push, the state folder) stays a refusal: it never reaches here.
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 import { autoAllowed } from './auto.js';
 import { classify, commandParts, isInside, TEMP_DIRS } from './policy.js';
-import { hardLine, namesStarbaseAddress, namesThisComputer, ORG_URL, physicalPath, rmInsideJob, WRAPPERS } from './hard-lines.js';
+import { hardLine, namesStarbaseAddress, namesThisComputer, ORG_URL, physicalPath, rmInsideJob, withPathMemo, WRAPPERS } from './hard-lines.js';
 import { STAGES, STAGE_IDS } from './stages.js';
 
 export const AUTO_STOP_REASONS = Object.freeze({
@@ -128,6 +129,10 @@ const PRIORITY = ['merge', 'database', 'push', 'outside'];
 
 // { stop } | { ask: why } | null
 function judgeCard(inp, ctx) {
+  return withPathMemo(() => judgeCardOf(inp, ctx));
+}
+
+function judgeCardOf(inp, ctx) {
   const toolName = inp.toolName;
   const input = inp.input ?? {};
   // A command too long to read, or made of too many commands, stops without being read (I9).
@@ -136,15 +141,55 @@ function judgeCard(inp, ctx) {
   const hard = inp.hardLine ?? own;
   if (own?.decision === 'deny' || hard?.decision === 'deny') return null; // refused outright, never asked
   if (typeof inp.blockedPath === 'string' && inp.blockedPath) return { stop: stop('outside') };
+  // A secret place named by any tool (T3a).
+  if (toolName !== 'Bash' && toolPaths(input).some((x) => secretPlace(physicalPath(x, ctx.cwd ?? null), jobRoots(ctx), ctx))) return { stop: stop('outside') };
   if (EDIT_TOOLS.has(toolName)) {
     const file = input.file_path ?? input.notebook_path;
     const where = typeof file === 'string' ? physicalPath(file, ctx.cwd ?? null) : null;
-    return where && inRoots(where, jobRoots(ctx)) ? null : { stop: stop('outside') };
+    if (!(where && inRoots(where, jobRoots(ctx))) || codeLater(where)) return { stop: stop('outside') };
+    return ASK_FILES.has(path.basename(where)) ? { ask: 'a file that changes how tools run' } : null;
   }
   if (toolName === 'Bash') return bashVerdict(String(input.command ?? ''), hard, ctx);
   if (READ_ONLY_TOOLS.has(toolName)) return null;
   return { stop: stop('tool', { unknownTool: true }) };
 }
+
+// ---------- secret places (T3a) and files that run code later (T3h) ----------
+
+const SECRET_DIRS = ['.ssh', '.aws', '.gnupg', '.config/gh', '.docker', '.kube', '.starbase', '.claude', 'Library/Keychains'];
+const SECRET_FILES = ['.claude.json', '.netrc', '.npmrc', '.pypirc', '.git-credentials'];
+const SECRET_NAME = /^(\.env(\..*)?|id_rsa.*|id_ed25519.*|.*\.(pem|key|p12))$/i;
+const MAC = process.platform === 'darwin';
+const fold = (x) => (MAC ? String(x).toLowerCase() : String(x));
+const homes = () => [...new Set([os.homedir(), physicalPath(os.homedir(), null)].filter(Boolean))];
+
+/** Is this resolved path a secret place? (null: not known, not a secret.) */
+function secretPlace(p, roots, ctx = {}) {
+  if (!p) return false;
+  const q = fold(p);
+  for (const h of homes()) {
+    if (SECRET_DIRS.some((d) => isInside(q, fold(path.join(h, d)))) || SECRET_FILES.some((f) => q === fold(path.join(h, f)))) return true;
+  }
+  if (typeof ctx.stateDir === 'string' && ctx.stateDir && isInside(q, fold(ctx.stateDir))) return true;
+  return SECRET_NAME.test(path.basename(p)) && !inRoots(p, roots);
+}
+
+// The path-like fields of a tool's input.
+function toolPaths(input) {
+  const out = [];
+  for (const k of ['file_path', 'notebook_path', 'path']) if (typeof input?.[k] === 'string') out.push(input[k]);
+  if (typeof input?.pattern === 'string' && /^[/~]/.test(input.pattern)) out.push(input.pattern);
+  return out;
+}
+
+// Does a path sit where a file runs code later or elsewhere: .git/, .github/workflows/, .husky/, .claude/, .mcp.json?
+function codeLater(p) {
+  if (!p) return false;
+  const segs = p.split('/');
+  if (segs.includes('.git') || segs.includes('.husky') || segs.includes('.claude') || segs[segs.length - 1] === '.mcp.json') return true;
+  return segs.some((x, k) => x === '.github' && segs[k + 1] === 'workflows');
+}
+const ASK_FILES = new Set(['.npmrc', '.envrc', '.yarnrc', '.yarnrc.yml', '.pypirc']);
 
 const MAX_COMMAND = 20_000;
 const MAX_SIMPLE = 200;
@@ -162,7 +207,7 @@ const inRoots = (p, roots, strict = false) => roots.some((r) => isInside(p, r) &
 
 // A Bash call: a fixed stop if a rule matches; else an ask if it is not plain; else null (pass).
 function bashVerdict(command, hard, ctx) {
-  const st = { ctx, asks: [], hits: new Set(), unknown: false, runs: [], written: [], touched: [], cloneDirs: [], branchChange: false, pushed: false, funcs: functionNames(command), roots: jobRoots(ctx), work: [...(ctx.worktrees ?? []), ctx.cwd].filter(Boolean).map((d) => physicalPath(d, null)).filter(Boolean) };
+  const st = { ctx, asks: [], hits: new Set(), unknown: false, ranRunner: false, ranMake: false, pkgEdit: false, runs: [], written: [], touched: [], cloneDirs: [], branchChange: false, pushed: false, funcs: functionNames(command), roots: jobRoots(ctx), work: [...(ctx.worktrees ?? []), ctx.cwd].filter(Boolean).map((d) => physicalPath(d, null)).filter(Boolean) };
   if (hard?.line === 'gh-pr-merge') st.hits.add('merge');
   if (hard?.line === 'database') st.hits.add('database');
   if (DB_ADDRESS.test(command)) st.hits.add('database'); // a database address anywhere in the call
@@ -173,6 +218,9 @@ function bashVerdict(command, hard, ctx) {
   if (st.runs.some((r) => st.written.includes(r)) || st.cloneDirs.some((d) => st.touched.some((p) => p !== d && isInside(p, d)))) st.hits.add('outside');
   const verdict = classify('Bash', { command }, { mode: 'hands-off', stage: 'implement', worktrees: ctx.worktrees ?? [], specDirs: ctx.specDirs ?? [], featureDir: ctx.featureDir ?? null, cwd: ctx.cwd ?? null, rules: [] });
   if (verdict.outside) st.hits.add('outside');
+  // package.json or a Makefile written and a runner started in one call (T3e).
+  const wroteBase = (names) => st.pkgEdit && names.includes('package.json') || st.written.some((w) => names.includes(path.basename(w)));
+  if ((st.ranRunner && wroteBase(['package.json'])) || (st.ranMake && wroteBase(['Makefile', 'makefile', 'GNUmakefile']))) st.hits.add('outside');
   const rule = PRIORITY.find((r) => st.hits.has(r));
   if (rule) return { stop: stop(rule, rule === 'outside' && st.unknown ? { unknownProgram: true } : {}) };
   const why = st.asks[0] ?? plainWhy(command);
@@ -180,6 +228,7 @@ function bashVerdict(command, hard, ctx) {
 }
 
 // Plain: Starbase understands every word of the command (T2).
+function plainEnv(st, cwd) { return { cwd: cwd ?? st.hint ?? null, roots: st.roots, ctx: st.ctx }; }
 function plainWhy(command) {
   return /[$`]/.test(command) ? 'a variable or substitution in the command' : null;
 }
@@ -271,12 +320,13 @@ function analyze(command, cwd, st, depth, viaXargs) {
   if (h?.line === 'gh-pr-merge') st.hits.add('merge');
   if (h?.line === 'database') st.hits.add('database');
   const parts = commandParts(command, cwd);
+  const noCd = !/\b(cd|pushd|popd)\b/.test(command); // with no cd in it, every command runs where the session does
   if (parts) {
     let lost = false;
     let guess = null; // where a script lookup may look, taking a plain `cd name` as a folder of that name (writes never use it)
     for (const part of parts) {
       const first = part.words.find((w) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(w.t))?.t;
-      st.hint = lost ? null : part.cwd ?? guess;
+      st.hint = lost ? null : part.cwd ?? guess ?? (noCd ? cwd : null);
       simple(part.words, part.redirects ?? [], lost ? null : part.cwd, st, depth, viaXargs);
       if (first === 'pushd' || first === 'popd') lost = true; // where later commands run is no longer known
       const ws = part.words.filter((w) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(w.t));
@@ -286,7 +336,7 @@ function analyze(command, cwd, st, depth, viaXargs) {
     return;
   }
   const { pieces, inner } = rawSplit(command);
-  for (const piece of pieces) { const { ws, redirects } = rawWords(piece); simple(ws, redirects, null, st, depth, viaXargs); }
+  for (const piece of pieces) { const { ws, redirects } = rawWords(piece); st.hint = noCd ? cwd : null; simple(ws, redirects, null, st, depth, viaXargs); }
   for (const s of inner) analyze(s, null, st, depth + 1, viaXargs);
 }
 
@@ -331,7 +381,8 @@ const TEXTY = new Set(['grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack', 'echo', 'pri
 function dbTool(t, rest) {
   const r = rest.filter((x) => typeof x === 'string');
   switch (t) {
-    case 'prisma': return r.some((x) => x === 'migrate' || x === 'db') && true;
+    case 'prisma': { const sub = r.find((x) => !x.startsWith('-')); return Boolean(sub) && !['generate', 'format', 'validate', 'version'].includes(sub); }
+    case 'typeorm': case 'mikro-orm': return r.some((x) => /^(schema:|migration)|^query$/.test(x));
     case 'cockroach': case 'dolt': return r.some((x) => /^sql/.test(x));
     case 'mix': return r.some((x) => /^ecto(\.|$)/.test(x));
     case 'php': case 'artisan': { const k = t === 'artisan' ? -1 : r.findIndex((x) => /(^|\/)artisan$/.test(x)); return (t === 'artisan' || k >= 0) && r.slice(k + 1).some((x) => /^(migrate|db)(:|$)/.test(x)); }
@@ -342,7 +393,7 @@ function dbTool(t, rest) {
     case 'gcloud': return r.includes('sql');
     case 'az': return r.some((x) => /^(sql|mysql|postgres|cosmosdb|redis)$/.test(x));
     case 'supabase': return r.some((x) => x === 'db' || x === 'migration');
-    case 'knex': case 'sequelize': case 'sequelize-cli': case 'typeorm': case 'alembic': case 'flyway': case 'liquibase': case 'dbmate': case 'goose': case 'sqitch': case 'atlas': case 'node-pg-migrate': case 'mikro-orm': case 'umzug': case 'migrate': case 'db-migrate':
+    case 'knex': case 'sequelize': case 'sequelize-cli': case 'alembic': case 'flyway': case 'liquibase': case 'dbmate': case 'goose': case 'sqitch': case 'atlas': case 'node-pg-migrate': case 'umzug': case 'migrate': case 'db-migrate':
       return r.some((x) => /migrat|db:|seed|^(up|down|upgrade|downgrade|push|reset|rollback|apply|deploy)$/i.test(x));
     case 'rails': case 'rake': case 'padrino': case 'bin/rails': case 'bin/rake': return r.some((x) => /^db(:|$)/.test(x) || x === 'dbconsole');
     case 'manage.py': case 'django-admin': return r.some((x) => /^(migrate|flush|dbshell|loaddata|sqlmigrate|sqlflush|sqlsequencereset|squashmigrations)$/.test(x));
@@ -397,6 +448,19 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
   const { ctx } = st;
   const out = (word) => pathOutside(word, cwd, st);
   const recordWrite = (word) => { const p = physicalPath(word.t, cwd); if (p) st.written.push(p); };
+  // A file that runs code later (T3h), or that changes how tools run (asks).
+  const noteWrite = (word) => {
+    const p = physicalPath(word.t, cwd ?? st.hint ?? null);
+    if (codeLater(p)) st.hits.add('outside');
+    if (p && ASK_FILES.has(path.basename(p))) st.asks.push('a file that changes how tools run');
+  };
+  const secretWord = (t) => {
+    if (typeof t !== 'string' || !t || /\s/.test(t)) return false;
+    for (const x of t.startsWith('-') && t.includes('=') ? [t.slice(t.indexOf('=') + 1)] : t.startsWith('-') ? [] : [t, t.includes('=') ? t.slice(t.indexOf('=') + 1) : t]) {
+      if (secretPlace(physicalPath(x, cwd ?? st.hint ?? null), st.roots, ctx)) return true;
+    }
+    return false;
+  };
   const hit = (rule) => st.hits.add(rule);
   // Redirections: output anywhere but /dev/null and the job's folders stops; input from a .sql file is a database change.
   for (const r of redirects) {
@@ -404,11 +468,16 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
     if (!r.dyn && /^\/dev\/(null|stdout|stderr|tty)$/.test(r.target)) continue;
     if (SQL.test(r.target)) hit('database');
     if (out({ t: r.target, dyn: r.dyn })) hit('outside');
+    noteWrite({ t: r.target, dyn: r.dyn });
     recordWrite({ t: r.target, dyn: r.dyn });
   }
+  for (const r of redirects) if (secretWord(r.target)) hit('outside');
+  for (const w of ws) if (/\/dev\/(tcp|udp)\//.test(w.t) || secretWord(w.t)) hit('outside'); // a network file of bash's; a secret place
+  for (const r of redirects) if (/\/dev\/(tcp|udp)\//.test(r.target)) hit('outside');
   if (ws.some((w) => SQL.test(w.t))) hit('database'); // a .sql file given to any program
   const { rest, assigns, wrappers } = unwrap(ws, st, cwd, depth);
   if (wrappers.some((w) => DANGEROUS.has(w))) hit('outside');
+  if (assigns.some((x) => REDIRECT_VAR.test(x.split('=')[0]))) hit('outside'); // a variable that redirects a tool (T3d)
   if (!rest.length) return;
   const cmdWord = rest[0];
   if (cmdWord.dyn) { hit('outside'); return; } // a command chosen while it runs
@@ -419,7 +488,7 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
   const pos = (list = args) => { const o = []; let opts = true; for (const x of list) { if (opts && x.t === '--') { opts = false; continue; } if (opts && x.t.startsWith('-') && x.t !== '-') continue; o.push(x); } return o; };
   const valueOf = (re) => { const k = a.findIndex((x) => re.test(x)); return k < 0 ? null : (/=/.test(a[k]) && a[k].startsWith('--') ? { t: a[k].slice(a[k].indexOf('=') + 1), dyn: args[k].dyn } : args[k + 1] ?? { t: '', dyn: true }); };
   // A write program's targets can't be known when xargs feeds them in.
-  const writes = (targets, content = true) => { if (xargs) hit('outside'); for (const t of targets) { if (out(t)) hit('outside'); if (content) recordWrite(t); } };
+  const writes = (targets, content = true) => { if (xargs) hit('outside'); for (const t of targets) { if (out(t)) hit('outside'); noteWrite(t); if (content) recordWrite(t); } };
 
   if (DANGEROUS.has(cmd)) hit('outside');
   if (/^(nc|ncat|netcat|telnet|socat)$/.test(cmd) && a.some((x) => /(^|:)(5432|3306|1433|27017|6379|9042)$/.test(x))) hit('database'); // a database port, on any host
@@ -434,8 +503,23 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
   const byFile = inside && inRoots(inside, st.roots) && !ownBin; // a file of the job's own, run by its path
   const known = byFile || (!cmdWord.t.includes('/') || ownBin) && (programGroup(cmd) || SHELLS.has(cmd) || cmd === 'eval' || cmd === 'source' || cmd === '.' || cmd === 'alias' || st.funcs.has(cmd.replace(/\(\)$/, '')));
   if (!known) { hit('outside'); st.unknown = true; return; }
+  // T3c: a command that is not a read runs from a folder inside the job's (a cd moves it; a folder we can't tell stops).
+  const readOnly = programGroup(cmd) === 'read' || (cmd === 'git' && GIT_READ.has(firstGitSub(args)));
+  if (!readOnly && !byFile) {
+    const eff = cwd ?? st.hint ?? null;
+    const at = eff ? physicalPath(eff, null) : null;
+    if (!at || !inRoots(at, st.roots)) hit('outside');
+  }
+  if (secretPlace(cwd ?? st.hint ? physicalPath(cwd ?? st.hint, null) : null, st.roots, ctx)) hit('outside'); // running inside one
+  if (/^(export|declare|typeset|readonly|local)$/.test(cmd)) for (const x of a) { if (!x.startsWith('-') && REDIRECT_VAR.test(x.split('=')[0])) hit('outside'); }
+  if (/^(npm|pnpm|yarn|bun|npx|pnpx|bunx)$/.test(cmd) && !/^(pkg|set-script)$/.test(a.find((x) => !x.startsWith('-')) ?? '')) st.ranRunner = true;
+  if (cmd === 'make' || cmd === 'gmake') st.ranMake = true;
+  if (cmd === 'npm' && (/^(pkg|set-script)$/.test(a.find((x) => !x.startsWith('-')) ?? ''))) st.pkgEdit = a.includes('set') || a.includes('delete') || a.includes('fix') || a.includes('set-script') || a[0] === 'set-script';
+  optionStops(cmd, args, a, cwd, st);
+  const positional = [cmd, ...a.filter((x) => !x.startsWith('-'))];
+  if (PUBLISH.some(([head, ...tail]) => head === positional[0] && positional.slice(1).some((_, k) => tail.every((t, j) => positional[k + 1 + j] === t)))) hit('outside');
   if (cmd === 'alias') { hit('outside'); for (const x of a) { const eq = x.indexOf('='); if (eq > 0) analyze(x.slice(eq + 1), cwd, st, depth + 1, null); } return; }
-  if (byFile) { scriptFile(cmdWord, cwd, st); return; }
+  if (byFile) { scriptFile(cmdWord, cwd, st, 'shell', depth); return; }
 
   if (SHELLS.has(cmd)) {
     const c = args.findIndex((x) => /^-[A-Za-z]*c$/.test(x.t));
@@ -443,7 +527,7 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
       const script = args[c + 1];
       if (!script || script.dyn) hit('outside'); else analyze(script.t, cwd, st, depth + 1, null);
     } else if (!pos().filter((x) => x.t !== '-').length || a.includes('-s')) hit('outside'); // reads its commands from a pipe or here-document
-    else scriptFile(pos().filter((x) => x.t !== '-')[0], cwd, st); // the file it runs
+    else scriptFile(pos().filter((x) => x.t !== '-')[0], cwd, st, 'shell', depth); // the file it runs
     return;
   }
   if (cmd === 'eval') { hit('outside'); analyze(a.join(' '), cwd, st, depth + 1, null); return; }
@@ -452,10 +536,15 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
   if (inline || /^(python[\d.]*|node|nodejs|ruby|perl|php|deno|lua)$/.test(cmd)) {
     const mod = a.indexOf('-m');
     if (mod >= 0 && a[mod + 1] === 'pip') pipStep(a.slice(mod + 2), (r) => hit(r));
-    if (a.some((x) => inline?.test(x))) hit('outside'); // code we can't read
+    const codeAt = a.findIndex((x) => inline?.test(x));
+    if (codeAt >= 0) {
+      // Code given on the command line: it asks, and stops only if a plain text search of it finds something.
+      const code = /^-[A-Za-z]*[ep]$|^-[A-Za-z]*[cEr]$/.test(a[codeAt]) || /^--(eval|print)$/.test(a[codeAt]) || a[codeAt] === 'eval' ? args[codeAt + 1] : { t: a[codeAt].replace(/^--[a-z]+=/, ''), dyn: args[codeAt].dyn };
+      if (!code || code.dyn) hit('outside'); else { scanOther(code.t, st); st.asks.push(`code written on the command line (${cmd} ${a[codeAt]})`); }
+    }
     else if (!pos().filter((x) => x.t !== '-').length && !a.some((x) => NO_STDIN.test(x))) hit('outside'); // code from stdin
     if (cmd === 'perl' || cmd === 'ruby') { if (a.some((x) => /^-[A-Za-z]*i/.test(x))) writes(pos()); }
-    if (!(mod >= 0) && !a.some((x) => inline?.test(x))) { const file = interpreterFile(cmd, args); if (file) scriptFile(file, cwd, st); }
+    if (!(mod >= 0) && !a.some((x) => inline?.test(x))) { const file = interpreterFile(cmd, args); if (file) scriptFile(file, cwd, st, 'other', depth); }
     return;
   }
 
@@ -495,16 +584,35 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
     }
     case 'dd': writes(a.filter((x) => /^(of|if)=/.test(x)).map((x) => ({ t: x.slice(3), dyn: x.includes('$') }))); return;
     case 'curl': {
+      // Only a plain download passes: nothing sent, no method but GET, no @file, no config file; short flags
+      // can be clustered (-sX POST, -XPOST, -da=b, -T-, -sSLo/path), so each letter is read.
       const targets = [];
+      const SEND = 'dFTK';
+      const TAKES = 'AbcCdDeEFHKmoPQrtTuUwxXyYz';
+      if (a.some((x) => x.startsWith('@'))) hit('outside');
       for (let k = 0; k < a.length; k++) {
-        if (/^(--output|--output-dir|-o|--dump-header|-D|--cookie-jar|-c|--trace|--trace-ascii)$/.test(a[k]) || /^-[A-Za-z]*[oDc]$/.test(a[k])) targets.push(args[k + 1] ?? { t: '', dyn: true });
-        else if (/^--(output|output-dir|dump-header|cookie-jar|trace|trace-ascii)=/.test(a[k])) targets.push({ t: a[k].slice(a[k].indexOf('=') + 1), dyn: args[k].dyn });
-        else if (a[k] === '--remote-name' || a[k] === '--remote-name-all' || a[k] === '-J' || /^-[A-Za-z]*O$/.test(a[k])) targets.push({ t: '.', dyn: false });
-        // Only a plain download passes: nothing sent, no method but GET, no @file, no config file.
         const x = a[k];
-        if (/^(-X|--request)$/.test(x)) { if ((a[k + 1] ?? '').toUpperCase() !== 'GET') hit('outside'); } else if (/^-X./.test(x) || /^--request=/.test(x)) { if (x.replace(/^(-X|--request=)/, '').toUpperCase() !== 'GET') hit('outside'); }
-        if (/^(-d|-F|-T|-K|--json|--config|--upload-file|--unix-socket|--resolve|--connect-to)$/.test(x) || /^--(data|form|json|upload-file|config|resolve|connect-to|unix-socket)/.test(x) || (/^-[A-Za-z]+$/.test(x) && /[dFTK]/.test(x))) hit('outside');
         if (x.startsWith('@') || /^-[-A-Za-z]+[=:]@/.test(x) || /=@/.test(x)) hit('outside');
+        if (/^--/.test(x)) {
+          const eq = x.indexOf('=');
+          const flag = eq < 0 ? x : x.slice(0, eq);
+          const value = eq < 0 ? args[k + 1] : { t: x.slice(eq + 1), dyn: args[k].dyn };
+          if (/^--(request)$/.test(flag)) { if ((value?.t ?? '').toUpperCase() !== 'GET') hit('outside'); } else if (/^--(data|form|json|upload-file|config|resolve|connect-to|unix-socket)/.test(flag)) hit('outside');
+          else if (/^--(output|output-dir|dump-header|cookie-jar|trace|trace-ascii|stderr|libcurl|etag-save|hsts|alt-svc|ssl-sessions)$/.test(flag)) targets.push(value ?? { t: '', dyn: true });
+          else if (flag === '--remote-name' || flag === '--remote-name-all') targets.push({ t: '.', dyn: false });
+          continue;
+        }
+        if (!/^-[A-Za-z0-9#]/.test(x)) continue;
+        for (let i = 1; i < x.length; i++) {
+          const ch = x[i];
+          const rest = x.slice(i + 1);
+          const value = rest ? { t: rest, dyn: args[k].dyn } : args[k + 1];
+          if (SEND.includes(ch)) { hit('outside'); break; }
+          if (ch === 'X') { if ((value?.t ?? '').toUpperCase() !== 'GET') hit('outside'); if (!rest) k++; break; }
+          if ('oDc'.includes(ch)) { targets.push(value ?? { t: '', dyn: true }); if (!rest) k++; break; }
+          if (ch === 'O' || ch === 'J') { targets.push({ t: '.', dyn: false }); continue; }
+          if (TAKES.includes(ch)) { if (!rest) k++; break; }
+        }
       }
       writes(targets);
       return;
@@ -546,7 +654,7 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
       const sub1 = a.find((x) => !x.startsWith('-')) ?? '';
       const sub2 = a.filter((x) => !x.startsWith('-'))[1] ?? '';
       if (a.some((x) => x === '-g' || /^--(global|location=global)$/.test(x)) || a[0] === 'global' || NPM_PUBLISH.test(sub1) || (sub1 === 'config' && /^(set|delete|edit|rm)$/.test(sub2))) hit('outside');
-      else if (cmd !== 'npx' && cmd !== 'bunx' && cmd !== 'pnpx') packageScripts(cmd, args, cwd, st);
+      else if (cmd !== 'npx' && cmd !== 'bunx' && cmd !== 'pnpx') packageScripts(cmd, args, cwd, st, depth);
       return;
     }
     case 'pip': case 'pip3': pipStep(a, hit); return;
@@ -556,6 +664,39 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
     case 'pushd': case 'popd': return;
     default:
       if (FILE_CHANGES.has(cmd)) writes(pos().filter((x) => x.t !== '-' && x.t !== '')); // we can't tell which argument is a path: every one is
+  }
+}
+
+const REDIRECT_VAR = /^(GIT_.*|PATH|HOME|NODE_OPTIONS|LD_.*|DYLD_.*|SHELL|EDITOR|VISUAL|.*_PAGER|BASH_ENV|ENV|npm_config_.*|PIP_.*)$/i;
+const PUBLISH = [['cargo', 'publish'], ['poetry', 'publish'], ['uv', 'publish'], ['yarn', 'npm', 'publish'], ['pnpm', 'publish'], ['npm', 'publish'], ['twine', 'upload'], ['gem', 'push']];
+
+function firstGitSub(args) {
+  let i = 0;
+  while (args[i]?.t.startsWith('-')) i += ['-C', '-c'].includes(args[i].t) ? 2 : 1;
+  return args[i]?.t;
+}
+
+// Options that point a program at another folder or file: outside, or a value we can't place, stops (T3c).
+const PATH_OPTIONS = [
+  [/^(npm|pnpm|yarn|bun|npx|pnpx|bunx)$/, /^(--prefix|-C|--dir|--cwd)(=.*)?$/],
+  [/^g?make$/, /^(-C|-f|--directory|--file|--makefile)(=.*)?$|^-[Cf]./],
+  [/^cargo$/, /^--manifest-path(=.*)?$/],
+  [/^tsc$/, /^--(outDir|outdir|declarationDir)(=.*)?$/],
+  [/^go$/, /^-o$/],
+  [/^pip3?$/, /^(--target|-t|--prefix|--root)(=.*)?$/],
+];
+function optionStops(cmd, args, a, cwd, st) {
+  const progs = [cmd, ...a.filter((x) => !x.startsWith('-')).slice(0, 2).map(name)];
+  for (const [prog, flag] of PATH_OPTIONS) {
+    if (!progs.some((x) => prog.test(x))) continue;
+    for (let k = 0; k < a.length; k++) {
+      if (a[k] === '--') break;
+      if (!flag.test(a[k])) continue;
+      const m = /^(--[\w-]+)=(.*)$/.exec(a[k]);
+      const glued = !m && /^-[A-Za-z]./.test(a[k]) ? { t: a[k].slice(2), dyn: args[k].dyn } : null;
+      const value = m ? { t: m[2], dyn: args[k].dyn } : glued ?? args[k + 1];
+      if (!value || value.dyn || pathOutside(value, cwd ?? st.hint ?? null, st)) st.hits.add('outside');
+    }
   }
 }
 
@@ -595,6 +736,34 @@ const DB_CLIENT_TEXT = /\b(psql|pgcli|pg_restore|pg_dump(?:all)?|createdb|dropdb
 const DB_TOOL_TEXT = /\b(prisma|supabase|wrangler|rails|rake|artisan|flask|mix|heroku|aws|gcloud|az|knex|sequelize(?:-cli)?|typeorm|manage\.py|django-admin|cockroach|dolt)\b[^\n]*(?:\bmigrat\w*|\bdb\b|\bdb:\S*|\bseed\S*|\becto\.\S+|\brds\S*|\bsql\b|\bd1\b|\bpg:\S*|\bdbshell|\bflush\b|\bloaddata)/i;
 const SENDING = /\b(curl|wget)\b[^\n]*\s(?:-X\s*(?!GET\b)\w+|--request|-d\b|--data\S*|-F\b|--form|-T\b|--upload-file|--post-\w+|--body-\w+|--json|--method)/i;
 
+// Text of a script in another language (or code given with -e / -c): the plain text search, plus a list of things
+// that make it ask (it runs programs, reaches the network, or names the home folder or an absolute place).
+const SCRIPT_ASKS = /child_process|execSync|execFile|\bspawn|subprocess|os\.system|\bfetch\s*\(|http\.request|https\.request|net\.connect|\brequests\.|urllib|\/dev\/(?:tcp|udp)|process\.env|os\.environ|homedir|expanduser|\$HOME|['"`](?:\/(?:Users|home|etc|var|private|root|opt|usr|Library|System|Volumes|tmp|dev)\b|~\/)|\.(?:ssh|aws|gnupg|kube|docker|netrc|npmrc|pypirc)\b|id_rsa|id_ed25519|credentials/;
+function scanOther(text, st) {
+  scanScript(text, st);
+  if (SCRIPT_ASKS.test(text)) st.asks.push('a script that runs programs, reaches the network or names places outside the job');
+}
+
+// Shell text (a .sh file, an npm script): every line goes through the same reading as a command, and the strictest
+// answer wins (stop over ask over pass). The cheap searches for Starbase's own places and database addresses stay.
+function scanShell(text, cwd, st, depth) {
+  if (DB_ADDRESS.test(text)) st.hits.add('database');
+  const dir = st.ctx.stateDir;
+  if (/\.starbase\b/i.test(text) || (typeof dir === 'string' && dir && text.includes(dir)) || namesStarbaseAddress(text, st.ctx.apiPort)) st.hits.add('outside');
+  const lines = [];
+  for (const raw of text.split('\n')) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    if (lines.length && lines[lines.length - 1].endsWith('\\')) lines[lines.length - 1] = `${lines[lines.length - 1].slice(0, -1)} ${line}`; else lines.push(line);
+  }
+  if (lines.length > MAX_SIMPLE) { st.hits.add('outside'); return; }
+  analyze(lines.join('\n'), cwd, st, depth + 1, null); // all of it at once: a cd on one line moves the lines after it
+  for (const line of lines) {
+    const why = plainWhy(line, plainEnv(st, cwd));
+    if (why) st.asks.push(why);
+  }
+}
+
 function scanScript(text, st) {
   if (DB_CLIENT_TEXT.test(text) || DB_TOOL_TEXT.test(text) || DB_ADDRESS.test(text)) st.hits.add('database');
   if (/\bgit\b[^\n]*\bpush\b/.test(text)) st.hits.add('push');
@@ -605,7 +774,7 @@ function scanScript(text, st) {
 }
 
 // A file a program runs: it must be a readable file of the job's own, not over 200 KB, and not written by this call.
-function scriptFile(word, cwd, st) {
+function scriptFile(word, cwd, st, kind = 'shell', depth = 0) {
   const at = word && !word.dyn ? physicalPath(word.t, cwd ?? st.hint ?? null) : null;
   if (!at || !inRoots(at, st.roots)) { st.hits.add('outside'); return; }
   let text;
@@ -615,7 +784,9 @@ function scriptFile(word, cwd, st) {
     text = fs.readFileSync(at, 'utf8');
   } catch { st.hits.add('outside'); return; }
   st.runs.push(at);
-  scanScript(text, st);
+  const shebang = /^#!\s*\S*\/(?:env\s+)?(\w+)/.exec(text)?.[1] ?? '';
+  const shell = kind === 'shell' && (!shebang || SHELLS.has(shebang));
+  if (shell) scanShell(text, st.hint ?? cwd ?? path.dirname(at), st, depth); else scanOther(text, st);
 }
 
 // The file a language runtime is given to run: its first argument that is not an option (or an option's value).
@@ -636,7 +807,7 @@ function interpreterFile(cmd, args) {
 // npm run <name>, npm test, pnpm <name>, yarn <name>: the scripts.<name> text (and its pre and post) in the nearest package.json.
 const PKG_VALUE = /^(--prefix|-C|--cwd|--dir|-w|--workspace|--filter|-F|--registry|--loglevel)$/;
 const PKG_BUILTIN = new Set(['install', 'i', 'ci', 'add', 'remove', 'rm', 'uninstall', 'update', 'up', 'upgrade', 'exec', 'dlx', 'x', 'init', 'create', 'list', 'ls', 'outdated', 'audit', 'why', 'pack', 'cache', 'config', 'info', 'view', 'link', 'unlink', 'prune', 'rebuild', 'dedupe', 'version', 'help', 'store', 'env', 'fetch', 'patch', 'import', 'root', 'bin', 'prefix', 'pkg', 'doctor', 'explain', 'diff', 'set', 'get', 'workspaces', 'workspace', 'global', 'dev', 'completion']);
-function packageScripts(cmd, args, cwd, st) {
+function packageScripts(cmd, args, cwd, st, depth = 0) {
   let base = cwd ?? st.hint ?? null;
   const rest = [];
   for (let k = 0; k < args.length; k++) {
@@ -651,6 +822,7 @@ function packageScripts(cmd, args, cwd, st) {
   const sub = rest[0];
   if (!sub) return;
   if (/^(run|run-script|rum|urun)$/.test(sub)) { if (rest[1]) names.push(rest[1]); } else if (/^(test|t|tst|start|stop|restart)$/.test(sub)) names.push(sub === 't' || sub === 'tst' ? 'test' : sub);
+  else if (/^(install|i|ci|add)$/.test(sub)) names.push('install', 'prepare'); // the project's own lifecycle scripts
   else if (cmd !== 'npm' && !PKG_BUILTIN.has(sub) && !(cmd === 'bun' && sub === 'test')) names.push(sub);
   if (!names.length) return;
   if (!base) { st.hits.add('outside'); return; }
@@ -671,7 +843,7 @@ function packageScripts(cmd, args, cwd, st) {
     if (info.size > MAX_SCRIPT) { st.hits.add('outside'); return; }
     scripts = JSON.parse(fs.readFileSync(file, 'utf8'))?.scripts ?? {};
   } catch { st.hits.add('outside'); return; }
-  for (const n of names) for (const key of [`pre${n}`, n, `post${n}`]) if (typeof scripts[key] === 'string') scanScript(scripts[key], st);
+  for (const n of names) for (const key of [`pre${n}`, n, `post${n}`]) if (typeof scripts[key] === 'string') scanShell(scripts[key], dir, st, depth);
 }
 
 // pip: reading is fine; installing needs a virtual env of the job's own (run by its path), never --user or the system.
@@ -718,8 +890,9 @@ function ghStep(cmd, args, a, st) {
   if (group === 'pr' && action === 'merge') { hit('merge'); return; }
   if (group === 'api') {
     const method = a.findIndex((x) => /^(-X|--method)$/.test(x));
-    const m = (method >= 0 ? a[method + 1] : (a.find((x) => /^--method=/.test(x)) ?? '').slice(9)) || 'GET';
-    if (/\/merge(\?|$)/.test(a.join(' ')) && /pulls\/\d+\/merge/.test(a.join(' '))) hit('merge');
+    const glued = (a.find((x) => /^-X./.test(x)) ?? '').slice(2);
+    const m = (method >= 0 ? a[method + 1] : glued || (a.find((x) => /^--method=/.test(x)) ?? '').slice(9)) || 'GET';
+    if (a.some((x) => /\/merge(\?.*)?$/.test(x))) hit('merge');
     if (m.toUpperCase() !== 'GET' || a.some((x) => /^(-f|-F|--field|--raw-field|--input)$/.test(x) || /^-[fF]./.test(x))) hit('outside');
     return;
   }
