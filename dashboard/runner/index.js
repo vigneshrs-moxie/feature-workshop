@@ -2073,7 +2073,7 @@ export async function createRunner(config) {
     const out = sendPlan(f, drive, body, text, { holding: hold });
     if (!auto) await saveChipOptions(f, options);
     if (hold) {
-      const held = await limits.hold({ featureDir: f.dir, slug: f.slug, title: f.title, cwd: out.cwd, sessionId: out.sessionId, model: out.model, additionalDirectories: await readDirs() }, { text: out.text, kind: g.kind, gateBrief: g.briefNumber, ...(auto ? { by: 'auto' } : {}) });
+      const held = await limits.hold({ featureDir: f.dir, slug: f.slug, title: f.title, cwd: out.cwd, sessionId: out.sessionId, model: out.model, additionalDirectories: await readDirs() }, { text: out.text, kind: g.kind, gateBrief: g.briefNumber });
       await state.audit({ action: 'send-held', featureDir: f.dir, slug: f.slug, kind: g.kind, text, autoResume: held.autoResume, resetsAt: held.resetsAt, ...(g.briefNumber ? { gateBrief: g.briefNumber } : {}) });
       await reopenIfClosed(f);
       cached = null;
