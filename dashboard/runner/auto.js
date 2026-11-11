@@ -24,6 +24,7 @@
 import { autoAllowed, AUTO_CARDS_PER_REPLY, AUTO_MARK } from '../lib/auto.js';
 import { AUTO_STOP_REASONS, fixedStop } from '../lib/auto-rules.js';
 import { APPROVER_BUDGET_USD, approverPaths, approverRoots, checkAnswer } from '../lib/approver.js';
+import { DECIDING_KINDS } from '../lib/gate.js';
 
 /** Anything the Approver wrote, on one line: nothing it writes can start a line of its own, and no copy of the mark gets through. */
 const oneLine = (s) => {
@@ -38,8 +39,11 @@ const NOT_NOW = new Set(['busy', 'limited', 'job-locked']);
 /** A refusal that says the answer is for something that has moved on: it is dropped. */
 const MOVED_ON = new Set(['stale-brief', 'stale-gate']);
 const TIMED_OUT = /^It took longer/;
-/** Only a reply that came through a gate card is the person's decision; Starbase's own sends (resume, nudge, a stack's message) are not. */
-const GATE_KINDS = new Set(['approve', 'changes', 'stop', 'message']);
+/**
+ * Only a reply that decides a gate (approve, changes, stop: lib/gate.js) is the person's decision. A message, even one
+ * from the gate card's own box, approves nothing; nor do Starbase's own sends (resume, nudge, a stack's message).
+ */
+const DECIDES = new Set(DECIDING_KINDS);
 /** "Not now" this many times running on one gate stops Auto, like the Approver failing twice. */
 const NOT_NOW_LIMIT = 3;
 /** A gate Auto can't act on (stale, or no brief number) stops Auto after this long. */
@@ -135,7 +139,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     // An answer on the status card clears a stop made by a status card, and no other.
     const statusStop = job.auto.stopped?.rule === 'status';
     const yours = lines.some((l) => l.by !== 'auto' && Date.parse(l.at) > stoppedAt
-      && ((l.action === 'send' && GATE_KINDS.has(l.kind) && l.gateBrief) || l.action === 'permission' || (statusStop && l.action === 'status_invalid_answer')));
+      && ((l.action === 'send' && DECIDES.has(l.kind) && l.gateBrief) || l.action === 'permission' || (statusStop && l.action === 'status_invalid_answer')));
     if (!yours) return false;
     const at = now().toISOString();
     await update(job.dir, (prev) => (prev?.stopped ? { ...prev, stopped: null, failures: 0, problem: null, step: null, cards: 0, since: at } : null));

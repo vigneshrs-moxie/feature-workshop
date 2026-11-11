@@ -2117,6 +2117,7 @@ test('L7: an answer on a status card clears only a status stop; a gate reply or 
     ['judgment', { action: 'send', kind: 'approve', gateBrief: 1, text: 'go' }, true],
     ['status', { action: 'send', kind: 'approve', gateBrief: 1, text: 'go' }, true],
     ['tool', { action: 'permission', decision: 'allow' }, true],
+    ['judgment', { action: 'send', kind: 'message', gateBrief: 1 }, false],
   ]) {
     const w = await world({ auto: stoppedRecord({ stopped: { reason: 'x', rule, at: STOP_AT } }) });
     try {
@@ -2125,6 +2126,26 @@ test('L7: an answer on a status card clears only a status stop; a gate reply or 
       assert.equal((await w.record()).stopped === null, clears, `${rule} / ${line.action}`);
     } finally { await w.stop(); }
   }
+});
+
+test('C1: a message from the gate card\'s own box after a stop leaves the stop: Auto asks nothing and sends nothing', { timeout: 30_000 }, async () => {
+  const w = await world({ ask: (task, n) => (n === 1 ? goodAnswer(task, { decision: 'stop', why: 'The plan drops the audit trail, so it needs you' }) : goodAnswer(task)) });
+  try {
+    await w.pass();
+    const stopped = (await w.record()).stopped;
+    assert.equal(stopped.rule, 'judgment');
+    const out = await w.runner.handle({ type: 'reply', slug: w.slug, via: 'card', briefNumber: 1, note: 'Why did you drop the audit trail?' }, { from: 'local' });
+    assert.equal(out.sent, true);
+    await w.idle();
+    await new Promise((r) => setTimeout(r, 1700));
+    await w.pass();
+    await new Promise((r) => setTimeout(r, 1700));
+    await w.pass();
+    await w.idle();
+    assert.deepEqual((await w.record()).stopped, stopped, 'the stop stays');
+    assert.equal(w.asks.length, 1, 'the Approver is not asked again');
+    assert.deepEqual((await w.sends()).map((s) => ({ by: s.by ?? 'you', kind: s.kind })), [{ by: 'you', kind: 'message' }], 'nothing sent by Auto');
+  } finally { await w.stop(); }
 });
 
 // noteFinish: Auto's finish and the ordinary Done notice (the demo's map follows the job's stage).
