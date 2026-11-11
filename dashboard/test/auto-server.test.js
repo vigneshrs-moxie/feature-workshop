@@ -3151,8 +3151,8 @@ test('C1: the folders and branch every safety rule uses come from Starbase\'s re
     assert.equal(JSON.stringify(env ?? {}).includes('nobody-probe'), false, 'auto mode\'s environment');
     await w.pass();
     assert.equal(w.asks[0].call.roots.some((r) => r.startsWith('/Users/nobody-probe')), false, 'the Approver\'s read gate');
-    // A worktree git lists for the job's repository counts, with the branch checked out there.
-    const wt = path.join(w.root, 'visit-audit-wt');
+    // A worktree git lists for the job's repository counts, with the branch checked out there (its folder name ends with -<slug>, R12).
+    const wt = path.join(w.root, 'wt-visit-audit');
     w.git('worktree', 'add', '-q', '-b', 'feature/visit-audit', wt);
     await w.writeStatus(status(1, { branch: 'main', worktree: wt, stage: 'plan' }));
     await new Promise((r) => setTimeout(r, 1600)); // the job list is read again after 1.5 seconds
