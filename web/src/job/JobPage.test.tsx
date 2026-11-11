@@ -737,7 +737,9 @@ describe('after a click on the go / no go bar', () => {
     act(() => { store.dispatch({ type: 'event', event: ev(20, 'run', 'alpha', { id: 'r_old', slug: 'alpha', status: 'done', endedAt: new Date(Date.now() - 31_000).toISOString() }) }); });
     act(() => { store.dispatch({ type: 'event', event: ev(21, 'thread', 'alpha', {}) }); });
     await waitFor(() => expect(bar()).toHaveTextContent('Nothing has moved yet.'));
-    expect(bar()).toHaveTextContent('Write to the Foreman below to move it on.');
+    // M2: no "below": at 1280 px and wider the message box is to the right.
+    expect(bar()).toHaveTextContent('Write to the Foreman to move it on.');
+    expect(bar()).not.toHaveTextContent('below');
     expect(within(bar()).queryByRole('button', { name: 'Try again' })).toBeNull();
     expect(calls()).toHaveLength(0);
   });

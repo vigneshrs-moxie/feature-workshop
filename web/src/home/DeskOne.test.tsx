@@ -84,6 +84,26 @@ describe('the Desk card after a send', () => {
     expect(store.getState().runs.alpha).toEqual(expect.objectContaining({ status: 'running' }));
     expect(await within(card).findByText('Sent. Waiting for the Foreman to start.')).toBeInTheDocument();
     for (const name of [/^Go: /, /^No go/, /^Reply/]) expect(within(card).queryByRole('button', { name })).toBeNull();
+    // M1: the card no longer asks for the go-ahead that was given.
+    expect(card).not.toHaveTextContent('Go / no go');
+    expect(card).not.toHaveTextContent('The plan is ready. Start building?');
+    expect(card).not.toHaveTextContent('Waiting for your go-ahead on the plan');
+  });
+
+  // Round 2, M1: on the Desk there is no message box; the stalled line says to open the job.
+  it('a stalled answered brief: "Open the job and write to the Foreman to move it on.", with the link', async () => {
+    const { store } = setup({ server: true });
+    answered.push(2);
+    act(() => { store.dispatch({ type: 'event', event: ev(20, 'run', 'alpha', { id: 'r_old', slug: 'alpha', status: 'done', endedAt: new Date(Date.now() - 31_000).toISOString() }) }); });
+    act(() => { store.dispatch({ type: 'event', event: ev(21, 'thread', 'alpha', {}) }); });
+    const card = screen.getByRole('region', { name: /^Job alpha:/ });
+    await waitFor(() => expect(card).toHaveTextContent('Nothing has moved yet.'));
+    expect(card).toHaveTextContent('Open the job and write to the Foreman to move it on.');
+    expect(card).not.toHaveTextContent('below');
+    const links = within(card).getAllByRole('link', { name: 'Open the job' });
+    expect(links.some((l) => l.closest('.desk-say'))).toBe(true);
+    expect(links.every((l) => l.getAttribute('href') === '#/job/alpha')).toBe(true);
+    expect(card).not.toHaveTextContent('Go / no go');
   });
 
   it('Send back: the card says the Foreman will rework the step', async () => {

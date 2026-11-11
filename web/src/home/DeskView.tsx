@@ -49,7 +49,7 @@ import { More } from '../components/More';
 import { isOpen, queuedOf } from '../views/Hosted/QueuedDecision';
 import { BRAND } from '../app/brand';
 import { autoLaneReason } from '../job/autoLine';
-import { useWaitingLines } from '../job/sentView';
+import { DESK_WRITE_TO_MOVE, useWaitingLines } from '../job/sentView';
 import { WhatAutoDecided } from '../job/WhatAutoDecided';
 
 const DESK_KEYS: readonly KeyId[] = ['desk-next', 'desk-prev', 'desk-approve', 'desk-deny', 'desk-open', 'desk-brief'];
@@ -133,11 +133,21 @@ function DeskGateOne({ job, now, briefOpen, toggleBrief, call }: { job: Job; now
   const goWords = go.words || 'Approve';
   return (
     <>
-      <div className="desk-say">
-        <span className="next-label">{call ? 'Go / no go' : 'Waiting for you'}</span>
-        <h3 className="desk-head">{typeof job.headline === 'string' && job.headline ? job.headline : 'Waiting for your go-ahead'}</h3>
-        {job.laneReason && !autoLaneReason(job) && <p className="desk-sub">{job.laneReason}</p>}
-      </div>
+      {sent ? (
+        // After a send: the bar's own lines; the label and head no longer ask for the go-ahead given (M1).
+        <div className="desk-say" role="status">
+          <h3 className="desk-head">{sent.words}</h3>
+          {sent.write
+            ? <p className="desk-sub"><a href={jobHref(job.slug)}>Open the job</a>{DESK_WRITE_TO_MOVE.slice('Open the job'.length)}</p>
+            : sent.more && <p className="desk-sub">{sent.more}</p>}
+        </div>
+      ) : (
+        <div className="desk-say">
+          <span className="next-label">{call ? 'Go / no go' : 'Waiting for you'}</span>
+          <h3 className="desk-head">{typeof job.headline === 'string' && job.headline ? job.headline : 'Waiting for your go-ahead'}</h3>
+          {job.laneReason && !autoLaneReason(job) && <p className="desk-sub">{job.laneReason}</p>}
+        </div>
+      )}
       {/* One Details (packet R): the Foreman's brief, adjusting the next step and how this works, as
           sections of one sheet over the right side. Always there (hidden while shut), so the gate
           card can put its extras in it. */}
@@ -191,8 +201,6 @@ function DeskGateOne({ job, now, briefOpen, toggleBrief, call }: { job: Job; now
             {call ? <>Go<span className="call-long">: {lowerFirst(goWords)}</span></> : goWords}
           </Button>
         </div>
-      ) : sent ? (
-        <p className="desk-sent" role="status"><b>{sent.words}</b>{sent.more && <span className="muted"> {sent.more}</span>}</p>
       ) : thread.detail.gate ? null : (
         <p className="muted">The Foreman is waiting for your reply. <a href={jobHref(job.slug)}>Open the job</a> to read its last message and answer in the message box.</p>
       )}

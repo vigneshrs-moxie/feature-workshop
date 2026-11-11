@@ -55,11 +55,16 @@ export function sentView(job: Pick<Job, 'closed'>, detail: JobDetail | null | un
   return { words: SENT_WORDS, more: a && (thisGate || replying) ? SENT_MORE[a.kind] ?? null : null };
 }
 
-/** A stalled answered brief with no decision on this page to send again. */
-export const WRITE_TO_MOVE = 'Write to the Foreman below to move it on.';
+/** A stalled answered brief with no decision on this page to send again (M2: the box is not always below). */
+export const WRITE_TO_MOVE = 'Write to the Foreman to move it on.';
+/** The Desk has no message box: its card says to open the job (M1), "Open the job" being a link. */
+export const DESK_WRITE_TO_MOVE = 'Open the job and write to the Foreman to move it on.';
 
-/** The lines, and whether Try again may send the same decision once more. */
-export interface SentShown extends SentLines { canRetry: boolean }
+/**
+ * The lines, whether Try again may send the same decision once more, and whether the second line is
+ * the one saying to write to the Foreman (each place words that its own way).
+ */
+export interface SentShown extends SentLines { canRetry: boolean; write?: boolean }
 
 /** The page's own words for a job paused by the usage limit or by a restart (the snapshot's lane reason). */
 export const PAUSED_WORDS = 'Paused';
@@ -120,7 +125,7 @@ export function useSentView(job: Job, detail: JobDetail | null | undefined, run:
   if (paused) return { ...paused, canRetry: false };
   // M7: Try again sends a decision only (approve, changes, stop), never a Reply's words.
   const retry = mine && a !== null && DECIDING_KINDS.includes(a.kind);
-  if (passed && checked) return { words: STUCK_WORDS, more: retry ? null : WRITE_TO_MOVE, canRetry: retry };
+  if (passed && checked) return retry ? { words: STUCK_WORDS, more: null, canRetry: true } : { words: STUCK_WORDS, more: WRITE_TO_MOVE, canRetry: false, write: true };
   return { ...view, canRetry: false };
 }
 
