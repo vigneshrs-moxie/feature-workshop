@@ -1839,7 +1839,7 @@ export async function createRunner(config) {
   }
 
   // Auto start by tag (lib/auto-start.js): after each Inbox refresh, a ticket assigned to you with the
-  // Orbit tag you wrote starts a job with Auto on, one at a time, each ticket once. It never runs
+  // Orbit tag you wrote starts a job with Auto on, up to five at a time, each ticket once. It never runs
   // when the setting is off. The website can only change the setting (the auto-start command).
   let autoStartSetting = normalizeAutoStart(null);
   const autoPaused = () => {
@@ -1860,13 +1860,18 @@ export async function createRunner(config) {
         if (key) ticketsWithJobs.add(key);
         keyed.push({ slug: f.slug, key, closed: f.closed, f });
       }
-      const f = lastJob(memory.started.at(-1), keyed)?.f ?? null;
+      // Each started entry is matched to its job; a job counts once, even if two entries match it.
+      const mine = new Set();
+      for (const entry of memory.started) { const f = lastJob(entry, keyed)?.f; if (f) mine.add(f); }
       // A reply is running when the driver has a run on the job: the same signal sendPlan refuses a second send on.
-      const busy = Boolean(f) && isBusy({
-        jobOpen: !f.closed, pr1Open: finishLineReached({ prs: f.prs, closed: f.closed }, null, 'pr1-open').reached,
-        replyRunning: Boolean(driver.activeRunFor({ featureDir: f.dir })), autoOn: f.auto?.on === true, autoStopped: Boolean(f.auto?.stopped), // stopped is { reason, rule, at } or null
-      });
-      return { ticketsWithJobs, busy };
+      let running = 0;
+      for (const f of mine) {
+        if (isBusy({
+          jobOpen: !f.closed, pr1Open: finishLineReached({ prs: f.prs, closed: f.closed }, null, 'pr1-open').reached,
+          replyRunning: Boolean(driver.activeRunFor({ featureDir: f.dir })), autoOn: f.auto?.on === true, autoStopped: Boolean(f.auto?.stopped), // stopped is { reason, rule, at } or null
+        })) running++;
+      }
+      return { ticketsWithJobs, running };
     },
     start: async (item, tag) => {
       const out = await HANDLERS.start({

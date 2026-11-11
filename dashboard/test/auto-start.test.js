@@ -1,12 +1,12 @@
 // Auto start by tag (lib/auto-start.js): which ticket starts by itself, and the starter that keeps it
-// to one job at a time, one try per ticket. No model, no Orbit, no real job: fakes stand in.
+// to five jobs at a time, one try per ticket. No model, no Orbit, no real job: fakes stand in.
 
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { AutoStarter, isBusy, lastJob, normalizeAutoStart, pausedFor, pickNext, tagMatches } from '../lib/auto-start.js';
+import { AUTO_START_MAX_JOBS, AutoStarter, isBusy, lastJob, normalizeAutoStart, pausedFor, pickNext, tagMatches } from '../lib/auto-start.js';
 
 const dirs = [];
 async function tmp() { const d = await fs.mkdtemp(path.join(os.tmpdir(), 'sb-autostart-')); dirs.push(d); return d; }
@@ -15,7 +15,7 @@ after(async () => { for (const d of dirs) await fs.rm(d, { recursive: true, forc
 const item = (n, o = {}) => ({ key: `ORBIT-${n}`, number: n, title: `Ticket ${n}`, type: 'bug', status: 'open', why: ['assigned'], tags: ['auto'], url: `https://orbit.test/admin/feedback/ORBIT-${n}`, job: null, ...o });
 const SETTING = { on: true, tag: 'auto' };
 const MEMORY = { started: [], failed: [] };
-const ask = (o = {}) => pickNext({ items: [item(1)], setting: SETTING, memory: MEMORY, ticketsWithJobs: new Set(), busy: false, paused: null, tagsShown: true, ...o });
+const ask = (o = {}) => pickNext({ items: [item(1)], setting: SETTING, memory: MEMORY, ticketsWithJobs: new Set(), running: 0, paused: null, tagsShown: true, ...o });
 
 test('a tagged assigned ticket starts', () => assert.equal(ask().start.key, 'ORBIT-1'));
 test('an untagged ticket never starts', () => {
@@ -57,7 +57,14 @@ test('nothing starts while the limit warning shows or Orbit cannot be reached', 
   assert.deepEqual(ask({ paused: 'limit' }), { wait: 'paused-limit' });
   assert.deepEqual(ask({ paused: 'orbit' }), { wait: 'paused-orbit' });
 });
-test('a job still running to PR #1 keeps the next ticket waiting', () => assert.deepEqual(ask({ busy: true }), { wait: 'busy' }));
+test('four jobs holding a place leave room for one more, five do not', () => {
+  const items = [item(1), item(2)];
+  assert.equal(AUTO_START_MAX_JOBS, 5);
+  assert.equal(ask({ items, running: 4 }).start.key, 'ORBIT-1');
+  assert.deepEqual(ask({ items, running: 5 }), { wait: 'busy' });
+  assert.deepEqual(ask({ items, running: 6 }), { wait: 'busy' });
+  assert.equal(ask({ items }).start.key, 'ORBIT-1', 'running defaults to 0');
+});
 test('the setting is trimmed and at most 60 characters', () => {
   assert.deepEqual(normalizeAutoStart(undefined), { on: false, tag: '' });
   assert.deepEqual(normalizeAutoStart({ on: 'yes', tag: ' auto ' }), { on: false, tag: 'auto' });
@@ -70,7 +77,7 @@ async function rig(over = {}) {
   const dir = await tmp();
   const file = path.join(dir, 'auto-start.json');
   const r = {
-    dir, file, items: [item(1)], setting: { ...SETTING }, tickets: new Set(), busy: false, paused: null, tagsShown: true,
+    dir, file, items: [item(1)], setting: { ...SETTING }, tickets: new Set(), running: null, freed: new Set(), paused: null, tagsShown: true, afterStart: null,
     started: [], told: [], failWith: null, seenFile: [],
   };
   Object.assign(r, over);
@@ -78,12 +85,16 @@ async function rig(over = {}) {
     file, now: () => '2026-11-11T10:00:00.000Z', ...(r.write ? { write: (...a) => r.write(...a) } : {}),
     setting: async () => r.setting,
     inbox: () => ({ items: r.items, tagsShown: r.tagsShown }),
-    jobs: async () => ({ ticketsWithJobs: r.tickets, busy: r.busy }),
+    jobs: async () => ({
+      ticketsWithJobs: new Set([...r.tickets, ...r.started.map((x) => x.key)]),
+      running: r.running ?? r.started.filter((x) => !r.freed.has(x.key)).length,
+    }),
     paused: () => r.paused,
     start: async (it, tag) => {
       r.seenFile.push(JSON.parse(await fs.readFile(file, 'utf8')));
       if (r.failWith) throw new Error(r.failWith);
       r.started.push({ key: it.key, tag });
+      r.afterStart?.(it);
       return { slug: `orbit-${it.number}-t` };
     },
     notify: async (n) => { r.told.push(n); },
@@ -114,13 +125,39 @@ test('a notification is sent once per started job', async () => {
 test('two tagged tickets start one after the other', async () => {
   const r = await rig({ items: [item(1), item(2)] });
   await r.starter.run();
-  r.busy = true; // the first job is still on its way to PR #1
-  r.tickets = new Set(['ORBIT-1']);
+  assert.deepEqual(r.started.map((s) => s.key), ['ORBIT-1', 'ORBIT-2']);
+});
+const six = () => [1, 2, 3, 4, 5, 6].map((n) => item(n));
+test('six tagged tickets, nothing running: one run starts five in Inbox order, the sixth waits', async () => {
+  const r = await rig({ items: six() });
   await r.starter.run();
-  assert.deepEqual(r.started.map((s) => s.key), ['ORBIT-1']);
-  r.busy = false; // it stopped, or PR #1 is open
+  assert.deepEqual(r.started.map((s) => s.key), ['ORBIT-1', 'ORBIT-2', 'ORBIT-3', 'ORBIT-4', 'ORBIT-5']);
+  await r.starter.run();
+  assert.equal(r.started.length, 5);
+});
+test('when one of the five reaches PR #1 or Auto stops on it, the sixth starts on the next pass', async () => {
+  const r = await rig({ items: six() });
+  await r.starter.run();
+  r.freed.add('ORBIT-3'); // PR #1 is open, or Auto stopped on it
+  await r.starter.run();
+  assert.deepEqual(r.started.map((s) => s.key), ['ORBIT-1', 'ORBIT-2', 'ORBIT-3', 'ORBIT-4', 'ORBIT-5', 'ORBIT-6']);
+});
+test('a pause for the Claude limit that begins after the second start: no third start', async () => {
+  const r = await rig({ items: six() });
+  r.afterStart = () => { if (r.started.length === 2) r.paused = 'limit'; };
   await r.starter.run();
   assert.deepEqual(r.started.map((s) => s.key), ['ORBIT-1', 'ORBIT-2']);
+});
+test('each ticket is started once only, however many passes', async () => {
+  const r = await rig({ items: six().slice(0, 3) });
+  await r.starter.run(); await r.starter.run(); await r.starter.run();
+  assert.deepEqual(r.started.map((s) => s.key), ['ORBIT-1', 'ORBIT-2', 'ORBIT-3']);
+});
+test('a failed start does not start the next ticket in the same run', async () => {
+  const r = await rig({ items: six(), failWith: 'No repository.' });
+  await r.starter.run();
+  assert.deepEqual(r.started, []);
+  assert.equal(r.seenFile.length, 1, 'only one try');
 });
 test('a start that fails is remembered and not tried again', async () => {
   const r = await rig({ failWith: 'This laptop has no repository for it.' });
@@ -177,7 +214,7 @@ test('A1: busy while the job is open, PR #1 is not, and a reply runs or Auto is 
 
 test('A2: a save that fails after a good start is not a failed start, and is retried', async () => {
   let calls = 0;
-  const r = await rig({ items: [item(1), item(2)], write: async (f, data, o) => {
+  const r = await rig({ items: [item(1)], write: async (f, data, o) => {
     calls += 1;
     if (calls === 2) throw new Error('disk full'); // the save of the slug
     return (await import('../lib/atomic-write.js')).writeFileAtomic(f, data, o);
@@ -186,7 +223,6 @@ test('A2: a save that fails after a good start is not a failed start, and is ret
   assert.deepEqual(r.started.map((s) => s.key), ['ORBIT-1']);
   assert.equal(r.starter.failedReason('ORBIT-1'), null);
   assert.equal(r.starter.lastStarted().slug, 'orbit-1-t'); // in memory
-  r.busy = true; r.tickets = new Set(['ORBIT-1']);
   await r.starter.run();
   const saved = JSON.parse(await fs.readFile(r.file, 'utf8'));
   assert.deepEqual(saved.started.map((e) => [e.key, e.slug]), [['ORBIT-1', 'orbit-1-t']]);
@@ -230,7 +266,7 @@ test('A5: a start refused because of the limit is not a failed start; the ticket
   assert.deepEqual(JSON.parse(await fs.readFile(r.file, 'utf8')), { started: [], failed: [] });
   r.starter.start = async (it) => { r.started.push({ key: it.key }); return { slug: 's' }; };
   await r.starter.run();
-  assert.deepEqual(r.started.map((s) => s.key), ['ORBIT-1']);
+  assert.deepEqual(r.started.map((s) => s.key), ['ORBIT-1', 'ORBIT-2'], 'both start once the limit lets them');
   void out;
 });
 

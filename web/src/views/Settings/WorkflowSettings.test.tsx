@@ -120,7 +120,7 @@ describe('Settings → Workflow', () => {
     const tag = within(group).getByRole('textbox', { name: 'Orbit tag' });
     expect(tag).toHaveAttribute('placeholder', 'auto');
     expect(box).not.toBeChecked();
-    expect(group).toHaveTextContent('Only tickets assigned to you. One job at a time, in Inbox order. Nothing starts while the Claude limit warning shows.');
+    expect(group).toHaveTextContent('Only tickets assigned to you. Up to 5 jobs at a time, in Inbox order. Nothing starts while the Claude limit warning shows.');
     fireEvent.click(box);
     expect(await within(group).findByText('Write a tag’s name to turn this on.')).toBeInTheDocument();
     expect(post).not.toHaveBeenCalled();

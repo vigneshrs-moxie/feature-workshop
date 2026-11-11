@@ -580,7 +580,7 @@ describe('Auto start on the Inbox', () => {
     const answer: InboxAnswer = { ...STATUS, autoStart: ON, tagsShown: true, items: [tagged(1, ['Auto']), tagged(2, []), tagged(3, ['auto'], { job: { slug: 'orbit-3-x', title: 'x' } }), tagged(4, ['auto'], { title: 'auto', status: 'closed' })] };
     const { wrap } = setup({ answer });
     wrap(<InboxView openStream={() => null} />);
-    expect(await screen.findByText('Auto start is on: tickets tagged "auto" start by themselves, one at a time.')).toBeInTheDocument();
+    expect(await screen.findByText('Auto start is on: tickets tagged "auto" start by themselves, up to 5 at a time.')).toBeInTheDocument();
     const row = (key: string) => screen.getAllByRole('row').find((r) => r.getAttribute('data-ticket') === key)!;
     expect(within(row('ORBIT-1')).getByText('Starts by itself')).toBeInTheDocument();
     for (const key of ['ORBIT-2', 'ORBIT-3', 'ORBIT-4']) expect(within(row(key)).queryByText('Starts by itself')).toBeNull();

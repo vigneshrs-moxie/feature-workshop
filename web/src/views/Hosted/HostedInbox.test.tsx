@@ -339,7 +339,7 @@ describe('Auto start on the website', () => {
   it('the Inbox says Auto start is on, marks the rows that start by themselves, and never starts one itself', async () => {
     const { s, api } = site({ autoStart: { on: true, tag: 'auto' }, items: [ticket(12, { tags: ['Auto'] }), ticket(13, { tags: [], title: 'auto auto' }), ticket(14, { tags: ['auto'], job: { slug: 'orbit-14-x', title: 'x' } })] });
     render(<HostedApp api={api} />);
-    expect(await screen.findByText('Auto start is on: tickets tagged "auto" start by themselves, one at a time.')).toBeInTheDocument();
+    expect(await screen.findByText('Auto start is on: tickets tagged "auto" start by themselves, up to 5 at a time.')).toBeInTheDocument();
     const row = (key: string) => screen.getAllByRole('row').find((r) => r.getAttribute('data-ticket') === key)!;
     expect(within(row('ORBIT-12')).getByText('Starts by itself')).toBeInTheDocument();
     expect(within(row('ORBIT-13')).queryByText('Starts by itself')).toBeNull();
@@ -362,7 +362,7 @@ describe('Auto start on the website', () => {
     const group = await screen.findByRole('group', { name: 'Auto start' });
     const box = within(group).getByRole('checkbox', { name: 'Start a job by itself for tickets with this tag' });
     expect(within(group).getByLabelText('Orbit tag')).toHaveAttribute('placeholder', 'auto');
-    expect(group).toHaveTextContent('Only tickets assigned to you. One job at a time, in Inbox order. Nothing starts while the Claude limit warning shows.');
+    expect(group).toHaveTextContent('Only tickets assigned to you. Up to 5 jobs at a time, in Inbox order. Nothing starts while the Claude limit warning shows.');
     fireEvent.click(box);
     expect(await within(group).findByText('Write a tag’s name to turn this on.')).toBeInTheDocument();
     expect(s.calls.some((c) => c.path === '/api/orbit/auto-start')).toBe(false);

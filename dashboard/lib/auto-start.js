@@ -1,8 +1,8 @@
 // Auto start by tag (Settings → Workflow → Auto start): a ticket assigned to you that carries the
-// Orbit tag you wrote starts a job by itself, with Auto on, one job at a time.
+// Orbit tag you wrote starts a job by itself, with Auto on, up to five jobs at a time.
 //
 // It can't loop, by construction:
-//   - one job at a time: the next waits until the last one has stopped or has PR #1 open;
+//   - at most five at a time: the next waits until one of them has stopped or has PR #1 open;
 //   - each ticket is started at most once ever: the memory file is written BEFORE the start;
 //   - a failed start is remembered and never retried by itself (Start on the row clears it);
 //   - nothing starts while the setting is off, the tag is empty, the Claude limit warning shows or
@@ -16,6 +16,7 @@ import { writeFileAtomic } from './atomic-write.js';
 
 export const AUTO_START_FILE = 'auto-start.json';
 export const TAG_MAX = 60;
+export const AUTO_START_MAX_JOBS = 5;
 
 const CLOSED = new Set(['closed', 'resolved']);
 
@@ -33,10 +34,10 @@ export function tagMatches(item, tag) {
 }
 
 /**
- * Whether the job the tag started last still holds the queue. Pure. It does while it is open and
- * PR #1 is not, and either a reply is running on it (whatever its Auto state) or Auto is on and
- * not stopped. A job waiting for the person (Auto stopped, or switched off with no reply running)
- * frees the queue.
+ * Whether a job the tag started still holds a place (of AUTO_START_MAX_JOBS). Pure. It does while
+ * it is open and PR #1 is not, and either a reply is running on it (whatever its Auto state) or
+ * Auto is on and not stopped. A job waiting for the person (Auto stopped, or switched off with no
+ * reply running) frees its place.
  */
 export function isBusy({ jobOpen = false, pr1Open = false, replyRunning = false, autoOn = false, autoStopped = false } = {}) {
   if (!jobOpen || pr1Open) return false;
@@ -56,8 +57,8 @@ export function pausedFor({ orbitError = null, limited = false, warnings = 0, re
 }
 
 /**
- * The job the tag started last, or null. Pure. By its slug; when a crash between the start and the
- * save left no slug, by its ticket (an open job before a closed one), so that job still holds the queue.
+ * The job a started entry made, or null. Pure. By its slug; when a crash between the start and the
+ * save left no slug, by its ticket (an open job before a closed one), so that job still holds its place.
  *   jobs  [{ slug, key, closed }]
  */
 export function lastJob(last, jobs = []) {
@@ -75,19 +76,19 @@ const tried = (memory, key) => memory.started.some((e) => e.key === key) || memo
  *   setting        { on, tag }
  *   memory         { started, failed }
  *   ticketsWithJobs  Set of ticket keys that have or had a job (closed ones too)
- *   busy           the last started job is still on its way to PR #1
+ *   running        how many tag-started jobs hold a place now (isBusy), default 0
  *   paused         'limit' | 'limit-reading' | 'orbit' | null
  *   tagsShown      Orbit shows tags to this token (the view's tagsShown); anything but true counts as no
  * Returns { start: item } or { wait: reason }.
  */
-export function pickNext({ items = [], setting, memory, ticketsWithJobs = new Set(), busy = false, paused = null, tagsShown = false } = {}) {
+export function pickNext({ items = [], setting, memory, ticketsWithJobs = new Set(), running = 0, paused = null, tagsShown = false } = {}) {
   const s = normalizeAutoStart(setting);
   if (!s.on) return { wait: 'off' };
   if (!s.tag) return { wait: 'no-tag' };
   if (paused === 'orbit') return { wait: 'paused-orbit' };
   if (paused === 'limit' || paused === 'limit-reading') return { wait: 'paused-limit' };
   if (tagsShown !== true) return { wait: 'no-tags-shown' };
-  if (busy) return { wait: 'busy' };
+  if (running >= AUTO_START_MAX_JOBS) return { wait: 'busy' };
   const hit = items.find((i) => Array.isArray(i?.why) && i.why.includes('assigned')
     && !CLOSED.has(i.status) && !i.job
     && tagMatches(i, s.tag)
@@ -99,11 +100,12 @@ const emptyMemory = () => ({ started: [], failed: [] });
 const listOf = (v) => (Array.isArray(v) ? v.filter((e) => e && typeof e.key === 'string') : []);
 
 /**
- * The starter. run() looks once and starts at most one job; runs never overlap (a run asked for
+ * The starter. Each pass starts at most one job, and after a good start asks for one more pass, so
+ * the places fill one after another; runs never overlap (a run asked for
  * during another is folded into it).
  *   file       the memory file
  *   setting()  { on, tag }                            inbox()  the inbox view: { items, tagsShown }
- *   jobs()     { ticketsWithJobs, busy }              paused() 'limit' | 'orbit' | null
+ *   jobs()     { ticketsWithJobs, running }              paused() 'limit' | 'orbit' | null
  *   start(item, tag)  starts the job, returns { slug }, throws in plain words when it can't
  *   notify(n)  tells the person once per started job
  */
@@ -163,7 +165,7 @@ export class AutoStarter {
     if (this.dirty) { try { await this.#save(); this.dirty = false; } catch { /* tried again next pass */ } }
     const setting = await this.setting();
     const view = this.inbox();
-    const { ticketsWithJobs, busy } = await this.jobs(memory);
+    const { ticketsWithJobs, running } = await this.jobs(memory);
     // A crash mid-start left an entry with no slug and no job: show it as a failed start (never started again).
     const lost = memory.started.filter((e) => !e.slug && !ticketsWithJobs.has(e.key));
     if (lost.length) {
@@ -171,7 +173,7 @@ export class AutoStarter {
       for (const e of lost) memory.failed.push({ key: e.key, at: this.now(), reason: 'Starbase stopped while it was starting this one. Press Start to try.' });
       await this.#save();
     }
-    const next = pickNext({ items: view.items, setting, memory, ticketsWithJobs, busy, paused: this.paused(), tagsShown: view.tagsShown });
+    const next = pickNext({ items: view.items, setting, memory, ticketsWithJobs, running, paused: this.paused(), tagsShown: view.tagsShown });
     if (!next.start) return next;
     const it = next.start;
     const tag = normalizeAutoStart(setting).tag;
@@ -193,6 +195,7 @@ export class AutoStarter {
     }
     try { await this.#save(); } catch { this.dirty = true; } // the job exists: kept as started, saved again next pass
     await this.notify({ level: 'needs', title: `Started by Auto: ${it.key}`, body: `${it.title}. It has the tag "${tag}". Auto runs it to PR #1 and asks you only if it must.`, slug: entry.slug, key: `auto-start:${it.key}` });
+    this.again = true; // a place may be free: look again (a failed start never asks)
     return { started: it };
   }
 }

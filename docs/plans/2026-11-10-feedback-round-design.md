@@ -220,7 +220,7 @@ Vignesh's words: "a screen in settings to write down a tag or something so that 
 - Settings → Workflow gets **Auto start**: a switch, and a box for the name of one Orbit tag (for example `auto`).
 - While it is on, Starbase looks at your Inbox, which holds only the tickets assigned to you. A ticket that carries the tag, is still open and has never had a job gets one started in Auto mode, with no click. It starts the way the Inbox's Start button does with nothing changed. Every other ticket waits for you, as today.
 - In Orbit only the feedback team can put a tag on a ticket. The person who filed it can't, so a ticket can't tag itself into being built. The tag decides only whether a job starts. The ticket's text is still information for the Foreman and never instructions, and every Auto stop rule below applies.
-- One at a time, in Inbox order. The next tagged ticket starts when the one before has opened PR #1 or has stopped to wait for you.
+- Up to 5 at a time, in Inbox order. The next tagged ticket starts when one of the five has opened PR #1 or has stopped to wait for you.
 - Nothing starts by itself while Starbase's warning that your Claude limit is nearly used up is showing, or while Orbit can't be reached.
 - A ticket is started by itself once only. Starbase remembers it, so closing or removing that job doesn't start it again. Taking the tag off later doesn't stop a job that has started.
 - You can see it: tagged tickets in the Inbox say "Starts by itself", the job says "Started by Auto" with the tag's name, and you get a notification each time one starts.
@@ -351,7 +351,7 @@ The Test step names three things and gives each a state, a place and a time:
 6. The live picture of a test is on the laptop only.
 7. Copy decisions leaves out routine go-aheads.
 8. The suggestion uses Haiku and runs on the laptop.
-9. Auto start watches one tag, starts one job at a time, and pauses while the Claude limit warning shows.
+9. Auto start watches one tag, starts up to 5 jobs at a time, and pauses while the Claude limit warning shows.
 
 ## How it is built and released
 

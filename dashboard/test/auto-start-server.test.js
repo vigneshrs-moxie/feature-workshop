@@ -112,7 +112,7 @@ test('a tagged ticket is tried once, an untagged one never', { timeout: 90_000 }
   });
 });
 
-test('with a repository registered, the ticket starts a job with Auto on by the tag, and the next waits', { timeout: 90_000 }, async () => {
+test('with a repository registered, the ticket starts a job with Auto on by the tag, and the next starts too (up to five at a time)', { timeout: 90_000 }, async () => {
   await withDashboard(() => [row(1, ['auto']), row(2, ['auto'])], async ({ dirs, write, inbox, until }) => {
     const repo = path.join(dirs.home, 'widgets');
     await fs.mkdir(repo);
@@ -132,7 +132,8 @@ test('with a repository registered, the ticket starts a job with Auto on by the 
     const sessions = JSON.parse(await fs.readFile(path.join(dirs.state, 'sessions.json'), 'utf8'));
     const rec = Object.values(sessions).find((v) => v.auto);
     assert.deepEqual({ on: rec.auto.on, by: rec.auto.by, tag: rec.auto.tag }, { on: true, by: 'tag', tag: 'auto' });
-    await new Promise((r) => setTimeout(r, 800));
-    assert.deepEqual((await memoryOf(dirs)).started.map((e) => e.key), ['ORBIT-1'], 'the second waits while the first has no PR #1');
+    const both = await until(async () => { const m = await memoryOf(dirs); return m?.started?.length === 2 && m.started.every((e) => e.slug) ? m : null; }, 'the second start');
+    assert.deepEqual(both.started.map((e) => e.key), ['ORBIT-1', 'ORBIT-2'], 'the second starts while the first has no PR #1: five places');
+    assert.deepEqual(both.failed, []);
   });
 });

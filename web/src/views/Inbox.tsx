@@ -248,7 +248,7 @@ export const tagMatches = (item: Pick<InboxItem, 'tags'>, tag: string): boolean 
 };
 
 /** Auto start's words on the Inbox, exact. */
-export const autoStartLine = (tag: string) => `Auto start is on: tickets tagged "${tag}" start by themselves, one at a time.`;
+export const autoStartLine = (tag: string) => `Auto start is on: tickets tagged "${tag}" start by themselves, up to 5 at a time.`;
 export const AUTO_PAUSED = { limit: 'Auto start is paused: the Claude limit warning is showing.', orbit: 'Auto start is paused: Orbit can\'t be reached.',
   'limit-reading': `Auto start is paused: ${BRAND.name} can't read your Claude limit right now.`, memory: `Auto start is paused: ${BRAND.name} couldn't read its list of started tickets.` } as const;
 export const STARTS_BY_ITSELF = 'Starts by itself';

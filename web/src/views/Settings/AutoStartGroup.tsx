@@ -1,5 +1,5 @@
 // Auto start (Settings → Workflow on the laptop, Settings → Orbit on the site): a switch and the Orbit
-// tag. Tickets assigned to you with that tag start by themselves with Auto on, one at a time. This
+// tag. Tickets assigned to you with that tag start by themselves with Auto on, up to 5 at a time. This
 // only writes the setting; the laptop's own starter (dashboard/lib/auto-start.js) does the starting.
 import { useEffect, useId, useState } from 'react';
 import type { AutoStartSetting } from '../../api/types';
@@ -14,7 +14,7 @@ export const AUTO_START_WORDS = {
   switch: 'Start a job by itself for tickets with this tag',
   box: 'Orbit tag',
   placeholder: 'auto',
-  hint: 'Only tickets assigned to you. One job at a time, in Inbox order. Nothing starts while the Claude limit warning shows.',
+  hint: 'Only tickets assigned to you. Up to 5 jobs at a time, in Inbox order. Nothing starts while the Claude limit warning shows.',
   needTag: 'Write a tag’s name to turn this on.',
   noTags: 'Orbit doesn’t show tags to your token, so nothing starts by itself.',
 } as const;
