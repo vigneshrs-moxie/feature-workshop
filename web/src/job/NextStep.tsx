@@ -320,10 +320,15 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, foldHere = fa
   const folds = foldCard || foldHere;
   const body = useRef<HTMLDivElement>(null);
   const [go, setGo] = useState({ words: '', off: true, asks: false, backOff: false, replyOff: true, why: '', boxOpen: false, box: '', holds: false });
-  // Over the job page's conversation (foldHere) a box open in the card (What should change?, Reply)
-  // keeps it open, so typed words are never out of sight, and its row is off meanwhile. On the
-  // phone's screens (foldCard) the row folds the brief, box and all, as he asks.
-  const boxHolds = foldHere && go.boxOpen;
+  // On every folding layout a box open in the card (What should change?, Reply) keeps it shown, so
+  // typed words are never out of sight, and its row is off meanwhile. Derived (fix round 2, item 2):
+  // opening a box stores nothing and marks nothing that outlives it, so when the box closes, or the
+  // bar is drawn again with a box open, the fold is simply what he chose. `opening` covers only the
+  // press itself: the card's DOM is read a moment later, and the box must be visible in the same
+  // pass that gives it the focus.
+  const [opening, setOpening] = useState(false);
+  useEffect(() => { if (opening && go.boxOpen) setOpening(false); }, [opening, go.boxOpen]);
+  const boxHolds = folds && (go.boxOpen || opening);
   // What the card says after a press keeps it open on every folding layout, its row off meanwhile:
   // an error, a notice, the terminal tick box (data-gate-holds), or a website decision on its way
   // or to look at. Once it goes, the fold is what he chose again.
@@ -331,21 +336,18 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, foldHere = fa
   const queuedOpen = isOpen(queued);
   const holds = go.holds || queuedOpen || needsLook(queued);
   const folded = folds && !cardShown && !boxHolds && !holds;
-  // Opening a box never changes what he chose for the fold (item 11): a folded brief opens for the
-  // box, and when the box closes (Cancel, or sent) it folds again, unless he opened or folded it
-  // himself meanwhile; the bar's area over the conversation goes back to its top.
-  const forBox = useRef(false);
-  const unfoldForBox = () => { if (folded) { forBox.current = true; setCardShown(true); } };
+  // A press that opens a box shows the card for it (never changing what he chose for the fold).
+  const unfoldForBox = () => { if (folded) setOpening(true); };
+  // When the box closes (Cancel, or sent) the bar's area over the conversation goes back to its top (item 11).
   const boxWasOpen = useRef(go.boxOpen);
   useEffect(() => {
     const closed = boxWasOpen.current && !go.boxOpen;
     boxWasOpen.current = go.boxOpen;
     if (!closed) return;
-    if (forBox.current) { forBox.current = false; setCardShown(false); }
     // Over the conversation only: there the bar's area is capped and scrolls (page.css).
     const area = foldHere ? body.current?.closest<HTMLElement>('.sb-job-work') : null;
     if (area) area.scrollTop = 0;
-  }, [go.boxOpen, setCardShown, foldHere]);
+  }, [go.boxOpen, foldHere]);
   // A Go queued on the website takes the pressed call away: the focus goes to the decision's words
   // on the bar, when it would otherwise be lost.
   // Only a decision that becomes queued while he is here: drawn with one already open (a refresh, a
@@ -441,7 +443,7 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, foldHere = fa
       </NextBar>
       {autoDeciding(job) && !stopped && !waits && <p className="job-go-auto muted">{AUTO_DECIDING_NOTE}</p>}
       {folds && (
-        <button type="button" className="desk-details-row stage-brief-row" aria-expanded={!folded} disabled={boxHolds || holds} onClick={() => { forBox.current = false; setCardShown(folded); }} title={folded ? 'Show the brief’s questions and details here; Go sends the answers picked in it.' : 'Fold the brief back to this row.'}>
+        <button type="button" className="desk-details-row stage-brief-row" aria-expanded={!folded} disabled={boxHolds || holds} onClick={() => setCardShown(folded)} title={folded ? 'Show the brief’s questions and details here; Go sends the answers picked in it.' : 'Fold the brief back to this row.'}>
           <Icon name="file" size={16} />
           <span className="desk-details-words"><b>The brief</b><span className="muted">{foldHere ? 'its questions and details; Go sends the answers picked in it' : 'its questions and details, also on the job’s page; Go sends the answers picked in it'}</span></span>
           <Icon name="chevron-down" size={14} className={`fold-chevron${folded ? '' : ' is-up'}`} />

@@ -474,6 +474,41 @@ describe('the phone’s step screen', () => {
     expect(screen.getByRole('checkbox', { name: /None of the open terminals is this job’s Foreman/ })).toBeVisible();
   });
 
+  // Fix round 2, item 2: an open box always shows the card, by derivation; nothing stored changes.
+  it.each([['the laptop app', false], ['the website', true]] as const)('after a refused Go on the phone’s step screen, Send back on the bar shows its box (%s)', async (_where, hosted) => {
+    localStorage.setItem(DETAIL_KEY, 'simple');
+    const post = vi.fn(async (p: string): Promise<unknown> => { if (p === '/api/job/alpha/gate') throw new ApiError(503, 'The laptop is away.'); return { ok: true }; });
+    setup({ jobs: [AUTO_OFF[1]], gate: GATE, hosted, post, at: '#/job/alpha/stage/plan' });
+    await threeCallsOn();
+    fireEvent.click(screen.getByRole('button', { name: /^Go: approve/ }));
+    await waitFor(() => expect(screen.getByText('The laptop is away.')).toBeVisible());
+    fireEvent.click(screen.getByRole('button', { name: /^No go: send back/ }));
+    const box = await screen.findByRole('textbox', { name: /What should change\?/ });
+    await act(async () => {});
+    expect(box).toBeVisible();
+    expect(box).toHaveFocus();
+  });
+
+  it.each([['the laptop app', false], ['the website', true]] as const)('a bar drawn again while a box is open still folds the card after Cancel (%s)', async (_where, hosted) => {
+    localStorage.setItem(DETAIL_KEY, 'simple');
+    setup({ jobs: [AUTO_OFF[1]], gate: GATE, hosted, at: '#/job/alpha/stage/plan' });
+    await threeCallsOn();
+    const row = () => screen.getByRole('button', { name: /^The brief/ });
+    expect(row()).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
+    expect(await screen.findByRole('textbox', { name: /Your answers or a note/ })).toBeVisible();
+    // Another screen and back: the bar is drawn again, the box restored.
+    go('#/job/alpha/overview');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Overview' })).toBeInTheDocument();
+    go('#/job/alpha/stage/plan');
+    expect(await screen.findByRole('textbox', { name: /Your answers or a note/ })).toBeVisible();
+    fireEvent.click(within(document.querySelector<HTMLElement>('.job-gate-body .gate-note')!).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(row()).toHaveAttribute('aria-expanded', 'false'));
+    expect(document.querySelector('.job-gate-body')).toHaveAttribute('hidden');
+    // The fold he chose was never written over.
+    expect(localStorage.getItem('workshop.shown.stage')).toBeNull();
+  });
+
   it('on the website a queued Go on a folded card shows its words and Cancel (the phone’s step screen)', async () => {
     localStorage.setItem(DETAIL_KEY, 'simple');
     const QUEUED = { id: 'd_abcdefgh1234', kind: 'approve', state: 'waiting', words: 'Go: waiting for your laptop. It runs when the laptop is back.', at: NOW, expiresAt: null, waiting: true, canCancel: true, permissionId: null };

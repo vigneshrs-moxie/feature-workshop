@@ -1100,6 +1100,22 @@ describe('the fold after a box closes, with the conversation full screen', () =>
     }
   });
 
+  // Fix round 2, item 2: the same on the widened laptop.
+  it.each(MODES)('after a refused Go on the widened laptop, Send back on the bar shows its box (%s)', async (_where, hosted) => {
+    simple();
+    const post = vi.fn(async (p: string): Promise<unknown> => { if (p === '/api/job/alpha/gate') throw new ApiError(503, 'The laptop is away.'); return { ok: true }; });
+    setup({ jobs: waiting(), gate: GATE, hosted, post });
+    const go = await screen.findByRole('button', { name: /^Go: approve/ });
+    takePage('widened');
+    await waitFor(() => expect(go).toBeEnabled());
+    fireEvent.click(go);
+    await waitFor(() => expect(screen.getByText('The laptop is away.')).toBeVisible());
+    fireEvent.click(screen.getByRole('button', { name: /^No go: send back/ }));
+    const box = await screen.findByRole('textbox', { name: /What should change\?/ });
+    await act(async () => {});
+    expect(box).toBeVisible();
+  });
+
   it.each(MODES)('a card he unfolded himself stays unfolded after Cancel (%s)', async (_where, hosted) => {
     windowWidth(1024);
     simple();
