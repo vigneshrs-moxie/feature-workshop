@@ -7,7 +7,7 @@
 // the event says outright (a permission card arriving or going, a run's status, the usage limit)
 // are applied straight away so the page reacts without waiting for that.
 
-import type { Achievement, BossDefeated, FlowView, Job, JobGroup, LiveEvent, Meta, Permission, PlanUsage, RunTypical, PlayNews, QuestDone, Run, Settings, Snapshot, Steer, SteerState, Usage } from '../api/types';
+import type { Achievement, AutoQueue, BossDefeated, FlowView, Job, JobGroup, LiveEvent, Meta, Permission, PlanUsage, RunTypical, PlayNews, QuestDone, Run, Settings, Snapshot, Steer, SteerState, Usage } from '../api/types';
 import { JOB_GROUPS } from '../api/types';
 
 export type Connection = 'connecting' | 'live' | 'reconnecting';
@@ -51,6 +51,8 @@ export interface WorkshopState {
   /** Bumped by each 'notification' event: Settings refetches the history. */
   notificationsVersion: number;
   generatedAt: string | null;
+  /** The Auto queue (Jobs' and the Inbox's Auto tabs), from the snapshot; null: not known (an older laptop sends none). */
+  autoQueue: AutoQueue | null;
 }
 
 /** How many 'play' events playNews keeps. */
@@ -98,6 +100,7 @@ export const initialState: WorkshopState = {
   flow: null,
   notificationsVersion: 0,
   generatedAt: null,
+  autoQueue: null,
 };
 
 // Event types that can change which group a job is in, or what its row shows. 'run' is not here:
@@ -131,6 +134,7 @@ function applySnapshot(state: WorkshopState, s: Snapshot): WorkshopState {
     jobsStale: false,
     resyncNeeded: false,
     generatedAt: s.generatedAt ?? null,
+    autoQueue: s.autoQueue ?? null,
   };
 }
 

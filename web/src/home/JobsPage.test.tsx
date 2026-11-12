@@ -1,10 +1,10 @@
 // Jobs (#/): four lanes from the dashboard's lane, Resting and Done folded, the next-step bar with
 // Open (o), stop dots with their own tooltip, cards that hold their lane under the pointer, Play's
 // three dressings, One list, and the empty state.
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../api/client';
-import type { Job } from '../api/types';
+import type { Gate, Job, JobDetail } from '../api/types';
 import { installKeyListener } from '../app/keyRegistry';
 import { UiProvider } from '../app/ui';
 import { createStore, WorkshopContext, type Store } from '../state/store';
@@ -267,4 +267,104 @@ describe('Jobs, simple by default (packet R)', () => {
     expect(screen.getByRole('dialog', { name: 'Gate code: a quick look' })).toBeInTheDocument();
     expect(window.location.hash).toBe('#/?peek=gamma');
   });
+});
+
+describe('Jobs: Yours and Auto (design section 2)', () => {
+  // Two jobs the server put in Auto's groups, and one with Auto on that it put in none (Yours).
+  const AUTO_JOBS: Job[] = [
+    ...JOBS,
+    job('a-work', 'running', { title: 'Auto builds this', stage: 'implement', lane: 'working', laneReason: 'Building step 2', auto: { on: true, ran: true, group: 'working' } }),
+    job('a-stop', 'needs-you', { title: 'Auto stopped here', stage: 'plan', lane: 'needs-you', laneReason: 'Auto stopped: the Foreman says it is blocked', waitingFor: 'approval', waitingSince: '2026-10-21T07:00:00Z', auto: { on: true, ran: true, stopped: { reason: 'the Foreman says it is blocked' }, group: 'needs-you' } }),
+    job('a-none', 'running', { title: 'From an older laptop', stage: 'implement', lane: 'working', auto: { on: true, ran: true } }),
+  ];
+  const tab = (name: string) => screen.getByRole('tab', { name });
+  const count = (name: string) => tab(name).querySelector('.seg-count')?.textContent;
+
+  it('two tabs with counts; Yours leaves out Auto\'s jobs', () => {
+    setup(AUTO_JOBS);
+    const list = screen.getByRole('tablist', { name: 'Jobs' });
+    expect(within(list).getAllByRole('tab').map((t) => t.getAttribute('aria-selected'))).toEqual(['true', 'false']);
+    // Yours: the four lanes' jobs (six, the older laptop's Auto job among them); Auto: its two.
+    expect(count('Yours')).toBe('6');
+    expect(count('Auto')).toBe('2');
+    expect(screen.getByRole('region', { name: 'Working, 2' })).toHaveTextContent('From an older laptop');
+    expect(screen.queryByRole('link', { name: 'Auto builds this' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Auto stopped here' })).toBeNull();
+    // The bar names the longest wait among Yours only (Auto stopped here waited longer).
+    expect(screen.getByRole('region', { name: 'Next step' })).toHaveTextContent('Weekly hours email needs you');
+    fireEvent.click(tab('Auto'));
+    expect(tab('Auto')).toHaveAttribute('aria-selected', 'true');
+    expect(document.querySelector('.jobs-board')).toBeNull();
+    expect(within(screen.getByRole('region', { name: /^Working ·/ })).getByRole('link', { name: 'Auto builds this' })).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Needs you, 1' })).getByRole('link', { name: 'Auto stopped here' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Customer notes' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'From an older laptop' })).toBeNull();
+  });
+
+  it('the chosen tab is remembered', () => {
+    setup(AUTO_JOBS);
+    fireEvent.click(tab('Auto'));
+    expect(localStorage.getItem('gc.jobs.tab')).toBe('auto');
+    cleanup();
+    setup(AUTO_JOBS);
+    expect(tab('Auto')).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('region', { name: /^Working ·/ })).toBeInTheDocument();
+    fireEvent.click(tab('Yours'));
+    expect(localStorage.getItem('gc.jobs.tab')).toBeNull();
+    expect(document.querySelector('.jobs-board')).not.toBeNull();
+  });
+
+  it('the layout switch shows under Yours only', () => {
+    setup(AUTO_JOBS, 'full');
+    expect(screen.getByRole('radiogroup', { name: 'Jobs layout' })).toBeInTheDocument();
+    fireEvent.click(tab('Auto'));
+    expect(screen.queryByRole('radiogroup', { name: 'Jobs layout' })).toBeNull();
+    fireEvent.click(tab('Yours'));
+    expect(screen.getByRole('radiogroup', { name: 'Jobs layout' })).toBeInTheDocument();
+  });
+
+  it('the bar\'s three calls are not hidden for an Auto job', async () => {
+    const GATE: Gate = {
+      briefNumber: 2, briefFile: 'briefs/002-plan.md', headline: 'Plan v2 ready', stage: 'plan', nextStage: 'implement', nextProposed: 'Build step 1',
+      questions: [], decided: [], versions: null, raisedVersions: null, stale: false, waitingSince: '2026-10-21T09:00:00Z', runActive: false, parked: false,
+      level: 1, suggestedLevel: null, levelReason: null, usage: null,
+    };
+    // Waiting at the plan's gate: stopped (Needs you), deciding (Working), set aside (Needs you), and at Ready.
+    const waits = (slug: string, title: string, extra: Partial<Job>) => job(slug, 'needs-you', { title, stage: 'plan', lane: 'needs-you', waitingFor: 'approval', headline: 'The plan is ready. Start building?', ...extra });
+    const jobs: Job[] = [
+      waits('a-stop', 'Auto stopped here', { laneReason: 'Auto stopped: the Foreman says it is blocked', auto: { on: true, ran: true, stopped: { reason: 'the Foreman says it is blocked' }, group: 'needs-you' } }),
+      waits('a-deciding', 'Auto decides this', { lane: 'working', laneReason: 'Auto is deciding: the plan', auto: { on: true, ran: true, group: 'working' } }),
+      waits('a-wait', 'Auto waits to test', { lane: 'working', laneReason: 'Waiting for its turn to test', auto: { on: true, ran: true, group: 'working', waitingToTest: true } }),
+      waits('a-big', 'Auto set this aside', { auto: { on: false, ran: true, tooBig: { at: '2026-10-21T09:00:00Z', reason: 'Big.' }, group: 'needs-you' } }),
+      waits('a-ready', 'Auto finished this', { auto: { on: false, ran: true, finished: '2026-10-21T09:00:00Z', risky: 1, group: 'ready' } }),
+    ];
+    for (const hosted of [false, true]) {
+      localStorage.setItem('gc.jobs.tab', 'auto');
+      const store: Store = createStore();
+      store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs, meta: { token: 't', settings: { play: { mode: 'subtle' } } } as never }) });
+      const get = vi.fn(async (path: string): Promise<unknown> => {
+        if (path.endsWith('/evidence')) return { runs: [] };
+        if (path.startsWith('/api/review')) return null;
+        const slug = path.split('/')[3];
+        return { slug, thread: [], threadMore: false, gate: GATE, answeredBriefs: [], heldReply: null, options: { level: 1 }, page: undefined, queued: null } as unknown as JobDetail;
+      });
+      const api = { get, post: vi.fn(async () => ({ ok: true })), ...(hosted ? { hosted: () => true } : {}) } as unknown as ApiClient;
+      render(<WorkshopContext.Provider value={{ store, api }}><UiProvider><JobsPage /></UiProvider></WorkshopContext.Provider>);
+      const autoTab = document.querySelector<HTMLElement>('.sb-auto-tab')!;
+      expect(autoTab).not.toBeNull();
+      for (const j of jobs) {
+        // From its place on the Auto tab, the quick look has the job's bar.
+        fireEvent.keyDown(within(autoTab).getByRole('link', { name: j.title }), { key: ' ' });
+        const peek = screen.getByRole('dialog', { name: `${j.title}: a quick look` });
+        await waitFor(() => expect(peek.querySelector('[data-gate="approve"]')).not.toBeNull());
+        const bar = within(peek).getByRole('region', { name: 'Next step' });
+        for (const name of [/^No go: send back/, 'Reply', /^Go: /] as const) {
+          await waitFor(() => expect(within(bar).getByRole('button', { name }), `${j.title}${hosted ? ', website' : ''}`).toBeEnabled());
+        }
+        fireEvent.keyDown(window, { key: 'Escape' });
+      }
+      cleanup();
+      localStorage.clear();
+    }
+  }, 30_000);
 });
