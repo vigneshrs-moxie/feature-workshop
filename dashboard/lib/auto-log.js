@@ -16,9 +16,10 @@ export const AUTO_LOG_FILE = 'auto-log.md';
  */
 export const AUTO_LOG_LIMITS = Object.freeze({ entries: 200, text: 1000, answers: 20, line: 400, summary: 3, at: 40, stage: 100, stopped: 300, tag: 100 });
 
-const DECISIONS = new Set(['gate', 'question', 'permission']);
-// What each kind of Auto line is, on the list: a go-ahead, an answer, a permission allowed (or refused), a stop.
-const KIND = { gate: 'approve', question: 'answer', permission: 'allow', stop: 'stop' };
+const DECISIONS = new Set(['gate', 'question', 'permission', 'refuse']);
+// What each kind of Auto line is, on the list: a go-ahead, an answer, a permission allowed (or refused), a call Auto
+// refused on its card (a fixed rule, not the Approver), a stop.
+const KIND = { gate: 'approve', question: 'answer', permission: 'allow', refuse: 'refuse', stop: 'stop' };
 const CAP = 300;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -120,7 +121,7 @@ export function autoLog(lines = [], { title = '', now = null, record = null, sto
 
 /**
  * What a job's Auto list is, as the site and the laptop's own page get it: { on, stopped, tag, summary, entries, startedAt, ticket }.
- * Each entry has its kind ('approve', 'answer', 'allow', 'stop') and its step (null: not known); Auto's stops are entries
+ * Each entry has its kind ('approve', 'answer', 'allow', 'refuse', 'stop') and its step (null: not known); Auto's stops are entries
  * too, and the first summary line counts the decisions only. startedAt: when a tag started Auto on the job (its first
  * Auto 'on' line by a tag), else null. ticket: the job's ticket key, as the caller gives it, else null.
  * Null for a job with no Auto line (Auto has not run on it).

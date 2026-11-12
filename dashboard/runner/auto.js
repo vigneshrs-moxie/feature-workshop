@@ -22,7 +22,7 @@
 // Everything Auto writes is an audit line { action: 'auto', what, stage, asked, chose, why, ... } and
 // nothing reaches the Foreman but through decide.gate with by: 'auto'.
 
-import { AUTO_CARDS_PER_REPLY, AUTO_MARK, OWN_SENDS, YOURS_NOW, wroteWhileWaiting } from '../lib/auto.js';
+import { AUTO_CARDS_PER_REPLY, AUTO_MARK, OWN_SENDS, REFUSED_RULES, YOURS_NOW, refuseNote, wroteWhileWaiting } from '../lib/auto.js';
 import { AUTO_STOP_REASONS, autoVerdict, fixedStop } from '../lib/auto-rules.js';
 import { APPROVER_BUDGET_USD, approverCut, approverPaths, approverRoots, callPreview, checkAnswer } from '../lib/approver.js';
 import { DECIDING_KINDS } from '../lib/gate.js';
@@ -470,7 +470,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
 
   /**
    * A card has been raised (the driver's 'permission'). For a job with Auto on and not stopped, Auto
-   * answers it, or stops and leaves it to the person; for anything else it does nothing. leftWaiting(card)
+   * answers it, refuses it (refuseCard), or stops and leaves it to the person; for anything else it does nothing. leftWaiting(card)
    * is called, at most once, whenever the card is left for the person and Auto's own stop notification
    * has not already told them (the runner's "Permission: ..." notification). Cards of one job are handled
    * one at a time, in the order they came; a card is taken up once. Resolves when this card is done with.
@@ -539,13 +539,19 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     // A push is the one hard line the Approver may judge: the fixed stops already refuse any push but the job's own branch to its fork.
     // Only the plain push: a command that also holds a gh call (an early pull request would end Auto with unreviewed work) is not it.
     const plainPush = full.hardLine?.line === 'git-push' && !/\bgh\b/.test(String(full.input?.command ?? ''));
-    if (!hit && full.hardLine && !plainPush) hit = { rule: 'blocked', reason: oneLine(full.hardLine.reason) || 'this is a hard line, and hard lines need you.' };
-    if (hit) return stopOnCard(job, hit, leave, { cardId: card.id });
+    const hardLineHit = !hit && Boolean(full.hardLine) && !plainPush;
+    if (hardLineHit) hit = { rule: 'blocked', reason: oneLine(full.hardLine.reason) || 'this is a hard line, and hard lines need you.' };
+    // A call Auto may never allow (a rule in REFUSED_RULES, or a hard line other than the plain push) is refused on its card,
+    // and the job carries on (Auto queue, Task 5). Any other stop stays a stop.
+    const refused = Boolean(hit) && (hardLineHit || REFUSED_RULES.includes(hit.rule));
+    if (hit && !refused) return stopOnCard(job, hit, leave, { cardId: card.id });
     // The count belongs to one reply: it starts from 0 when the last answered brief is not the one it was kept with.
+    // A refused card counts too, so the 41st card in one reply is a stop whatever it asks.
     const lastAnswered = Math.max(0, ...(job.answered ?? []));
     if (((job.auto.cardsBrief ?? 0) === lastAnswered ? job.auto.cards ?? 0 : 0) >= AUTO_CARDS_PER_REPLY) {
       return stopOnCard(job, { rule: 'loop', reason: `Auto has answered ${AUTO_CARDS_PER_REPLY} cards in one reply, so it needs you.` }, leave, { cardId: card.id });
     }
+    if (refused) return refuseCard(job, full, hit, { leave, lastAnswered });
 
     // The person wrote to the job (a message, or one steered into the reply) since Auto took the card up, while it
     // queued behind another: it is theirs, and the Approver is not asked.
@@ -638,6 +644,28 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       ...base, kind: 'permission', questions: [],
       request: { tool: card.toolName, headline: card.plain?.headline ?? card.toolName, preview: whole ?? shown, cut: whole === null && card.plain?.previewCut != null },
     };
+  }
+
+  /**
+   * A call Auto may never allow, refused on its card (Auto queue, Task 5): a deny with refuseNote, sent the way a click is, by
+   * 'auto'; the Approver is never asked. One refuse line; the card counts toward AUTO_CARDS_PER_REPLY; failures stay as they
+   * were; nobody is told. The answer is a deny on every path: a decision that fails leaves the card as answerCard does.
+   */
+  async function refuseCard(job, card, { rule, reason }, { leave, lastAnswered }) {
+    const why = oneLine(reason);
+    let note = '';
+    try { note = refuseNote(rule, why); } catch { note = ''; } // still a deny, with the driver's own words for one of Auto's
+    try {
+      await decide.permission(card.id, { decision: 'deny', note }, { by: 'auto' });
+    } catch (err) {
+      if (codeOf(err) !== 'auto-gone') console.error(`auto card (${job.slug}):`, err.message);
+      await settleIfOff(job);
+      if (pendingCard(card.id)) leave(); // refused but still waiting: the person is told once
+      return;
+    }
+    await update(job.dir, (prev) => (prev ? { ...prev, cards: ((prev.cardsBrief ?? 0) === lastAnswered ? prev.cards ?? 0 : 0) + 1, cardsBrief: lastAnswered } : null));
+    const asked = oneLine(card.plain?.headline ?? card.toolName);
+    await audit(job, 'refuse', { rule, asked, chose: `Refused: ${asked}`, why });
   }
 
   /** Send the decision the way a click does, by 'auto': once, or no. Writes the Auto line and counts the card. */

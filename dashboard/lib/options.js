@@ -418,7 +418,7 @@ export function describeOptions(o) {
   if (o.evidence === 'always') lines.push(`Evidence: always${o.level === 0 ? ' (but never at L0)' : ''}. The tester writes a Playwright spec for each acceptance line a person can see, and ${PRODUCT} records screenshots and a short video of each.`);
   else if (o.evidence === 'off') lines.push('Evidence: off. No screenshots or video at the test stage.');
   // The level guard is kept on purpose: never true at AUTO_MAX_LEVEL 3, it follows the constant if that changes.
-  if (o.auto === true && !(isLevel(o.level) && o.level > AUTO_MAX_LEVEL)) lines.push(`Auto: ${PRODUCT}'s Auto answers each gate for the person, no hand test is asked for, and the job stops once PR #1 is open.`);
+  if (o.auto === true && !(isLevel(o.level) && o.level > AUTO_MAX_LEVEL)) lines.push(`Auto: ${PRODUCT}'s Auto answers each gate for the person, no hand test is asked for, and the job stops once PR #1 is open. The crew runs no database command: ${PRODUCT} applies the job's migrations to its own copy of the database when the job's turn to test comes.`);
   if (o.stack) lines.push('Run as a stack: the human asked for one. You are its coordinator (stack.md): at plan, write stack.md (the sections, the files each owns, what each waits for, the merge order) and stop for approval on the Stack page.');
   if (o.notes) lines.push(`Notes: ${o.notes}`);
   if (o.from_session) lines.push(o.from_session.mode === 'continue'

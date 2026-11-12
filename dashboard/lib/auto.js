@@ -31,6 +31,8 @@
 //   acted      when he acted after PR #1, else null; cleared by on
 // finished is cleared by on as well. Which group a record shows in under Auto: autoGroup.
 
+import { PRODUCT } from './brand.js';
+
 /** The highest level Auto runs at: every level. An L3 job runs to PR #1 like any other. */
 export const AUTO_MAX_LEVEL = 3;
 
@@ -39,6 +41,18 @@ export const AUTO_CARDS_PER_REPLY = 40;
 
 /** The fixed stop rules: the reasons Auto stops and waits for you, decided by code. */
 export const AUTO_RULES = Object.freeze(['merge', 'database', 'outside', 'push', 'level', 'loop', 'approver', 'judgment', 'blocked', 'status', 'tool']);
+
+/**
+ * The fixed stops that, on a card, Auto refuses instead of stopping (Auto queue, Task 5): the call is denied with
+ * refuseNote, the crew is told why, and the job carries on. So is a hard line other than the plain push (runner/auto.js).
+ */
+export const REFUSED_RULES = Object.freeze(['merge', 'database', 'push', 'outside', 'tool']);
+
+/** What the crew is told when Auto refuses a call on its card: rule and reason are the fixed stop's (or the hard line's). */
+export function refuseNote(rule, reason) {
+  if (rule === 'database') return `Auto refused this: ${PRODUCT} applies this job's migrations to Auto's own copy of the database when the job's turn to test comes. Don't run database commands. Carry on without it.`;
+  return ['Auto refused this:', String(reason ?? '').trim(), "Find another way inside the job's folders, or leave it for after PR #1."].filter(Boolean).join(' ');
+}
 
 const isLevel = (v) => Number.isInteger(v) && v >= 0 && v <= 3;
 // Kept on purpose: with AUTO_MAX_LEVEL at 3 it is never true, but it stays the one place a lower ceiling would take effect.

@@ -183,3 +183,20 @@ test('each entry says its kind and its step, and a stop is an entry that the cou
   // The same entries cut to the site's limits keep their kind and step.
   assert.deepEqual(capAutoLog(rec).entries.map((e) => [e.kind, e.stop]), rec.entries.map((e) => [e.kind, e.stop]));
 });
+
+test('a refusal is an entry of kind refuse, its chose Refused: and the headline', () => {
+  const refuse = { at: at(11, 8, 15), action: 'auto', what: 'refuse', stage: 'implement', rule: 'database', asked: 'Run npm run db:migrate', chose: 'Refused: Run npm run db:migrate', why: 'a database change needs you.' };
+  const rec = autoLogRecord([...LINES, refuse], {});
+  assert.deepEqual(rec.entries.map((e) => [e.kind, e.stop, e.chose]), [
+    ['refuse', 'build', 'Refused: Run npm run db:migrate'],
+    ['answer', 'build', 'Keep the column'],
+    ['approve', 'plan', 'Approved the plan'],
+  ]);
+  assert.deepEqual([rec.entries[0].asked, rec.entries[0].why], ['Run npm run db:migrate', 'a database change needs you.']);
+  // A refusal is a decision: it is counted, and it can be the last one.
+  assert.equal(rec.summary[0], 'Auto made 3 decisions on this job. The Approver cost $0.04.');
+  assert.equal(rec.summary[2], `Last decision: ${autoTime(at(11, 8, 15))}, Build: Refused: Run npm run db:migrate.`);
+  // The laptop's list (no stops) has it too, and so does auto-log.md.
+  assert.equal(autoLog([...LINES, refuse]).entries[0].kind, 'refuse');
+  assert.match(autoLogMarkdown(autoLog([...LINES, refuse])), /Refused: Run npm run db:migrate/);
+});

@@ -367,7 +367,8 @@ test('auto survives normalize at every level', async () => {
 });
 
 test('describeOptions has the Auto line', () => {
-  const line = 'Auto: Starbase\'s Auto answers each gate for the person, no hand test is asked for, and the job stops once PR #1 is open.';
+  // The Auto line ends with its sentence about the database (Auto queue, Task 5): the crew runs no database command.
+  const line = 'Auto: Starbase\'s Auto answers each gate for the person, no hand test is asked for, and the job stops once PR #1 is open. The crew runs no database command: Starbase applies the job\'s migrations to its own copy of the database when the job\'s turn to test comes.';
   assert.ok(describeOptions(normalize({ level: 2, auto: true, auto_since: '2026-11-10T09:00:00.000Z' })).includes(line));
   assert.ok(!describeOptions(normalize({ level: 2 })).includes(line));
   for (const level of [0, 1, 3]) assert.ok(describeOptions(normalize({ level, auto: true })).includes(line), `L${level}`);
