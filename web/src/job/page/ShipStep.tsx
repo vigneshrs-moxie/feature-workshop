@@ -44,7 +44,8 @@ export function prMeta(pr: PrRow, now: number): string {
   return line ? `${line.charAt(0).toUpperCase()}${line.slice(1)}` : '';
 }
 
-const isWebUrl = (url: string | null | undefined): url is string => typeof url === 'string' && /^https?:\/\//i.test(url.trim());
+/** An http:// or https:// address: the only kind a link here opens. */
+export const isWebUrl = (url: string | null | undefined): url is string => typeof url === 'string' && /^https?:\/\//i.test(url.trim());
 
 function titleOf(n: 1 | 2 | 3, pr: PrRow | undefined): string {
   if (n === 2) return 'PR #2 · Into staging';

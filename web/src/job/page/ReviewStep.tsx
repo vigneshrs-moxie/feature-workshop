@@ -2,11 +2,16 @@
 // through the step's view) with its model, how many findings and each one Fixed, Not doing or Open;
 // a reviewer with none says No findings. Then the review walkthrough, folded, when the job has one.
 // A record from an older laptop (review not known) says nothing about findings; the rest draws.
+// On the website the walkthrough is not served (it lives on the laptop): the fold says so in one
+// sentence and links the published page when there is one. Never an alert.
 import type { Job, ReviewRow, StageReviewer, StageView } from '../../api/types';
+import { Button } from '../../components/Button';
 import { Chip, type ChipTone } from '../../components/Chip';
 import type { IconName } from '../../components/Icon';
 import { Fold } from '../../components/page/Page';
 import { WalkthroughTab } from '../../panes/Preview/WalkthroughTab';
+import { useWorkshop } from '../../state/store';
+import { isWebUrl } from './ShipStep';
 import { StepAutoLine } from './stepAuto';
 import './page.css';
 
@@ -22,6 +27,8 @@ const nameOf = (r: StageReviewer) => r.name || r.lens || 'Other findings';
 const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? '').join('');
 
 export function ReviewStep({ slug, job, view }: { slug: string; job: Job; view: StageView | null | undefined }) {
+  const { api } = useWorkshop();
+  const hosted = Boolean(api.hosted?.());
   const review = view?.review;
   const reviewers = review && Array.isArray(review.reviewers) ? review.reviewers.filter((r) => r && typeof r === 'object') : [];
   return (
@@ -39,8 +46,25 @@ export function ReviewStep({ slug, job, view }: { slug: string; job: Job; view: 
       )}
       {job.walkthrough && (
         <Fold icon="eye" name="Review walkthrough" note="every change, by zoom level">
-          <WalkthroughTab slug={slug} job={job} active />
+          {hosted ? <OnTheLaptop url={job.walkthrough.url} /> : <WalkthroughTab slug={slug} job={job} active />}
         </Fold>
+      )}
+    </div>
+  );
+}
+
+/** The website's walkthrough fold: where it opens, and its published page when it has one. */
+function OnTheLaptop({ url }: { url: string | null | undefined }) {
+  const published = isWebUrl(url) ? url.trim() : null;
+  return (
+    <div className="sb-block">
+      <p className="sb-step-note">The review walkthrough opens on your laptop.</p>
+      {published && (
+        <div>
+          <Button kind="quiet" href={published} target="_blank" rel="noopener noreferrer" title="Open the published walkthrough, where verdicts and notes are saved and shared, in a new tab.">
+            Open the published page
+          </Button>
+        </div>
       )}
     </div>
   );

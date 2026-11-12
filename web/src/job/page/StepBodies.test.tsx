@@ -326,6 +326,32 @@ describe('Review', () => {
     setup((j) => <ReviewStep slug={SLUG} job={j} view={stage('review', { review: REVIEWERS })} />);
     expect(screen.queryByText('Review walkthrough')).toBeNull();
   });
+
+  it('on the website the walkthrough fold says it opens on the laptop and links the published page', () => {
+    const published = 'https://claude.ai/artifact/walkthrough-1';
+    const fold = () => screen.getByText('Review walkthrough', { selector: '.fold-name' }).closest('details')!;
+    setup((j) => <ReviewStep slug={SLUG} job={j} view={stage('review', { review: REVIEWERS })} />, { hosted: true, jobExtra: { walkthrough: { updatedAt: ago(10), size: 2000, url: published } } });
+    expect(within(fold()).getByText('The review walkthrough opens on your laptop.')).toBeInTheDocument();
+    const link = within(fold()).getByRole('link', { name: 'Open the published page' });
+    expect(link).toHaveAttribute('href', published);
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(fold().querySelector('iframe')).toBeNull();
+    expect(fold()).not.toHaveTextContent('Restart');
+    cleanup();
+    // Not published, or an address that is not a web page: the sentence alone.
+    for (const url of [null, 'javascript:alert(1)']) {
+      setup((j) => <ReviewStep slug={SLUG} job={j} view={stage('review', { review: REVIEWERS })} />, { hosted: true, jobExtra: { walkthrough: { updatedAt: ago(10), size: 2000, url } } });
+      expect(within(fold()).getByText('The review walkthrough opens on your laptop.')).toBeInTheDocument();
+      expect(within(fold()).queryByRole('link')).toBeNull();
+      expect(screen.queryByRole('alert')).toBeNull();
+      cleanup();
+    }
+    // The laptop app is unchanged: the walkthrough itself, framed in the fold.
+    setup((j) => <ReviewStep slug={SLUG} job={j} view={stage('review', { review: REVIEWERS })} />, { jobExtra: { walkthrough: { updatedAt: ago(10), size: 2000, url: published } } });
+    expect(fold().querySelector('iframe')).toHaveAttribute('title', 'Review walkthrough');
+    expect(within(fold()).queryByText('The review walkthrough opens on your laptop.')).toBeNull();
+  });
 });
 
 const PRS: PrRow[] = [
