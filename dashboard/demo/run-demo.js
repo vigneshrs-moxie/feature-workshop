@@ -1412,7 +1412,10 @@ function tick(logFiles) {
  * where each part is, and the session logs tick() keeps busy. It clears `root` first, so a root
  * that is not inside the temp folder (insideTemp) is refused before anything is touched.
  */
-export async function buildDemo({ root = path.join(os.tmpdir(), 'starbase-demo') } = {}) {
+export async function buildDemo({ root: asked = path.join(os.tmpdir(), 'starbase-demo') } = {}) {
+  // Resolved once, here: the path checked is the path used (setRoot, the delete). A raw `..` after a
+  // link would reach the system, which follows the link first and lands the delete outside.
+  const root = path.resolve(String(asked));
   if (!insideTemp(root)) throw new Error(`The demo is built only inside the system’s temp folder (${os.tmpdir()}), so ${root} is left alone.`);
   setRoot(root);
   const logFiles = await build();

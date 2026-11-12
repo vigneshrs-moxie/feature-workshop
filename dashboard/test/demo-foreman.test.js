@@ -470,16 +470,55 @@ test('a link inside the temp folder that points outside it is refused', async ()
   await fs.mkdir(path.join(temp, 'fresh'), { recursive: true });
   await fs.mkdir(outside);
   await fs.writeFile(path.join(outside, 'keep.txt'), 'mine');
-  const link = path.join(temp, 'fresh', 'demo-root');
-  await fs.symlink(outside, link);
-  const realTmpdir = os.tmpdir;
-  os.tmpdir = () => temp;
-  let built;
-  try { built = buildDemo({ root: link }); } finally { os.tmpdir = realTmpdir; }
-  await assert.rejects(built, /only inside the system’s temp folder/);
-  assert.equal(await fs.readFile(path.join(outside, 'keep.txt'), 'utf8'), 'mine', 'the target folder still holds its file');
-  assert.deepEqual(await fs.readdir(outside), ['keep.txt']);
-  await fs.rm(base, { recursive: true, force: true });
+  try {
+    const link = path.join(temp, 'fresh', 'demo-root');
+    await fs.symlink(outside, link);
+    const realTmpdir = os.tmpdir;
+    os.tmpdir = () => temp;
+    let built;
+    try { built = buildDemo({ root: link }); } finally { os.tmpdir = realTmpdir; }
+    await assert.rejects(built, /only inside the system’s temp folder/);
+    assert.equal(await fs.readFile(path.join(outside, 'keep.txt'), 'utf8'), 'mine', 'the target folder still holds its file');
+    assert.deepEqual(await fs.readdir(outside), ['keep.txt']);
+  } finally {
+    await fs.rm(base, { recursive: true, force: true });
+  }
+});
+
+test('a root with .. after a link is resolved before anything is deleted', { timeout: 120_000 }, async () => {
+  const { buildDemo } = await import('../demo/run-demo.js');
+  // <base>/temp stands for the temp folder; <base>/temp/fresh/link points at <base>/outside, and
+  // <base>/victim holds a file. Followed link first, <temp>/fresh/link/../victim is <base>/victim
+  // (outside); read by its text it is <temp>/fresh/victim (inside), which is where the demo goes.
+  // Not realpath'd: the demo writes only inside the system's temp folder as os.tmpdir() names it.
+  const base = await fs.mkdtemp(path.join(os.tmpdir(), 'workshop-demo-dotdot-'));
+  const temp = path.join(base, 'temp');
+  const outside = path.join(base, 'outside');
+  const victim = path.join(base, 'victim');
+  const hadDir = Object.hasOwn(process.env, 'STARBASE_DIR');
+  const oldDir = process.env.STARBASE_DIR;
+  try {
+    await fs.mkdir(path.join(temp, 'fresh'), { recursive: true });
+    await fs.mkdir(outside);
+    await fs.mkdir(victim);
+    await fs.writeFile(path.join(victim, 'keep.txt'), 'mine');
+    await fs.symlink(outside, path.join(temp, 'fresh', 'link'));
+    const root = `${path.join(temp, 'fresh', 'link')}${path.sep}..${path.sep}victim`;
+    // The demo's usage lines go to the root's own state folder (see wholeDemo).
+    process.env.STARBASE_DIR = path.join(temp, 'fresh', 'victim', 'state');
+    const realTmpdir = os.tmpdir;
+    os.tmpdir = () => temp;
+    let built;
+    try { built = buildDemo({ root }); } finally { os.tmpdir = realTmpdir; }
+    const demo = await built.catch((err) => err);
+    assert.equal(await fs.readFile(path.join(victim, 'keep.txt'), 'utf8').catch((err) => err.code), 'mine', 'the folder the link leads to is untouched');
+    assert.deepEqual(await fs.readdir(victim), ['keep.txt']);
+    assert.deepEqual(await fs.readdir(outside), []);
+    assert.equal(demo.root, path.join(temp, 'fresh', 'victim'), `the demo is built at the resolved root (${demo.message ?? 'built'})`);
+  } finally {
+    if (hadDir) process.env.STARBASE_DIR = oldDir; else delete process.env.STARBASE_DIR;
+    await fs.rm(base, { recursive: true, force: true });
+  }
 });
 
 test('the demo has a job with an overview and plan steps, one with a recording under way, and an Auto job he wrote to that waits for him with its sentence', { timeout: 120_000 }, async () => {
