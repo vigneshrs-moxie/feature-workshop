@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError, type ApiClient } from '../api/client';
 import type { AutoDecided } from '../api/types';
+import { fullTime } from '../lib/time';
 import { createStore, WorkshopContext } from '../state/store';
 import { WhatAutoDecided, AUTO_EMPTY } from './WhatAutoDecided';
 
@@ -141,13 +142,16 @@ describe('WhatAutoDecided', () => {
     ] })));
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'What Auto decided' })); });
     const [entry, old] = panelEntries();
-    expect(within(entry).getByText('14m ago')).toBeInTheDocument();
+    // The time stays how long ago; the full date and time are its hover title.
+    expect(within(entry).getByText('14m ago')).toHaveAttribute('title', fullTime(at));
     const step = within(entry).getByText('Plan');
     expect(step.closest('.chip')).not.toBeNull();
     expect(within(entry).getByText('Asked: Approve plan v1 and start Build?')).toBeInTheDocument();
     expect(within(entry).getByText(/^Chose:/)).toBeInTheDocument();
     const chose = within(entry).getByText('Went ahead').closest('.chip')!;
     expect(chose).toHaveClass('chip-ok');
+    expect(step.closest('.chip')).toHaveClass('sb-auto-entry-step');
+    expect(chose.closest('p')).toHaveClass('sb-auto-entry-chose');
     expect(within(entry).getByText('Why: Small and reversible.')).toBeInTheDocument();
     // The older entry.
     expect(old).toHaveTextContent('Spec');
@@ -171,13 +175,25 @@ describe('WhatAutoDecided', () => {
     for (const l of DECIDED.summary) expect(screen.getByText(l)).toBeInTheDocument();
   });
 
+  it('a high-risk stop keeps the Approver’s own reason: each sentence once', async () => {
+    const reason = 'the Approver called this high risk, so it needs you.';
+    const own = 'The plan drops a column that reports still read.';
+    show(vi.fn(async () => ({ ...DECIDED, entries: [{ at: '2026-11-10T10:05:00Z', stage: 'Plan', chose: reason, asked: 'Approve plan v2?', why: own, kind: 'stop', stop: 'plan' }] })));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'What Auto decided' })); });
+    const [entry] = panelEntries();
+    expect(within(entry).getByText('Stopped').closest('.chip')).toHaveClass('chip-needs-you');
+    expect(within(entry).getByText(`Why: ${reason} ${own}`)).toBeInTheDocument();
+    expect(entry.textContent!.split(reason)).toHaveLength(2);
+    expect(entry.textContent!.split(own)).toHaveLength(2);
+  });
+
   it('a job a tag started says so at the foot', async () => {
     // Built in the viewer's own time zone, so the words are the same wherever the test runs.
     const startedAt = new Date(2026, 10, 10, 9, 14).toISOString();
     show(vi.fn(async () => ({ ...DECIDED, tag: 'auto', startedAt, ticket: 'ORBIT-907' })));
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'What Auto decided' })); });
     const panel = screen.getByRole('dialog', { name: 'What Auto decided' });
-    expect(within(panel).getByText(`Started by Auto on Nov 10 at 9:14 am: ORBIT-907 carries the tag auto. ${FOOT_2}`)).toBeInTheDocument();
+    expect(within(panel).getByText(`Started by Auto on Nov 10 at 9:14 am: ORBIT-907 carries the tag auto. ${FOOT_2}`)).toHaveClass('sb-auto-foot');
   });
 
   it('with no start time the foot has only the second sentence', async () => {

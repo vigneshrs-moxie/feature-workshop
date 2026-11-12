@@ -77,9 +77,10 @@
 .sb-commit-file { display: flex; align-items: center; gap: var(--space-2); min-width: 0; font-size: var(--text-xs); }
 .sb-commit-path { min-width: 0; font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sb-commit-lines { flex: none; margin-left: auto; font-family: var(--font-mono); color: var(--text-3); }
+.sb-commit-more { margin: var(--space-1) 0 0; padding-left: var(--space-1); font-size: var(--text-xs); color: var(--text-3); }
 .sb-commit .code-change { margin-top: var(--space-2); }
 
-.sb-reviewers { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: var(--space-2); }
+.sb-reviewers { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: var(--space-2); align-items: start; }
 .sb-reviewer { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--border-1); border-radius: var(--radius-lg); background: var(--surface-1); min-width: 0; }
 .sb-reviewer-head { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .sb-reviewer-face { display: grid; place-items: center; width: 32px; height: 32px; flex: none; border: 1px solid var(--border-2); border-radius: 50%; background: var(--bg-2); font-size: var(--text-xs); font-weight: var(--weight-bold); color: var(--text-2); }
@@ -123,9 +124,12 @@ a.sb-top-ticket:hover { border-color: var(--border-3); }
 .sb-job-top .auto-switch-row .choice { margin-top: 0; }
 .sb-job-top .auto-line { grid-column: 1 / -1; width: 0; min-width: 100%; justify-content: flex-end; text-align: right; }
 .sb-job-top .auto-switch.is-inline > :not(.option-row):not(.auto-spin):not(.auto-line):not(.sr-only) { grid-column: 1 / -1; }
-.auto-switch-word { flex: none; color: var(--text-3); }
-.auto-switch-word.is-on { color: var(--accent-strong); }
-/* The checkbox as a switch: the native input stays underneath, for the keyboard and screen readers. */
+.sb-auto-switch-word { flex: none; color: var(--text-3); }
+.sb-auto-switch-word.is-on { color: var(--accent-strong); }
+/* On the website, in the gear's place: one muted sentence. */
+.sb-top-laptop { align-self: center; font-size: var(--text-xs); color: var(--text-2); }
+/* The checkbox as a switch: the native input stays underneath, for the keyboard and screen readers.
+   The raw numbers are the drawn switch's own size (a 30 by 18 track, a 14 px knob inset 2 px); no token fits them. */
 .sb-job-top .auto-switch-row > .choice { width: 30px; height: 18px; padding: 2px; border-color: transparent; border-radius: 9px; background-color: var(--bg-4); place-content: center start; }
 .sb-job-top .auto-switch-row > .choice::before { content: ''; width: 14px; height: 14px; border-radius: 50%; background: var(--surface-1); box-shadow: var(--elev-xs); }
 .sb-job-top .auto-switch-row > .choice:checked { border-color: transparent; background-color: var(--btn-primary-bg); place-content: center end; }

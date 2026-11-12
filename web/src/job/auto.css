@@ -35,11 +35,11 @@
 .page-head .job-auto .auto-switch.is-inline > :not(.option-row):not(.auto-spin):not(.auto-line):not(.sr-only) { grid-column: 1 / -1; }
 /* Each entry (Task 9): when and the step as a chip, Asked:, Chose: as a chip (the stop look or the
    done look), Why:. A long choice wraps inside its chip. The foot says who started Auto. */
-.auto-entry-step { flex: none; }
-.auto-entry-chose { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
-.auto-entry-chose .chip { padding-block: 3px; line-height: 1.35; white-space: normal; overflow-wrap: anywhere; text-align: left; }
-.auto-entry-chose .chip strong { font-weight: inherit; }
-.auto-foot { margin: 0; font-size: var(--text-xs); color: var(--text-2); }
+.sb-auto-entry-step { flex: none; }
+.sb-auto-entry-chose { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
+.sb-auto-entry-chose .chip { padding-block: var(--space-1); line-height: var(--leading); white-space: normal; overflow-wrap: anywhere; text-align: left; }
+.sb-auto-entry-chose .chip strong { font-weight: inherit; }
+.sb-auto-foot { margin: 0; font-size: var(--text-xs); color: var(--text-2); }
 /* On the new job page What Auto decided is a drawer at the right, 480 px wide, on a laptop; on a
    phone it is the sheet as it is. The drawer scrolls as a whole, so its list needs no height of its own. */
 @media (min-width: 761px) {

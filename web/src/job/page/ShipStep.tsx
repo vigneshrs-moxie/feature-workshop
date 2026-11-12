@@ -1,19 +1,20 @@
 // The Ship step's body in the open step (design 3.2): the three pull requests (job.page.prs through
 // the step's view), each with where it goes, its state in words, its checks and when it was opened,
 // and Open on GitHub; then today's review panel, the hand-off nudges and the GitHub line, as the Job
-// page's Ship tab draws them. On an Auto job, a line says where Auto stops. Nothing here hides or
-// turns off anything because of Auto. A record from an older Starbase (no pull requests known) says
-// so in a sentence and the rest draws.
+// page's Ship tab draws them. While Auto is on, a line says where Auto stops (or that it stopped here).
+// Nothing here hides or turns off anything because of Auto. A record from an older laptop (no pull
+// requests known) says so in a sentence and the rest draws.
 import type { Job, PrRow, StageView } from '../../api/types';
 import { Button } from '../../components/Button';
 import { Chip, type ChipTone } from '../../components/Chip';
 import { Icon, type IconName } from '../../components/Icon';
+import { useNow } from '../../lib/time';
 import { stopOf } from '../../components/stops/stops';
 import { JobGithub } from '../../panes/Foreman/JobGithub';
 import { GithubLine, agoWords } from '../../views/Review/GithubLine';
 import { ReviewPanel } from '../../views/Review/ReviewPanel';
 import { ROUND_NUDGES, useReview } from '../../views/Review/useReview';
-import { AutoLine, stopHere, stoppedWords, useAutoEntries } from './SpecStep';
+import { AutoLine, autoStoppedNow, stopHere, stoppedWords, useAutoEntries } from './stepAuto';
 import './page.css';
 
 type Chipped = { words: string; tone: ChipTone; icon: IconName };
@@ -66,16 +67,17 @@ function ShipNudges({ job }: { job: Job }) {
 
 export function ShipStep({ slug, job, view }: { slug: string; job: Job; view: StageView | null | undefined }) {
   const entries = useAutoEntries(slug, job);
-  const stop = entries && entries.some((e) => e.kind) ? stopHere(entries, 'ship') : null;
+  // Auto stopped now, at Ship: its stop. Else, only while Auto is on: where it stops.
+  const stop = entries && entries.some((e) => e.kind) && autoStoppedNow(job) ? stopHere(entries, 'ship') : null;
   const stopped = stop ? stoppedWords(stop) : null;
-  const autoJob = Boolean(job.auto?.on || job.auto?.ran);
+  const autoOn = job.auto?.on === true;
   const prs = Array.isArray(view?.prs) ? view.prs.filter((p) => p && typeof p === 'object') : null;
   const shipping = stopOf(job.stage) === 'ship' || (job.nudges?.length ?? 0) > 0;
-  const now = Date.now();
+  const now = useNow().getTime();
   return (
     <div className="sb-step-body">
       {stopped ? <AutoLine icon="octagon" words={stopped} />
-        : autoJob && <AutoLine icon="git-pr" words="Auto stops once PR #1 is open. It never merges." />}
+        : autoOn && <AutoLine icon="git-pr" words="Auto stops once PR #1 is open. It never merges." />}
       <section className="sb-block sb-prs" aria-label="The pull requests">
         <h3 className="eyebrow">The pull requests</h3>
         {!prs ? <p className="sb-step-note">The pull requests aren’t known for this job yet.</p> : (

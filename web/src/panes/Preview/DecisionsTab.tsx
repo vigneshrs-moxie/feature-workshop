@@ -1,8 +1,8 @@
 // The Decisions tab: every choice you made on this job, newest first (GET /api/job/:slug/decisions,
 // dashboard/lib/decisions.js). Approvals, send-backs with their note, permissions, level changes,
 // closing and reopening. Read again whenever the job's thread moves on. Above it, "Copy decisions"
-// (job/CopyDecisions.tsx) gives the list to paste into Orbit; copy={false} leaves it out (Copy
-// decisions' own panel holds this list in a fold, so no second button opens a second sheet).
+// (job/CopyDecisions.tsx) gives the list to paste into Orbit; copy={false} leaves it out (the new
+// job page's Copy decisions panel holds this list in a fold, so no second button opens a second sheet).
 import { useEffect, useState } from 'react';
 import type { Decision } from '../../api/types';
 import { fullTime, relativeTime, useNow } from '../../lib/time';

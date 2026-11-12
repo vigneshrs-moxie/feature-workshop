@@ -37,12 +37,24 @@ export function fullTime(iso: string | null | undefined): string {
   return d ? d.toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) : '';
 }
 
+/** "3:42pm", or "3:42 pm" with `space`: the hour and minute with a lower-case am or pm. */
+function hourMinute(d: Date, space = false): string {
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).replace(/\s?([AP])M$/i, (_m, ap: string) => `${space ? ' ' : ''}${ap.toLowerCase()}m`);
+}
+
 /** "3:42pm" today, "Fri 3:42pm" on another day. Empty when unknown. */
 export function clockTime(iso: string | null | undefined, now: Date = new Date()): string {
   const d = parse(iso);
   if (!d) return '';
-  const t = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).replace(/\s?([AP])M$/i, (_m, ap: string) => `${ap.toLowerCase()}m`);
+  const t = hourMinute(d);
   return sameDay(d, now) ? t : `${d.toLocaleDateString('en-US', { weekday: 'short' })} ${t}`;
+}
+
+/** "Nov 10 at 9:14 am", in the viewer's own time. Empty when unknown. */
+export function dayAndTime(iso: string | null | undefined): string {
+  const d = parse(iso);
+  if (!d) return '';
+  return `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} at ${hourMinute(d, true)}`;
 }
 
 /** The current time, refreshed every `everyMs` so relative times stay true without a reload. */
