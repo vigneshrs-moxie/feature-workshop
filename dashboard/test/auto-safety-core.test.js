@@ -1117,3 +1117,23 @@ test('R9: a link in a read folder that lands on a direct child of the home folde
     assert.equal(card('Grep', { pattern: 'x', path: kit }, ctx), null);
   } finally { process.env.HOME = was; fsSync.rmSync(root, { recursive: true, force: true }); }
 });
+
+// ---------- A branch locateJob only guessed (lib/locate.js branchGuessed) ----------
+
+test('a worktree found only through a guessed branch is not the job\'s own: a write there is outside the job', async () => {
+  // A folder git lists that passes the name test (it ends with -<slug>), so only the guess decides.
+  const GUESSED = `${HOME}/Projects/old-orbit-500-thing`;
+  const list = [{ path: REPO, branch: 'main' }, { path: GUESSED, branch: 'feature/orbit-470-other' }];
+  const base = { featureDir: JOB, slug: 'orbit-500-thing', recordedRepo: REPO, git: gitOf({ list }) };
+  const located = (branchGuessed) => ({ worktree: GUESSED, statusWorktree: null, locate: { branch: 'feature/orbit-470-other', branchGuessed, worktree: GUESSED } });
+  const guessed = await verifiedJobContext({ ...base, f: located(true) });
+  assert.deepEqual(guessed.worktrees, [], 'a guessed worktree is never one of the job\'s');
+  assert.deepEqual(guessed.branches, []);
+  assert.equal(card('Write', { file_path: `${GUESSED}/src/a.ts`, content: 'x' }, ctxOf(guessed, { cwd: REPO })), 'outside');
+  // The control: the same folder from a branch that is not a guess is kept, as before.
+  const recorded = await verifiedJobContext({ ...base, f: located(false) });
+  assert.deepEqual(recorded.worktrees, [GUESSED]);
+  // status.json naming the folder is a record, not a guess: kept under the usual tests.
+  const named = await verifiedJobContext({ ...base, f: { worktree: GUESSED, statusWorktree: GUESSED, locate: { branchGuessed: true, worktree: GUESSED } } });
+  assert.deepEqual(named.worktrees, [GUESSED]);
+});

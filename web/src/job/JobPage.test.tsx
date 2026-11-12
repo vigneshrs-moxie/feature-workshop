@@ -37,7 +37,7 @@ const GATE: Gate = {
 /** What the test's server knows: the store its events go to, and the briefs a deciding answer has answered (as GET /api/job/:slug returns them). */
 const server = { store: null as Store | null, answered: [] as number[], gate: undefined as Gate | null | undefined, held: null as JobDetail['heldReply'], drive: undefined as JobDetail['drive'] | undefined };
 
-function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions = [] as Permission[], play = 'subtle', auto = null as { on: boolean; tag: string | null } | null, gate = null as Gate | null, slug = 'alpha', extra = null as React.ReactNode, drive = null as JobDetail['drive'], post = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({ ok: true })) } = {}) {
+function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions = [] as Permission[], play = 'subtle', auto = null as { on: boolean; tag: string | null } | null, gate = null as Gate | null, slug = 'alpha', extra = null as React.ReactNode, drive = null as JobDetail['drive'], locate = null as JobDetail['locate'], post = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({ ok: true })) } = {}) {
   const store: Store = createStore();
   server.store = store;
   server.answered = [];
@@ -45,7 +45,7 @@ function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions =
   server.held = null;
   server.drive = undefined;
   store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs, permissions, meta: { token: 't', settings: { play: { mode: play } }, models: [{ id: 'claude-opus-5-5', label: 'Opus 5.5' }] } as never }) });
-  const detail = (s: string): JobDetail => ({ slug: s, thread: [], threadMore: false, gate: server.gate === undefined ? gate : server.gate, answeredBriefs: [...server.answered], heldReply: server.held, options: { level: 1 }, auto, drive: server.drive === undefined ? drive : server.drive } as JobDetail);
+  const detail = (s: string): JobDetail => ({ slug: s, thread: [], threadMore: false, gate: server.gate === undefined ? gate : server.gate, answeredBriefs: [...server.answered], heldReply: server.held, options: { level: 1 }, auto, drive: server.drive === undefined ? drive : server.drive, locate } as JobDetail);
   const get = vi.fn(async (path: string): Promise<unknown> => {
     if (path.endsWith('/docs')) return { docs: DOCS };
     const m = /\/doc\?file=(.+)$/.exec(path);
@@ -92,6 +92,12 @@ describe('the Job page', () => {
     setup({ auto: { on: true, tag: null } });
     await screen.findAllByRole('button', { name: 'Copy decisions' });
     expect(screen.queryByText(/Started by Auto/)).toBeNull();
+  });
+  it('a guessed branch and its "This is the job\'s branch" show on the page, outside the folded Details', async () => {
+    setup({ locate: { path: '/Users/me/Projects/moxie-portal', branch: 'feature/orbit-470-x', branchSource: 'workflow-status.md', branchGuessed: true } });
+    const button = await screen.findByRole('button', { name: 'This is the job\'s branch' });
+    expect(button.closest('.job-details')).toBeNull();
+    expect(screen.getByText('feature/orbit-470-x').closest('.job-details')).toBeNull();
   });
   it('also has Copy decisions in the page’s head, outside the folded Details', () => {
     setup();

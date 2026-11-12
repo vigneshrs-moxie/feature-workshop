@@ -30,6 +30,7 @@ import { JobGithub } from '../panes/Foreman/JobGithub';
 import { JobMenu } from '../panes/Foreman/JobHeader';
 import { LevelChip } from '../panes/Foreman/LevelChip';
 import { CopyDecisions } from './CopyDecisions';
+import { BranchGuess } from './BranchGuess';
 import { AutoSwitch } from './AutoSwitch';
 import { WhatAutoDecided } from './WhatAutoDecided';
 import { DecisionsTab } from '../panes/Preview/DecisionsTab';
@@ -191,6 +192,7 @@ function JobView({ job }: { job: Job }) {
         </div>
         <aside className="job-side" aria-label="The conversation and the job">
           <NowLine job={job} now={now} className="job-now" />
+          <BranchGuess slug={job.slug} detail={thread.detail} onConfirmed={thread.reload} />
           <More screen="job" id="details" label="Details" note="level, stops, who is working, facts" icon="list" className="is-card job-details">
             <div className="job-details-head">
               {ticket && <Chip className="num">{ticket}</Chip>}
