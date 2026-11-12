@@ -131,7 +131,7 @@ export function StepPanel({ job, stop, view, error, onRetry, now, extraAgents, s
       {!bodyFirst && children}
       <section className="sb-panel-docs" aria-labelledby={`${title}-docs`}>
         <h3 id={`${title}-docs`}>Documents from this step</h3>
-        <StepDocs key={stop} slug={job.slug} docs={listOf<JobDocEntry>(view?.docs)} request={request} loaded={view !== null} />
+        <StepDocs key={stop} slug={job.slug} docs={listOf<JobDocEntry>(view?.docs)} request={request} loaded={view !== null || error !== null} />
       </section>
     </section>
   );

@@ -343,6 +343,46 @@ describe('StepPanel', () => {
     expect(reads()).toBe(2);
   });
 
+  it('Open docs is dropped when the step’s load fails: a later Try again never moves the focus', async () => {
+    for (const hosted of [false, true]) {
+      const { wrap } = stores(BUILDING, { hosted });
+      const panel = (view: StageView | null, error: string | null) => wrap(<StepPanel job={BUILDING} stop="build" view={view} error={error} onRetry={() => {}} now={NOW} docRequest={{ n: 1, file: null }} />);
+      const view = render(panel(null, null));
+      // The load fails: the request waits no more.
+      view.rerender(panel(null, 'Starbase isn’t answering'));
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+      // He clicks elsewhere; Try again brings the step with its documents later: the focus stays.
+      const elsewhere = document.createElement('button');
+      document.body.append(elsewhere);
+      elsewhere.focus();
+      view.rerender(panel(BUILD, null));
+      await act(async () => {});
+      expect(within(screen.getByRole('region', { name: 'Documents from this step' })).getAllByRole('button')).toHaveLength(2);
+      expect(elsewhere).toHaveFocus();
+      elsewhere.remove();
+      cleanup();
+    }
+  });
+
+  it('Open docs waiting for a step’s answer is dropped when the job changes', async () => {
+    const { wrap } = stores(BUILDING);
+    const ask = { n: 1, file: null };
+    const view = render(wrap(<StepDocs slug={SLUG} docs={[]} request={ask} loaded={false} />));
+    const elsewhere = document.createElement('button');
+    document.body.append(elsewhere);
+    elsewhere.focus();
+    // Another job's list comes in, with the same request still passed: the focus stays.
+    view.rerender(wrap(<StepDocs slug="another-job" docs={[PLAN_DOC, TEST_PLAN]} request={ask} loaded />));
+    await act(async () => {});
+    expect(document.querySelectorAll('.doc-item')).toHaveLength(2);
+    expect(elsewhere).toHaveFocus();
+    // The same job, as before: its answer takes the focus to its first document.
+    view.rerender(wrap(<StepDocs slug="another-job" docs={[PLAN_DOC, TEST_PLAN]} request={{ n: 2, file: null }} loaded />));
+    await act(async () => {});
+    expect(document.activeElement).toBe(document.querySelector('.doc-item'));
+    elsewhere.remove();
+  });
+
   it('the step’s body sits after the feed, or first with bodyFirst', () => {
     const order = () => {
       const panel = screen.getByRole('tabpanel');
