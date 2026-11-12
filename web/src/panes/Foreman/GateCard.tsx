@@ -337,9 +337,15 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   const keep = (m: Mode, n: Notes) => {
     const box = m === 'changes' || m === 'message' ? m : null;
     const held = box !== null || n.changes.trim() !== '' || n.message.trim() !== '';
-    if (held) { writeStored(gateBoxKey(slug), JSON.stringify({ gate: thisGate, session, brief: gate.briefNumber ?? null, mode: box, notes: n, ...(answeredHere.current ? { mine: true } : {}) } satisfies KeptBox)); return; }
-    // Nothing held: forget this brief's, never another brief's words still to be moved (useKeptBoxWords).
     const was = readKeptBox(readStored(gateBoxKey(slug)));
+    if (held) {
+      // The one slot holds another brief's (or session's) words still to be moved (M7): they go to
+      // the message box first, never overwritten.
+      if (was && !ours(was)) moveKeptWords(slug, was);
+      writeStored(gateBoxKey(slug), JSON.stringify({ gate: thisGate, session, brief: gate.briefNumber ?? null, mode: box, notes: n, ...(answeredHere.current ? { mine: true } : {}) } satisfies KeptBox));
+      return;
+    }
+    // Nothing held: forget this brief's, never another brief's words still to be moved (useKeptBoxWords).
     if (ours(was)) writeStored(gateBoxKey(slug), null);
   };
   const keepRef = useRef(keep);

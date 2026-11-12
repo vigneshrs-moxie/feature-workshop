@@ -1298,3 +1298,20 @@ describe('words kept for one session', () => {
     expect(localStorage.getItem(gateBoxKey('alpha'))).toContain('Old words.');
   });
 });
+
+// M7: a kept slot is never overwritten.
+describe('a kept slot holding another brief’s words', () => {
+  it('words held for brief 2 are moved to the message box, not lost, when he types in brief 3’s card', () => {
+    writeStored(gateBoxKey('alpha'), JSON.stringify({ gate: '#2', session: null, brief: 2, mode: 'changes', notes: { changes: 'Brief two words.', message: '' } }));
+    writeStored(draftKey('alpha'), 'Earlier.');
+    setup({ det: oneQ({ briefNumber: 3 }) });
+    // Brief 3's card does not restore brief 2's words.
+    expect(screen.queryByRole('textbox', { name: /What should change\?/ })).toBeNull();
+    fireEvent.click(button(/^Revise with feedback/));
+    fireEvent.change(screen.getByRole('textbox', { name: /What should change\?/ }), { target: { value: 'Brief three words.' } });
+    expect(localStorage.getItem(draftKey('alpha'))).toBe('Earlier.\n\nBrief two words.');
+    const slot = localStorage.getItem(gateBoxKey('alpha')) ?? '';
+    expect(slot).toContain('Brief three words.');
+    expect(slot).not.toContain('Brief two words.');
+  });
+});
