@@ -261,16 +261,26 @@ test('evidence server: while it records, the view says which line of how many an
     assert.equal(card.lane, 'working');
     assert.equal(card.laneReason, 'Recording evidence: line 1 of 3');
   } finally {
+    // Let it go and see it end, so no later test finds this recording still in the queue (final fixes C4).
     await setHold('go');
+    await viewWhen('held-job', (v) => !v.recording, 'the held recording never ended');
   }
 });
 
 test('evidence server: when the recording ends the progress is gone', async () => {
-  const view = await viewWhen('held-job', (v) => v.evidence && !v.recording, 'the held recording never ended');
+  // Its own job, held part way and then let go (final fixes C4: no test depends on another's job).
+  await fs.rm(hold, { force: true });
+  try {
+    await writeJob('ended-job', { level: 2 });
+    await viewWhen('ended-job', runningFirst, 'no recording part way');
+  } finally {
+    await setHold('go');
+  }
+  const view = await viewWhen('ended-job', (v) => v.evidence && !v.recording, 'the held recording never ended');
   assert.equal(view.progress, null);
-  assert.equal((await cardOf('held-job')).testing, null);
+  assert.equal((await cardOf('ended-job')).testing, null);
   const { epoch } = await getJson('/api/snapshot');
-  const seen = (await eventsFor(800, epoch)).filter((e) => e.type === 'evidence' && e.job === 'held-job');
+  const seen = (await eventsFor(800, epoch)).filter((e) => e.type === 'evidence' && e.job === 'ended-job');
   assert.ok(seen.some((e) => e.data.outcome === 'progress' && e.data.progress?.line === 1 && e.data.progress.lines[0].state === 'running'), 'each change is sent');
   assert.equal(seen.at(-1).data.outcome, 'progress');
   assert.equal(seen.at(-1).data.progress, null, 'the last one says it is gone');
@@ -574,6 +584,56 @@ test('evidence server: run/ already gone while the run is still listed answers 4
   } finally {
     await done();
   }
+});
+
+// ---------- Try it while a recording holds the app (final fixes C3) ----------
+
+const HELD_WORDS = 'The evidence recording is using this app. It stops by itself when the recording ends.';
+const tryIt = async (slug, action) => {
+  const res = await post(`/api/job/${slug}/local`, { action });
+  return { status: res.status, body: await res.json() };
+};
+const appOf = async (slug) => (await getJson(`/api/job/${slug}/local`)).server?.status ?? null;
+
+test('Stop is refused while a recording holds the app', async () => {
+  const done = await heldRecording('stop-held-job');
+  try {
+    assert.equal(await appOf('stop-held-job'), 'running', 'the recorder started the app');
+    const r = await tryIt('stop-held-job', 'stop');
+    assert.equal(r.status, 409);
+    assert.equal(r.body.error, HELD_WORDS);
+    assert.equal(await appOf('stop-held-job'), 'running', 'the app is untouched');
+  } finally {
+    await done();
+  }
+  assert.equal(await appOf('stop-held-job'), 'stopped', 'the recorder stops the app it started, at the end');
+});
+
+test('Start while a recording holds the app leaves it running after the recording', async () => {
+  const done = await heldRecording('start-held-job');
+  try {
+    const r = await tryIt('start-held-job', 'start');
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.status, 'running', 'he gets the running app');
+    const job = await getJson('/api/job/start-held-job');
+    assert.ok(job.page.handTest.startedAt, 'the hand test is marked started');
+  } finally {
+    await done();
+  }
+  assert.equal(await appOf('start-held-job'), 'running', 'the recorder left it running: it is his now');
+  assert.deepEqual(await tryIt('start-held-job', 'stop'), { status: 200, body: { ok: true } });
+});
+
+test('after the recording ends Stop works again', async () => {
+  const done = await heldRecording('stop-after-job');
+  try {
+    assert.equal((await tryIt('stop-after-job', 'stop')).status, 409);
+  } finally {
+    await done();
+  }
+  assert.equal((await tryIt('stop-after-job', 'start')).status, 200);
+  assert.deepEqual(await tryIt('stop-after-job', 'stop'), { status: 200, body: { ok: true } });
+  assert.equal(await appOf('stop-after-job'), 'stopped');
 });
 
 // ---------- The demo's recording under way (demo mode only; dashboard/demo/run-demo.js) ----------

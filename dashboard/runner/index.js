@@ -239,6 +239,8 @@ export async function createRunner(config) {
   const AUTO_OFF_ONLY_CHANGE = 'Only Auto changed: it was switched off for the restart. Turn it on again if you want it.';
   const AUTO_OFF_FOR_RESTART = ' Auto was switched off for the restart. Turn it on again if you want it.';
   const BEING_RESTARTED = 'This job is being started again on another model right now. Wait for that to finish.';
+  // Try it's Stop while the evidence recording holds the job's app (runner/evidence.js holdsApp).
+  const APP_HELD = 'The evidence recording is using this app. It stops by itself when the recording ends.';
   // Jobs whose reply the last stop cut off (runner/replay.js), by job folder: { how: 'clean' (it
   // carries on by itself) or 'crash' (it waits for Resume), at, runId, sessionId, cwd, model, slug }.
   // Gone once anything is sent to the job, or it is marked done.
@@ -639,6 +641,8 @@ export async function createRunner(config) {
   // ownCodeDir): null, as with no folder, branch or base. A git that fails throws.
   const BRANCH_COMMITS_KEPT = 50; // the most branches whose commits are kept, the oldest out first
   const branchCommitsCache = new Map(); // codeDir|branch|base -> { head, commits }
+  // The Build step's commits with their files (GET /api/job/:slug/commits), kept the same way.
+  const commitsWithFilesCache = new Map(); // codeDir|branch|base -> { head, commits }
   async function branchCommitsOf(f) {
     const base = f.baseSha ?? f.baseBranch;
     const branch = ownBranch(f);
@@ -716,10 +720,15 @@ export async function createRunner(config) {
     review: await reviewOf(f.dir),
     hexCommit: hexKnown.get(f.dir) ?? null,
   });
+  // The jobs as the ledger's last read saw them, by slug: its lanes go through ownLane (lib/locate.js),
+  // so a job whose branch is only a guess is never credited from another job's lane.
+  let playSeen = new Map();
+  const playLanes = () => [...flowLanes.keys()].map((slug) => ownLane(playSeen.get(slug) ?? { slug }, flowLanes)).filter(Boolean);
   // Every job: the cached list when it is fresh (fresh: true asks for that only), else a full read.
   async function playJobs({ fresh }) {
     const list = fresh ? (cached && Date.now() - cached.at < 1500 ? cached.list : null) : await features();
     if (list && !fresh) await lookForHex(list);
+    if (list) playSeen = new Map(list.map((f) => [f.slug, f]));
     return list ? Promise.all(list.map(playJobOf)) : null;
   }
   // One job whose files changed: its status.json and review.md again, the rest as last read.
@@ -741,7 +750,7 @@ export async function createRunner(config) {
       job: playJobFiles,
       settings: () => playNow,
       workflow: () => ({ finishLine: finishLineNow }),
-      flow: () => [...flowLanes.values()],
+      flow: playLanes,
     },
     onUnlock: (achievement) => { if (playOn()) events.emit('play', null, { achievement }); },
     // A quest done: the page celebrates it (a toast), from the ledger alone.
@@ -2885,8 +2894,16 @@ export async function createRunner(config) {
       const audit = (extra = {}) => state.audit({ action: 'local', featureDir: f.dir, slug: f.slug, what: action, ...extra });
       try {
         if (action === 'env') { const r = await local.setupEnv(f); await audit({ changed: r.changed }); return r; }
-        if (action === 'start') { const r = await local.startServer(f); await audit({ port: r.port }); await markHandTestStarted(f); return r; }
-        if (action === 'stop') return { ok: local.stopServer(f.slug) };
+        // While the evidence recording holds the app (runner/evidence.js holdsApp), Stop is refused and
+        // Start hands the running app to him: the recording then leaves it running when it ends.
+        if (action === 'start') {
+          if (local_.evidence.holdsApp(f.slug)) local_.evidence.handAppOver(f.slug);
+          const r = await local.startServer(f); await audit({ port: r.port }); await markHandTestStarted(f); return r;
+        }
+        if (action === 'stop') {
+          if (local_.evidence.holdsApp(f.slug)) throw new HttpError(409, APP_HELD);
+          return { ok: local.stopServer(f.slug) };
+        }
         if (action === 'run') {
           const preset = body.preset || null;
           const command = body.command ?? '';
@@ -3363,7 +3380,16 @@ export async function createRunner(config) {
       const branch = ownBranch(f);
       if (!codeDir || !branch || !(await git.isGitRepo(codeDir))) return { dir: codeDir, commits: [], note: 'No feature branch yet. Commits show up here once building starts.' };
       try {
-        return { dir: codeDir, base: f.baseSha ?? null, head: branch, commits: await git.commitsWithFiles(codeDir, { base: f.baseSha ?? null, head: branch }) };
+        // Read again only when the branch's head moved (as branchCommitsOf): one `git rev-parse` each ask.
+        const head = await git.headOf(codeDir, branch);
+        const key = `${codeDir}|${branch}|${f.baseSha ?? ''}`;
+        const hit = head ? commitsWithFilesCache.get(key) : null;
+        let commits = hit?.head === head ? hit.commits : null;
+        if (!commits) {
+          commits = await git.commitsWithFiles(codeDir, { base: f.baseSha ?? null, head: branch });
+          if (head) keepLatest(commitsWithFilesCache, key, { head, commits }, BRANCH_COMMITS_KEPT);
+        }
+        return { dir: codeDir, base: f.baseSha ?? null, head: branch, commits };
       } catch (err) {
         return { dir: codeDir, commits: [], note: `Couldn’t read the branch: ${String(err.message).split('\n')[0]}` };
       }

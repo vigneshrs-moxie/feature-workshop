@@ -376,6 +376,34 @@ test('a job at Build has its plan’s steps by its commits, and its review’s f
   assert.ok(commits.commits.every((c) => Array.isArray(c.files)), 'each commit lists its files');
 });
 
+test('the Build step’s commits are read again only when the branch’s head moves (final fixes C4)', { timeout: 60_000 }, async () => {
+  const cacheRepo = path.join(root, 'commits-cache-repo');
+  await fs.mkdir(cacheRepo, { recursive: true });
+  const env = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
+  const sh = (...args) => execFileSync('git', ['-c', 'commit.gpgsign=false', ...args], { cwd: cacheRepo, stdio: ['ignore', 'pipe', 'ignore'], env }).toString().trim();
+  sh('init', '-q', '-b', 'main');
+  sh('commit', '-q', '--allow-empty', '-m', 'base');
+  sh('switch', '-q', '-c', 'feature/cached');
+  sh('commit', '-q', '--allow-empty', '-m', '[S1] the form');
+  const slug = 'commits-cached';
+  await writeJob(slug, { files: { 'status.json': { schema_version: 1, slug, title: `Job ${slug}`, route: 'small', stage: 'implement', stage_state: 'working', branch: 'feature/cached', repo: { path: cacheRepo, base_branch: 'main' }, updated_at: OLD } } });
+  await foundJob(slug);
+  // No base recorded for the job: the branch's whole history, newest first.
+  const subjects = async () => (await (await fetch(`${base}/api/job/${slug}/commits`)).json()).commits.map((c) => c.subject);
+  assert.deepEqual(await subjects(), ['[S1] the form', 'base']);
+  // git log would now show the commit with other words (a replace leaves the branch's head where it
+  // was): the same head answers what was read before, so git log did not run again.
+  const head = sh('rev-parse', 'feature/cached');
+  const other = sh('commit-tree', `${head}^{tree}`, '-p', `${head}^`, '-m', 'read again');
+  sh('replace', head, other);
+  assert.equal(sh('rev-parse', '--verify', 'feature/cached^{commit}'), head, 'the head has not moved');
+  assert.deepEqual(await subjects(), ['[S1] the form', 'base']);
+  // The head moves: read again.
+  sh('replace', '-d', head);
+  sh('commit', '-q', '--allow-empty', '-m', '[S2] the list');
+  assert.deepEqual(await subjects(), ['[S2] the list', '[S1] the form', 'base']);
+});
+
 test('a job closed as done has every plan step done; one closed as dropped keeps what its commits say (Task 4, fix round 1)', { timeout: 60_000 }, async () => {
   const env = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
   const close = async (slug, as) => {
@@ -503,7 +531,7 @@ function guessedWorld() {
     }
     assert.deepEqual({ branch: job.branch, guessed: job.locate?.branchGuessed, located: job.locate?.worktree }, { branch: 'feature/other-thing', guessed: true, located: main.wt });
     assert.equal(exp.locate?.branchGuessed, true);
-    return { d, get, slug: main.slug, repo: gRepo, wt: main.wt, baseSha, s1: main.s1, merged };
+    return { d, get, slug: main.slug, dir: main.dir, repo: gRepo, wt: main.wt, baseSha, s1: main.s1, merged };
   })();
   return guessed;
 }
@@ -557,8 +585,13 @@ test('the header\'s place of the work never comes from a guessed branch\'s pull 
   assert.equal(job.finish?.reached, false, 'not "PR #1 open from your fork" by the guessed branch\'s PR #1');
 });
 
+/** The slugs the flow map has a lane for now (GET /api/flow). */
+const laneSlugs = async (w) => (await w.get('/api/flow')).repos.flatMap((r) => r.lanes ?? []).map((l) => l.slug);
+
 test('the plan is all done by a merged PR #1 only while the branch is recorded, never by a guessed branch\'s lane', { timeout: 60_000 }, async () => {
   const w = await guessedWorld();
+  // What a revert would wrongly read is still there: the map kept the lane it read while the branch was recorded.
+  assert.ok((await laneSlugs(w)).includes(w.merged.slug), 'the map still has the guessed job\'s lane');
   const job = await w.get(`/api/job/${w.merged.slug}`);
   assert.deepEqual(job.page.plan.steps.map((s) => s.state), ['next', 'next'], 'not "all done" by the guessed branch\'s merged PR #1, nor built by its [S1]');
   assert.equal(job.page.prs[0].state, 'not-started');
@@ -597,7 +630,18 @@ test('This is the job\'s branch tells every open page the job changed, and the j
   });
   req.on('error', () => {});
   try {
-    await sleep(300);
+    // Start from a map with no lane for the job, so only the handler's own recount can give it back
+    // in time: a change in the job's folder first (the map's recount after a change then waits 15
+    // seconds), then a recount, which drops the guessed job's lane.
+    await fs.writeFile(path.join(w.dir, 'notes.md'), 'Seen again.\n');
+    for (let n = 0; n < 100 && !seen.some((e) => e.type === 'change'); n++) await sleep(50);
+    assert.ok(seen.some((e) => e.type === 'change'), 'the folder\'s change was seen');
+    const refreshed = await fetch(`${w.d.base}/api/flow/refresh`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Starbase-Token': w.d.token }, body: '{}' });
+    assert.equal(refreshed.status, 202, await refreshed.text());
+    for (let n = 0; n < 100 && (await laneSlugs(w)).includes(w.slug); n++) await sleep(50);
+    assert.equal((await laneSlugs(w)).includes(w.slug), false, 'the map has no lane for the guessed job');
+    assert.equal((await w.get(`/api/job/${w.slug}`)).page.prs[0].state, 'not-started');
+    seen.length = 0;
     const res = await fetch(`${w.d.base}/api/job/${w.slug}/repo`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Starbase-Token': w.d.token }, body: JSON.stringify({ repoPath: w.repo, branch: 'feature/other-thing' }) });
     assert.equal(res.status, 200, await res.text());
     for (let n = 0; n < 60 && !seen.some((e) => e.type === 'change'); n++) await sleep(50);

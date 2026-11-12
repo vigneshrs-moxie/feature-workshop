@@ -574,10 +574,24 @@ test('evidence: the guard never takes a picture while the last one is still bein
 });
 
 test('evidence: a picture still being taken when the test ends is never written (stopped)', async () => {
+  // The picture comes back when the test says so: after the end (final fixes C5c, no race against a timer).
   let started = false;
-  const g = await guardedPage('guard-stopped', async () => { started = true; await pause(1000); return Buffer.from('late'); });
+  let release;
+  const late = new Promise((resolve) => { release = resolve; });
+  const g = await guardedPage('guard-stopped', () => { started = true; return late; });
   await g.run(async () => { await until(async () => started, 'a picture started'); });
-  await pause(1500); // the late picture comes back after the end
+  // Every write the guard makes goes through fs.promises.writeFile: note them while the late picture lands.
+  const wrote = [];
+  const realWrite = fs.writeFile;
+  try {
+    fs.writeFile = (file, ...rest) => { wrote.push(String(file)); return realWrite.call(fs, file, ...rest); };
+    release(Buffer.from('late'));
+    // Past every step that follows the picture's return (a write, had the guard made one, has begun by now).
+    await new Promise((resolve) => { setImmediate(resolve); });
+  } finally {
+    fs.writeFile = realWrite;
+  }
+  assert.deepEqual(wrote.filter((f) => f.startsWith(g.liveFile)), [], 'nothing written after the end');
   assert.equal(await exists(g.liveFile), false, 'no live.jpg');
   assert.deepEqual((await fs.readdir(g.dir)).filter((f) => f.startsWith('live')), [], 'and no live.jpg.part');
 });

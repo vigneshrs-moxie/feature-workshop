@@ -128,12 +128,15 @@ export function stepDocs(docs = [], kind = null) {
 const STEP_HEADING = /^###\s+(S\d+[a-z]?)\s*:\s*(.*\S)\s*$/;
 // A code fence's marker: it ends at a line of the same character, at least as long (``` inside ~~~ doesn't).
 const FENCE = /^\s*(`{3,}|~{3,})/;
+// How many steps the page keeps, and how long a name: the job record must fit the website's limit.
+const PLAN_STEPS_MAX = 50;
+const PLAN_STEP_NAME_MAX = 200;
 
 /**
  * Every `### S<n>: <name>` heading of a plan (implementation-plan.md, else quick-plan.md), in the
- * order written: [{ id, name }]. The name is everything after the first colon, without a closing
- * run of #s. Headings inside a ``` or ~~~ code block don't count. None (a plan from before this
- * change, or no text): []. Pure.
+ * order written: [{ id, name }], the first 50, each name cut at 200 characters. The name is
+ * everything after the first colon, without a closing run of #s. Headings inside a ``` or ~~~ code
+ * block don't count. None (a plan from before this change, or no text): []. Pure.
  */
 export function planSteps(text) {
   if (typeof text !== 'string') return [];
@@ -145,7 +148,8 @@ export function planSteps(text) {
     if (f && f[0] === fence[0] && f.length >= fence.length) { fence = null; continue; }
     const m = fence ? null : STEP_HEADING.exec(line);
     const name = m ? m[2].replace(/\s+#+\s*$/, '').trim() : '';
-    if (name) out.push({ id: m[1], name });
+    if (name) out.push({ id: m[1], name: name.slice(0, PLAN_STEP_NAME_MAX) });
+    if (out.length === PLAN_STEPS_MAX) break;
   }
   return out;
 }
@@ -260,28 +264,41 @@ export function keepLatest(map, key, value, max) {
 const AC_ID = /\bAC-(\d{1,4})\b/g;
 const CHECK_MARK = /\b(NOT RUN|PASS(?:ED)?|FAIL(?:ED)?)\b/g;
 
-// The one mark a report line gives every AC on it: FAIL when it has both a pass word and a fail
-// word (a count must never call a failing check passed), otherwise its first mark. Null when none.
+// A report line's mark and where it starts: the worst mark word on it (FAIL, then NOT RUN, then
+// PASS; a count must never call a failing check passed), and the index of the line's first mark
+// word. Null when the line has none.
 function lineMark(line) {
-  const words = [...line.matchAll(CHECK_MARK)].map((m) => m[1].replace(/ED$/, ''));
-  if (!words.length) return null;
-  if (words.includes('PASS') && words.includes('FAIL')) return 'FAIL';
-  return words[0];
+  const found = [...line.matchAll(CHECK_MARK)];
+  if (!found.length) return null;
+  const words = found.map((m) => m[1].replace(/ED$/, ''));
+  const mark = words.includes('FAIL') ? 'FAIL' : words.includes('NOT RUN') ? 'NOT RUN' : 'PASS';
+  return { mark, at: found[0].index };
 }
 
 /**
  * How the Tester's checks came out, by test-report.md: { passed, failed, notRun }, one count per
- * acceptance line (AC-<n>) the report marks PASS, FAIL or NOT RUN (PASSED and FAILED too) on the
- * same line, every AC on a line taking that line's mark and its last mention winning (a line
- * checked again). Null when no line is marked. Pure.
+ * acceptance line (AC-<n>) the report marks PASS, FAIL or NOT RUN (PASSED and FAILED too). The rule:
+ *   1. A line's mark is the worst mark word on it: FAIL, then NOT RUN, then PASS.
+ *   2. The mark goes only to the AC ids written before the line's first mark word (an AC named
+ *      after it, "AC-2: PASS (needed AC-5's fix first)", is only mentioned).
+ *   3. A later line for the same AC wins (a line checked again), except that an id which is not
+ *      the first id on its line never turns an earlier FAIL into a PASS.
+ * Null when no line is marked. Pure.
  */
 export function checkCounts(reportText) {
   if (typeof reportText !== 'string') return null;
   const marks = new Map();
   for (const line of reportText.split(/\r?\n/)) {
     const ids = [...line.matchAll(AC_ID)];
-    const mark = ids.length ? lineMark(line) : null;
-    if (mark) for (const id of ids) marks.set(Number(id[1]), mark);
+    const found = ids.length ? lineMark(line) : null;
+    if (!found) continue;
+    const first = Number(ids[0][1]);
+    for (const id of ids) {
+      if (id.index > found.at) break;
+      const n = Number(id[1]);
+      if (n !== first && found.mark === 'PASS' && marks.get(n) === 'FAIL') continue;
+      marks.set(n, found.mark);
+    }
   }
   if (!marks.size) return null;
   const out = { passed: 0, failed: 0, notRun: 0 };

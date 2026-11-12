@@ -167,10 +167,20 @@ function costActivityUp(list) {
   });
 }
 
+/**
+ * Where the job's branch came from, without a path (lib/locate.js locateJob): the website reads
+ * branchGuessed to show a guessed branch as a guess. The folders and the paths tried stay here.
+ */
+function locateUp(locate) {
+  if (!isPlain(locate)) return null;
+  return { branch: locate.branch ?? null, branchSource: locate.branchSource ?? null, branchGuessed: locate.branchGuessed === true };
+}
+
 export function jobRecord(detail) {
   const { audit, lastReply, locate, runs, run, permissionsPending, thread, ...rest } = detail;
   return wireSafe({
     ...rest,
+    locate: locateUp(locate),
     ...('activity' in rest ? { activity: activityUp(rest.activity) } : {}),
     ...(isPlain(rest.costDetail) && 'activity' in rest.costDetail ? { costDetail: { ...rest.costDetail, activity: costActivityUp(rest.costDetail.activity) } } : {}),
     run: runState(run), runs: (runs ?? []).map(runState),
@@ -215,9 +225,35 @@ export function stackRecord(view) {
 }
 export const partRecord = (page) => wireSafe(page);
 
+/** How many review rows and Auto lines a job that is too big keeps. */
+const REVIEW_ROWS_KEPT = 30;
+const AUTO_DECIDED_KEPT = 20;
+
 /**
- * The part as it goes on the wire, cut to fit: a document loses its rendered copy first, a job its
- * oldest conversation lines; anything still too big says so instead.
+ * What a job's record sheds after its conversation, in this order, while it is still too big. The
+ * gate and the three calls' data (gate, heldReply, answeredBriefs, permissionsPending) are never shed.
+ */
+const JOB_SHEDS = [
+  // The feed and last command of a crew member no longer running.
+  (v) => (Array.isArray(v.activity)
+    ? { ...v, activity: v.activity.map((a) => (isPlain(a) && a.state !== 'running' ? (({ recent, lastCommand, ...kept }) => kept)(a) : a)) }
+    : v),
+  // The Docs list again: the website has it as its own part (docs/<slug>).
+  (v) => (isPlain(v.page) && v.page.docs != null ? { ...v, page: { ...v.page, docs: null } } : v),
+  // The review's rows beyond the first 30, marked cut.
+  (v) => (Array.isArray(v.page?.review?.rows) && v.page.review.rows.length > REVIEW_ROWS_KEPT
+    ? { ...v, page: { ...v.page, review: { ...v.page.review, rows: v.page.review.rows.slice(0, REVIEW_ROWS_KEPT), cut: true } } }
+    : v),
+  // What Auto decided beyond the newest 20 (the list is oldest first).
+  (v) => (isPlain(v.auto) && Array.isArray(v.auto.decided) && v.auto.decided.length > AUTO_DECIDED_KEPT
+    ? { ...v, auto: { ...v.auto, decided: v.auto.decided.slice(-AUTO_DECIDED_KEPT) } }
+    : v),
+];
+
+/**
+ * The part as it goes on the wire, cut to fit: a document loses its rendered copy first; a job its
+ * brief's rendered copy and oldest conversation lines, then JOB_SHEDS one at a time until it fits.
+ * Anything still too big says so instead.
  */
 export function fit(kind, value) {
   const size = (v) => Buffer.byteLength(JSON.stringify(v ?? null));
@@ -226,9 +262,13 @@ export function fit(kind, value) {
     const lighter = { ...value, html: null, cut: true, text: value.text.slice(0, RECORD_MAX / 2) };
     if (size(lighter) <= RECORD_MAX) return lighter;
   }
-  if (kind === 'job' && Array.isArray(value.thread)) {
+  if (kind === 'job' && isPlain(value)) {
     let v = { ...value, latestBrief: value.latestBrief ? { ...value.latestBrief, html: null } : null };
-    while (v.thread.length > 5 && size(v) > RECORD_MAX) v = { ...v, thread: v.thread.slice(Math.ceil(v.thread.length / 4)), threadMore: true };
+    if (Array.isArray(v.thread)) while (v.thread.length > 5 && size(v) > RECORD_MAX) v = { ...v, thread: v.thread.slice(Math.ceil(v.thread.length / 4)), threadMore: true };
+    for (const shed of JOB_SHEDS) {
+      if (size(v) <= RECORD_MAX) return v;
+      v = shed(v);
+    }
     if (size(v) <= RECORD_MAX) return v;
   }
   return { tooBig: true, words: TOO_BIG };

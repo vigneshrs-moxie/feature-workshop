@@ -156,6 +156,31 @@ test('a line with both PASS and FAIL counts as failed', async () => {
   assert.deepEqual(checkCounts('- AC-3 PASSED before, FAILED now\n'), { passed: 0, failed: 1, notRun: 0 });
 });
 
+// Final fixes C5b: a mention never turns a failure into a pass.
+
+test('an AC only mentioned after the mark keeps its own mark', async () => {
+  const { checkCounts } = await import('../lib/job-page.js');
+  assert.deepEqual(checkCounts('- AC-5: FAIL\n- AC-2: PASS (needed AC-5’s fix first)\n'), { passed: 1, failed: 1, notRun: 0 });
+  // An AC named only after a line's mark has no mark from that line.
+  assert.deepEqual(checkCounts('- AC-1: PASS, as AC-9 will once it is built\n'), { passed: 1, failed: 0, notRun: 0 });
+});
+
+test('a later line cannot turn a failure into a pass by listing the AC second', async () => {
+  const { checkCounts } = await import('../lib/job-page.js');
+  assert.deepEqual(checkCounts('- AC-5: FAIL\n- AC-2, AC-5: PASS\n'), { passed: 1, failed: 1, notRun: 0 });
+  assert.deepEqual(checkCounts('| AC-5 | Export | FAIL |\n| AC-1 | works like AC-5 | PASS |\n'), { passed: 1, failed: 1, notRun: 0 });
+  // Listed first, a later line is the AC's own line again, and wins.
+  assert.deepEqual(checkCounts('- AC-5: FAIL\n- AC-5, AC-2: PASS\n'), { passed: 2, failed: 0, notRun: 0 });
+  // Second on a line, it may still set a mark the AC had not got, or make it worse.
+  assert.deepEqual(checkCounts('- AC-1, AC-2: PASS\n- AC-3, AC-2: FAIL\n'), { passed: 1, failed: 2, notRun: 0 });
+});
+
+test('the worst word on a line wins', async () => {
+  const { checkCounts } = await import('../lib/job-page.js');
+  assert.deepEqual(checkCounts('- AC-3: NOT RUN earlier, now FAIL\n'), { passed: 0, failed: 1, notRun: 0 });
+  assert.deepEqual(checkCounts('- AC-4: PASS on Chrome, NOT RUN on Safari\n'), { passed: 0, failed: 0, notRun: 1 });
+});
+
 test('PASSED and FAILED count; lower case does not', async () => {
   const { checkCounts } = await import('../lib/job-page.js');
   assert.deepEqual(checkCounts('- AC-1 PASSED\n- AC-2 FAILED\n- AC-3 NOT RUN\n'), { passed: 1, failed: 1, notRun: 1 });
@@ -229,6 +254,15 @@ test('planSteps reads the S headings in order', () => {
   const steps = planSteps(text);
   assert.deepEqual(steps.slice(0, 2), [{ id: 'S1', name: 'The form' }, { id: 'S2', name: 'The list: sorted by name' }]);
   assert.deepEqual(steps.map((s) => s.id), ['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10'], 'as written: S10 after S9');
+});
+
+test('planSteps keeps at most 50 steps, each name cut at 200 characters (final fixes C2)', () => {
+  const text = Array.from({ length: 80 }, (_, i) => `### S${i + 1}: ${'n'.repeat(500)}`).join('\n');
+  const steps = planSteps(text);
+  assert.equal(steps.length, 50);
+  assert.equal(steps.at(-1).id, 'S50', 'the first 50, in the order written');
+  assert.ok(steps.every((s) => s.name.length === 200));
+  assert.deepEqual(planSteps('### S1: Short'), [{ id: 'S1', name: 'Short' }], 'a short plan is as it was');
 });
 
 test('a plan with no S headings has no steps', () => {
