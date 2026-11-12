@@ -1286,3 +1286,15 @@ describe('words kept in the card’s boxes', () => {
     expect(localStorage.getItem(gateBoxKey('alpha'))).toBeNull();
   });
 });
+
+// M4: kept words belong to one Foreman session and one brief.
+describe('words kept for one session', () => {
+  it('words kept in another Foreman session are not restored into the new brief with the same number', () => {
+    writeStored(gateBoxKey('alpha'), JSON.stringify({ gate: '#2', session: 's1', brief: 2, mode: 'changes', notes: { changes: 'Old words.', message: '' } }));
+    setup({ det: detail({}, { drive: { mode: 'workshop', model: 'claude-opus-5-5', sessionId: 's2' } }) });
+    expect(card()).not.toBeNull();
+    expect(screen.queryByRole('textbox', { name: /What should change\?/ })).toBeNull();
+    // Left for the job page to move to the message box, never wiped here.
+    expect(localStorage.getItem(gateBoxKey('alpha'))).toContain('Old words.');
+  });
+});

@@ -1143,6 +1143,23 @@ describe('words typed in the card’s boxes', () => {
     expect(screen.queryByText(/was answered while you were writing/)).toBeNull();
   });
 
+  // Fix round 1, M4: a gate with no brief number whose words change keeps the same card mounted.
+  it.each(MODES)('a gate with no brief number whose words change: the moved words leave the card’s box too (%s)', async (_where, hosted) => {
+    const NO_NUMBER = { ...GATE, briefNumber: null };
+    const { store } = setup({ jobs: waiting(), gate: NO_NUMBER, hosted });
+    await sendBackWith('Use the small table.');
+    server.gate = { ...NO_NUMBER, headline: 'Plan v3 ready', nextProposed: 'Build step 2' };
+    act(() => { store.dispatch({ type: 'event', event: ev(300, 'thread', 'alpha', {}) }); });
+    await waitFor(() => expect(messageBox()).toHaveValue('Use the small table.'));
+    await waitFor(() => expect(bar()).toHaveTextContent('Plan v3 ready'));
+    // The card for the new words: its box is closed, and opening it shows no old words.
+    expect(screen.queryByRole('textbox', { name: /What should change\?/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /^No go: send back/ }));
+    expect(await changesBox()).toHaveValue('');
+    await act(async () => {});
+    expect(messageBox()).toHaveValue('Use the small table.');
+  });
+
   it.each(MODES)('sent or cancelled words are not restored (%s)', async (_where, hosted) => {
     // Cancelled.
     setup({ jobs: waiting(), gate: GATE, hosted });

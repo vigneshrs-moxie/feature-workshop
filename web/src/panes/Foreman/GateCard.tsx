@@ -224,7 +224,7 @@ export const gateMovedKey = (slug: string) => `fw.gateMoved.${slug}`;
  * What is kept: for which go / no go (gateKey) and its brief number, the open box, and the words.
  * `mine`: he answered this brief himself (a Go or a send back went out), so what is left is unsent.
  */
-interface KeptBox { gate: string; brief: number | null; mode: 'changes' | 'message' | null; notes: Notes; mine?: boolean }
+interface KeptBox { gate: string; session: string | null; brief: number | null; mode: 'changes' | 'message' | null; notes: Notes; mine?: boolean }
 
 function readKeptBox(raw: string | null): KeptBox | null {
   if (!raw) return null;
@@ -234,6 +234,8 @@ function readKeptBox(raw: string | null): KeptBox | null {
     if (!v || typeof v.gate !== 'string' || !n) return null;
     return {
       gate: v.gate,
+      // The Foreman session the words were typed in (M4): a job started again never gets them back.
+      session: typeof v.session === 'string' && v.session ? v.session : null,
       brief: typeof v.brief === 'number' ? v.brief : null,
       mode: v.mode === 'changes' || v.mode === 'message' ? v.mode : null,
       notes: { changes: typeof n.changes === 'string' ? n.changes : '', message: typeof n.message === 'string' ? n.message : '' },
@@ -277,7 +279,7 @@ export function useKeptBoxWords(job: Job, detail: JobDetail | null) {
     const kept = readKeptBox(readStored(gateBoxKey(slug)));
     if (!kept) return;
     const gate = openGate(detail, closed);
-    if (gate && gateKey(gate) === kept.gate) return;
+    if (gate && gateKey(gate) === kept.gate && sessionOf(detail) === kept.session) return;
     moveKeptWords(slug, kept);
   }, [raw, detail, closed, slug]);
 }
@@ -310,21 +312,35 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   const [c, setC] = useState<GateChoices>(() => initialChoices(gate));
   // The open box and each box's words, kept for this job and brief (final review A4) as the message
   // box keeps its draft: drawn again (the phone's screens, a refresh), the card has them back.
+  // Kept for one go / no go in one Foreman session (M4).
   const thisGate = gateKey(gate);
-  const [restored] = useState(() => { const k = readKeptBox(readStored(gateBoxKey(slug))); return k && k.gate === thisGate ? k : null; });
+  const session = sessionOf(detail);
+  const ours = (k: KeptBox | null) => k !== null && k.gate === thisGate && k.session === session;
+  const [restored] = useState(() => { const k = readKeptBox(readStored(gateBoxKey(slug))); return ours(k) ? k : null; });
   const [mode, setMode] = useState<Mode>(restored?.mode ?? null);
   // Each box keeps its own words (final review A3): what was typed as a change is never a Reply's note.
   const [notes, setNotes] = useState<Notes>(restored?.notes ?? { changes: '', message: '' });
   // He answered this brief himself (a deciding send is out or went): what is left is unsent (M5).
   const answeredHere = useRef(false);
+  // The card stays mounted when a gate with no brief number changes its words, or the job starts
+  // again with the same brief number (M4): the words typed for the old one leave its boxes (the
+  // job page moves them to the message box), and nothing is decided here yet.
+  const identity = `${thisGate}|${session ?? ''}`;
+  const [typedFor, setTypedFor] = useState(identity);
+  if (typedFor !== identity) {
+    setTypedFor(identity);
+    setNotes({ changes: '', message: '' });
+    setMode(null);
+    answeredHere.current = false;
+  }
   /** Write what is held now; written at once where the card may go straight after (a send, Cancel). */
   const keep = (m: Mode, n: Notes) => {
     const box = m === 'changes' || m === 'message' ? m : null;
     const held = box !== null || n.changes.trim() !== '' || n.message.trim() !== '';
-    if (held) { writeStored(gateBoxKey(slug), JSON.stringify({ gate: thisGate, brief: gate.briefNumber ?? null, mode: box, notes: n, ...(answeredHere.current ? { mine: true } : {}) } satisfies KeptBox)); return; }
+    if (held) { writeStored(gateBoxKey(slug), JSON.stringify({ gate: thisGate, session, brief: gate.briefNumber ?? null, mode: box, notes: n, ...(answeredHere.current ? { mine: true } : {}) } satisfies KeptBox)); return; }
     // Nothing held: forget this brief's, never another brief's words still to be moved (useKeptBoxWords).
     const was = readKeptBox(readStored(gateBoxKey(slug)));
-    if (was && was.gate === thisGate) writeStored(gateBoxKey(slug), null);
+    if (ours(was)) writeStored(gateBoxKey(slug), null);
   };
   const keepRef = useRef(keep);
   keepRef.current = keep;
