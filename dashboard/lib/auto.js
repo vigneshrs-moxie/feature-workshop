@@ -41,6 +41,7 @@ export const AUTO_CARDS_PER_REPLY = 40;
 export const AUTO_RULES = Object.freeze(['merge', 'database', 'outside', 'push', 'level', 'loop', 'approver', 'judgment', 'blocked', 'status', 'tool']);
 
 const isLevel = (v) => Number.isInteger(v) && v >= 0 && v <= 3;
+// Kept on purpose: with AUTO_MAX_LEVEL at 3 it is never true, but it stays the one place a lower ceiling would take effect.
 const aboveAuto = (v) => isLevel(v) && v > AUTO_MAX_LEVEL;
 
 /**

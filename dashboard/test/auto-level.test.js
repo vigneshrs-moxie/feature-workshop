@@ -35,3 +35,17 @@ test('after a build: a floor above the level raises it; L0 limits raise to L1', 
   assert.equal(checkDiff({ level: 2, diff: { paths: Array.from({ length: 30 }, (_, i) => `f${i}.ts`), lines: 900, added: ['x.ts'] } }).raiseTo, null);
   assert.equal(checkDiff({ level: 1, diff: null }).raiseTo, null);
 });
+
+test('his own level stands: the latest level line is his options change, made after an automatic level', async () => {
+  const { ownLevelStands } = await import('../lib/auto-level.js');
+  const auto = (level) => ({ action: 'auto-level', level });
+  const his = (level, extra = {}) => ({ action: 'options', options: { level }, ...extra });
+  assert.equal(ownLevelStands([]), false, 'no level line');
+  assert.equal(ownLevelStands([auto(3)]), false, 'the latest is Auto\'s own');
+  assert.equal(ownLevelStands([auto(3), his(2, { overrode: 'auto' })]), true, 'he changed the automatic level');
+  assert.equal(ownLevelStands([auto(3), his(2, { overrode: 'auto' }), his(1)]), true, 'and changed it again');
+  assert.equal(ownLevelStands([auto(3), his(2, { overrode: 'auto' }), auto(2)]), false, 'Auto set a level after his');
+  assert.equal(ownLevelStands([his(1)]), false, 'a level he set with no automatic level before it');
+  assert.equal(ownLevelStands([auto(3), { action: 'options', options: { flow: 'small' } }]), false, 'an options line with no level is not a level line');
+  assert.equal(ownLevelStands([auto(3), his(2), { action: 'send', kind: 'approve' }]), true, 'other lines after it change nothing');
+});

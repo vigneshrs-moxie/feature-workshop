@@ -63,3 +63,13 @@ export function checkDiff({ level, description = '', diff }) {
   }
   return raiseTo > now ? { raiseTo, reasons } : { raiseTo: null, reasons: [] };
 }
+
+/**
+ * Whether his own level stands, from the job's audit lines (oldest first, as state.auditFor reads them):
+ * the latest level line (an 'options' line with a level, or an 'auto-level' line) is his options change,
+ * made after an automatic level. Then nothing raises the level by itself; his choice stands.
+ */
+export function ownLevelStands(lines = []) {
+  const levelLines = lines.filter((e) => e?.action === 'auto-level' || (e?.action === 'options' && Number.isInteger(e.options?.level)));
+  return levelLines.at(-1)?.action === 'options' && levelLines.some((e) => e.action === 'auto-level');
+}

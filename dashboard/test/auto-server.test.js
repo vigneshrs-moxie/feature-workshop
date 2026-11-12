@@ -556,7 +556,7 @@ test('turning Auto on at L3 is allowed', { timeout: 30_000 }, async () => {
   } finally { await w.stop(); }
 });
 
-test('the same after a build\'s diff raises it', { timeout: 30_000 }, async () => {
+test('a build\'s diff that raises the level to L3 keeps the job in Auto', { timeout: 30_000 }, async () => {
   const w = await world({ jobStatus: status(1, { stage_state: 'working', waiting_for: null }) });
   try {
     const base = w.git('rev-parse', 'HEAD').toString().trim();
@@ -2249,19 +2249,24 @@ test('K6: the task carries the unconfirmed decisions, flattened; a go confirms t
 
 test('L1: a stop is told before the job can be told "waiting": the job is marked as being stopped first', { timeout: 30_000 }, async () => {
   const order = [];
-  let rec = { ...autoRecord(null, { on: true, now: OLD }) };
+  const lines = [];
+  // Money not yet on a line (an earlier pass's Approver cost): it goes on this code stop's line (m6).
+  let rec = { ...autoRecord(null, { on: true, now: OLD }), spent: 0.3 };
   const auto = createAuto({
     // A Foreman that says it is blocked: a stop decided by code, with no Approver (it was an L3 job, no longer a stop).
     read: async () => [{ dir: unitDir, slug: 'visit-audit', title: 'Visit audit', auto: { ...rec }, level: 1, suggestedLevel: null, stage: 'plan', stageState: 'blocked', answered: [], worktrees: [], specDirs: [], artifacts: [], gate: null }],
     update: async (dir, fn) => { order.push('update'); const n = fn({ ...rec }); if (n) rec = n; return { ...rec }; },
     decide: { gate: async () => {}, permission: async () => {} },
     askApprover: async () => ({ ok: false, problem: 'x' }),
-    state: { audit: async () => { order.push('audit'); }, auditFor: async () => [] },
+    state: { audit: async (l) => { order.push('audit'); lines.push(l); }, auditFor: async () => [] },
     notify: () => order.push('notify'),
     stopping: (slug, on) => order.push(`${on ? 'begin' : 'end'}:${slug}`),
   });
   await auto.pass();
-  assert.deepEqual(order, ['begin:visit-audit', 'update', 'audit', 'notify', 'end:visit-audit']);
+  // The second update takes the money off spent, once its line is written.
+  assert.deepEqual(order, ['begin:visit-audit', 'update', 'audit', 'update', 'notify', 'end:visit-audit']);
+  assert.deepEqual([lines[0].what, lines[0].rule, lines[0].costUsd], ['stop', 'blocked', 0.3]);
+  assert.equal(rec.spent, 0);
 });
 
 test('L1: the runner does not tell "waiting for your go-ahead" for a job whose stop is being written', { timeout: 30_000 }, async () => {
@@ -3998,5 +4003,67 @@ test('closing a Ready job is acting on it: reopened, it does not come back to Re
     await w.runner.handle({ type: 'close', slug: w.slug, as: 'done' }, { from: 'local' });
     await w.runner.handle({ type: 'reopen', slug: w.slug }, { from: 'local' });
     await actedOn(w);
+  } finally { await w.stop(); }
+});
+
+// ---------- Auto queue Task 4, fix round 1: his own level stands; the stops that stay at L3 ----------
+
+test('I1: an Auto job raised to L3 by suggestion that he sets to L2 stays at L2 while the Foreman still suggests L3', { timeout: 30_000 }, async () => {
+  const w = await world({ jobStatus: status(1, { suggested_level: 3 }), options: { level: 1, flow: 'quick', title: 'Visit audit columns' } });
+  try {
+    await w.pass();
+    await w.idle();
+    assert.equal((await w.ownOptions()).level, 3, 'raised by the suggestion first');
+    const autoLevels = async () => (await w.lines()).filter((l) => l.action === 'auto-level');
+    assert.equal((await autoLevels()).length, 1);
+    // He sets it to L2 in the options editor; the Foreman's next brief still suggests L3.
+    await w.runner.handle({ type: 'options', slug: w.slug, level: 2 }, { from: 'local' });
+    await w.writeStatus(status(2, { suggested_level: 3 }));
+    await new Promise((r) => setTimeout(r, 1700)); // the job list is cached for 1.5 seconds
+    await w.pass();
+    assert.equal((await w.ownOptions()).level, 2, 'his level stands');
+    assert.equal((await autoLevels()).length, 1, 'no auto-level line is added');
+    assert.equal(w.asks.length, 2);
+    assert.equal(w.asks[1].task.job.level, 2, 'the gate is answered at L2');
+    assert.deepEqual((await w.sends()).map((s) => [s.by, s.gateBrief]), [['auto', 1], ['auto', 2]]);
+    const rec = await w.record();
+    assert.deepEqual([rec.on, rec.stopped], [true, null]);
+  } finally { await w.stop(); }
+});
+
+test('I1: the raise still happens when the latest level line is Auto\'s own', { timeout: 30_000 }, async () => {
+  const w = await world({ jobStatus: status(1, { suggested_level: 3 }), options: { level: 2, flow: 'small', title: 'Visit audit columns' } });
+  try {
+    // An earlier level of his, then an automatic one after it: the latest level line is Auto's.
+    await auditLine(w, { at: AT(1), action: 'options', options: { level: 1 }, was: null });
+    await auditLine(w, { at: AT(2), action: 'auto-level', level: 2, was: 1 });
+    await w.pass();
+    assert.equal((await w.ownOptions()).level, 3);
+    assert.equal((await w.lines()).filter((l) => l.action === 'auto-level').at(-1).level, 3);
+    assert.equal(w.asks[0].task.job.level, 3);
+  } finally { await w.stop(); }
+});
+
+test('m7: an L3 Auto job at PR #1 with a gate to PR #2 still stops for merge', { timeout: 30_000 }, async () => {
+  const u = unit({ decide: () => {}, job: () => ({ level: 3, suggestedLevel: 3, stage: 'pr1', gate: { briefNumber: 1, stale: false, questions: [], decided: [], headline: 'PR #1 is open', nextStage: 'pr2' } }) });
+  await u.auto.pass();
+  assert.equal(u.record().stopped?.rule, 'merge');
+  assert.equal(u.record().on, true);
+  assert.equal(u.asks.length, 0, 'the Approver is not asked');
+  assert.deepEqual(u.decides, [], 'nothing sent');
+});
+
+test('m7: a status card on an L3 Auto job still stops for status', { timeout: 30_000 }, async () => {
+  const w = await world({ jobStatus: status(1, { suggested_level: 3 }), options: { level: 3, flow: 'large', title: 'Visit audit columns' } });
+  try {
+    const driver = w.driver;
+    const status3 = { id: crypto.randomUUID(), runId: 'none', slug: w.slug, featureDir: w.dir, title: 'T', toolName: 'AskUserQuestion', kind: 'question', input: { questions: [] }, hardLine: null, plain: { headline: 'x' }, statusCard: true };
+    driver.statusCards.set(status3.id, status3);
+    driver.emit('permission', driver.viewPermission(status3));
+    await w.until(async () => (await w.record()).stopped, 'Auto to stop');
+    assert.equal((await w.record()).stopped.rule, 'status');
+    assert.equal((await w.record()).on, true);
+    assert.equal(w.asks.length, 0);
+    await assert.rejects(driver.decide(status3.id, { decision: 'allow', by: 'auto' }), /never answers/);
   } finally { await w.stop(); }
 });

@@ -26,6 +26,7 @@ import { AUTO_CARDS_PER_REPLY, AUTO_MARK, OWN_SENDS, YOURS_NOW, wroteWhileWaitin
 import { AUTO_STOP_REASONS, autoVerdict, fixedStop } from '../lib/auto-rules.js';
 import { APPROVER_BUDGET_USD, approverCut, approverPaths, approverRoots, callPreview, checkAnswer } from '../lib/approver.js';
 import { DECIDING_KINDS } from '../lib/gate.js';
+import { ownLevelStands } from '../lib/auto-level.js';
 
 /** Anything the Approver wrote, on one line: nothing it writes can start a line of its own, and no copy of the mark gets through. */
 const oneLine = (s) => {
@@ -209,9 +210,10 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     if (job.running || job.locked || job.paused) return null;
     // A reply cut off by a Starbase crash or restart waits for Resume, which only the person presses: no ten minutes for that.
     if (job.cutOff) { await stop(job, { rule: 'blocked', reason: CUT_OFF }); return null; }
-    // A suggested L1, L2 or L3 above the job's level is applied before the gate is answered (the higher one wins, never lowered).
+    // A suggested L1, L2 or L3 above the job's level is applied before the gate is answered (the higher one wins, never lowered),
+    // unless the job's latest level line is his own change after an automatic level: his choice stands (the same 400 lines checkLevelsNow reads).
     const suggested = job.suggestedLevel;
-    if ((suggested === 1 || suggested === 2 || suggested === 3) && !(job.level >= suggested)) {
+    if ((suggested === 1 || suggested === 2 || suggested === 3) && !(job.level >= suggested) && !ownLevelStands(await state.auditFor(job.dir, 400))) {
       try { await raiseLevel(job, suggested); job.level = suggested; } catch (err) { console.error(`auto level (${job.slug}):`, err.message); return null; }
     }
     const gate = job.gate && !job.gate.stale && job.gate.briefNumber !== null && !job.answered.includes(job.gate.briefNumber) && job.gate.briefNumber !== job.auto.lastBrief ? job.gate : null;

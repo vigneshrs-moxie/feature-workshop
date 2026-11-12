@@ -301,6 +301,7 @@ export function normalize(input = {}, { exists = (p) => fs.existsSync(p), previo
   if (input.stack === true || (input.stack === undefined && previous?.stack === true)) out.stack = true;
   // Auto mode (lib/auto.js): only a literal true, at any level up to AUTO_MAX_LEVEL (L3: every level), and its time only with it. What
   // says Auto is on is the sessions record; the runner writes these two from it (writeAutoOption).
+  // The level guard is kept on purpose: never true at AUTO_MAX_LEVEL 3, it follows the constant if that changes.
   if (input.auto === true && !(isLevel(out.level) && out.level > AUTO_MAX_LEVEL)) {
     out.auto = true;
     if (typeof input.auto_since === 'string' && input.auto_since) out.auto_since = input.auto_since.slice(0, 40);
@@ -416,6 +417,7 @@ export function describeOptions(o) {
   // Evidence (evidence.md): Auto says nothing, as for screens and clarify (job-options.md: on at L2 and L3).
   if (o.evidence === 'always') lines.push(`Evidence: always${o.level === 0 ? ' (but never at L0)' : ''}. The tester writes a Playwright spec for each acceptance line a person can see, and ${PRODUCT} records screenshots and a short video of each.`);
   else if (o.evidence === 'off') lines.push('Evidence: off. No screenshots or video at the test stage.');
+  // The level guard is kept on purpose: never true at AUTO_MAX_LEVEL 3, it follows the constant if that changes.
   if (o.auto === true && !(isLevel(o.level) && o.level > AUTO_MAX_LEVEL)) lines.push(`Auto: ${PRODUCT}'s Auto answers each gate for the person, no hand test is asked for, and the job stops once PR #1 is open.`);
   if (o.stack) lines.push('Run as a stack: the human asked for one. You are its coordinator (stack.md): at plan, write stack.md (the sections, the files each owns, what each waits for, the merge order) and stop for approval on the Stack page.');
   if (o.notes) lines.push(`Notes: ${o.notes}`);

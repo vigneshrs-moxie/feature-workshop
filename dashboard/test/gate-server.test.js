@@ -661,7 +661,7 @@ test('the site cannot send by: \'auto\'', () => {
   assert.equal(parseCommand({ type: 'approve', slug: 'auto-job', by: 'auto' }, { from: 'local' }).ok, false, 'not from this computer’s page either');
 });
 
-test('L3: the switch answers 200 and Auto runs the job', { timeout: 60_000 }, async () => {
+test('L3: the switch answers 200', { timeout: 60_000 }, async () => {
   const dir = path.join(featuresDir, 'big-job');
   const before = await getJson('/api/job/big-job');
   assert.deepEqual([before.auto.on, before.auto.allowed, before.auto.why], [false, true, null], 'the switch is not held back at L3');
