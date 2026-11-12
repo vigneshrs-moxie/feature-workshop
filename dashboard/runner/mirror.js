@@ -229,6 +229,12 @@ export const partRecord = (page) => wireSafe(page);
 const REVIEW_ROWS_KEPT = 30;
 const AUTO_DECIDED_KEPT = 20;
 
+/** The review's rows a cut keeps: the open findings first, then the rest, each in file order, up to 30. */
+function reviewRowsKept(rows) {
+  const open = rows.filter((r) => r?.status === 'open');
+  return [...open, ...rows.filter((r) => r?.status !== 'open')].slice(0, REVIEW_ROWS_KEPT);
+}
+
 /**
  * What a job's record sheds after its conversation, in this order, while it is still too big. The
  * gate and the three calls' data (gate, heldReply, answeredBriefs, permissionsPending) are never shed.
@@ -238,16 +244,17 @@ const JOB_SHEDS = [
   (v) => (Array.isArray(v.activity)
     ? { ...v, activity: v.activity.map((a) => (isPlain(a) && a.state !== 'running' ? (({ recent, lastCommand, ...kept }) => kept)(a) : a)) }
     : v),
-  // The Docs list again: the website has it as its own part (docs/<slug>).
-  (v) => (isPlain(v.page) && v.page.docs != null ? { ...v, page: { ...v.page, docs: null } } : v),
-  // The review's rows beyond the first 30, marked cut.
+  // The review's rows beyond 30, open ones kept first, marked cut with how many there were.
   (v) => (Array.isArray(v.page?.review?.rows) && v.page.review.rows.length > REVIEW_ROWS_KEPT
-    ? { ...v, page: { ...v.page, review: { ...v.page.review, rows: v.page.review.rows.slice(0, REVIEW_ROWS_KEPT), cut: true } } }
+    ? { ...v, page: { ...v.page, review: { ...v.page.review, rows: reviewRowsKept(v.page.review.rows), cut: true, total: v.page.review.rows.length } } }
     : v),
   // What Auto decided beyond the newest 20 (the list is oldest first).
   (v) => (isPlain(v.auto) && Array.isArray(v.auto.decided) && v.auto.decided.length > AUTO_DECIDED_KEPT
     ? { ...v, auto: { ...v.auto, decided: v.auto.decided.slice(-AUTO_DECIDED_KEPT) } }
     : v),
+  // Last, the steps' documents: each step on the website then says its documents are not known
+  // (lib/stage-view.js leaves docs out), and the Docs tab still has its own part (docs/<slug>).
+  (v) => (isPlain(v.page) && v.page.docs != null ? { ...v, page: { ...v.page, docs: null } } : v),
 ];
 
 /**
