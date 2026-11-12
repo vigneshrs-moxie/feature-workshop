@@ -4,6 +4,8 @@
 // that keep today's rule (a permission card takes the bar's place; a status card has Reply only)
 // say so where they are tested. Invented jobs and requests only; no model calls.
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../api/client';
 import type { Gate, Job, JobDetail, Permission, ThreadItem } from '../api/types';
@@ -46,22 +48,22 @@ const server = {
 };
 
 /** The bar as a page draws it, and what useSentShown says beside it. */
-function Bar({ job: j, onWatch, foldCard }: { job: Job; onWatch?: () => void; foldCard?: boolean }) {
+function Bar({ job: j, onWatch, foldCard, foldHere }: { job: Job; onWatch?: () => void; foldCard?: boolean; foldHere?: boolean }) {
   const conversation = useJobConversation(j);
   const shown = useSentShown(j, conversation);
   return (
     <>
-      <NextStep job={j} conversation={conversation} now={new Date()} onWatch={onWatch} foldCard={foldCard} />
+      <NextStep job={j} conversation={conversation} now={new Date()} onWatch={onWatch} foldCard={foldCard} foldHere={foldHere} />
       <output data-sent-shown>{shown === null ? 'none' : shown.kind ?? 'unknown'}</output>
     </>
   );
 }
-function Host({ slug, onWatch, foldCard }: { slug: string; onWatch?: () => void; foldCard?: boolean }) {
+function Host({ slug, onWatch, foldCard, foldHere }: { slug: string; onWatch?: () => void; foldCard?: boolean; foldHere?: boolean }) {
   const j = jobBySlug(useWorkshopState(), slug);
-  return j ? <Bar job={j} onWatch={onWatch} foldCard={foldCard} /> : null;
+  return j ? <Bar job={j} onWatch={onWatch} foldCard={foldCard} foldHere={foldHere} /> : null;
 }
 
-function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions = [] as Permission[], gate = null as Gate | null, answered = [] as number[], thread = [] as ThreadItem[], page = undefined as JobDetail['page'], hosted = false, onWatch = undefined as (() => void) | undefined, foldCard = false, details = 'ok' as typeof server.details, post = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({ ok: true })) } = {}) {
+function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions = [] as Permission[], gate = null as Gate | null, answered = [] as number[], thread = [] as ThreadItem[], page = undefined as JobDetail['page'], hosted = false, onWatch = undefined as (() => void) | undefined, foldCard = false, foldHere = false, details = 'ok' as typeof server.details, post = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({ ok: true })) } = {}) {
   const store: Store = createStore();
   server.store = store;
   server.answered = [...answered];
@@ -80,7 +82,7 @@ function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions =
     return detail(path.split('/')[3]);
   });
   const api = { get, post, ...(hosted ? { hosted: () => true } : {}) } as unknown as ApiClient;
-  const utils = render(<WorkshopContext.Provider value={{ store, api }}><UiProvider><Host slug="alpha" onWatch={onWatch} foldCard={foldCard} /></UiProvider></WorkshopContext.Provider>);
+  const utils = render(<WorkshopContext.Provider value={{ store, api }}><UiProvider><Host slug="alpha" onWatch={onWatch} foldCard={foldCard} foldHere={foldHere} /></UiProvider></WorkshopContext.Provider>);
   return { ...utils, get, post, store };
 }
 
@@ -450,6 +452,89 @@ describe('the boxes under the bar', () => {
     // Cancel closes it; nothing went.
     fireEvent.click(within(gateCard() as HTMLElement).getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByRole('textbox', { name: /Your answers or a note/ })).toBeNull();
+  });
+
+  // With the conversation taking the screen the bar's area is capped (page.css): while a box is
+  // open the bar says so on its own root, and the stylesheet lets the area grow for it.
+  it('the bar says when one of its boxes is open', async () => {
+    const root = () => document.querySelector('.job-go')!;
+    for (const hosted of [false, true]) {
+      for (const foldHere of [false, true]) {
+        setup({ jobs: waiting(), gate: GATE, post: sentPost(), hosted, foldHere });
+        await gateShown();
+        expect(root()).not.toHaveClass('is-box-open');
+        for (const [name, box] of [[/^No go: send back/, /What should change\?/], ['Reply', /Your answers or a note/]] as const) {
+          const call = within(bar()).getByRole('button', { name });
+          await waitFor(() => expect(call).toBeEnabled());
+          fireEvent.click(call);
+          await screen.findByRole('textbox', { name: box });
+          await waitFor(() => expect(root()).toHaveClass('is-box-open'));
+          fireEvent.click(within(document.querySelector<HTMLElement>('.job-gate-body .gate-note')!).getByRole('button', { name: 'Cancel' }));
+          await waitFor(() => expect(root()).not.toHaveClass('is-box-open'));
+        }
+        cleanup();
+      }
+    }
+
+    // After a send the box is gone and so is the class.
+    setup({ jobs: waiting(), gate: GATE, post: sentPost({ runEvent: false }), foldHere: true });
+    await gateShown();
+    const back = within(bar()).getByRole('button', { name: /^No go: send back/ });
+    await waitFor(() => expect(back).toBeEnabled());
+    fireEvent.click(back);
+    fireEvent.change(await screen.findByRole('textbox', { name: /What should change\?/ }), { target: { value: 'Keep the old column.' } });
+    await waitFor(() => expect(root()).toHaveClass('is-box-open'));
+    fireEvent.click(within(gateCard() as HTMLElement).getByRole('button', { name: 'Send back' }));
+    await waitFor(() => expect(screen.queryByRole('textbox', { name: /What should change\?/ })).toBeNull());
+    await waitFor(() => expect(root()).not.toHaveClass('is-box-open'));
+    // The stylesheet: only while a box is open does the talk layouts' bar area take up to 75%.
+    const css = readFileSync(path.join(process.cwd(), 'src/job/page/page.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(css).toMatch(/\.sb-job-page\.is-talk \.sb-job-work \{[^}]*max-height: 50%/);
+    expect(css).toMatch(/\.sb-job-page\.is-talk \.sb-job-work:has\(\.job-go\.is-box-open\) \{[^}]*max-height: 75%/);
+  });
+
+  it('opening a box brings its send button into view', async () => {
+    const seen = vi.fn();
+    const had = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView');
+    Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, writable: true, value: seen });
+    try {
+      for (const hosted of [false, true]) {
+        // With the conversation taking the screen: the row with the box's send button comes into view.
+        setup({ jobs: waiting(), gate: GATE, post: sentPost(), hosted, foldHere: true });
+        await gateShown();
+        for (const [name, send] of [[/^No go: send back/, 'Send back'], ['Reply', 'Send the reply']] as const) {
+          seen.mockClear();
+          const call = within(bar()).getByRole('button', { name });
+          await waitFor(() => expect(call).toBeEnabled());
+          fireEvent.click(call);
+          const row = await waitFor(() => {
+            const r = document.querySelector<HTMLElement>('.job-gate-body .gate-note .perm-actions');
+            expect(r).not.toBeNull();
+            return r!;
+          });
+          expect(within(row).getByRole('button', { name: send })).toBeInTheDocument();
+          await waitFor(() => expect(seen).toHaveBeenCalledWith({ block: 'nearest' }));
+          expect(seen.mock.contexts).toContain(row);
+          fireEvent.click(within(row).getByRole('button', { name: 'Cancel' }));
+        }
+        cleanup();
+
+        // Anywhere else the bar's area is not capped: nothing scrolls.
+        seen.mockClear();
+        setup({ jobs: waiting(), gate: GATE, post: sentPost(), hosted });
+        await gateShown();
+        const reply = within(bar()).getByRole('button', { name: 'Reply' });
+        await waitFor(() => expect(reply).toBeEnabled());
+        fireEvent.click(reply);
+        await screen.findByRole('textbox', { name: /Your answers or a note/ });
+        await act(async () => {});
+        expect(seen.mock.contexts.some((c) => (c as Element).classList?.contains('perm-actions'))).toBe(false);
+        cleanup();
+      }
+    } finally {
+      if (had) Object.defineProperty(Element.prototype, 'scrollIntoView', had);
+      else delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    }
   });
 });
 

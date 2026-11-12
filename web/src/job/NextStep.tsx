@@ -317,6 +317,13 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, foldHere = fa
     watch.observe(el, { subtree: true, childList: true, attributes: true, characterData: true });
     return () => watch.disconnect();
   }, [detail]);
+  // With the conversation taking the screen the bar's area is capped and scrolls (page.css): as a
+  // box opens, the row with its send button comes into view inside it. (jsdom may lack the call.)
+  useEffect(() => {
+    if (!foldHere || !go.boxOpen) return;
+    const row = body.current?.querySelector<HTMLElement>('.gate-note .perm-actions');
+    if (typeof row?.scrollIntoView === 'function') row.scrollIntoView({ block: 'nearest' });
+  }, [foldHere, go.boxOpen]);
   const press = (what: 'approve' | 'revise') => { const b = body.current?.querySelector(`[data-gate="${what}"]`); if (isPressable(b)) b.click(); };
   // Send back and Reply open a box in the card: a folded brief opens first so the box is seen.
   const reply = () => { if (folded) setCardShown(true); pressReply(body.current); };
@@ -334,7 +341,9 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, foldHere = fa
   // Auto stopped (or the step is his): the stop look with its reason, and the same three calls.
   const stopped = waits ? null : autoStopped(job);
   return (
-    <div className="job-go" hidden={hidden}>
+    // is-box-open: a box (What should change?, Reply) is open in the card; the job page's talk
+    // layouts let the bar's area grow for it (page.css).
+    <div className={`job-go${go.boxOpen ? ' is-box-open' : ''}`} hidden={hidden}>
       <NextBar
         tone={stopped ? 'stop' : 'go'}
         icon={stopped ? 'hand' : 'clipboard'}
