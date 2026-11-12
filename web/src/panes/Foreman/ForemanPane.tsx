@@ -72,8 +72,10 @@ export function useCurrentJob(job: Job, { thread, run }: Conversation) {
  * just now, the level card, the cards waiting for you (unless the page shows them elsewhere) and
  * the live row. `stages`: only the part of the conversation at these stages (the Stage page).
  */
-export function ThreadList({ job, conversation, now, cards = true, level = true, sectionRef, stages, newest, newFrom }: {
+export function ThreadList({ job, conversation, now, cards = true, level = true, sectionRef, stages, newest, newFrom, name = 'Conversation' }: {
   job: Job; conversation: Conversation; now: Date; cards?: boolean; sectionRef?: Ref<HTMLElement>; stages?: readonly string[];
+  /** The list's name as a region: a page whose own region is already "Conversation" names it "Messages", so there is one of each. */
+  name?: string;
   /** Simple (packet R, the Job page): only the newest few, with "Earlier (n)" above them. */
   newest?: number;
   /** false: leave out the level card (a part's page shows the level in its strip and its card in a sheet). */
@@ -120,7 +122,7 @@ export function ThreadList({ job, conversation, now, cards = true, level = true,
     <p className="sb-convo-new" role="separator" aria-label={`${fresh.length} new since you last looked`}><span>{fresh.length} new</span></p>
   );
   return (
-    <section ref={sectionRef} className="thread" aria-label="Conversation" aria-busy={thread.loading || thread.loadingOlder}>
+    <section ref={sectionRef} className="thread" aria-label={name} aria-busy={thread.loading || thread.loadingOlder}>
       {cut > 0 && (
         <Button kind="quiet" size="sm" icon="chevron-down" className="thread-earlier" onClick={() => setEarlier(true)} title="Show the earlier messages of this conversation, above the newest.">
           Earlier ({cut})

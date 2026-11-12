@@ -149,6 +149,13 @@ describe('ConversationPanel', () => {
     expect(panel()).toHaveClass('sb-convo');
   });
 
+  it('one region is named Conversation: the messages inside it are Messages', async () => {
+    setup();
+    await screen.findByText('Message 9 from the Foreman.');
+    expect(screen.getAllByRole('region', { name: 'Conversation' })).toEqual([panel()]);
+    expect(within(panel()).getByRole('region', { name: 'Messages' })).toHaveClass('thread');
+  });
+
   it('a waiting permission card is not drawn in the conversation', async () => {
     setup({ permissions: [permission('p-1', 'alpha')] });
     await screen.findByText('Message 9 from the Foreman.');

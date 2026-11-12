@@ -193,7 +193,7 @@ function JobConversation({ job, conversation, now, wide, onWide, full = false }:
       <div ref={listRef} className="sb-convo-list" onScroll={onScroll}>
         <div ref={bodyRef} className="sb-convo-body">
           {!full && <p className="sb-convo-line">The whole conversation, newest at the bottom</p>}
-          <ThreadList job={job} conversation={conversation} now={now} cards={false} newFrom={full ? lastLook : undefined} />
+          <ThreadList job={job} conversation={conversation} now={now} cards={false} newFrom={full ? lastLook : undefined} name="Messages" />
         </div>
       </div>
       <div className="sb-convo-foot">
