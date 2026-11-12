@@ -148,6 +148,7 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
   const problems = new Map(); // slug -> { commit, message, fix, at }: the last recording that couldn't finish
   const progress = new Map(); // slug -> the recording's progress by line (lib/evidence.js), while Playwright runs
   const tried = new Set(); // `${slug}@${commit}` the change watcher already started once (Record tries again)
+  const holding = new Map(); // slug -> the recorder's app (serverFor), from its start() to the recording's end: Try it may not stop it
   let queue = Promise.resolve(); // one recording at a time: one browser, one worker
 
   const jobOf = async (slug) => {
@@ -189,10 +190,16 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
     });
   }
 
-  /** Try it for the job: its port, its settings file (with the sign-in skip) and its dev server. */
+  /**
+   * Try it for the job: its port, its settings file (with the sign-in skip) and its dev server.
+   * handOver(): Try it's Start while the recording holds the app makes it the owner's, so stop()
+   * leaves it running (even when the start that made it is still under way here).
+   */
   function serverFor(f) {
     let startedHere = false;
+    let handed = false;
     return {
+      handOver() { handed = true; },
       async start() {
         const w = await local.where(f);
         if (!w.app) throw new EvidenceError(409, w.reason ?? 'This job’s worktree has no app to start (a package.json with a "dev" script), so there is nothing to record.');
@@ -219,7 +226,7 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
         }
         return { baseURL: fillPattern(w.tryIt.url, { port }), startedHere, cwd: w.root };
       },
-      stop: async () => { if (startedHere) await local.stopServerAndWait(f.slug); },
+      stop: async () => { if (startedHere && !handed) await local.stopServerAndWait(f.slug); },
       // A branch only guessed (lib/locate.js): Try it's where() refuses it with these words, so say them before the start.
       cannotStart: () => (f.worktree && guessedWorktree(f) ? guessWords(f) : null),
     };
@@ -259,7 +266,8 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
           progress.set(f.slug, p);
           events.emit('evidence', f.slug, { slug: f.slug, outcome: 'progress', at: new Date().toISOString(), progress: p });
         },
-        server: { start: async () => { const s = await server.start(); cwd = s.cwd ?? cwd; return s; }, stop: server.stop, cannotStart: server.cannotStart },
+        // From here to the end (lib/evidence.js stops the app in its finally), the recording holds the app.
+        server: { start: async () => { holding.set(f.slug, server); const s = await server.start(); cwd = s.cwd ?? cwd; return s; }, stop: server.stop, cannotStart: server.cannotStart },
         dbCheck: await dbCheckFor(f),
         run: (opts) => runPlaywright(pw.script, { ...opts, cwd }),
       });
@@ -281,6 +289,7 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
       if (!(err instanceof EvidenceError)) console.error(`evidence (${f.slug}):`, err);
       throw e;
     } finally {
+      holding.delete(f.slug);
       // However it ended (recorded, refused, Playwright dead part way), the card and the page stop saying a line runs.
       if (progress.delete(f.slug)) events.emit('evidence', f.slug, { slug: f.slug, outcome: 'progress', at: new Date().toISOString(), progress: null });
     }
@@ -336,6 +345,14 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
         watch: progress.has(f.slug) || demoProgress !== null,
         folder, folderUrl: pathToFileURL(folder).href + (folder.endsWith(path.sep) ? '' : '/'),
       };
+    },
+    /** Whether a recording holds the job's app now (from the recorder's start of it to the recording's end): Try it's Stop is refused. */
+    holdsApp(slug) {
+      return holding.has(slug);
+    },
+    /** Try it's Start while a recording holds the app: the app is the owner's now, and the recording leaves it running at its end. */
+    handAppOver(slug) {
+      holding.get(slug)?.handOver();
     },
     /** The Jobs card's words while Playwright records the job ("Recording evidence: line 4 of 19"; lib/evidence.js recordingWords), else null. */
     progressWords(slug) {

@@ -576,6 +576,56 @@ test('evidence server: run/ already gone while the run is still listed answers 4
   }
 });
 
+// ---------- Try it while a recording holds the app (final fixes C3) ----------
+
+const HELD_WORDS = 'The evidence recording is using this app. It stops by itself when the recording ends.';
+const tryIt = async (slug, action) => {
+  const res = await post(`/api/job/${slug}/local`, { action });
+  return { status: res.status, body: await res.json() };
+};
+const appOf = async (slug) => (await getJson(`/api/job/${slug}/local`)).server?.status ?? null;
+
+test('Stop is refused while a recording holds the app', async () => {
+  const done = await heldRecording('stop-held-job');
+  try {
+    assert.equal(await appOf('stop-held-job'), 'running', 'the recorder started the app');
+    const r = await tryIt('stop-held-job', 'stop');
+    assert.equal(r.status, 409);
+    assert.equal(r.body.error, HELD_WORDS);
+    assert.equal(await appOf('stop-held-job'), 'running', 'the app is untouched');
+  } finally {
+    await done();
+  }
+  assert.equal(await appOf('stop-held-job'), 'stopped', 'the recorder stops the app it started, at the end');
+});
+
+test('Start while a recording holds the app leaves it running after the recording', async () => {
+  const done = await heldRecording('start-held-job');
+  try {
+    const r = await tryIt('start-held-job', 'start');
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.status, 'running', 'he gets the running app');
+    const job = await getJson('/api/job/start-held-job');
+    assert.ok(job.page.handTest.startedAt, 'the hand test is marked started');
+  } finally {
+    await done();
+  }
+  assert.equal(await appOf('start-held-job'), 'running', 'the recorder left it running: it is his now');
+  assert.deepEqual(await tryIt('start-held-job', 'stop'), { status: 200, body: { ok: true } });
+});
+
+test('after the recording ends Stop works again', async () => {
+  const done = await heldRecording('stop-after-job');
+  try {
+    assert.equal((await tryIt('stop-after-job', 'stop')).status, 409);
+  } finally {
+    await done();
+  }
+  assert.equal((await tryIt('stop-after-job', 'start')).status, 200);
+  assert.deepEqual(await tryIt('stop-after-job', 'stop'), { status: 200, body: { ok: true } });
+  assert.equal(await appOf('stop-after-job'), 'stopped');
+});
+
 // ---------- The demo's recording under way (demo mode only; dashboard/demo/run-demo.js) ----------
 
 const DEMO_JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 7, 7, 0xff, 0xd9]);

@@ -239,6 +239,8 @@ export async function createRunner(config) {
   const AUTO_OFF_ONLY_CHANGE = 'Only Auto changed: it was switched off for the restart. Turn it on again if you want it.';
   const AUTO_OFF_FOR_RESTART = ' Auto was switched off for the restart. Turn it on again if you want it.';
   const BEING_RESTARTED = 'This job is being started again on another model right now. Wait for that to finish.';
+  // Try it's Stop while the evidence recording holds the job's app (runner/evidence.js holdsApp).
+  const APP_HELD = 'The evidence recording is using this app. It stops by itself when the recording ends.';
   // Jobs whose reply the last stop cut off (runner/replay.js), by job folder: { how: 'clean' (it
   // carries on by itself) or 'crash' (it waits for Resume), at, runId, sessionId, cwd, model, slug }.
   // Gone once anything is sent to the job, or it is marked done.
@@ -2885,8 +2887,16 @@ export async function createRunner(config) {
       const audit = (extra = {}) => state.audit({ action: 'local', featureDir: f.dir, slug: f.slug, what: action, ...extra });
       try {
         if (action === 'env') { const r = await local.setupEnv(f); await audit({ changed: r.changed }); return r; }
-        if (action === 'start') { const r = await local.startServer(f); await audit({ port: r.port }); await markHandTestStarted(f); return r; }
-        if (action === 'stop') return { ok: local.stopServer(f.slug) };
+        // While the evidence recording holds the app (runner/evidence.js holdsApp), Stop is refused and
+        // Start hands the running app to him: the recording then leaves it running when it ends.
+        if (action === 'start') {
+          if (local_.evidence.holdsApp(f.slug)) local_.evidence.handAppOver(f.slug);
+          const r = await local.startServer(f); await audit({ port: r.port }); await markHandTestStarted(f); return r;
+        }
+        if (action === 'stop') {
+          if (local_.evidence.holdsApp(f.slug)) throw new HttpError(409, APP_HELD);
+          return { ok: local.stopServer(f.slug) };
+        }
         if (action === 'run') {
           const preset = body.preset || null;
           const command = body.command ?? '';
