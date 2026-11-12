@@ -1071,3 +1071,12 @@ describe('GateCard: questions first, the evidence in one line', () => {
     expect([...card()!.querySelectorAll('.gate-note button')].map((b) => b.textContent)).toEqual(['Cancel', 'Send back']);
   });
 });
+
+// Task 7 fix round 1: once he wrote to an Auto job while the step waited, the step is his: his hand test is back.
+describe('the hand test on a step that is his', () => {
+  it('an Auto job whose step is his offers Try it on your computer, not the hand test line', () => {
+    setup({ det: detail({ stage: 'test' }), jobExtra: { auto: { on: true, ran: true, yours: true } } });
+    expect(screen.getByRole('button', { name: 'Try it on your computer' })).toBeInTheDocument();
+    expect(screen.queryByText('Auto skips your hand test on this job. The recorded evidence still runs.')).toBeNull();
+  });
+});

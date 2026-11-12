@@ -23,7 +23,7 @@ import { GateSlot, pressReply } from '../panes/Foreman/GateCard';
 import { sessionOf, useGateSent, type GateSent } from '../panes/Foreman/gateSent';
 import { isActiveRun } from '../panes/Foreman/thread';
 import type { GateKind } from '../lib/compose';
-import { answeredKind, linesText, stateLines, STUCK_WORDS, useSentView, type SentShown } from './sentView';
+import { answeredKind, autoAnswered, linesText, stateLines, STUCK_WORDS, useSentView, type SentShown } from './sentView';
 import { AUTO_DECIDING_NOTE, autoDeciding, autoLaneReason } from './autoLine';
 import { usePlay } from '../play/usePlay';
 import { ReviewBar } from '../views/Review/ReviewBar';
@@ -86,9 +86,10 @@ export function NextStep({ job, conversation, now, onShip, onWatch, foldCard = f
 type Conversation = ReturnType<typeof useJobConversation>;
 
 /**
- * Whether the bar shows a sent line now, with the kind sent when known (null: it does not). The
- * same rule the bar uses: no permission card waits, and the send's own state (sent or stuck) or,
- * at a gate, what the job says (useSentView). The page's other parts read it to say Sent too.
+ * Whether the bar shows a sent line for his decision now, with the kind sent when known (null: it
+ * does not). The same rule the bar uses: no permission card waits, and the send's own state (sent,
+ * stuck, or Try again out) or, at a gate, what the job says (useSentView). A brief Auto answered is
+ * not his: null, though the bar says it was sent. The page's other parts read it to say Sent too.
  */
 export function useSentShown(job: Job, conversation: Conversation): { kind: GateKind | null } | null {
   const state = useWorkshopState();
@@ -98,10 +99,10 @@ export function useSentShown(job: Job, conversation: Conversation): { kind: Gate
   // No reload here: the bar fetches the job itself; the lines show or not alike either way.
   const view = useSentView(job, thread.detail, run, decision);
   if (state.permissions.some((p) => p.slug === job.slug && !isRoundCard(p))) return null;
-  const own = decision.state === 'sent' || decision.state === 'stuck';
+  const own = decision.state === 'sent' || decision.state === 'stuck' || decision.retrying;
   if (thread.detail?.gate) {
     if (own) return { kind: decision.kind };
-    return view ? { kind: answeredKind(thread.detail, decision) } : null;
+    return view && !autoAnswered(thread.detail, decision) ? { kind: answeredKind(thread.detail, decision) } : null;
   }
   return own && !review.view ? { kind: decision.kind } : null;
 }
@@ -126,21 +127,26 @@ const nameOf = (c: NowDoing) => text(c.name) ?? c.who;
 const isForeman = (c: NowDoing) => c.who === 'conductor' || nameOf(c) === 'Foreman';
 /** What a crew member is, to say several at once: every reviewer lens is a reviewer; else its name. */
 const roleOf = (c: NowDoing) => (/^(feature|bug)-review/.test(c.who) ? 'reviewer' : nameOf(c).toLowerCase());
+/** Words that end in -ing but are not a verb at the start of a line: they take the colon. */
+const NOT_VERBS = new Set(['nothing', 'something', 'anything', 'everything', 'thing', 'string', 'during']);
+const startsWithVerb = (s: string) => { const w = /^([A-Za-z]{2,}ing)\b/.exec(s)?.[1]; return Boolean(w) && !NOT_VERBS.has(w!.toLowerCase()); };
 /** "Spec, Errors, Tests and Screens". */
 const andList = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
 
 /**
  * Who is working and on what, as the bar says it while nothing waits for him (null: nobody is).
  * The first one at work gives the sentence; the line under it names the model and how long, or,
- * with several at once, all of them and the longest time.
+ * with several at once, all of them and the longest time. The Foreman is not crew: while any crew
+ * member works it is left out, and it is named only when it works alone.
  */
 export function workingWords(job: Pick<Job, 'nowDoing' | 'stage'>, now: Date): { say: string; sub: string } | null {
-  const crew = (job.nowDoing ?? []).filter((c) => c && typeof c.who === 'string');
+  const all = (job.nowDoing ?? []).filter((c) => c && typeof c.who === 'string');
+  const crew = all.some((c) => !isForeman(c)) ? all.filter((c) => !isForeman(c)) : all;
   if (crew.length === 0) return null;
   const first = crew[0];
   const name = nameOf(first);
   const doing = text(first.doing);
-  const say = !doing ? `The ${name} is working` : /^[A-Za-z]{2,}ing\b/.test(doing) ? `The ${name} is ${lowerLine(doing)}` : `The ${name}: ${lowerLine(doing)}`;
+  const say = !doing ? `The ${name} is working` : startsWithVerb(doing) ? `The ${name} is ${lowerLine(doing)}` : `The ${name}: ${lowerLine(doing)}`;
   const nothing = `Nothing for you to do ${stopOf(job.stage) === 'build' ? 'until the tests' : 'right now'}.`;
   if (crew.length === 1) {
     const model = text(first.model);
@@ -174,7 +180,7 @@ export const AUTO_STOPPED_SUB = 'Answer it yourself and Auto carries on from the
 function autoStopped(job: Job): string | null {
   const reason = autoLaneReason(job);
   if (reason?.startsWith('Auto stopped')) return reason;
-  return job.auto?.yours === true ? AUTO_YOURS : null;
+  return job.auto?.on === true && job.auto.yours === true ? AUTO_YOURS : null;
 }
 
 const SENDING_WORDS = 'Sending…';
@@ -382,6 +388,11 @@ function StateBar({ job, now, checks, onShip, onWatch, hosted, after }: { job: J
   const write = <Button kind="primary" size="lg" keyId="write" keyShown onClick={() => document.querySelector<HTMLTextAreaElement>('[data-composer-input]')?.focus()} title="Write to the Foreman (key: c).">Reply</Button>;
   const testing = text(job.testing);
   const working = workingWords(job, now);
+  /** The Foreman waits for him: its question (or what the card says), and Reply. */
+  const asked = () => {
+    tone = 'stop'; icon = 'help'; say = 'The Foreman asked you something';
+    sub = (typeof job.headline === 'string' && job.headline) || job.laneReason || 'Read its last message in the conversation, then reply.'; action = write;
+  };
   if (job.closed) {
     tone = 'quiet'; icon = 'circle-check';
     say = job.closed.as === 'done' ? 'This job is marked done' : 'This job was dropped';
@@ -389,8 +400,7 @@ function StateBar({ job, now, checks, onShip, onWatch, hosted, after }: { job: J
   } else if (lane === 'done') {
     icon = 'circle-check'; say = 'This job is done'; sub = job.laneReason; action = null;
   } else if (lane === 'needs-you') {
-    tone = 'stop'; icon = 'help'; say = 'The Foreman asked you something';
-    sub = (typeof job.headline === 'string' && job.headline) || job.laneReason || 'Read its last message in the conversation, then reply.'; action = write;
+    asked();
   } else if (job.limitPaused || job.group === 'paused') {
     tone = 'warn'; icon = 'pause'; say = 'Paused'; sub = job.laneReason;
   } else if (lane === 'in-review') {
@@ -401,6 +411,10 @@ function StateBar({ job, now, checks, onShip, onWatch, hosted, after }: { job: J
     action = prs;
   } else if (lane === 'resting') {
     icon = 'moon'; say = 'Nothing happening'; sub = 'It waits for your next message.'; action = write;
+  } else if (job.needsYou === true) {
+    // The card says it waits for him but no gate shows (its details are loading, or did not come):
+    // as for the needs-you lane, never the crew's words or "Nothing for you to do".
+    asked();
   } else if (testing) {
     icon = 'flask'; say = testing; sub = `${RECORDING_SUB}${checksLine(checks)}${onWatch && hosted ? ` ${WATCH_ON_LAPTOP}` : ''}`;
     action = onWatch && !hosted ? <Button size="lg" onClick={onWatch} title="Watch the evidence being recorded.">Watch</Button> : null;

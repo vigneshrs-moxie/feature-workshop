@@ -1004,7 +1004,8 @@ export interface BriefItem extends ItemBase {
  * steerId: set when you steered it into a reply in progress (its delivery state is in the store).
  * gateBrief: sent from a gate card, answering that brief.
  */
-export interface YouItem extends ItemBase { kind: 'you'; text: string; sendKind?: string; steerId?: string; runId?: string; gateBrief?: number }
+/** by: 'auto' when Auto sent it for you (its answer to a brief); missing: you sent it, or not known. */
+export interface YouItem extends ItemBase { kind: 'you'; text: string; sendKind?: string; steerId?: string; runId?: string; gateBrief?: number; by?: 'auto' }
 /** `html` is rendered and sanitised by the dashboard (lib/markdown.js: raw HTML escaped, unsafe links dropped). */
 export interface ReplyItem extends ItemBase { kind: 'reply'; html: string; stopped?: boolean }
 /** rule: the id of your saved "Always allow" rule that let it run, when one did. */

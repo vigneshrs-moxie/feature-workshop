@@ -40,6 +40,7 @@ import { stageLabel } from '../Jobs/stages';
 import { draftKey, SendPreview } from './Composer';
 import { EVIDENCE_STAGES, EvidenceStrip } from './EvidenceStrip';
 import { sessionOf, useGateSent } from './gateSent';
+import { nextStepOf } from '../../job/sentView';
 import { isActiveRun } from './thread';
 import { LockCard, lockFromError, lockHeadline } from '../../views/JobLock/LockCard';
 import { Button, isPressable } from '../../components/Button';
@@ -279,8 +280,8 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   if (openQuestion !== null) offReasons.push(`Question ${openQuestion} has no answer. Pick one, or write your own.`);
   if (lock) offReasons.push(`${lockHeadline(lock, now)}. Only one place can work on a job at a time.`);
   const approveOff = offReasons.length > 0;
-  // Auto is on and has not stopped: it, not he, decides this step.
-  const autoDecides = job.auto?.on === true && !job.auto.stopped;
+  // Auto is on and has not stopped, and he has not written while this step waited (then it is his): it, not he, decides this step.
+  const autoDecides = job.auto?.on === true && !job.auto.stopped && job.auto.yours !== true;
   // Changes need words; a reply can be answers alone.
   const canSendNote = note.trim() !== '' || (mode === 'message' && Object.keys(answersFor(gate, c)).length > 0);
   // The two disclosures, remembered in this browser (closed until you open them).
@@ -336,7 +337,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
     if (problem) throw new Error(problem);
     const body = gateRequest(kind, gate, c, views, { ...(noTerminal ? { confirmNoTerminal: true } : {}), ...extra });
     try {
-      return await decision.send(api, body, gateKey(gate), { next: gate.nextProposed ?? null });
+      return await decision.send(api, body, gateKey(gate), { next: nextStepOf(gate) });
     } catch (err) {
       const held = lockFromError(err);
       if (held) setRefused(held);

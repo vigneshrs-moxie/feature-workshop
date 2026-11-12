@@ -217,8 +217,24 @@ describe('the Desk and the bar', () => {
     const bar = screen.getByRole('region', { name: 'Next step' });
     await within(card).findByText('Sent. Waiting for the Foreman to start.');
     await within(bar).findByText('Sent. Waiting for the Foreman to start.');
-    const line = 'Your go reached the Foreman. Build step 1 starts next.';
+    const line = 'Your go reached the Foreman. Build starts next.';
     await waitFor(() => expect(card.querySelector('.desk-sub')).toHaveTextContent(new RegExp(`^${line}$`)));
     expect(bar.querySelector('.next-sub')).toHaveTextContent(new RegExp(`^${line}$`));
+  });
+});
+
+// Task 7 fix round 1: Auto's own Go on a brief is never said to be his.
+describe('the Desk card after Auto’s go', () => {
+  it('a brief Auto approved: the card says it was sent, never “Your go reached the Foreman.”', async () => {
+    const autoGo = { id: 'you-auto', kind: 'you', at: '2026-10-21T11:59:00Z', text: 'Approved.', sendKind: 'approve', gateBrief: 2, by: 'auto' };
+    const { get, store } = setup({ jobs: [{ ...ALPHA, auto: { on: true, by: 'you', ran: true } }] });
+    const card = screen.getByRole('region', { name: /^Job alpha:/ });
+    await within(card).findByRole('button', { name: /^Go: approve/ });
+    // Auto approved brief 2; the Foreman's run is at work.
+    get.mockImplementation(async (path: string) => ({ ...detail(path.split('/')[3]), answeredBriefs: [2], thread: [autoGo] }) as JobDetail);
+    act(() => { store.dispatch({ type: 'event', event: ev(20, 'run', 'alpha', { id: 'r_auto', slug: 'alpha', status: 'running' }) }); });
+    act(() => { store.dispatch({ type: 'event', event: ev(21, 'thread', 'alpha', {}) }); });
+    await within(card).findByText('Sent. Waiting for the Foreman to start.');
+    expect(card).not.toHaveTextContent('Your go');
   });
 });

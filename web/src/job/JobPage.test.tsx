@@ -661,7 +661,7 @@ describe('after a click on the go / no go bar', () => {
     expect(within(bar()).getByText(SENT_LINE)).toBeInTheDocument();
     expect(live()).toHaveTextContent(SENT_LINE);
     expect(calls()).toHaveLength(0);
-    expect(bar()).toHaveTextContent('Your go reached the Foreman. Build step 1 starts next.');
+    expect(bar()).toHaveTextContent('Your go reached the Foreman. Build starts next.');
     expect(bar()).not.toHaveTextContent('Nothing is approved');
     expect(bar()).not.toHaveTextContent('rework');
     // A run is at work: no Try again.

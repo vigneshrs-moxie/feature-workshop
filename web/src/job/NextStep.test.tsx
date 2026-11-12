@@ -14,6 +14,8 @@ import { jobBySlug } from '../state/reducer';
 import { createStore, useWorkshopState, WorkshopContext, type Store } from '../state/store';
 import { ev, job, permission, snapshot } from '../state/test-fixtures';
 import type { QueuedView } from '../views/Hosted/QueuedDecision';
+import { clearAllSent } from '../lib/sentState';
+import { clearGateSent } from '../panes/Foreman/gateSent';
 import { AUTO_DECIDING_NOTE } from './autoLine';
 import { NextStep, useSentShown } from './NextStep';
 import { sentLine, SENT_WORDS } from './sentView';
@@ -38,6 +40,8 @@ const TWO_QUESTIONS: Gate = {
 const server = {
   store: null as Store | null, answered: [] as number[], gate: undefined as Gate | null | undefined,
   thread: [] as ThreadItem[], page: undefined as JobDetail['page'], queued: null as QueuedView | null,
+  /** The job's details never come ('loading') or the fetch fails ('fails'). */
+  details: 'ok' as 'ok' | 'loading' | 'fails',
 };
 
 /** The bar as a page draws it, and what useSentShown says beside it. */
@@ -56,7 +60,7 @@ function Host({ slug, onWatch }: { slug: string; onWatch?: () => void }) {
   return j ? <Bar job={j} onWatch={onWatch} /> : null;
 }
 
-function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions = [] as Permission[], gate = null as Gate | null, answered = [] as number[], thread = [] as ThreadItem[], page = undefined as JobDetail['page'], hosted = false, onWatch = undefined as (() => void) | undefined, post = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({ ok: true })) } = {}) {
+function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions = [] as Permission[], gate = null as Gate | null, answered = [] as number[], thread = [] as ThreadItem[], page = undefined as JobDetail['page'], hosted = false, onWatch = undefined as (() => void) | undefined, details = 'ok' as typeof server.details, post = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({ ok: true })) } = {}) {
   const store: Store = createStore();
   server.store = store;
   server.answered = [...answered];
@@ -64,11 +68,14 @@ function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions =
   server.thread = thread;
   server.page = page;
   server.queued = null;
+  server.details = details;
   store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs, permissions, meta: { token: 't', settings: { play: { mode: 'subtle' } } } as never }) });
   const detail = (s: string): JobDetail => ({ slug: s, thread: server.thread, threadMore: false, gate: server.gate === undefined ? gate : server.gate, answeredBriefs: [...server.answered], heldReply: null, options: { level: 1 }, page: server.page, queued: server.queued } as JobDetail);
   const get = vi.fn(async (path: string): Promise<unknown> => {
     if (path.endsWith('/evidence')) return { runs: [] };
     if (path.startsWith('/api/review/')) return null;
+    if (server.details === 'loading') return new Promise(() => {});
+    if (server.details === 'fails') throw new Error('Starbase did not answer.');
     return detail(path.split('/')[3]);
   });
   const api = { get, post, ...(hosted ? { hosted: () => true } : {}) } as unknown as ApiClient;
@@ -307,8 +314,8 @@ describe('what the bar says after a send', () => {
     await goWithTwoAnswers();
     await waitFor(() => expect(post).toHaveBeenCalledWith('/api/job/alpha/gate', expect.objectContaining({ kind: 'approve' })));
     await within(bar()).findByText(SENT_WORDS);
-    expect(bar().querySelector('.next-sub')).toHaveTextContent(/^Your go and your two answers reached the Foreman\. Build step 1 starts next\.$/);
-    expect(live()).toHaveTextContent(`${SENT_WORDS} Your go and your two answers reached the Foreman. Build step 1 starts next.`);
+    expect(bar().querySelector('.next-sub')).toHaveTextContent(/^Your go and your two answers reached the Foreman\. Build starts next\.$/);
+    expect(live()).toHaveTextContent(`${SENT_WORDS} Your go and your two answers reached the Foreman. Build starts next.`);
   });
 
   it('after Go on an Auto job the second line says Auto carries on', async () => {
@@ -328,7 +335,7 @@ describe('what the bar says after a send', () => {
     expect(store.getState().runs.alpha).toEqual(expect.objectContaining({ status: 'running' }));
     await act(async () => {});
     expect(within(bar()).getByText(SENT_WORDS)).toBeInTheDocument();
-    expect(bar().querySelector('.next-sub')).toHaveTextContent(/^Your go and your two answers reached the Foreman\. Build step 1 starts next\.$/);
+    expect(bar().querySelector('.next-sub')).toHaveTextContent(/^Your go and your two answers reached the Foreman\. Build starts next\.$/);
   });
 
   it('after Reply the card stays open', async () => {
@@ -442,5 +449,110 @@ describe('the boxes under the bar', () => {
     // Cancel closes it; nothing went.
     fireEvent.click(within(gateCard() as HTMLElement).getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByRole('textbox', { name: /Your answers or a note/ })).toBeNull();
+  });
+});
+
+// Task 7 fix round 1.
+describe('the bar: Auto’s go, the Foreman among the crew, and the small words', () => {
+  const autoGo: ThreadItem = { id: 'you-auto', kind: 'you', at: NOW, text: 'Approved.', sendKind: 'approve', gateBrief: 2, by: 'auto' } as ThreadItem;
+  const hisGo: ThreadItem = { id: 'you-his', kind: 'you', at: NOW, text: 'Approved.', sendKind: 'approve', gateBrief: 2 } as ThreadItem;
+  const auto = { on: true, by: 'you' as const, ran: true };
+
+  it('a brief Auto approved is not said to be your go; one you approved still is after a reload', async () => {
+    const { store } = setup({ jobs: waiting({ auto }), gate: GATE, answered: [2], thread: [autoGo] });
+    act(() => { store.dispatch({ type: 'event', event: ev(20, 'run', 'alpha', { id: 'r_auto', slug: 'alpha', status: 'running' }) }); });
+    await waitFor(() => expect(bar()).toHaveTextContent(SENT_WORDS));
+    expect(bar()).not.toHaveTextContent('Your go');
+    expect(shownKind()).toBe('none');
+    cleanup();
+    const again = setup({ jobs: waiting({ auto }), gate: GATE, answered: [2], thread: [autoGo, hisGo] });
+    act(() => { again.store.dispatch({ type: 'event', event: ev(20, 'run', 'alpha', { id: 'r_his', slug: 'alpha', status: 'running' }) }); });
+    await waitFor(() => expect(bar().querySelector('.next-sub')).toHaveTextContent(/^Your go reached the Foreman\. Auto carries on from the next step\.$/));
+    expect(shownKind()).toBe('approve');
+  });
+
+  it('the Foreman listed with crew is left out: one crew member, then several', () => {
+    const foreman = { who: 'conductor', name: 'Foreman', doing: 'Waiting for the Builder', model: 'Opus 5.5', since: ago(20) };
+    const builder = { who: 'feature-implementer', name: 'Builder', doing: 'Building step 3 of 6: the Pause dialog', model: 'Sonnet 5.5', since: ago(12) };
+    setup({ jobs: [job('alpha', 'running', { stage: 'implement', lane: 'working', nowDoing: [foreman, builder] })] });
+    expect(bar().querySelector('.next-head')).toHaveTextContent(/^The Builder is building step 3 of 6: the Pause dialog$/);
+    expect(bar().querySelector('.next-sub')).toHaveTextContent(/^Builder on Sonnet 5\.5, 12 min on this step\. The Foreman waits for it\. Nothing for you to do until the tests\.$/);
+    cleanup();
+    setup({ jobs: [job('alpha', 'running', { stage: 'implement', lane: 'working', nowDoing: [foreman, builder, { who: 'feature-tester', name: 'Tester', doing: 'Running the checks', since: ago(5) }] })] });
+    expect(bar().querySelector('.next-sub')).toHaveTextContent(/^2 crew on this step: Builder and Tester, 12 min\. The Foreman waits for them\. Nothing for you to do until the tests\.$/);
+  });
+
+  it('useSentShown keeps the kind while Try again is out', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      // The gate never answers: the Go is stuck after 30 seconds, and Try again stays out.
+      const post = vi.fn((path: string, _body?: unknown): Promise<unknown> => (path.endsWith('/gate') ? new Promise(() => {}) : Promise.resolve({ ok: true })));
+      setup({ jobs: waiting(), gate: GATE, post });
+      await gateShown();
+      const go = within(bar()).getByRole('button', { name: /^Go: / });
+      await waitFor(() => expect(go).toBeEnabled());
+      fireEvent.click(go);
+      act(() => { vi.advanceTimersByTime(30_000); });
+      await within(bar()).findByText('Nothing has moved yet.');
+      expect(shownKind()).toBe('approve');
+      fireEvent.click(within(bar()).getByRole('button', { name: 'Try again' }));
+      await waitFor(() => expect(post.mock.calls.filter(([p]) => p === '/api/job/alpha/gate')).toHaveLength(2));
+      expect(within(bar()).getByText('Nothing has moved yet.')).toBeInTheDocument();
+      expect(shownKind()).toBe('approve');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('the next step is said by its step’s own name, and left out when it names no step', async () => {
+    const goOn = async (gate: Gate) => {
+      setup({ jobs: waiting(), gate, post: sentPost({ runEvent: false }) });
+      await gateShown();
+      const go = within(bar()).getByRole('button', { name: /^Go: / });
+      await waitFor(() => expect(go).toBeEnabled());
+      fireEvent.click(go);
+      await within(bar()).findByText(SENT_WORDS);
+      const line = bar().querySelector('.next-sub')?.textContent;
+      // As between tests: the page that sent it is gone, and so is what it sent.
+      cleanup();
+      clearAllSent();
+      clearGateSent();
+      return line;
+    };
+    // The gate's next stage is a step: its name, never the Foreman's own words.
+    expect(await goOn({ ...GATE, nextStage: 'implement', nextProposed: 'Run the tests' })).toBe('Your go reached the Foreman. Build starts next.');
+    // No next stage: the Foreman's words count only when they are a step's name.
+    expect(await goOn({ ...GATE, nextStage: null, nextProposed: 'Review' } as unknown as Gate)).toBe('Your go reached the Foreman. Review starts next.');
+    expect(await goOn({ ...GATE, nextStage: null, nextProposed: 'Run the tests' } as unknown as Gate)).toBe('Your go reached the Foreman.');
+  });
+
+  it('while the job’s details load or fail, a job that waits for you never gets the crew bar', async () => {
+    const crew = [{ who: 'feature-implementer', name: 'Builder', doing: 'Building step 3 of 6: the Pause dialog', model: 'Sonnet 5.5', since: ago(12) }];
+    for (const details of ['loading', 'fails'] as const) {
+      for (const card of [{ lane: 'needs-you' as const }, { lane: 'working' as const, needsYou: true, laneReason: 'Auto is deciding: the plan', auto }]) {
+        setup({ jobs: waiting({ stage: 'implement', nowDoing: crew, ...card }), gate: GATE, details });
+        await act(async () => {});
+        expect(bar(), `${details} ${card.lane}`).toHaveTextContent('The Foreman asked you something');
+        expect(bar()).not.toHaveTextContent('The Builder');
+        expect(bar()).not.toHaveTextContent('Nothing for you to do');
+        cleanup();
+      }
+    }
+  });
+
+  it('a step is yours only while Auto is on', async () => {
+    setup({ jobs: waiting({ auto: { on: false, yours: true } }), gate: GATE });
+    await gateShown();
+    expect(bar()).not.toHaveClass('tone-stop');
+    expect(bar()).not.toHaveTextContent('Auto stopped');
+    expect(bar()).toHaveTextContent('Say go and the Foreman goes ahead: Build step 1');
+  });
+
+  it('a word that ends in -ing but is not a verb takes the colon', () => {
+    for (const [doing, say] of [['Nothing to report yet', 'The Builder: nothing to report yet'], ['Something broke in step 2', 'The Builder: something broke in step 2'], ['String tests for the form', 'The Builder: string tests for the form'], ['During step 2, a retry', 'The Builder: during step 2, a retry'], ['Testing the form', 'The Builder is testing the form']]) {
+      setup({ jobs: [job('alpha', 'running', { stage: 'implement', lane: 'working', nowDoing: [{ who: 'feature-implementer', name: 'Builder', doing, since: ago(12) }] })] });
+      expect(bar().querySelector('.next-head')).toHaveTextContent(new RegExp(`^${say}$`));
+      cleanup();
+    }
   });
 });
