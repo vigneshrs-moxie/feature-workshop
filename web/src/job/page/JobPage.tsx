@@ -241,6 +241,7 @@ function LaptopJob({ job, conversation, now, step, view, sent }: {
               extraAgents={[recorder].filter((a): a is StageAgent => a !== null)}
               sent={sent}
               docRequest={docRequest}
+              otherDocs={detail?.page?.docs?.none}
               bodyFirst={open === 'test'}
             >
               {stageView && (

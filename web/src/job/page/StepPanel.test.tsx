@@ -57,10 +57,10 @@ function stores(j: Job, { hosted = false, play, get, post }: { hosted?: boolean;
 }
 
 /** The panel drawn with a view in hand. */
-function show(view: StageView | null, { j = BUILDING, stop = view?.stop ?? 'build', hosted = false, play = undefined as 'full' | 'subtle' | undefined, error = null as string | null, extraAgents = undefined as StageAgent[] | undefined } = {}) {
+function show(view: StageView | null, { j = BUILDING, stop = view?.stop ?? 'build', hosted = false, play = undefined as 'full' | 'subtle' | undefined, error = null as string | null, extraAgents = undefined as StageAgent[] | undefined, otherDocs = undefined as JobDocEntry[] | null | undefined, regionOf = undefined as string | undefined } = {}) {
   const s = stores(j, { hosted, play });
   const onRetry = vi.fn();
-  render(s.wrap(<StepPanel job={j} stop={stop} view={view} error={error} onRetry={onRetry} now={NOW} extraAgents={extraAgents}><p>The step’s own body</p></StepPanel>));
+  render(s.wrap(<StepPanel job={j} stop={stop} view={view} error={error} onRetry={onRetry} now={NOW} extraAgents={extraAgents} otherDocs={otherDocs} regionOf={regionOf}><p>The step’s own body</p></StepPanel>));
   return { ...s, onRetry };
 }
 
@@ -276,6 +276,57 @@ describe('StepPanel', () => {
     expect(within(docs).queryByText('Step 1: the pause dialog.')).toBeNull();
     expect(within(docs).getAllByRole('button').map((b) => b.querySelector('.doc-name')?.textContent)).toEqual(['Implementation plan', 'Test plan']);
     await waitFor(() => expect(document.activeElement).toHaveAttribute('data-file', 'implementation-plan.md'));
+  });
+
+  it('workflow-status.md and an unknown notes-extra.md can be opened from Other documents of this job', async () => {
+    const STATUS_DOC: JobDocEntry = { file: 'workflow-status.md', name: 'Workflow status', group: 'other', version: null, updatedAt: ago(5), size: 300, type: 'md' };
+    const EXTRA: JobDocEntry = { file: 'notes-extra.md', name: 'notes-extra.md', group: 'other', version: null, updatedAt: ago(8), size: 120, type: 'md' };
+    const get = async (path: string): Promise<unknown> => {
+      if (/\/doc\?file=workflow-status\.md$/.test(path)) return { file: 'workflow-status.md', name: 'Workflow status', html: '<p>Status: building step 3.</p>', summary: null };
+      if (/\/doc\?file=notes-extra\.md$/.test(path)) return { file: 'notes-extra.md', name: 'notes-extra.md', html: '<p>Extra notes from the reviewer.</p>', summary: null };
+      throw new Error(`not in this test: ${path}`);
+    };
+    // The laptop app, the website, and the phone's step screen (a region named by its heading).
+    for (const mode of [{ hosted: false }, { hosted: true }, { hosted: false, regionOf: 'phone-step-title' }]) {
+      const s = stores(BUILDING, { hosted: mode.hosted, get });
+      render(s.wrap(
+        <>
+          {mode.regionOf && <h1 id={mode.regionOf}>Build</h1>}
+          <StepPanel job={BUILDING} stop="build" view={BUILD} error={null} onRetry={() => {}} now={NOW} otherDocs={[STATUS_DOC, EXTRA]} regionOf={mode.regionOf}><p>The step’s own body</p></StepPanel>
+        </>,
+      ));
+      const fold = screen.getByText('Other documents of this job', { selector: '.fold-name' }).closest('details')!;
+      // Closed at first, under the step's own documents.
+      expect(fold.open).toBe(false);
+      const own = screen.getByRole('region', { name: 'Documents from this step' });
+      expect(own.compareDocumentPosition(fold) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(within(own).queryByText('Workflow status')).toBeNull();
+      fireEvent.click(fold.querySelector('summary')!);
+      expect(fold.open).toBe(true);
+      const items = within(fold).getAllByRole('button');
+      expect(items.map((b) => b.querySelector('.doc-name')?.textContent)).toEqual(['Workflow status', 'notes-extra.md']);
+      fireEvent.click(items[0]);
+      expect(await within(fold).findByText('Status: building step 3.')).toBeInTheDocument();
+      fireEvent.click(within(fold).getByRole('button', { name: /All documents/ }));
+      fireEvent.click(within(fold).getByRole('button', { name: /notes-extra\.md/ }));
+      expect(await within(fold).findByText('Extra notes from the reviewer.')).toBeInTheDocument();
+      expect(s.api.get).toHaveBeenCalledWith(`/api/job/${SLUG}/doc?file=notes-extra.md`);
+      // The step's own documents are still its own.
+      expect(within(own).getAllByRole('button').map((b) => b.querySelector('.doc-name')?.textContent)).toEqual(['Implementation plan', 'Test plan']);
+      expect(screen.queryByRole('alert')).toBeNull();
+      cleanup();
+    }
+  });
+
+  it('no fold when the job has no other documents', () => {
+    for (const otherDocs of [[], null, undefined]) {
+      for (const hosted of [false, true]) {
+        show(BUILD, { otherDocs, hosted });
+        expect(screen.queryByText('Other documents of this job')).toBeNull();
+        expect(screen.getByRole('region', { name: 'Documents from this step' })).toBeInTheDocument();
+        cleanup();
+      }
+    }
   });
 
   it('a request opens its document in the list', async () => {

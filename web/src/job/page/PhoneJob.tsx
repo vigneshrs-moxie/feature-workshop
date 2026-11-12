@@ -297,6 +297,7 @@ function StepScreen({ job, conversation, now, sent, evidence, back, write, stop,
           extraAgents={[recorder].filter((a): a is StageAgent => a !== null)}
           sent={sent}
           docRequest={docRequest}
+          otherDocs={detail?.page?.docs?.none}
           bodyFirst={stop === 'test'}
           regionOf={headingId}
         >

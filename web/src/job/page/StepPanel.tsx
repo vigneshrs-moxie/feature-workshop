@@ -6,12 +6,14 @@
 // panel is whole. On the website there is no terminal: one sentence says where the buttons are.
 // In Play full the bay at this step, in 3D (StageStrip), sits above who worked on it on a laptop, as
 // it did on the step page; the phone's step screen has none.
+// Under the step's documents, folded, the job's documents no step owns (notes.md, workflow-status.md,
+// the history, a file the server's map does not know), with the same rows and reader.
 import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import type { FeedLine, Job, JobDocEntry, StageAgent, StageView, StopId } from '../../api/types';
 import { BRAND } from '../../app/brand';
 import { Button } from '../../components/Button';
 import { Icon } from '../../components/Icon';
-import { useNarrow } from '../../components/page/Page';
+import { Fold, useNarrow } from '../../components/page/Page';
 import { Select } from '../../components/Select';
 import { STOPS, stopOf } from '../../components/stops/stops';
 import type { GateKind } from '../../lib/compose';
@@ -74,7 +76,7 @@ function statusOf(a: StageAgent, { job, stop, rows }: { job: Job; stop: StopId; 
   return a.since ? { cls: 'is-stopped', words: 'Stopped' } : { cls: 'is-stopped', words: 'Not started' };
 }
 
-export function StepPanel({ job, stop, view, error, onRetry, now, extraAgents, sent = null, docRequest, bodyFirst = false, regionOf, children }: {
+export function StepPanel({ job, stop, view, error, onRetry, now, extraAgents, sent = null, docRequest, bodyFirst = false, regionOf, otherDocs, children }: {
   job: Job;
   stop: StopId;
   /** useStage's answer for this step; null while it loads or when it failed. */
@@ -92,6 +94,8 @@ export function StepPanel({ job, stop, view, error, onRetry, now, extraAgents, s
   bodyFirst?: boolean;
   /** The phone's step screen has no tab row: the panel is a region named by that screen's heading (its id). */
   regionOf?: string;
+  /** The job's documents no step owns (the job's facts, docs.none); not known or none: no fold. */
+  otherDocs?: JobDocEntry[] | null;
   children?: ReactNode;
 }) {
   const play = usePlay();
@@ -104,6 +108,7 @@ export function StepPanel({ job, stop, view, error, onRetry, now, extraAgents, s
   const reached = (view?.state ?? statesOf(job)[stop]) !== 'next';
   const rows = view ? [...listOf<StageAgent>(view.agents), ...listOf<StageAgent>(view.finished), ...(extraAgents ?? [])] : extraAgents ?? [];
   const title = `${STEP_PANEL_ID}-title`;
+  const others = listOf<JobDocEntry>(otherDocs);
   // The last document request handed down: each step's list is its own (keyed by step), so a request
   // already acted on is not handed to the next list, and picking the step again does not reopen it.
   const handled = useRef<number | null>(null);
@@ -133,6 +138,13 @@ export function StepPanel({ job, stop, view, error, onRetry, now, extraAgents, s
         <h3 id={`${title}-docs`}>Documents from this step</h3>
         <StepDocs key={stop} slug={job.slug} docs={listOf<JobDocEntry>(view?.docs)} request={request} loaded={view !== null || error !== null} />
       </section>
+      {others.length > 0 && (
+        <div className="sb-panel-docs" key={`${stop}-others`}>
+          <Fold icon="file" name="Other documents of this job">
+            <StepDocs slug={job.slug} docs={others} />
+          </Fold>
+        </div>
+      )}
     </section>
   );
 }
