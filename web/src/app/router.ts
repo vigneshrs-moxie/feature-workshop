@@ -222,13 +222,18 @@ export function navigate(route: Route) {
   if (window.location.hash !== href) window.location.hash = href;
 }
 
+/** Told when replaceHash writes an address (no hashchange fires for it). */
+const REPLACED = 'sb:replace-hash';
+
 /**
- * Writes `href` (a #/… address) into the address bar in place: no new history entry, and no
- * hashchange, so useRoute does not see it and the page that wrote it is not drawn again.
+ * Writes `href` (a #/… address) into the address bar in place: no new history entry and no
+ * hashchange, but the route useRoute holds moves to it, so a later link to the address the page
+ * started at is a change again.
  */
 export function replaceHash(href: string) {
   if (window.location.hash === href) return;
   window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}${href}`);
+  window.dispatchEvent(new Event(REPLACED));
 }
 
 export function useRoute(): Route {
@@ -241,8 +246,9 @@ export function useRoute(): Route {
       setRoute((prev) => (hrefFor(prev) === hrefFor(next) ? prev : next));
     };
     window.addEventListener('hashchange', onChange);
+    window.addEventListener(REPLACED, onChange);
     onChange();
-    return () => window.removeEventListener('hashchange', onChange);
+    return () => { window.removeEventListener('hashchange', onChange); window.removeEventListener(REPLACED, onChange); };
   }, []);
   return route;
 }

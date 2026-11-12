@@ -626,3 +626,47 @@ describe('the sent line names the step that comes next, never the one you are at
     expect(shownKind()).toBe('none');
   });
 });
+
+// Review of Task 15a, fix 3: today's Job page and step page draw the bar with NextStep too, so the gate
+// card that stays mounted, hidden, under a permission card is tested here as well as on the new page.
+describe('the gate card under a permission card', () => {
+  const ask = (): Permission => ({ ...permission('p1', 'alpha'), createdAt: NOW, input: { command: 'npm test' } });
+  const perms = (store: Store, list: Permission[]) => act(() => {
+    store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: waiting(), permissions: list, meta: { token: 't', settings: { play: { mode: 'subtle' } } } as never }) });
+  });
+
+  it('a permission card hides the gate card without unmounting it: the typed words are there when it goes', async () => {
+    const { store } = setup({ jobs: waiting(), gate: GATE });
+    await gateShown();
+    fireEvent.click(screen.getByRole('button', { name: /^No go: send back/ }));
+    const box = await screen.findByRole('textbox', { name: /What should change\?/ });
+    fireEvent.change(box, { target: { value: 'Use the small table.' } });
+    perms(store, [ask()]);
+    expect(screen.getByRole('region', { name: 'Permission: Run a command' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Next step' })).toBeNull();
+    // Hidden, not gone.
+    expect(box.isConnected).toBe(true);
+    expect(box.closest('[hidden]')).not.toBeNull();
+    perms(store, []);
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Permission: Run a command' })).toBeNull());
+    expect(screen.getByRole('textbox', { name: /What should change\?/ })).toBe(box);
+    expect(box).toHaveValue('Use the small table.');
+    expect(box.closest('[hidden]')).toBeNull();
+  });
+
+  it('the hidden gate card’s keys are off', async () => {
+    const post = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({ ok: true }));
+    const { store } = setup({ jobs: waiting(), gate: GATE, post });
+    await gateShown();
+    perms(store, [{ ...ask(), hardLine: { line: 'push', reason: 'It pushes to GitHub.' } } as Permission]);
+    // r would open the card's send back box; a would approve (a hard line answers no key either).
+    fireEvent.keyDown(document.body, { key: 'r' });
+    fireEvent.keyDown(document.body, { key: 'a' });
+    await act(async () => {});
+    expect(post).not.toHaveBeenCalled();
+    perms(store, []);
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Permission: Run a command' })).toBeNull());
+    expect(screen.queryByRole('textbox', { name: /What should change\?/ })).toBeNull();
+    for (const b of threeCalls()) await waitFor(() => expect(b).toBeEnabled());
+  });
+});

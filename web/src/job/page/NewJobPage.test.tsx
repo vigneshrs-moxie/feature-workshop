@@ -219,7 +219,7 @@ describe('the open step', () => {
     setup({ jobs: [working('plan')], routed: true });
     expect(openStop()).toBe('test');
     pick('spec');
-    // Only the address changed (no hashchange): the router still says test, and Spec stays open.
+    // The address changed in place (no hashchange, no history entry); the route follows it, and Spec stays open.
     await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
     expect(window.location.hash).toBe('#/job/alpha/stage/spec');
     expect(openStop()).toBe('spec');
@@ -863,6 +863,29 @@ describe('on the website', () => {
       localStorage.clear();
       windowWidth(LAPTOP);
     }
+  });
+});
+
+// Review of Task 15a, fix 1: a step's address always opens that step.
+describe('the address after a pick', () => {
+  it('after a pick, the address of the step the page opened at opens it again', () => {
+    const { rerenderWith } = setup({ jobs: [working('plan')], step: 'test' });
+    expect(openStop()).toBe('test');
+    pick('spec');
+    // The app's route follows the address the pick wrote.
+    rerenderWith({ slug: 'alpha', step: 'spec' });
+    expect(openStop()).toBe('spec');
+    rerenderWith({ slug: 'alpha', step: 'test' });
+    expect(openStop()).toBe('test');
+  });
+
+  it('routed: after a pick, a link to the step the page opened at opens it again', async () => {
+    window.location.hash = '#/job/alpha/stage/test';
+    setup({ jobs: [working('plan')], routed: true });
+    expect(openStop()).toBe('test');
+    pick('spec');
+    act(() => { window.location.hash = '#/job/alpha/stage/test'; });
+    await waitFor(() => expect(openStop()).toBe('test'));
   });
 });
 

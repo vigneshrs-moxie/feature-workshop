@@ -1,5 +1,6 @@
+import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { classicHref, hrefFor, jobHref, jobViewHref, openFromHash, pageName, parseHash, peekFromHash, replaceHash, screensHref, stageHref, withPeek } from './router';
+import { classicHref, hrefFor, jobHref, jobViewHref, openFromHash, pageName, parseHash, peekFromHash, replaceHash, screensHref, stageHref, useRoute, withPeek } from './router';
 
 describe('hash router', () => {
   it.each([
@@ -138,6 +139,28 @@ describe('hash router', () => {
       expect(heard).not.toHaveBeenCalled();
     } finally {
       window.removeEventListener('hashchange', heard);
+      window.location.hash = '';
+      await settle();
+    }
+  });
+  // Review of Task 15a, fix 1: after replaceHash the route the app holds is the address just written,
+  // so a later link to the address it started at is a change, and opens it.
+  it('replaceHash moves the route the app holds, with no new history entry', async () => {
+    const settle = () => new Promise((r) => setTimeout(r, 20));
+    window.location.hash = '#/job/alpha/stage/test';
+    await settle();
+    const entries = window.history.length;
+    const { result, unmount } = renderHook(() => useRoute());
+    try {
+      expect(result.current).toEqual({ name: 'stage', slug: 'alpha', stop: 'test' });
+      act(() => { replaceHash(stageHref('alpha', 'spec')); });
+      expect(result.current).toEqual({ name: 'stage', slug: 'alpha', stop: 'spec' });
+      expect(window.history.length).toBe(entries);
+      // A link back to the step it started at is a change again.
+      await act(async () => { window.location.hash = '#/job/alpha/stage/test'; await settle(); });
+      expect(result.current).toEqual({ name: 'stage', slug: 'alpha', stop: 'test' });
+    } finally {
+      unmount();
       window.location.hash = '';
       await settle();
     }
