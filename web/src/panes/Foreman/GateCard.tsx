@@ -271,7 +271,6 @@ export const movedWordsLine = (moved: Pick<MovedWords, 'brief' | 'mine'>) => (mo
  */
 export function useKeptBoxWords(job: Job, detail: JobDetail | null) {
   const slug = job.slug;
-  const [raw] = useStored(gateBoxKey(slug));
   const closed = Boolean(job.closed);
   useEffect(() => {
     if (!detail) return;
@@ -281,7 +280,9 @@ export function useKeptBoxWords(job: Job, detail: JobDetail | null) {
     const gate = openGate(detail, closed);
     if (gate && gateKey(gate) === kept.gate && sessionOf(detail) === kept.session) return;
     moveKeptWords(slug, kept);
-  }, [raw, detail, closed, slug]);
+    // When the job's details change (a brief answered or replaced), not on his keys: the page is not
+    // subscribed to the kept words, so typing in a box never draws the whole page again (item 10).
+  }, [detail, closed, slug]);
 }
 
 /**
@@ -348,11 +349,17 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
     // Nothing held: forget this brief's, never another brief's words still to be moved (useKeptBoxWords).
     if (ours(was)) writeStored(gateBoxKey(slug), null);
   };
-  const keepRef = useRef(keep);
-  keepRef.current = keep;
-  useEffect(() => { keepRef.current(mode, notes); }, [mode, notes]);
+  // The box's words come from this card's own state only (item 10): the store is read once, as the
+  // card mounts, and written where he types, opens or closes a box, never in an effect after the
+  // render (that second commit, on every key, also drew the whole job page again through its
+  // subscription to the store) and never back into a box.
   const note = mode === 'changes' || mode === 'message' ? notes[mode] : '';
-  const setNote = (words: string) => { if (mode === 'changes' || mode === 'message') setNotes((n) => ({ ...n, [mode]: words })); };
+  const setNote = (words: string) => {
+    if (mode !== 'changes' && mode !== 'message') return;
+    const next = { ...notes, [mode]: words };
+    setNotes(next);
+    keep(mode, next);
+  };
   const [stopName, setStopName] = useState('');
   const [stopNote, setStopNote] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
@@ -628,6 +635,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
       opener.current = at instanceof HTMLElement && at !== document.body ? at : null;
     }
     setMode(m);
+    keep(m, notes);
   }
 
   /** Cancel the open box: focus goes back to what opened it, when it is still there to take it. */
@@ -906,7 +914,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
             >
               Stop the job
             </Button>
-            <Button kind="quiet" disabled={busy} onClick={() => setMode(null)} title="Don’t stop. Nothing is sent.">Cancel</Button>
+            <Button kind="quiet" disabled={busy} onClick={() => { setMode(null); keep(null, notes); }} title="Don’t stop. Nothing is sent.">Cancel</Button>
           </div>
         </div>
       )}

@@ -1099,6 +1099,28 @@ describe('words typed in the card’s boxes', () => {
     fireEvent.change(await changesBox(), { target: { value: words } });
   }
 
+  // Fix round 1, item 10 (browser fault 5). No user-event here (it is not a dependency of web/), so
+  // each key is one input event straight after the last, with no await between them.
+  it.each(MODES)('typing with no gap between keys loses nothing (%s)', async (_where, hosted) => {
+    const SENTENCE = 'Ask the office about closed tickets and the export.';
+    setup({ jobs: waiting(), gate: GATE, hosted });
+    for (const [call, name] of [[/^No go: send back/, /What should change\?/], ['Reply', /Your answers or a note/]] as const) {
+      const open = await screen.findByRole('button', { name: call });
+      await waitFor(() => expect(open).toBeEnabled());
+      fireEvent.click(open);
+      const box = await screen.findByRole('textbox', { name });
+      for (let i = 1; i <= SENTENCE.length; i++) fireEvent.change(box, { target: { value: SENTENCE.slice(0, i) } });
+      expect(screen.getByRole('textbox', { name })).toBe(box);
+      expect(box).toHaveValue(SENTENCE);
+      expect(localStorage.getItem('fw.gateBox.alpha')).toContain(SENTENCE);
+      await act(async () => {});
+      expect(box).toHaveValue(SENTENCE);
+    }
+    // Each box kept its own words.
+    const kept = JSON.parse(localStorage.getItem('fw.gateBox.alpha')!) as { notes: { changes: string; message: string } };
+    expect(kept.notes).toEqual({ changes: SENTENCE, message: SENTENCE });
+  });
+
   it.each(MODES)('words typed in What should change? survive a refresh (%s)', async (_where, hosted) => {
     setup({ jobs: waiting(), gate: GATE, hosted });
     await sendBackWith('Use the small table.');
