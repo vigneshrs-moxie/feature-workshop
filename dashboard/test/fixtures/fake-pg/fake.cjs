@@ -4,6 +4,8 @@
 //   { version: 170000, databases: { <name>: { ledger: [migration names] | null, connections: n, pids?: [ids] } } }
 // createdb fails when $FAKE_PG_FAIL names its target; migrate fails when it names the migration.
 // migrate exits 0 having written nothing when $FAKE_PG_SILENT names the migration (a script that went elsewhere).
+// Each database counts its sessions (psql to it, the fixture app's connections); $FAKE_PG_NO_SESSIONS: a server
+// whose pg_stat_database has no sessions column (before Postgres 14).
 // $FAKE_PG_HANG = '<tool>:<target>' (psql's -d, createdb's and dropdb's database, migrate's migration):
 // that call logs, then never ends. $FAKE_PG_SLOW, the same form: that call waits 1 s, then carries on.
 // The server's version is state.versionByPort[$PGPORT], else state.version ('fail': psql can't read it);
@@ -35,7 +37,13 @@ module.exports = function fake(tool) {
     const db = args[args.indexOf('-d') + 1];
     const sql = args[args.indexOf('-c') + 1];
     if (db !== 'postgres' && !dbs[db]) fail(`psql: error: FATAL:  database "${db}" does not exist`, 2);
+    // A connection to a database is a session on it (pg_stat_database's sessions), however short.
+    if (db !== 'postgres') { dbs[db].sessions = (dbs[db].sessions ?? 0) + 1; write(state); }
     let m;
+    if ((m = /select sessions from pg_stat_database where datname = '([^']*)'/.exec(sql))) {
+      if (process.env.FAKE_PG_NO_SESSIONS) fail('ERROR:  column "sessions" does not exist');
+      return console.log(String(dbs[m[1]]?.sessions ?? 0));
+    }
     if (/show server_version_num/.test(sql)) return serverVersion === 'fail' ? fail('psql: error: connection to server failed') : console.log(String(serverVersion));
     if ((m = /from pg_database where datname in \((.*)\)/.exec(sql))) {
       const names = [...m[1].matchAll(/'([^']*)'/g)].map((x) => x[1]);

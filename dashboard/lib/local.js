@@ -20,6 +20,7 @@ import { GENERAL, GENERAL_FILE_RULE, devCommand, fillPattern, tryItRules } from 
 import { openRegistry } from './repos.js';
 import { guessedWorktree, guessWords } from './locate.js';
 import { PRODUCT } from './brand.js';
+import { autoDbEnvParts, dbHint, leftover, readSettingsFiles } from './db-settings.js';
 
 const OUTPUT_MAX = 200_000; // characters kept per output box
 const PRESETS = [
@@ -173,7 +174,7 @@ export function createdbArgs(from, to, { fileCopy }) {
 }
 
 const ADDRESS = /postgres(?:ql)?:(?:\\?\/){2}[^\s'"`<>]+/gi; // also as JSON writes it (postgres:\/\/…)
-const PASSWORD_SETTING = /\b(PGPASSWORD\s*=\s*|password\s*[=:]\s*)("[^"]*"|'[^']*'|\S+)/gi;
+const PASSWORD_SETTING = /(^|[^A-Za-z])((?:pg)?password"?\s*[=:]\s*)("[^"]*"|'[^']*'|[^\s,;}]+)/gi;
 
 /**
  * Text with every database address blanked (`<database address>`), and each of `secrets` (the
@@ -183,7 +184,7 @@ const PASSWORD_SETTING = /\b(PGPASSWORD\s*=\s*|password\s*[=:]\s*)("[^"]*"|'[^']
  * `PGPASSWORD=…` or `password: …` / `password=…` printed, whatever its length.
  */
 export function blankAddresses(text, secrets = []) {
-  let out = String(text ?? '').replace(ADDRESS, '<database address>').replace(PASSWORD_SETTING, '$1<password>');
+  let out = String(text ?? '').replace(ADDRESS, '<database address>').replace(PASSWORD_SETTING, '$1$2<password>');
   for (const s of secrets) if (typeof s === 'string' && s.length >= 4) out = out.split(s).join('<password>');
   return out;
 }
@@ -215,80 +216,6 @@ export const AUTO_RECORDING_APP = 'Auto is recording this job on its own copy of
 const pgPort = (u) => u.port || '5432';
 const sameServer = (a, b) => (isLocalHost(a.hostname) ? isLocalHost(b.hostname) : a.hostname.toLowerCase() === b.hostname.toLowerCase()) && pgPort(a) === pgPort(b);
 
-/**
- * A settings value, as Auto's copy would have it: the value with his database's name (name) changed
- * to Auto's (auto), or null when it doesn't name his database. "Names his database" is the same
- * database name on any host (a copy named after his on another server only fails to connect):
- *   - an address (postgres://, postgresql://, jdbc:postgresql://; any host, a socket's empty host
- *     too) whose path, or whose ?dbname= (libpq lets it win over the path), is that name;
- *   - a key/value conninfo (`host=… dbname=<name> …`);
- *   - the bare name, under a key that holds a database's name (PGDATABASE, POSTGRES_DB, DB_NAME…).
- */
-export function autoValue(key, value, name, auto) {
-  const v = String(value ?? '');
-  const decode = (x) => { try { return decodeURIComponent(x); } catch { return null; } };
-  const m = /^(jdbc:)?(postgres(?:ql)?:\/\/)(.*)$/i.exec(v);
-  if (m) {
-    // [userinfo@]host[:port][/path][?query][#hash], by hand: a socket's empty host, a list of hosts and odd names all parse.
-    const rest = /^([^/?#]*)(\/[^?#]*)?(\?[^#]*)?(#.*)?$/.exec(m[3]);
-    if (!rest) return null;
-    const [, hostPart, pathPart = '', query = '', hash = ''] = rest;
-    let hit = false;
-    let newPath = pathPart;
-    if (pathPart && decode(pathPart.slice(1)) === name) { newPath = `/${auto}`; hit = true; }
-    const newQuery = query.replace(/([?&]dbname=)([^&]*)/gi, (all, k, x) => (decode(x) === name ? ((hit = true), `${k}${auto}`) : all));
-    return hit ? `${m[1] ?? ''}${m[2]}${hostPart}${newPath}${newQuery}${hash}` : null;
-  }
-  if (/(^|\s)dbname\s*=/i.test(v)) {
-    let hit = false;
-    const out = v.replace(/((?:^|\s)dbname\s*=\s*)('([^']*)'|[^\s']+)/gi, (all, k, x, quoted) => ((quoted ?? x) === name ? ((hit = true), `${k}${quoted !== undefined ? `'${auto}'` : auto}`) : all));
-    return hit ? out : null;
-  }
-  if (/DB|DATABASE/i.test(String(key)) && v === name) return auto;
-  return null;
-}
-
-/** Whether a settings value is a Postgres database address of any kind (an address or a conninfo naming a database). */
-export const isDbAddress = (value) => /^(jdbc:)?postgres(ql)?:\/\//i.test(String(value ?? '')) || /(^|\s)dbname\s*=/i.test(String(value ?? ''));
-
-/** The KEY=value pairs in .env text (export, quotes and comments as envValue reads them). */
-function envPairs(text) {
-  const out = [];
-  for (const line of String(text ?? '').split('\n')) {
-    const m = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(line);
-    if (m) out.push([m[1], envValue(line, m[1])]);
-  }
-  return out;
-}
-
-// libpq reads a service's settings (its dbname too) before the PG* fallbacks: never passed on.
-const PG_SERVICE = new Set(['PGSERVICE', 'PGSERVICEFILE']);
-
-/**
- * The environment for everything Auto starts on its own database (the migrate script and the
- * recording's app): base (Starbase's own, as a child gets it) with
- *   - DATABASE_URL, the profile's key (db.key) and PGDATABASE set to Auto's (db.autoUrl, db.auto);
- *   - each key in his settings files (settingsText: every .env file of both checkouts) whose value
- *     names his database (autoValue) set to the same value naming db.auto: a value in the process
- *     wins over the file for an app that loads it as Next.js and dotenv do, so setting it is what
- *     protects it;
- *   - every other key from base whose value names his database left out, and PGSERVICE and
- *     PGSERVICEFILE left out.
- * Nothing else changes. db: #database's ({ url, name, key, auto, autoUrl }).
- */
-export function autoDbEnv(db, settingsText, base = process.env) {
-  const env = {};
-  for (const [k, v] of Object.entries(base)) if (v !== undefined && !PG_SERVICE.has(k) && autoValue(k, v, db.name, db.auto) === null) env[k] = v;
-  for (const [k, v] of envPairs(settingsText)) {
-    const auto = autoValue(k, v, db.name, db.auto);
-    if (auto !== null) env[k] = auto;
-  }
-  env.DATABASE_URL = db.autoUrl;
-  if (db.key) env[db.key] = db.autoUrl;
-  env.PGDATABASE = db.auto;
-  return env;
-}
-
 const AUTO_DB_WAIT_MS = 120_000; // how long Auto waits for another database switch to end
 const AUTO_STEP_MS = 600_000; // how long one of Auto's database steps may run before it is stopped
 const PSQL_MS = 30_000; // how long a psql read may run (Try it's and Auto's)
@@ -298,6 +225,9 @@ const spanWords = (ms) => {
   const [n, unit] = ms >= 60_000 ? [Math.round(ms / 60_000), 'minute'] : ms >= 1000 ? [Math.round(ms / 1000), 'second'] : [ms, 'millisecond'];
   return `${n} ${unit}${n === 1 ? '' : 's'}`;
 };
+
+// Auto's database steps running now: stopAll ends them (they run in their own group, so they'd outlive Starbase).
+const autoChildren = new Set();
 
 // A fixed program with fixed arguments (no shell), its output kept, not streamed: Auto's database steps.
 // exactEnv: the whole environment, as given (autoDbEnv's); else Starbase's own with env added.
@@ -311,6 +241,9 @@ function capture(file, args, { env, cwd, exactEnv = null, timeoutMs = 0 } = {}) 
     const end = (r) => { clearTimeout(timer); resolve({ ...r, output }); };
     // Its own process group (macOS, Linux), so killTree reaches what it started (npm's shell, the script).
     const child = spawn(file, args, { cwd, env: exactEnv ?? childEnv(env), stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32' });
+    autoChildren.add(child);
+    child.on('close', () => autoChildren.delete(child));
+    child.on('error', () => autoChildren.delete(child));
     child.stdout.on('data', add);
     child.stderr.on('data', add);
     child.on('error', (err) => { add(`${err.message}\n`); end({ ok: false, code: err.code }); });
@@ -333,6 +266,7 @@ export class LocalRunner extends EventEmitter {
   #pgTool;
   #autoStepMs;
   #starts = new Map(); // slug -> the start under way (startServer)
+  #hisHeld = new Map(); // his database's name -> { promise }: Starbase's own reads of it wait (holdHisReads)
   #fileCopy = new Map(); // server and createdb -> a promise: whether createdb's file copy can be used (read once)
 
   /**
@@ -536,6 +470,9 @@ export class LocalRunner extends EventEmitter {
     // The profile's command, or the app's dev script (only on this computer for a Next.js app: with
     // the sign-in skip on, the app must not be reachable from the network).
     const command = devCommand(w.tryIt, w.app.scripts.dev, port);
+    const base = childEnv({ PORT: String(port), HOSTNAME: '127.0.0.1', HOST: '127.0.0.1' });
+    // On Auto's database: refused (nothing starts) if a setting may still point at his.
+    const env = autoEnv ? await this.#autoEnvFor(w, autoEnv, base, (m) => new Error(m)) : base;
     const server = { status: 'starting', port, url: fillPattern(w.tryIt.url, { port }), command, startedAt: new Date().toISOString(), output: '', child: null, exitCode: null, db: databaseUrl ? 'auto' : null };
     slot.server = server;
     if (this.demo) {
@@ -546,8 +483,6 @@ export class LocalRunner extends EventEmitter {
     }
     server.output = `$ ${command}   (in ${w.app.dir})\n`;
     const shell = shellFor(command);
-    const base = childEnv({ PORT: String(port), HOSTNAME: '127.0.0.1', HOST: '127.0.0.1' });
-    const env = autoEnv ? autoDbEnv(autoEnv, await this.#settingsText(w), base) : base;
     const child = spawn(shell.file, shell.args, { cwd: w.app.dir, env, ...shell.options, stdio: ['ignore', 'pipe', 'pipe'] });
     server.child = child;
     const onData = (buf) => {
@@ -733,38 +668,45 @@ export class LocalRunner extends EventEmitter {
   }
 
   /**
-   * Every settings file the app or its scripts can read, for autoDbEnv and namesADatabase: each .env
-   * file (.env, .env.local, .env.development…) in the app folder and the root of both checkouts (his
-   * main checkout and the job's worktree), and the profile's settings file in each. The text stays
-   * on the server.
+   * Every settings file of both checkouts (his main checkout and the job's worktree), as
+   * lib/db-settings.js reads them: { files: [{ rel, pairs, loose }], unreadable: [rel] }. The text
+   * stays on the server.
    */
-  async #settingsText(w) {
-    const dirs = [...new Set([w.mainRoot, w.mainApp, w.root, w.app?.dir].filter(Boolean))];
-    const rule = LocalRunner.settingsFile(w);
-    const files = new Set([rule && w.mainRoot && path.join(w.mainRoot, rule.from), rule && w.root && path.join(w.root, rule.to)].filter(Boolean));
-    for (const dir of dirs) {
-      const names = await fsp.readdir(dir).catch(() => []);
-      for (const n of names.sort()) if (/^\.env(\..+)?$/.test(n)) files.add(path.join(dir, n));
+  async #settingsFiles(w) {
+    const out = { files: [], unreadable: [] };
+    for (const root of [...new Set([w.mainRoot, w.root].filter(Boolean))]) {
+      const r = await readSettingsFiles(root);
+      out.files.push(...r.files);
+      out.unreadable.push(...r.unreadable);
     }
-    const texts = [];
-    for (const file of files) {
-      const st = await fsp.stat(file).catch(() => null);
-      if (st?.isFile() && st.size <= 1024 * 1024) texts.push(await fsp.readFile(file, 'utf8').catch(() => ''));
-    }
-    return texts.join('\n');
+    return out;
   }
 
   /**
-   * Whether the job's app names a database anywhere: a value in its settings files (#settingsText)
-   * or in Starbase's own environment that is a Postgres address, or its database key (the profile's,
-   * else DATABASE_URL) set there. Only an app that names none records as Try it does today.
+   * R1: whether the job's app may use a database, so an Auto job takes Auto's copy or nothing. True
+   * when the profile names a database key, any settings file has a line that looks like a database
+   * setting (lib/db-settings.js looksLikeDb) or can't be read, or env (Starbase's own, by default)
+   * has one. Only a repository with none records as Try it does today.
    */
-  async namesADatabase(f) {
+  async namesADatabase(f, env = process.env) {
     const w = await this.where(f);
     if (!w.root) return false;
-    const key = w.tryIt?.dbUrlKey ?? 'DATABASE_URL';
-    const pairs = [...envPairs(await this.#settingsText(w)), ...Object.entries(process.env)];
-    return pairs.some(([k, v]) => isDbAddress(v) || (k === key && v != null && String(v) !== ''));
+    if (w.profile && w.tryIt?.dbUrlKey) return true;
+    return Boolean(dbHint(await this.#settingsFiles(w), env));
+  }
+
+  /**
+   * Auto's child environment for the job (lib/db-settings.js autoDbEnvParts) once nothing is left
+   * that may point at his database: a settings file Starbase can't read, or a database setting that
+   * holds his database's name and that Starbase couldn't set (leftover), refuses with its words.
+   */
+  async #autoEnvFor(w, db, base, refuse) {
+    const settings = await this.#settingsFiles(w);
+    if (settings.unreadable.length) throw refuse(`Auto could not read ${settings.unreadable[0]}, so it made no recording.`);
+    const { env, set } = autoDbEnvParts(db, settings.files, base);
+    const left = leftover(settings.files, set, db);
+    if (left) throw refuse(`A setting in ${left.file} (${left.key}) may point at your database, and Auto could not point it at its own copy, so it made no recording.`);
+    return env;
   }
 
   /**
@@ -786,6 +728,9 @@ export class LocalRunner extends EventEmitter {
 
   // timeout: Auto's reads pass the lower of this and its step limit. A read stopped by it throws with timedOut.
   async #psql(db, sql, { timeout = PSQL_MS } = {}) {
+    // A read of his database waits while an Auto recording watches it for new sessions (holdHisReads).
+    const target = db.dbName ?? db.name;
+    while (target !== 'postgres' && this.#hisHeld.has(target)) await this.#hisHeld.get(target).promise;
     const r = await sh(await this.#pgTool('psql'), ['-X', '-A', '-t', '-q', '-v', 'ON_ERROR_STOP=1', '-d', db.dbName ?? db.name, '-c', sql], { env: childEnv(db.env), timeout });
     if (r.killed) throw Object.assign(new Error(`psql took longer than ${spanWords(timeout)} and was stopped.`), { timedOut: true });
     if (!r.ok) throw new Error(r.stderr.trim().split('\n')[0] || 'psql failed');
@@ -982,10 +927,19 @@ export class LocalRunner extends EventEmitter {
     try {
       const w = await this.where(f);
       const db = w.app ? await this.#database(w) : { reason: w.reason };
-      if (!db.url) throw new AutoDbError('no-database', db.reason ?? `This job’s app has no database ${PRODUCT} can copy for Auto.`);
+      if (!db.url) {
+        // The profile names no database key, but the app looks like it uses one: say where (a file and a key, never a value).
+        const hint = !(w.profile && w.tryIt?.dbUrlKey) && w.root ? dbHint(await this.#settingsFiles(w), process.env) : null;
+        if (hint?.unreadable) throw new AutoDbError('no-database', `Auto could not read ${hint.file}, so it made no recording.`);
+        if (hint) throw new AutoDbError('no-database', `This job’s app looks like it uses a database (${hint.file ?? `${PRODUCT}’s own environment`}, ${hint.key}), but ${PRODUCT} does not know which one, so Auto made no recording.`);
+        throw new AutoDbError('no-database', db.reason ?? `This job’s app has no database ${PRODUCT} can copy for Auto.`);
+      }
       // Every error's words with the addresses and the password blanked (no address leaves the laptop).
       const secrets = (() => { const p = new URL(db.url).password; try { return [p, decodeURIComponent(p)]; } catch { return [p]; } })();
       const fail = (code, message, extra = {}) => new AutoDbError(code, blankAddresses(message, secrets), { ...extra, ...(extra.tail ? { tail: blankAddresses(extra.tail, secrets) } : {}) });
+      // The migrate script's environment names only Auto's database (lib/db-settings.js), with the server's
+      // own settings (db.env); a setting that may still point at his refuses before anything is copied or run.
+      const env = await this.#autoEnvFor(w, db, childEnv(db.env), (m) => fail('no-database', m));
       const admin = { ...db, dbName: 'postgres' };
       // Every program started here has a time limit (autoStepMs; psql's reads keep their lower one).
       const limit = spanWords(this.#autoStepMs);
@@ -1028,8 +982,6 @@ export class LocalRunner extends EventEmitter {
       };
       const ledger = await ledgerNow();
       const toAdd = (await diskMigrations(w.app.dir)).filter((n) => !ledger.includes(n));
-      // The migrate script's environment names only Auto's database (autoDbEnv), with the server's own settings (db.env).
-      const env = autoDbEnv(db, await this.#settingsText(w), childEnv(db.env));
       const added = [];
       for (const name of toAdd) {
         const r = await capture('npm', ['run', 'db:migrate', '--', name], { exactEnv: env, cwd: w.app.dir, timeoutMs: this.#autoStepMs });
@@ -1065,7 +1017,44 @@ export class LocalRunner extends EventEmitter {
     const w = await this.where(f);
     const db = w.app ? await this.#database(w) : { reason: w.reason };
     if (!db.url) throw new Error(db.reason ?? `This job’s app has no database ${PRODUCT} can copy for Auto.`);
-    return (await this.#psql({ ...db, dbName: 'postgres' }, `select pid from pg_stat_activity where datname = '${db.name}' and pid <> pg_backend_pid()`)).split('\n').filter(Boolean);
+    return (await this.#psql({ ...db, dbName: 'postgres' }, `select pid from pg_stat_activity where datname = '${db.name}' and backend_type = 'client backend' and pid <> pg_backend_pid()`)).split('\n').filter(Boolean);
+  }
+
+  /**
+   * How many sessions his database has had (pg_stat_database's sessions, Postgres 14 or later), read
+   * through the admin database: a session that opened and closed between two looks still counts.
+   * null when the server has no such column.
+   */
+  async hisSessions(f) {
+    if (this.demo) throw new Error('Demo mode: nothing real runs.');
+    const w = await this.where(f);
+    const db = w.app ? await this.#database(w) : { reason: w.reason };
+    if (!db.url) throw new Error(db.reason ?? `This job’s app has no database ${PRODUCT} can copy for Auto.`);
+    try {
+      const v = await this.#psql({ ...db, dbName: 'postgres' }, `select sessions from pg_stat_database where datname = '${db.name}'`);
+      return Number(v) || 0;
+    } catch (err) {
+      if (/column .*sessions.* does not exist/i.test(err.message)) return null;
+      throw err;
+    }
+  }
+
+  /**
+   * While an Auto recording watches his database for new sessions, Starbase's own reads of it (Try
+   * it's panel) wait, so they are never taken for the app's. Returns the release; held at most maxMs.
+   */
+  async holdHisReads(f, maxMs = 120_000) {
+    const w = await this.where(f);
+    const db = w.app ? await this.#database(w) : {};
+    if (!db.name) return () => {};
+    let release;
+    const promise = new Promise((r) => { release = r; });
+    const held = { promise };
+    this.#hisHeld.set(db.name, held);
+    const end = () => { clearTimeout(timer); if (this.#hisHeld.get(db.name) === held) this.#hisHeld.delete(db.name); release(); };
+    const timer = setTimeout(end, maxMs);
+    timer.unref?.();
+    return end;
   }
 
   #finish(slug, status, text) {
@@ -1113,6 +1102,7 @@ export class LocalRunner extends EventEmitter {
 
   /** On shutdown: stop every dev server and command we started. */
   stopAll() {
+    for (const child of autoChildren) killTree(child, 'SIGKILL'); // Auto's database steps run in their own group
     for (const slot of this.jobs.values()) {
       if (slot.server?.child && ['starting', 'running'].includes(slot.server.status)) killTree(slot.server.child);
       if (slot.cmd?.child && slot.cmd.status === 'running') killTree(slot.cmd.child);

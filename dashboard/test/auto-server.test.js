@@ -3872,7 +3872,7 @@ test('a migration that did not land on Auto\'s copy stops Auto on the job throug
   const { AUTO_NOT_LANDED_STOP } = await import('../runner/evidence.js');
   const u = unit({ decide: () => {} });
   const job = { dir: unitDir, slug: 'visit-audit', title: 'Visit audit', stage: 'test' };
-  assert.equal(await u.auto.stopFor(job, { rule: 'blocked', reason: AUTO_NOT_LANDED_STOP }), true);
+  assert.equal(await u.auto.stopWith(job, { rule: 'blocked', reason: AUTO_NOT_LANDED_STOP }), true);
   assert.equal(u.record().stopped.reason, AUTO_NOT_LANDED_STOP);
   assert.equal(u.record().on, true, 'stopped, not switched off: the job shows under Needs you');
   assert.ok(u.lines.some((l) => l.action === 'auto' && l.what === 'stop' && l.reason === AUTO_NOT_LANDED_STOP), 'the stop is logged');

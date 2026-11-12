@@ -102,3 +102,14 @@ test('only a failed migration is sent; one that did not land stops Auto on the j
   for (const code of ['copy', 'no-database', 'no-original', 'busy']) assert.equal(await w.handle(f, { code }), null, code);
   assert.equal(w.started.length, 0);
 });
+
+test('R8: when the stop writes nothing (Auto already stopped, or switched off), the not-landed notice still goes with the stop\'s sentence', async () => {
+  const notes = [];
+  const handle = autoDbProblems({ driver: new EventEmitter(), state: { audit: async () => {} }, stopAuto: async () => false, notify: (n) => notes.push(n) });
+  assert.deepEqual(await handle(f, { code: 'not-landed', migration: '0002_b' }), { stopped: true });
+  assert.equal(notes.length, 1);
+  assert.deepEqual({ level: notes[0].level, title: notes[0].title, body: notes[0].body, slug: notes[0].slug }, { level: 'needs', title: 'Auto job', body: AUTO_NOT_LANDED_STOP, slug: 'auto-job' });
+  const written = [];
+  await autoDbProblems({ driver: new EventEmitter(), state: { audit: async () => {} }, stopAuto: async () => true, notify: (n) => written.push(n) })(f, { code: 'not-landed' });
+  assert.deepEqual(written, [], 'a stop that was written sends its own notice');
+});

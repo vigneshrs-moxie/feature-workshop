@@ -804,7 +804,7 @@ const dbNameOf = (url) => decodeURIComponent(new URL(url).pathname.slice(1));
  * its settings file over what it is given. migrate: 'fake' for fixtures/fake-pg's migrate. settings: his
  * settings file. profile: the repository's.
  */
-async function autoWorld({ slugs = ['auto-job'], auto = { on: true }, original = true, connections = 0, override = false, both = false, migrate = null, profile = AUTO_PROFILE, settings = `DATABASE_URL=${HIS_ADDRESS}\n`, appSettings = `DATABASE_URL=${HIS_ADDRESS}\n` } = {}) {
+async function autoWorld({ slugs = ['auto-job'], auto = { on: true }, original = true, connections = 0, override = false, both = false, migrate = null, profile = AUTO_PROFILE, settings = `DATABASE_URL=${HIS_ADDRESS}\n`, appSettings = `DATABASE_URL=${HIS_ADDRESS}\n`, times = {} } = {}) {
   const { LocalRunner } = await import('../lib/local.js');
   const { State } = await import('../lib/state.js');
   const { pathToFileURL } = await import('node:url');
@@ -856,12 +856,14 @@ async function autoWorld({ slugs = ['auto-job'], auto = { on: true }, original =
   const emitted = [];
   const audits = [];
   const sends = [];
+  const stops = [];
   const door = evidenceRunner({
     jobs: async () => list, local, state: { audit: async (l) => { audits.push(l); } },
     events: { emit: (_name, _slug, data) => emitted.push(data) }, on: (name, fn) => { handlers[name] = fn; },
     env: { STARBASE_PLAYWRIGHT: pw },
     onAutoDbProblem: (f, err) => { sends.push({ slug: f.slug, kind: 'auto-migration', err }); },
-    autoTimes: { connectEveryMs: 100, connectForMs: 1500, lookAgainMs: 400 },
+    stopAuto: async (f, reason) => { stops.push({ slug: f.slug, reason }); return true; },
+    autoTimes: { connectEveryMs: 100, connectForMs: 1500, lookAgainMs: 400, ...times },
   });
   const log = async () => (await fs.readFile(logFile, 'utf8')).split('\n').filter(Boolean).map((l) => JSON.parse(l));
   const pg = async () => JSON.parse(await fs.readFile(stateFile, 'utf8')).databases;
@@ -870,7 +872,7 @@ async function autoWorld({ slugs = ['auto-job'], auto = { on: true }, original =
     for (const j of list) await stopWait(j.slug).catch(() => {});
     await fs.rm(top, { recursive: true, force: true });
   };
-  return { top, list, local, door, handlers, emitted, audits, sends, steps, log, pg, runs, done };
+  return { top, list, local, door, handlers, emitted, audits, sends, stops, steps, log, pg, runs, done };
 }
 
 /** Every command in the log is on Auto's database, with the original only ever a copy's source (and his, only to save a missing original). */
@@ -1142,4 +1144,97 @@ test('something already on Auto\'s fresh copy before its app starts: no app, not
     assert.equal(w.local.jobs.get('auto-job')?.server ?? null, null, 'the app never started');
     assert.equal(await w.runs(), 0);
   } finally { await w.done(); }
+});
+
+// ---------- Task 9 fix round 2 ----------
+
+/** The fake database state, changed in place. */
+async function pgChange(change) {
+  const state = JSON.parse(await fs.readFile(process.env.FAKE_PG_STATE, 'utf8'));
+  change(state.databases);
+  await fs.writeFile(process.env.FAKE_PG_STATE, JSON.stringify(state));
+}
+/** Runs during(n) at the window's n-th look at Auto's database (the first is the check before the app starts). */
+function atLook(w, during) {
+  const ask = w.local.autoConnections.bind(w.local);
+  let n = 0;
+  w.local.autoConnections = async (f) => { n++; await during(n); return ask(f); };
+}
+
+test('R6: a session that opens and closes on his database between two looks is caught', { timeout: 60_000 }, async () => {
+  const { AUTO_DB_HIS_NEW } = await import('../runner/evidence.js');
+  const w = await autoWorld({ times: { lookAgainMs: 600_000 } });
+  try {
+    atLook(w, async (n) => { if (n === 3) await pgChange((dbs) => { dbs.app.sessions = (dbs.app.sessions ?? 0) + 1; }); });
+    await assert.rejects(w.door.record('auto-job', { waitMs: 50_000 }), (err) => err.message === AUTO_DB_HIS_NEW);
+    assert.equal(await w.runs(), 0);
+  } finally { await w.done(); }
+});
+
+test('R6: Starbase\'s own read of his database during the window waits for its end and is never taken for the app\'s', { timeout: 60_000 }, async () => {
+  const w = await autoWorld({ times: { lookAgainMs: 600_000 } });
+  try {
+    let read = null;
+    atLook(w, async (n) => { if (n === 3) read = w.local.dbView(w.list[0], { fresh: true }); });
+    const r = await w.door.record('auto-job', { waitMs: 50_000 });
+    assert.equal(r.evidence.commit, 'abc1234def5');
+    assert.ok(read, 'the read was asked for during the window');
+    assert.equal((await read).name, 'app', 'and answered after it');
+  } finally { await w.done(); }
+});
+
+/** Something stays on Auto's fresh copy while taken() says so: an old app reconnecting. */
+function holdAutoCopy(w, taken) {
+  const made = w.local.autoDatabase;
+  w.local.autoDatabase = async (f, o) => {
+    const r = await made(f, o);
+    if (taken()) await pgChange((dbs) => { dbs.app__auto.connections = 1; });
+    return r;
+  };
+}
+
+test('R7: the third refusal in a row is not tried again: Auto stops on the job with the reason', { timeout: 90_000 }, async () => {
+  const { AUTO_DB_TAKEN, AUTO_DB_TAKEN_STOP, AUTO_DB_HIS_NEW_STOP } = await import('../runner/evidence.js');
+  assert.equal(AUTO_DB_HIS_NEW_STOP, 'Something new connected to your database each of the 3 times Auto\'s app started, so no recording was made. If that was your own app or a query of yours, switch Auto on again.');
+  assert.equal(AUTO_DB_TAKEN_STOP, 'Something stayed connected to Auto\'s copy of the database through 3 tries, so no recording was made. Stop whatever is using it, then switch Auto on again.');
+  const w = await autoWorld({ times: { lookAgainMs: 600_000 } });
+  try {
+    holdAutoCopy(w, () => true);
+    for (let i = 0; i < 2; i++) await assert.rejects(w.door.record('auto-job', { waitMs: 50_000 }), (err) => err.message === AUTO_DB_TAKEN);
+    assert.deepEqual(w.stops, []);
+    await assert.rejects(w.door.record('auto-job', { waitMs: 50_000 }), (err) => err.message === AUTO_DB_TAKEN_STOP);
+    await settle(100);
+    assert.deepEqual(w.stops, [{ slug: 'auto-job', reason: AUTO_DB_TAKEN_STOP }]);
+    const view = await w.door.view('auto-job');
+    assert.equal(view.problem.message, AUTO_DB_TAKEN_STOP);
+    assert.notEqual(view.problem.waiting, true, 'not waiting to try again');
+  } finally { await w.done(); }
+});
+
+test('R7: a recording that succeeds resets the count', { timeout: 90_000 }, async () => {
+  const { AUTO_DB_TAKEN } = await import('../runner/evidence.js');
+  const w = await autoWorld({ times: { lookAgainMs: 600_000 } });
+  try {
+    let taken = true;
+    holdAutoCopy(w, () => taken);
+    for (let i = 0; i < 2; i++) await assert.rejects(w.door.record('auto-job', { waitMs: 50_000 }), (err) => err.message === AUTO_DB_TAKEN);
+    taken = false;
+    assert.equal((await w.door.record('auto-job', { waitMs: 50_000 })).evidence.commit, 'abc1234def5');
+    await fs.rm(path.join(w.list[0].dir, 'evidence', 'evidence.json')); // the same commit once more
+    taken = true;
+    for (let i = 0; i < 2; i++) await assert.rejects(w.door.record('auto-job', { waitMs: 50_000 }), (err) => err.message === AUTO_DB_TAKEN);
+    assert.deepEqual(w.stops, [], 'two in a row since the success: no stop');
+  } finally { await w.done(); }
+});
+
+test('R8: on a job whose Auto already stopped, a migration that did not land still says so in the stop\'s own words', { timeout: 60_000 }, async () => {
+  const { AUTO_NOT_LANDED_STOP } = await import('../runner/evidence.js');
+  const w = await autoWorld({ migrate: 'fake', auto: { on: true, stopped: { reason: 'earlier', rule: 'blocked', at: OLD } } });
+  process.env.FAKE_PG_SILENT = '0002_b';
+  try {
+    await assert.rejects(w.door.record('auto-job', { waitMs: 50_000 }), (err) => err.message === AUTO_NOT_LANDED_STOP);
+    assert.equal((await w.door.view('auto-job')).problem.message, AUTO_NOT_LANDED_STOP);
+    await settle(100);
+    assert.equal(w.sends[0]?.err.code, 'not-landed', 'passed on: the runner stops Auto, or tells him when there is nothing to stop');
+  } finally { delete process.env.FAKE_PG_SILENT; await w.done(); }
 });

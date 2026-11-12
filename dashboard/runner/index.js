@@ -3472,9 +3472,10 @@ export async function createRunner(config) {
 
   // Auto's database couldn't be made because of one of the job's migrations (runner/auto-db-problems.js): a failed one
   // goes to the Foreman as Starbase's own message; one that didn't land on Auto's copy stops Auto on the job.
+  // Auto's own stop on a job, with a reason of Starbase's (runner/auto.js stopWith): true when it wrote the stop.
+  const stopAutoFor = (f, reason) => auto.stopWith({ dir: f.dir, slug: f.slug, title: f.title, stage: f.stage }, { rule: 'blocked', reason });
   const onAutoDbProblem = (await import('./auto-db-problems.js')).autoDbProblems({
-    driver, state, autoOn: async (f) => (await state.sessionFor(f.dir))?.auto?.on === true,
-    stopAuto: (f, reason) => auto.stopFor({ dir: f.dir, slug: f.slug, title: f.title, stage: f.stage }, { rule: 'blocked', reason }),
+    driver, state, autoOn: async (f) => (await state.sessionFor(f.dir))?.auto?.on === true, stopAuto: stopAutoFor, notify: autoNotify,
   });
 
   // ---------- Local mode only: what this computer's own page uses beyond jobs ----------
@@ -3500,7 +3501,7 @@ export async function createRunner(config) {
     /** Settings → Repos (site/routes-repos.js): the registry's list, add, remove and check. On a first start the list is seeded from the recent repositories. */
     // A repository added or forgotten is a settings change: the site link offers the website's Start form the new list.
     repos: ((door) => ({ ...door, add: async (x) => afterRepoChange(await door.add(x)), remove: async (p) => afterRepoChange(await door.remove(p)) }))(reposDoor(local.registry, { recent: () => repoList() })),
-    evidence: (await import('./evidence.js')).evidenceRunner({ jobs: features, local, state, events, on, demo: DEMO, env, onAutoDbProblem }), // evidence at the test stage: runner/evidence.js, site/routes-evidence.js
+    evidence: (await import('./evidence.js')).evidenceRunner({ jobs: features, local, state, events, on, demo: DEMO, env, onAutoDbProblem, stopAuto: stopAutoFor }), // evidence at the test stage: runner/evidence.js, site/routes-evidence.js
     recordSecret,
     /**
      * An easter egg found, or something the page saw you do (a theme tried), from fixed lists only.

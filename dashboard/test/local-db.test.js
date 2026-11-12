@@ -612,59 +612,34 @@ test('Try it\'s panel hears when Auto takes the switch and when it frees it', as
 // ---------- Task 9 fix round 1 ----------
 
 const ENV_FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'auto-db-env');
-/** Copies fixtures/auto-db-env's dot-env… files into the test's checkouts as .env… (main/ is his, wt/ the job's). */
-async function placeEnvFiles(ctx) {
-  for (const [from, to] of [['main', ctx.f.repoPath], ['wt', ctx.f.worktree]]) {
-    for (const sub of ['', 'app']) {
-      const dir = path.join(ENV_FIXTURES, from, sub);
-      for (const name of await fs.readdir(dir).catch(() => [])) {
-        if (name.startsWith('dot-env')) await fs.copyFile(path.join(dir, name), path.join(to, sub, name.replace(/^dot-env/, '.env')));
-      }
-    }
+/**
+ * Copies fixtures/auto-db-env/<from>'s dot-env… files (every folder down) into a checkout as .env…; a
+ * name ending in .crlf is written with \r\n line ends (git keeps the fixtures LF).
+ */
+async function copyEnvTree(from, to) {
+  for (const e of await fs.readdir(from, { withFileTypes: true }).catch(() => [])) {
+    if (e.isDirectory()) { await fs.mkdir(path.join(to, e.name), { recursive: true }); await copyEnvTree(path.join(from, e.name), path.join(to, e.name)); continue; }
+    if (!e.name.startsWith('dot-env')) continue;
+    const crlf = e.name.endsWith('.crlf');
+    const name = e.name.replace(/\.crlf$/, '').replace(/^dot-env/, '.env');
+    const text = await fs.readFile(path.join(from, e.name), 'utf8');
+    await fs.writeFile(path.join(to, name), crlf ? text.replace(/\n/g, '\r\n') : text);
   }
 }
-// What each odd form in the fixture files becomes in the child's environment: his database's name, Auto's instead.
+async function placeEnvFiles(ctx) {
+  await copyEnvTree(path.join(ENV_FIXTURES, 'main'), ctx.f.repoPath);
+  await copyEnvTree(path.join(ENV_FIXTURES, 'wt'), ctx.f.worktree);
+}
+// What each form in the fixture files becomes in the child's environment: his database's name, Auto's instead.
 const REWRITTEN = {
-  SHADOW_DATABASE_URL: 'postgres://u:p@0.0.0.0:5432/app__auto', // main checkout's app/.env.development, another host
+  SHADOW_DATABASE_URL: 'postgres://u:p@0.0.0.0:5432/app__auto', // main checkout's app/.env.development, 0.0.0.0 is this computer
   POSTGRES_DB: 'app__auto', // a bare name
   DIRECT_URL: 'postgresql:///app__auto?host=/tmp', // a socket
-  REPLICA_URL: 'postgres://u:p@db.example.test:6543/other?dbname=app__auto', // ?dbname= wins over the path
+  REPLICA_URL: AUTO_URL, // ?dbname= naming his, on a host that isn't this computer's server: Auto's own address
   CONNINFO: 'host=localhost port=5432 dbname=app__auto user=u', // a conninfo
   JDBC_URL: 'jdbc:postgresql://localhost:5432/app__auto', // the worktree root's .env.development
   OTHER_DB_URL: 'postgres://u:p@localhost:5432/app2', // another database: left as it is
 };
-
-test('every settings file of both checkouts is read: each way of naming his database reaches the migrate script and the app as Auto\'s, and PGSERVICE is dropped', async () => {
-  const ctx = await setup({ fixture: true });
-  process.env.PGSERVICE = 'his';
-  process.env.PGSERVICEFILE = '/nowhere/pg_service.conf';
-  try {
-    await placeEnvFiles(ctx);
-    const r = await ctx.local.autoDatabase(ctx.f);
-    const migrated = JSON.parse(await fs.readFile(path.join(ctx.f.worktree, 'app', 'migrate-env.json'), 'utf8'));
-    await ctx.local.startServer(ctx.f, { databaseUrl: r.url });
-    let app;
-    try { app = JSON.parse(await appGet(ctx, '/env')); } finally { await stopApp(ctx); }
-    for (const [where, seen] of [['the migrate script', migrated], ['the app', app]]) {
-      for (const [k, v] of Object.entries(REWRITTEN)) assert.equal(seen[k], v, `${where}: ${k}`);
-      assert.equal(seen.PGSERVICE, undefined, `${where}: PGSERVICE`);
-      assert.equal(seen.PGSERVICEFILE, undefined, `${where}: PGSERVICEFILE`);
-      assert.equal(seen.PGDATABASE, 'app__auto', where);
-    }
-    assert.deepEqual((await ctx.pg()).app.ledger, ['0001_a'], 'his database is as it was');
-  } finally { delete process.env.PGSERVICE; delete process.env.PGSERVICEFILE; await ctx.done(); }
-});
-
-test('namesADatabase: an address in any settings file, or the database key set, says the app has a database; none says it has none', async () => {
-  const ctx = await setup({ fixture: true, appSettings: 'NEXT_PUBLIC_X=1\n', settings: 'OTHER=1\n' });
-  try {
-    assert.equal(await ctx.local.namesADatabase(ctx.f), false, 'no address anywhere');
-    await fs.writeFile(path.join(ctx.f.worktree, 'app', '.env'), 'SOMETHING="host=/tmp dbname=app"\n');
-    assert.equal(await ctx.local.namesADatabase(ctx.f), true, 'a conninfo in the job\'s .env');
-    await fs.writeFile(path.join(ctx.f.worktree, 'app', '.env'), 'DATABASE_URL=anything\n');
-    assert.equal(await ctx.local.namesADatabase(ctx.f), true, 'the key set');
-  } finally { await ctx.done(); }
-});
 
 test('his Try it Start while the app runs on Auto\'s database is refused with the line, and the app is left as it was', async () => {
   const { AUTO_RECORDING_APP } = await import('../lib/local.js');
@@ -713,4 +688,144 @@ test('hisBackends reads the backends on his database through the admin database 
     const reads = (await ctx.log()).filter((e) => e.tool === 'psql');
     assert.ok(reads.length > 0 && reads.every((e) => e.args[e.args.indexOf('-d') + 1] === 'postgres'));
   } finally { await ctx.done(); }
+});
+
+// ---------- Task 9 fix round 2: fail closed ----------
+
+// The fixture files' forms (fixtures/auto-db-env), each as the migrate script and the app see it: Auto's.
+const ROUND2 = {
+  BACKTICK_URL: 'postgres://u:p@localhost:5432/app__auto', // C2 #2, backtick quotes
+  PSYCOPG_URL: 'postgresql+psycopg2://u:p@localhost/app__auto', // #4
+  POSTGIS_URL: 'postgis://u:p@localhost:5432/app__auto', // #4
+  PGSQL_URL: 'pgsql://localhost/app__auto', // #4
+  PG_NAME: 'app__auto', // #11, a bare name under a key that looks like a database's
+  POSTGRES_NAME: 'app__auto', // #11
+  EXPANDED_URL: 'postgres://u@localhost/app__auto', // #12, ${PG_NAME}
+  PRISMA_DIRECT_URL: 'postgres://u:p@localhost:5432/app__auto', // #13, app/prisma/.env
+  COLON_URL: 'postgres://u:p@localhost/app__auto', // #16, KEY: value
+  REMOTE_URL: AUTO_URL, // his name on a remote host: Auto's own address, never the remote one
+  PGSERVICE: '', // #19, in a .env file
+  PGSERVICEFILE: '/dev/null',
+  ...REWRITTEN,
+};
+let seenOnce = null;
+/** One Auto turn and one app start over all the fixture files (the .env.test file has \r\n line ends: C2 #15). */
+function seenRound2() {
+  seenOnce ??= (async () => {
+    const ctx = await setup({ fixture: true });
+    try {
+      await placeEnvFiles(ctx);
+      const r = await ctx.local.autoDatabase(ctx.f);
+      const migrated = JSON.parse(await fs.readFile(path.join(ctx.f.worktree, 'app', 'migrate-env.json'), 'utf8'));
+      await ctx.local.startServer(ctx.f, { databaseUrl: r.url });
+      let app;
+      try { app = JSON.parse(await appGet(ctx, '/env')); } finally { await stopApp(ctx); }
+      return { migrated, app, his: (await ctx.pg()).app.ledger };
+    } finally { await ctx.done(); }
+  })();
+  return seenOnce;
+}
+for (const [key, want] of Object.entries(ROUND2)) {
+  test(`every settings file is read the way dotenv reads it: ${key} reaches the migrate script and the app as ${want === '' ? 'empty' : want}`, async () => {
+    const seen = await seenRound2();
+    assert.equal(seen.migrated[key], want, `the migrate script: ${key}`);
+    assert.equal(seen.app[key], want, `the app: ${key}`);
+    assert.deepEqual(seen.his, ['0001_a'], 'his database is as it was');
+  });
+}
+
+/** An Auto turn with one more fixture file placed in the worktree's app folder as .env. */
+async function turnWith(fixture, opts = {}) {
+  const ctx = await setup({ fixture: true, ...opts });
+  await fs.copyFile(path.join(ENV_FIXTURES, fixture), path.join(ctx.f.worktree, 'app', '.env'));
+  return ctx;
+}
+const R4 = (file, key) => `A setting in ${file} (${key}) may point at your database, and Auto could not point it at its own copy, so it made no recording.`;
+
+for (const [fixture, key, row] of [
+  ['refuse/jdbc-short.dot-env', 'LEGACY_JDBC', '#5 jdbc:postgresql:<name>'],
+  ['refuse/socket.dot-env', 'PG_SOCKET', '#7 socket:/tmp?db=<name>'],
+  ['refuse/space-form.dot-env', 'PG_CONN', '#7 "/tmp <name>"'],
+  ['refuse/loose-line.dot-env', 'line 2', 'a line that is no KEY=value'],
+]) {
+  test(`a setting Starbase can't point at Auto's copy refuses the turn before anything runs: ${row}`, async () => {
+    const ctx = await turnWith(fixture);
+    try {
+      await assert.rejects(ctx.local.autoDatabase(ctx.f), (err) => err instanceof AutoDbError && err.code === 'no-database' && err.message === R4('app/.env', key));
+      assert.deepEqual(changes(await ctx.log()), [], 'no copy, no migration');
+      await assert.rejects(ctx.local.startServer(ctx.f, { databaseUrl: AUTO_URL }), (err) => err.message === R4('app/.env', key));
+      assert.equal(ctx.local.jobs.get(ctx.f.slug)?.server ?? null, null, 'no app started');
+    } finally { await ctx.done(); }
+  });
+}
+
+for (const [fixture, what] of [['ok/commented.dot-env', 'a commented-out address'], ['ok/nextauth.dot-env', 'NEXTAUTH_URL=http://app.localhost:3000']]) {
+  test(`${what} does not refuse`, async () => {
+    const ctx = await turnWith(fixture);
+    try {
+      assert.deepEqual((await ctx.local.autoDatabase(ctx.f)).added, ['0002_b']);
+    } finally { await ctx.done(); }
+  });
+}
+
+test('a settings file Starbase can\'t read refuses the turn', async () => {
+  const ctx = await turnWith('ok/nextauth.dot-env');
+  const file = path.join(ctx.f.worktree, 'app', '.env');
+  try {
+    await fs.chmod(file, 0o000);
+    await assert.rejects(ctx.local.autoDatabase(ctx.f), (err) => err.code === 'no-database' && err.message === 'Auto could not read app/.env, so it made no recording.');
+    assert.deepEqual(changes(await ctx.log()), []);
+  } finally { await fs.chmod(file, 0o600); await ctx.done(); }
+});
+
+test('C2 #11, the decision: an app set up by parts (DB_HOST, DB_NAME) with no database key in the profile takes Auto\'s path and says where it saw a database', async () => {
+  const noKey = { ...APP_PROFILE, database: undefined };
+  const ctx = await turnWith('parts/dot-env', { profile: noKey, settings: 'OTHER=1\n', appSettings: 'X=1\n' });
+  try {
+    assert.equal(await ctx.local.namesADatabase(ctx.f, {}), true);
+    await assert.rejects(ctx.local.autoDatabase(ctx.f), (err) => err.code === 'no-database'
+      && err.message === 'This job’s app looks like it uses a database (app/.env, DB_HOST), but Starbase does not know which one, so Auto made no recording.');
+    assert.deepEqual(await ctx.log(), [], 'nothing ran');
+  } finally { await ctx.done(); }
+});
+
+test('namesADatabase: the profile\'s key, a database-like line in any file (a CRLF one too), or Starbase\'s own environment; none of them, none', async () => {
+  const noKey = { ...APP_PROFILE, database: undefined };
+  const ctx = await setup({ fixture: true, profile: noKey, settings: 'OTHER=1\n', appSettings: 'NEXT_PUBLIC_X=1\n' });
+  try {
+    assert.equal(await ctx.local.namesADatabase(ctx.f, {}), false, 'nothing anywhere');
+    assert.equal(await ctx.local.namesADatabase(ctx.f, { PGHOST: 'localhost' }), true, 'Starbase\'s own environment');
+    assert.equal(await ctx.local.namesADatabase(ctx.f, { PATH: '/opt/homebrew/opt/postgresql@17/bin' }), false, 'a search path is no database setting');
+    await fs.mkdir(path.join(ctx.f.worktree, 'packages', 'db'), { recursive: true });
+    await fs.writeFile(path.join(ctx.f.worktree, 'packages', 'db', '.env'), 'X=1\r\nDATABASE_URL=anything\r\n');
+    assert.equal(await ctx.local.namesADatabase(ctx.f, {}), true, 'a CRLF file further down');
+  } finally { await ctx.done(); }
+  const keyed = await setup({ fixture: true, settings: 'OTHER=1\n', appSettings: 'NEXT_PUBLIC_X=1\n' });
+  try {
+    assert.equal(await keyed.local.namesADatabase(keyed.f, {}), true, 'the profile names a key');
+  } finally { await keyed.done(); }
+});
+
+test('R6: hisSessions reads pg_stat_database through the admin database, and says null where the server keeps no such count', async () => {
+  const ctx = await setup();
+  try {
+    assert.equal(await ctx.local.hisSessions(ctx.f), 0);
+    process.env.FAKE_PG_NO_SESSIONS = '1';
+    assert.equal(await ctx.local.hisSessions(ctx.f), null);
+    assert.ok((await ctx.log()).filter((e) => e.tool === 'psql').every((e) => e.args[e.args.indexOf('-d') + 1] === 'postgres'));
+  } finally { delete process.env.FAKE_PG_NO_SESSIONS; await ctx.done(); }
+});
+
+test('NB5: stopAll ends Auto\'s database steps still running', async () => {
+  const ctx = await setup({ autoStepMs: 6000 }); // without stopAll the step would live until its own limit
+  try {
+    process.env.FAKE_PG_HANG = 'createdb:app__auto';
+    const turn = ctx.local.autoDatabase(ctx.f).catch((err) => err);
+    let pid = null;
+    for (let i = 0; i < 100 && !pid; i++) { await sleep(50); pid = (await ctx.log()).findLast((e) => e.tool === 'createdb')?.pid ?? null; }
+    assert.ok(pid, 'createdb started');
+    ctx.local.stopAll();
+    assert.ok(await goneSoon(pid), 'createdb was ended');
+    await turn;
+  } finally { delete process.env.FAKE_PG_HANG; await ctx.done(); }
 });

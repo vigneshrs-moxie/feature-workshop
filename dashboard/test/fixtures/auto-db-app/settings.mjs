@@ -37,7 +37,7 @@ export function loadSettings({ override = false } = {}) {
 export const readSettings = () => Object.fromEntries(parse('.env.local'));
 
 export const databaseSettings = () => Object.fromEntries(Object.entries(process.env)
-  .filter(([k, v]) => /^PG[A-Z0-9_]*$/.test(k) || /DB|DATABASE|URL|CONNINFO/i.test(k) || /postgres(ql)?:\/\//i.test(String(v))));
+  .filter(([k, v]) => /^PG[A-Z0-9_]*$/.test(k) || /DB|DATABASE|URL|CONNINFO|POSTGRES|PG/i.test(k) || /postgres(ql)?:\/\//i.test(String(v))));
 
 /** The database name in a Postgres address. */
 export const dbName = (url) => decodeURIComponent(new URL(url).pathname.slice(1));

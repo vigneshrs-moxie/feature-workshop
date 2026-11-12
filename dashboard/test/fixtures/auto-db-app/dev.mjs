@@ -24,6 +24,7 @@ function connections(name, by) {
   const db = state.databases?.[name];
   if (!db) return;
   db.connections = Math.max(0, (db.connections ?? 0) + by);
+  if (by > 0) db.sessions = (db.sessions ?? 0) + 1;
   db.pids = by > 0 ? [...(db.pids ?? []), me] : (db.pids ?? []).filter((p) => p !== me);
   fs.writeFileSync(STATE, JSON.stringify(state, null, 2));
 }

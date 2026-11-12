@@ -693,5 +693,5 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     await paidOff(job, spent);
   }
 
-  return { pass, onPermission, cardGone, leftCard, handlingCard, stopFor: (job, hit) => stop(job, hit) };
+  return { pass, onPermission, cardGone, leftCard, handlingCard, stopWith: (job, hit) => stop(job, hit) };
 }

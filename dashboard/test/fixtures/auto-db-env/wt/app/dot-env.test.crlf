@@ -1,0 +1,12 @@
+BACKTICK_URL=`postgres://u:p@localhost:5432/app`
+PSYCOPG_URL=postgresql+psycopg2://u:p@localhost/app
+POSTGIS_URL=postgis://u:p@localhost:5432/app
+PGSQL_URL=pgsql://localhost/app
+PG_NAME=app
+POSTGRES_NAME=app
+EXPANDED_URL=postgres://u@localhost/${PG_NAME}
+COLON_URL: postgres://u:p@localhost/app
+PGSERVICE=his
+REMOTE_URL=postgres://x:y@db.prod.example.test:5432/app
+# OLD_URL=postgres://u:p@localhost:5432/app
+NEXTAUTH_URL=http://app.localhost:3000

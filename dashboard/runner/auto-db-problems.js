@@ -7,22 +7,25 @@
 //                 the job. Not sent: one `auto_migration_not_sent` audit line saying why.
 //   'not-landed'  the migration ended well but isn't in Auto's copy, so it may have run on his
 //                 database: Auto stops on the job (its own stop path) with AUTO_NOT_LANDED_STOP.
+//                 When that stop writes nothing (Auto already stopped on the job, or switched off
+//                 during the recording), he is still told: a Needs you notice with that sentence.
 //                 Nothing is sent to the Foreman.
 // Any other code: nothing. The answer is { sent: true } (or { stopped: true }), or { sent: false }
 // (a later recording of the same commit may try again).
 //
-//   autoDbProblems({ driver, state, autoOn, stopAuto })
+//   autoDbProblems({ driver, state, autoOn, stopAuto, notify })
 //     driver     lib/driver.js's Driver (activeRunFor, feedbackSession, start, its 'run' events)
 //     state      audit()
 //     autoOn(f)  whether Auto is on for the job now
-//     stopAuto(f, reason)  Auto's stop on the job (runner/auto.js stopFor)
+//     stopAuto(f, reason)  Auto's stop on the job (runner/auto.js stopWith): true when it wrote the stop
+//     notify(n)  a notice to him ({ level, title, body, slug, key }), as Auto's own
 
 import { Busy } from '../lib/driver.js';
 import { AUTO_NOT_LANDED_STOP, autoMigrationMessage } from './evidence.js';
 
 const ACTIVE = new Set(['starting', 'running', 'waiting_permission', 'stopping']); // lib/driver.js's
 
-export function autoDbProblems({ driver, state, autoOn = async () => true, stopAuto = async () => {} }) {
+export function autoDbProblems({ driver, state, autoOn = async () => true, stopAuto = async () => false, notify = () => {} }) {
   const notSent = async (f, err, reason) => {
     await state.audit({ action: 'auto_migration_not_sent', featureDir: f.dir, slug: f.slug, migration: err.migration, reason: String(reason?.message ?? reason).slice(0, 300) });
     return { sent: false };
@@ -54,7 +57,12 @@ export function autoDbProblems({ driver, state, autoOn = async () => true, stopA
   }
 
   return async function onAutoDbProblem(f, err) {
-    if (err?.code === 'not-landed') { await stopAuto(f, AUTO_NOT_LANDED_STOP); return { stopped: true }; }
+    if (err?.code === 'not-landed') {
+      const wrote = await stopAuto(f, AUTO_NOT_LANDED_STOP);
+      // The alarm is never lost: with no stop written, the notice still goes.
+      if (!wrote) notify({ level: 'needs', title: f.title, body: AUTO_NOT_LANDED_STOP, slug: f.slug, key: `auto-not-landed:${f.slug}:${new Date().toISOString()}` });
+      return { stopped: true };
+    }
     if (err?.code !== 'migration') return null;
     return send(f, err);
   };
