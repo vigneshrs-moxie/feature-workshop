@@ -329,3 +329,72 @@ p.sb-test-note { margin: 0; }
 .sb-job-page.is-full .sb-job-cols { position: fixed; inset: 0; z-index: 45; background: var(--bg-0); }
 .sb-job-page.is-full .sb-job-work { padding-top: var(--space-3); }
 .sb-job-back { display: flex; }
+
+/* ---------- The job page on a phone (PhoneJob.tsx) ----------
+   Four simple screens, one column each, chosen by the address: the job, a step, the conversation and
+   the overview. The head scrolls with the screen; on the job screen Conversation stays fixed at the
+   bottom. The bar's three calls are NextStep's own buttons, placed here: Send back and Reply side by
+   side, Go across both under them (a lone call, Try again, across both too). Classes start sb-phone. */
+.page.sb-phone { display: flex; flex-direction: column; overflow: hidden; }
+.sb-phone-scroll { flex: 1 1 auto; min-height: 0; position: relative; overflow-y: auto; padding-bottom: var(--space-6); }
+.sb-phone-head { display: flex; flex-direction: column; gap: var(--space-1); padding: 0 var(--page-gutter) var(--space-3); border-bottom: 1px solid var(--border-1); background: var(--bg-1); }
+.sb-phone-head.is-bar { flex: none; padding-bottom: 0; }
+.sb-phone-nav { display: flex; align-items: center; gap: var(--space-2); min-height: 44px; min-width: 0; }
+.sb-phone-spacer { flex: 1; }
+.sb-phone-back { display: inline-flex; align-items: center; gap: var(--space-1); min-width: 0; min-height: 44px; padding: 0 var(--space-3) 0 0; border: 0; background: none; color: var(--text-2); font: inherit; font-size: var(--text-sm); cursor: pointer; }
+.sb-phone-back:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.sb-phone-back .icon { flex: none; }
+.sb-phone-back-words { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-phone-laptop { font-size: var(--text-xs); color: var(--text-2); text-align: right; }
+.sb-phone-title { display: flex; align-items: center; gap: var(--space-2); margin: 0; font-family: var(--font-heading); font-size: var(--text-lg); font-weight: var(--weight-bold); line-height: 1.25; overflow-wrap: anywhere; }
+.sb-phone-title .icon { flex: none; color: var(--text-2); }
+.sb-phone-facts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); margin-top: var(--space-1); font-size: var(--text-sm); color: var(--text-2); }
+.sb-phone-by { display: inline-flex; align-items: center; gap: var(--space-1); margin: var(--space-1) 0 0; font-size: var(--text-xs); color: var(--text-2); }
+
+.sb-phone-body { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4) var(--page-gutter) 0; }
+.sb-phone .job-go .next-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
+.sb-phone .job-go .next-actions > .btn-primary, .sb-phone .job-go .next-actions > :only-child { grid-column: 1 / -1; }
+/* A step's screen: the step's panel without its frame, and without its head (the screen's head says
+   the step's name, state and time). */
+.sb-phone .sb-panel { padding: 0; border: 0; background: none; }
+.sb-phone .sb-panel-head { display: none; }
+
+/* The job screen's lists: the seven steps, then Overview, Copy decisions, What Auto decided and the
+   Auto switch, each a row across the screen. */
+.sb-phone-section { display: flex; flex-direction: column; }
+.sb-phone-eyebrow { margin: 0; padding: var(--space-5) var(--page-gutter) var(--space-2); }
+.sb-phone-list { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--border-1); }
+.sb-phone-section + .sb-phone-section { margin-top: var(--space-5); }
+.sb-phone-row { display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: 56px; padding: var(--space-2) var(--page-gutter); border: 0; border-bottom: 1px solid var(--border-1); background: var(--surface-1); color: var(--text-1); font: inherit; text-align: left; cursor: pointer; }
+.sb-phone-row:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.sb-phone-row-icon { display: inline-grid; place-items: center; flex: none; width: 32px; height: 32px; border: 1px solid var(--border-2); border-radius: 50%; background: var(--bg-2); color: var(--text-2); }
+.sb-phone-row.is-done .sb-phone-row-icon { color: var(--status-ok); }
+.sb-phone-row.is-now .sb-phone-row-icon { color: var(--lane-working-fg); }
+.sb-phone-row.is-wait, .sb-phone-row.is-stop { background: var(--lane-needs-you-bg); }
+.sb-phone-row.is-wait .sb-phone-row-icon, .sb-phone-row.is-stop .sb-phone-row-icon { color: var(--lane-needs-you-fg); }
+.sb-phone-row.is-skipped .sb-phone-row-name { color: var(--text-3); }
+.sb-phone-row-words { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.sb-phone-row-name { font-size: var(--text-md); font-weight: var(--weight-bold); line-height: 1.25; }
+.sb-phone-row-note { font-size: var(--text-xs); color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-phone-row-go { flex: none; color: var(--text-3); }
+.sb-phone-tool { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; min-height: 56px; padding: var(--space-2) var(--page-gutter); border-bottom: 1px solid var(--border-1); background: var(--surface-1); }
+.sb-phone-tool-note { padding-left: var(--space-3); font-size: var(--text-xs); color: var(--text-2); }
+.sb-phone-auto { padding: var(--space-3) var(--page-gutter); border-bottom: 1px solid var(--border-1); background: var(--surface-1); }
+/* The Auto switch as a row: its words at the left, On or Off and the switch at the right. The
+   checkbox is drawn as the header's switch (sb-switch's look); the native input stays underneath. */
+.sb-phone-auto .auto-switch-row { width: 100%; align-items: center; gap: var(--space-2); font-size: var(--text-sm); }
+.sb-phone-auto .auto-switch-row .option-body { flex: 1; min-width: 0; order: 1; }
+.sb-phone-auto .auto-switch-row .sb-auto-switch-word { order: 2; }
+.sb-phone-auto .auto-switch-row > .choice { order: 3; width: 30px; height: 18px; margin-top: 0; padding: 2px; border-color: transparent; border-radius: 9px; background-color: var(--bg-4); place-content: center start; }
+.sb-phone-auto .auto-switch-row > .choice::before { content: ''; width: 14px; height: 14px; border-radius: 50%; background: var(--surface-1); box-shadow: var(--elev-xs); }
+.sb-phone-auto .auto-switch-row > .choice:checked { border-color: transparent; background-color: var(--btn-primary-bg); place-content: center end; }
+.sb-phone-auto .auto-switch-row > .choice:checked::before { width: 14px; height: 14px; border: 0; transform: none; background: var(--surface-1); }
+
+/* Conversation, fixed at the bottom of the job screen; its screen gives the panel the rest. */
+.sb-phone-foot { flex: none; padding: var(--space-3) var(--page-gutter) var(--space-4); border-top: 1px solid var(--border-1); background: var(--bg-1); }
+.sb-phone-foot .btn { width: 100%; }
+.sb-phone-convo { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.sb-phone-convo > .sb-convo { flex: 1 1 auto; height: auto; border: 0; border-radius: 0; box-shadow: none; }
+
+/* The overview's screen: its three parts one under another, open. */
+.sb-phone-ov { display: flex; flex-direction: column; gap: var(--space-6); padding: var(--space-4) var(--page-gutter) 0; }
