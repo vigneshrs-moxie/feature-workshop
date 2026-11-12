@@ -23,6 +23,7 @@ import { clearGateSent } from '../../panes/Foreman/gateSent';
 import { jobBySlug } from '../../state/reducer';
 import { createStore, useWorkshopState, WorkshopContext, type Store } from '../../state/store';
 import { ev, job, permission, snapshot } from '../../state/test-fixtures';
+import { TOO_BIG } from '../../home/autoTab';
 import { AUTO_LABEL } from '../AutoSwitch';
 import { useSentShown } from '../NextStep';
 import { seenKey } from './ConversationPanel';
@@ -762,5 +763,63 @@ describe('a document link on the phone', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Job alpha' })).toBeInTheDocument();
     await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
     expect(window.location.hash).toBe('#/job/alpha');
+  });
+});
+
+// The Auto queue (Task 17): the job page's new lines, the same on the phone, in the laptop app and on the website.
+describe('the phone’s job screen: the Auto queue', () => {
+  const head = () => document.querySelector<HTMLElement>('.sb-phone-head')!;
+
+  it.each([['the laptop app', false], ['the website', true]] as const)('Started by Auto after the switch was turned off and on (%s)', async (_where, hosted) => {
+    // A tag started it; he switched it off and on again himself: by is his now, began stays the tag's.
+    setup({ hosted, jobs: [working('plan', { level: 1, auto: { on: true, by: 'you', began: 'tag', ran: true } })], auto: { on: true, tag: null } as JobDetail['auto'] });
+    expect(await within(head()).findByText('Started by Auto')).toHaveClass('sb-phone-by');
+    cleanup();
+    // He started it himself: nothing, whatever by says, before and after the job's detail comes.
+    setup({ hosted, jobs: [working('plan', { level: 1, auto: { on: true, by: 'tag', began: 'you', ran: true } })], auto: { on: true, tag: 'auto' } as JobDetail['auto'] });
+    expect(screen.queryByText(/Started by Auto/)).toBeNull();
+    await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+    expect(screen.queryByText(/Started by Auto/)).toBeNull();
+  });
+
+  it.each([['the laptop app', false], ['the website', true]] as const)('Too big for Auto with its reason (%s)', (_where, hosted) => {
+    const reason = 'The Foreman thinks this ticket is big enough for a stack.';
+    const aside = (r: unknown) => job('alpha', 'needs-you', { stage: 'investigate', lane: 'needs-you', level: 2, auto: { on: false, began: 'tag', ran: true, tooBig: { at: NOW, reason: r } as never } });
+    setup({ hosted, jobs: [aside(reason)] });
+    const chip = within(head()).getByText(TOO_BIG);
+    expect(chip).toHaveClass('chip');
+    expect(chip).toHaveAttribute('title', reason);
+    cleanup();
+    // A reason missing or empty: the chip, with no title.
+    for (const bad of [undefined, null, '']) {
+      setup({ hosted, jobs: [aside(bad)] });
+      expect(within(head()).getByText(TOO_BIG)).not.toHaveAttribute('title');
+      expect(head()).not.toHaveTextContent(/null|undefined/);
+      cleanup();
+    }
+    // Not set aside, or an older laptop that sends nothing: no chip.
+    for (const auto of [{ on: true, ran: true, tooBig: null }, { on: true, ran: true }]) {
+      setup({ hosted, jobs: [working('plan', { level: 1, auto })] });
+      expect(screen.queryByText(TOO_BIG)).toBeNull();
+      cleanup();
+    }
+  });
+
+  it.each([['the laptop app', false], ['the website', true]] as const)('the risky count beside What Auto decided (%s)', (_where, hosted) => {
+    setup({ hosted, jobs: [working('build', { level: 1, auto: { on: true, by: 'you', ran: true, risky: 3 } })] });
+    const what = screen.getByRole('button', { name: 'What Auto decided' });
+    const count = screen.getByText('3 risky calls');
+    // Beside the button: the same row, right after it; the note stays under them.
+    expect(count.parentElement).toBe(what.parentElement!.parentElement);
+    expect(follows(what, count)).toBe(true);
+    expect(follows(count, screen.getByText('Newest first'))).toBe(true);
+    cleanup();
+    // None, or an older laptop that sends no count: nothing beside the button.
+    for (const auto of [{ on: true, by: 'you' as const, ran: true, risky: 0 }, { on: true, by: 'you' as const, ran: true }]) {
+      setup({ hosted, jobs: [working('build', { level: 1, auto })] });
+      expect(screen.getByRole('button', { name: 'What Auto decided' })).toBeInTheDocument();
+      expect(screen.getByRole('main', { name: 'Job' })).not.toHaveTextContent(/risky call/);
+      cleanup();
+    }
   });
 });

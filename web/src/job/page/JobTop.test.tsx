@@ -9,7 +9,8 @@ import type { Job, JobDetail, Permission, Run } from '../../api/types';
 import { clearAllSent } from '../../lib/sentState';
 import { createStore, WorkshopContext, type Store } from '../../state/store';
 import { job, snapshot } from '../../state/test-fixtures';
-import { AUTO_HINT, AUTO_L3, AUTO_LABEL } from '../AutoSwitch';
+import { TOO_BIG } from '../../home/autoTab';
+import { AUTO_HINT, AUTO_LABEL } from '../AutoSwitch';
 import { headerState, JobTop, JOB_GUIDE } from './JobTop';
 
 const MODELS = [{ id: 'claude-opus-5-5', label: 'Opus 5.5' }];
@@ -166,13 +167,20 @@ describe('JobTop', () => {
     expect(screen.getByRole('dialog', { name: 'What Auto decided' })).toHaveClass('sb-drawer');
   });
 
-  it('an L3 job: the switch is off and says why', () => {
-    setup({ j: job('alpha', 'needs-you', { stage: 'plan', level: 3, auto: { on: true } }) });
-    const box = within(top()).getByRole('checkbox', { name: AUTO_LABEL });
-    expect(box).toBeDisabled();
-    expect(box).not.toBeChecked();
-    expect(within(top()).getByText('Off')).toBeInTheDocument();
-    expect(within(top()).getByText(AUTO_L3)).toBeInTheDocument();
+  it('an L3 job in Auto: the switch is on, says On, and switches off', async () => {
+    for (const hosted of [false, true]) {
+      const post = vi.fn(async (): Promise<unknown> => ({ ok: true }));
+      setup({ j: job('alpha', 'running', { stage: 'plan', level: 3, auto: { on: true, ran: true } }), hosted, post });
+      const box = within(top()).getByRole('checkbox', { name: AUTO_LABEL });
+      expect(box).toBeEnabled();
+      expect(box).toBeChecked();
+      expect(within(top()).getByText('On')).toBeInTheDocument();
+      expect(top()).not.toHaveTextContent('Auto works up to L2');
+      await act(async () => { fireEvent.click(box); });
+      expect(post).toHaveBeenCalledWith('/api/job/alpha/auto', { on: false });
+      cleanup();
+      clearAllSent();
+    }
   });
 
   it('on the website there is no gear, and the switch queues its change', async () => {
@@ -295,4 +303,79 @@ describe('JobTop', () => {
     expect(within(top()).queryByRole('button', { name: CONFIRM })).toBeNull();
     expect(top().querySelector('.sb-top-where')).toHaveTextContent(/^Plan$/);
   });
+
+  // ---- The Auto queue (Task 17): how the job began, too big, the risky count ----
+
+  it('Started by Auto after the switch was turned off and on', () => {
+    for (const hosted of [false, true]) {
+      // A tag started it; he switched it off and on again himself: by is his now, began stays the tag's.
+      setup({ j: job('alpha', 'running', { stage: 'plan', level: 1, auto: { on: true, by: 'you', began: 'tag', ran: true } }), detail: detailOf({ auto: { on: true, tag: null } }), hosted });
+      expect(within(top()).getByText('Started by Auto')).toHaveClass('chip');
+      cleanup();
+      // Switched off: the card has no by, began still says the tag started it.
+      setup({ j: job('alpha', 'idle', { stage: 'plan', level: 1, auto: { on: false, began: 'tag', ran: true } }), detail: null, hosted });
+      expect(within(top()).getByText('Started by Auto')).toHaveClass('chip');
+      cleanup();
+      // He started it himself: nothing, whatever by says.
+      setup({ j: job('alpha', 'running', { stage: 'plan', level: 1, auto: { on: true, by: 'tag', began: 'you', ran: true } }), detail: detailOf({ auto: { on: true, tag: 'auto' } }), hosted });
+      expect(screen.queryByText(/Started by Auto/)).toBeNull();
+      cleanup();
+      // Never in Auto.
+      setup({ j: job('alpha', 'idle', { stage: 'plan', level: 1, auto: { on: false, began: null } }), hosted });
+      expect(screen.queryByText(/Started by Auto/)).toBeNull();
+      cleanup();
+    }
+  });
+
+  it('Too big for Auto with its reason', () => {
+    const reason = 'The Foreman thinks this ticket is big enough for a stack.';
+    const at = '2026-11-12T09:00:00Z';
+    for (const hosted of [false, true]) {
+      setup({ j: job('alpha', 'needs-you', { stage: 'investigate', level: 2, auto: { on: false, began: 'tag', ran: true, tooBig: { at, reason } } }), hosted });
+      const chip = within(top()).getByText(TOO_BIG);
+      expect(TOO_BIG).toBe('Too big for Auto');
+      expect(chip).toHaveClass('chip');
+      expect(chip).toHaveAttribute('title', reason);
+      expect(chip.closest('.sb-top-facts')).not.toBeNull();
+      cleanup();
+      // A reason missing or empty: the chip, with no title (never "null" or "undefined").
+      for (const bad of [undefined, null, '', '   ']) {
+        setup({ j: job('alpha', 'needs-you', { stage: 'investigate', level: 2, auto: { on: false, ran: true, tooBig: { at, reason: bad } as never } }), hosted });
+        const c = within(top()).getByText(TOO_BIG);
+        expect(c).not.toHaveAttribute('title');
+        expect(top()).not.toHaveTextContent(/null|undefined/);
+        cleanup();
+      }
+      // Not set aside, or an older laptop that sends nothing: no chip.
+      for (const auto of [{ on: true, ran: true, tooBig: null }, { on: true, ran: true }]) {
+        setup({ j: job('alpha', 'running', { stage: 'plan', level: 1, auto }), hosted });
+        expect(within(top()).queryByText(TOO_BIG)).toBeNull();
+        cleanup();
+      }
+    }
+  });
+
+  it('the risky count beside What Auto decided', () => {
+    for (const hosted of [false, true]) {
+      setup({ j: job('alpha', 'running', { stage: 'build', level: 1, auto: { on: true, ran: true, risky: 2 } }), hosted });
+      const what = within(top()).getByRole('button', { name: 'What Auto decided' });
+      const count = within(top()).getByText('2 risky calls');
+      // Beside the button: the same row, right after it.
+      expect(count.parentElement).toBe(what.parentElement!.parentElement);
+      expect(follows(what, count)).toBe(true);
+      cleanup();
+      setup({ j: job('alpha', 'running', { stage: 'build', level: 1, auto: { on: true, ran: true, risky: 1 } }), hosted });
+      expect(within(top()).getByText('1 risky call')).toBeInTheDocument();
+      cleanup();
+      // None, or an older laptop that sends no count: nothing beside the button.
+      for (const auto of [{ on: true, ran: true, risky: 0 }, { on: true, ran: true }]) {
+        setup({ j: job('alpha', 'running', { stage: 'build', level: 1, auto }), hosted });
+        expect(within(top()).getByRole('button', { name: 'What Auto decided' })).toBeInTheDocument();
+        expect(top()).not.toHaveTextContent(/risky call/);
+        cleanup();
+      }
+    }
+  });
 });
+
+const follows = (a: Element, b: Element) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);

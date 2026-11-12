@@ -220,4 +220,59 @@ describe('WhatAutoDecided', () => {
     fireEvent.click(document.querySelector('.sheet-backdrop')!);
     expect(outer).not.toHaveBeenCalled();
   });
+
+  // The Auto queue (Task 17): risky calls and refusals in the list, on the laptop and on the website.
+  function showOn(hosted: boolean, entries: AutoDecided['entries']) {
+    const api = { get: vi.fn(async () => ({ ...DECIDED, entries })), post: vi.fn(), ...(hosted ? { hosted: () => true } : {}) } as unknown as ApiClient;
+    return render(<WorkshopContext.Provider value={{ store: createStore(), api }}><WhatAutoDecided slug="alpha" auto={{ ran: true }} /></WorkshopContext.Provider>);
+  }
+
+  it('a risky call shows its mark and what the Approver first said', async () => {
+    const first = 'Stop: the plan drops a column that reports still read.';
+    for (const hosted of [false, true]) {
+      const { unmount } = showOn(hosted, [
+        { at: '2026-11-10T11:00:00Z', stage: 'Plan', chose: 'Kept the column and added the new one beside it', asked: 'Approve plan v2 and start Build?', why: 'It changes least and can be undone.', kind: 'approve', stop: 'plan', risky: true, first },
+        { at: '2026-11-10T10:00:00Z', stage: 'Plan', chose: 'Went ahead', asked: 'Approve plan v1?', why: 'Small.', kind: 'approve', stop: 'plan', risky: true },
+        { at: '2026-11-10T09:00:00Z', stage: 'Spec', chose: 'Approved the spec', asked: 'Approve the spec?', why: 'It matches the ticket.', kind: 'approve', stop: 'spec' },
+      ]);
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'What Auto decided' })); });
+      const [risky, noFirst, plain] = panelEntries();
+      const mark = within(risky).getByText('Risky call').closest('.chip')!;
+      expect(mark).toHaveClass('chip-warn');
+      expect(mark.closest('.auto-entry-head')).not.toBeNull();
+      const said = within(risky).getByText(`The Approver first said: ${first}`);
+      const chose = within(risky).getByText(/^Chose:/);
+      // Above Chose:.
+      expect(Boolean(said.compareDocumentPosition(chose) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+      expect(within(risky).getByText('Kept the column and added the new one beside it').closest('.chip')).toHaveClass('chip-ok');
+      // A risky call whose first answer is not known: the mark, no line.
+      expect(within(noFirst).getByText('Risky call')).toBeInTheDocument();
+      expect(noFirst).not.toHaveTextContent('The Approver first said');
+      expect(noFirst).not.toHaveTextContent(/null|undefined/);
+      // Not a risky call: neither.
+      expect(within(plain).queryByText('Risky call')).toBeNull();
+      expect(plain).not.toHaveTextContent('The Approver first said');
+      unmount();
+    }
+  });
+
+  it('a refusal shows Refused:', async () => {
+    const chose = 'Refused: a push to the team’s repository';
+    for (const hosted of [false, true]) {
+      const { unmount } = showOn(hosted, [
+        { at: '2026-11-10T11:00:00Z', stage: 'Build', chose, asked: 'Push the branch to origin', why: 'Auto pushes only to your fork. Leave this for after PR #1.', kind: 'refuse', stop: 'build' },
+      ]);
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'What Auto decided' })); });
+      const [entry] = panelEntries();
+      const chip = within(entry).getByText(chose).closest('.chip')!;
+      // The quiet look: neither done nor stopped.
+      expect(chip).not.toHaveClass('chip-ok');
+      expect(chip).not.toHaveClass('chip-needs-you');
+      expect(chip).not.toHaveClass('chip-warn');
+      expect(chip.closest('p')).toHaveClass('sb-auto-entry-chose');
+      expect(within(entry).queryByText('Stopped')).toBeNull();
+      expect(within(entry).getByText('Why: Auto pushes only to your fork. Leave this for after PR #1.')).toBeInTheDocument();
+      unmount();
+    }
+  });
 });

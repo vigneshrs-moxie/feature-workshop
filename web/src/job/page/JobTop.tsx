@@ -2,10 +2,12 @@
 // (Sent once his decision is out, Needs you in the needs-you lane, else the lane's word); at the
 // right the Auto switch with On or Off beside it, the gear (Job menu, the laptop only) and How it
 // works. Row two: the ticket (a link to Orbit when the page knows a web address), Copy decisions,
-// "Started by Auto · tag x" on a job a tag started, the kind, the level chip, the repository and
+// "Started by Auto · tag x" on a job a tag started, Too big for Auto (its title the reason) while
+// Auto has set the job aside, the kind, the level chip, the repository and
 // where the work is, what the job has cost once it is over 10 cents (the old facts line's rule and
 // title), and the locked Foreman model once the job has started; at the right, under the
-// switch (its own line: Auto is on, Auto stopped: why), What Auto decided, which opens as a drawer.
+// switch (its own line: Auto is on, Auto stopped: why), What Auto decided, which opens as a drawer,
+// with the risky calls Auto made beside it once there are any.
 // Under the facts, a branch Starbase only guessed (BranchGuess: "Branch (a guess)" and This is the
 // job's branch, which records it and reloads the job); where the work is then says the step alone,
 // never the guess as the job's branch (whereLine leaves out a card's guessed branch, from the first paint).
@@ -18,6 +20,7 @@ import { Button } from '../../components/Button';
 import { Chip, type ChipTone } from '../../components/Chip';
 import { Icon, type IconName } from '../../components/Icon';
 import { Guide, useGuide, type GuideSpec } from '../../components/page/Page';
+import { riskyWords, TOO_BIG } from '../../home/autoTab';
 import { chipTone, laneOf, LANE_INFO, stateChip } from '../../home/JobsPage';
 import { whereLine } from '../../home/nudges';
 import type { GateKind } from '../../lib/compose';
@@ -69,15 +72,27 @@ export function headerState(job: Job, permissions: readonly Permission[] | undef
 
 /**
  * The facts the header works out (the phone's job screen shows them too): the ticket's number (the
- * job's own, else the one in the job's page facts), and, on a job a tag started, "Started by Auto"
- * with the tag's name when the job's detail has it. The job's record says a tag started Auto; the
- * tag's name comes with the job's detail.
+ * job's own, else the one in the job's page facts); on a job a tag started, "Started by Auto" with
+ * the tag's name when the job's detail has it; while Auto has set the job aside as too big, its
+ * reason (null when none was given); and the risky calls Auto made, in words, once there are any.
+ * How the job began is the record's began, kept when he switches Auto off and on (a record from an
+ * older laptop has none: its by says); the tag's name comes with the job's detail.
  */
-export function jobFacts(job: Job, detail: JobDetail | null): { ticket: string | null; startedByAuto: string | null } {
+export function jobFacts(job: Job, detail: JobDetail | null): { ticket: string | null; startedByAuto: string | null; tooBig: { reason: string | null } | null; risky: string | null } {
   const ticket = ticketOf(job) ?? (typeof detail?.page?.ticket?.key === 'string' ? detail.page.ticket.key : null);
   const tag = typeof detail?.auto?.tag === 'string' && detail.auto.tag.trim() ? detail.auto.tag.trim() : null;
-  const startedByAuto = job.auto?.by === 'tag' ? (tag ? `Started by Auto · tag ${tag}` : 'Started by Auto') : null;
-  return { ticket, startedByAuto };
+  const auto = job.auto;
+  const byTag = auto?.began !== undefined ? auto.began === 'tag' : auto?.by === 'tag';
+  const startedByAuto = byTag ? (tag ? `Started by Auto · tag ${tag}` : 'Started by Auto') : null;
+  const big = auto?.tooBig;
+  const tooBig = big && typeof big === 'object' ? { reason: typeof big.reason === 'string' && big.reason.trim() ? big.reason.trim() : null } : null;
+  const risky = typeof auto?.risky === 'number' && auto.risky > 0 ? riskyWords(auto.risky) : null;
+  return { ticket, startedByAuto, tooBig, risky };
+}
+
+/** Too big for Auto, as a chip whose title is the reason (none when no reason was given). */
+export function TooBigChip({ tooBig, className }: { tooBig: { reason: string | null }; className: string }) {
+  return <Chip tone="warn" icon="layers" className={className} title={tooBig.reason ?? undefined}>{TOO_BIG}</Chip>;
 }
 
 /** The state in a word as a chip (headerState), with the lane's hint unless it says Sent. */
@@ -106,7 +121,7 @@ export function JobTop({ job, detail, run, sent, reload }: { job: Job; detail: J
   const hosted = Boolean(api.hosted?.());
   const stacks = useStackIndex();
   const [guideOpen, setGuideOpen] = useGuide(JOB_GUIDE.id);
-  const { ticket, startedByAuto } = jobFacts(job, detail);
+  const { ticket, startedByAuto, tooBig, risky } = jobFacts(job, detail);
   const ticketUrl = detail?.page?.ticket?.url;
   const kind = job.kind ? KIND_WORDS[job.kind] ?? job.kind : null;
   const model = foremanModel(detail, state.meta?.models);
@@ -124,6 +139,7 @@ export function JobTop({ job, detail, run, sent, reload }: { job: Job; detail: J
             : <Chip tone="outline" className="num sb-top-ticket">{ticket}</Chip>)}
           <CopyDecisions slug={job.slug} all={<DecisionsTab slug={job.slug} active copy={false} />} />
           {startedByAuto && <Chip tone="accent" icon="bot" className="sb-top-auto" title={AUTO_START_WHERE}>{startedByAuto}</Chip>}
+          {tooBig && <TooBigChip tooBig={tooBig} className="sb-top-big" />}
           {kind && <span className="sb-top-fact">{kind}</span>}
           <LevelChip job={job} ready={Boolean(detail)} />
           {job.repo?.name && <span className="sb-top-fact">{job.repo.name}</span>}
@@ -142,7 +158,10 @@ export function JobTop({ job, detail, run, sent, reload }: { job: Job; detail: J
             : <JobMenu job={job} dir={detail?.dir} policyOverride={detail?.policyOverride} run={run} worktree={detail?.worktree} started={Boolean(detail?.drive?.sessionId)} gear />}
           <Button kind="quiet" icon="help" className="page-how" onClick={() => setGuideOpen(true)} title="The three things to know about this page.">How it works</Button>
         </div>
-        <WhatAutoDecided slug={job.slug} auto={job.auto} drawer plain />
+        <div className="sb-decided-row">
+          <WhatAutoDecided slug={job.slug} auto={job.auto} drawer plain />
+          {risky && <span className="sb-decided-risky">{risky}</span>}
+        </div>
       </div>
       {guideOpen && <Guide spec={JOB_GUIDE} onClose={() => setGuideOpen(false)} />}
     </header>

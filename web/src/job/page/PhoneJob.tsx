@@ -1,9 +1,10 @@
 // The job page on a phone (Part 3, design 3.4, note 12): four simple screens, one column each,
 // chosen by the address. Not the laptop page squeezed.
-//   The job (#/job/<slug>): back to Jobs and the gear; the title, the state in a word and the ticket;
-//     who started it; a branch Starbase only guessed (BranchGuess, with This is the job's branch, its
-//     line alone on the website); the bar with its card; the seven steps as rows; Overview, Copy
-//     decisions, What Auto decided (once Auto has decided) and the Auto switch; Conversation fixed at
+//   The job (#/job/<slug>): back to Jobs and the gear; the title, the state in a word, the ticket and
+//     Too big for Auto while Auto has set it aside; who started it; a branch Starbase only guessed
+//     (BranchGuess, with This is the job's branch, its line alone on the website); the bar with its card; the seven steps as rows; Overview, Copy
+//     decisions, What Auto decided (once Auto has decided, with the risky calls beside it once there
+//     are any) and the Auto switch; Conversation fixed at
 //     the bottom with how many messages are new.
 //   A step (#/job/<slug>/stage/<step>): back to the job by its title; the step's name, state and time;
 //     the step's own panel and body, as on a laptop. The screen of the step that waits for you
@@ -43,7 +44,7 @@ import { CopyDecisions } from '../CopyDecisions';
 import { NextStep } from '../NextStep';
 import { WhatAutoDecided } from '../WhatAutoDecided';
 import { ConversationPanel, newCount, seenKey } from './ConversationPanel';
-import { AUTO_START_WHERE, jobFacts, JobStateChip, MENU_ON_LAPTOP } from './JobTop';
+import { AUTO_START_WHERE, jobFacts, JobStateChip, MENU_ON_LAPTOP, TooBigChip } from './JobTop';
 import { Column, overviewNote, TheTicket, ticketFor, WhatWereBuilding } from './OverviewCard';
 import { StepBody } from './StepBody';
 import { StepPanel } from './StepPanel';
@@ -151,7 +152,7 @@ function JobScreen({ job, conversation, now, sent, evidence, write }: ScreenProp
   const hosted = Boolean(api.hosted?.());
   const { thread, run } = conversation;
   const detail = thread.detail ?? null;
-  const { ticket, startedByAuto } = jobFacts(job, detail);
+  const { ticket, startedByAuto, tooBig, risky } = jobFacts(job, detail);
   const times = detail?.page?.times;
   const fresh = newCount(thread.items, readStored(seenKey(slug)));
   const stepsId = useId();
@@ -170,6 +171,7 @@ function JobScreen({ job, conversation, now, sent, evidence, write }: ScreenProp
           <div className="sb-phone-facts">
             <JobStateChip job={job} sent={sent} />
             {ticket && <span className="num">{ticket}</span>}
+            {tooBig && <TooBigChip tooBig={tooBig} className="sb-phone-big" />}
           </div>
           {startedByAuto && <p className="sb-phone-by" title={AUTO_START_WHERE}><Icon name="bot" size={13} />{startedByAuto}</p>}
           <BranchGuess slug={slug} detail={detail} onConfirmed={thread.reload} />
@@ -226,7 +228,10 @@ function JobScreen({ job, conversation, now, sent, evidence, write }: ScreenProp
           </div>
           {job.auto?.ran && (
             <div className="sb-phone-tool">
-              <WhatAutoDecided slug={slug} auto={job.auto} plain />
+              <div className="sb-decided-row">
+                <WhatAutoDecided slug={slug} auto={job.auto} plain />
+                {risky && <span className="sb-decided-risky">{risky}</span>}
+              </div>
               <span className="sb-phone-tool-note">Newest first</span>
             </div>
           )}

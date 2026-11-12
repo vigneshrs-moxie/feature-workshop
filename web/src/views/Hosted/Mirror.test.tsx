@@ -166,7 +166,7 @@ describe('a decision from the site, after the click', () => {
 // and What Auto decided reads the website's copy of the laptop's list, as text.
 describe('Auto on the website', () => {
   const AUTO_WORDS = 'Auto on or off: waiting for your laptop. It runs when the laptop is back.';
-  const L3 = 'Auto works up to L2. An L3 job needs you to approve each step.';
+  const REFUSED = 'The job is marked done.';
   function header(autoQueued: QueuedView | null, post = vi.fn(async (): Promise<unknown> => ({ ok: true }))) {
     const j = { ...job('alpha', 'needs-you', { level: 1 }), autoQueued } as never;
     const store = createStore();
@@ -194,9 +194,9 @@ describe('Auto on the website', () => {
     await waitFor(() => expect(post).toHaveBeenCalledWith('/api/decisions/d_abcdefgh1234/cancel', {}));
   });
 
-  it('the laptop’s refusal (L3) shows in the laptop’s own sentence, with Got it', async () => {
-    const { post } = header(queued('failed', `Auto on or off: your laptop couldn’t do it. ${L3}`, { kind: 'auto', canCancel: false }));
-    expect(screen.getByText(`Auto on or off: your laptop couldn’t do it. ${L3}`)).toBeInTheDocument();
+  it('the laptop’s refusal shows in the laptop’s own sentence, with Got it', async () => {
+    const { post } = header(queued('failed', `Auto on or off: your laptop couldn’t do it. ${REFUSED}`, { kind: 'auto', canCancel: false }));
+    expect(screen.getByText(`Auto on or off: your laptop couldn’t do it. ${REFUSED}`)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Got it' }));
     await waitFor(() => expect(post).toHaveBeenCalledWith('/api/decisions/d_abcdefgh1234/dismiss', {}));
   });

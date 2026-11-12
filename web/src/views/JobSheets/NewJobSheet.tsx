@@ -216,8 +216,6 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
   const [picked, setPicked] = useState<LevelNumber | null>(null);
   const suggestion = useMemo(() => suggestFromDescription(description), [description]);
   const level: LevelNumber | null = picked ?? suggestion?.level ?? null;
-  // Auto works up to L2 (the switch is off at L3, so a tick left over from a lower level is not sent).
-  const aboveAuto = level === 3;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const descId = useId();
@@ -274,7 +272,7 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
       try {
         await hosted.onStart({
           description: text, kind, laptopId, ...(repoPath ? { repo: repoPath } : {}), ...((allFable ? FABLE : model) ? { model: allFable ? FABLE : model } : {}),
-          options: { ...(level !== null ? { level } : {}), ...(asStack ? { stack: true as const } : {}), ...(allFable ? { all_fable: true as const } : {}), ...(auto && !aboveAuto ? { auto: true as const } : {}) },
+          options: { ...(level !== null ? { level } : {}), ...(asStack ? { stack: true as const } : {}), ...(allFable ? { all_fable: true as const } : {}), ...(auto ? { auto: true as const } : {}) },
         });
         onClose();
       } catch (err) { setError(message(err)); setBusy(false); }
@@ -291,7 +289,7 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
     setError(null);
     try {
       const fromSession = from ? { id: from.id, mode: fromMode } : undefined;
-      const options = { ...(level !== null ? { level } : {}), ...(asStack ? { stack: true } : {}), ...(allFable ? { all_fable: true } : {}), ...(auto && !aboveAuto ? { auto: true } : {}) };
+      const options = { ...(level !== null ? { level } : {}), ...(asStack ? { stack: true } : {}), ...(allFable ? { all_fable: true } : {}), ...(auto ? { auto: true } : {}) };
       const r = await api.post<{ slug: string }>('/api/jobs', { description: text, kind, repoPath, model: (allFable ? FABLE : model) || undefined, options, fromSession, ticket });
       writeStored(LAST_REPO_KEY, repoPath);
       onClose();
@@ -446,7 +444,7 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
             </span>
           </OptionRow>
 
-          <AutoSwitch level={level} checked={auto} onChange={setAuto} disabled={busy} />
+          <AutoSwitch checked={auto} onChange={setAuto} disabled={busy} />
 
           {!hosted && <PastConversation picked={from} onPick={pick} mode={fromMode} onMode={setFromMode} canContinue={canContinue} />}
         </fieldset>

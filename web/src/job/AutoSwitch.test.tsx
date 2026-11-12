@@ -1,5 +1,5 @@
 // The Auto switch (spec: Turning it on and off): a checkbox on the New job form and in the job
-// header, off and explained at L3, one POST with a spinner in the header, and the header line.
+// header, on or off at every level, one POST with a spinner in the header, and the header line.
 // Invented jobs only.
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
@@ -10,7 +10,7 @@ import type { Job } from '../api/types';
 import { clearAllSent } from '../lib/sentState';
 import { createStore, WorkshopContext, type Store } from '../state/store';
 import { job, snapshot } from '../state/test-fixtures';
-import { AutoSwitch, AUTO_HINT, AUTO_L3, AUTO_LABEL } from './AutoSwitch';
+import { AutoSwitch, AUTO_HINT, AUTO_LABEL } from './AutoSwitch';
 
 function show(j: Job, post: ReturnType<typeof vi.fn> = vi.fn(async () => ({ ok: true })), onChange?: (on: boolean) => void) {
   const store: Store = createStore();
@@ -28,22 +28,6 @@ describe('AutoSwitch', () => {
     expect(AUTO_LABEL).toBe('Auto: run to PR #1 without asking me.');
     expect(screen.getByRole('checkbox', { name: new RegExp(AUTO_LABEL.replace(/[#.]/g, '\\$&')) })).not.toBeChecked();
     expect(AUTO_HINT).toBe('A Fable agent approves each step for you and takes the recommended answers. It stops and asks you when something is risky. It never merges.');
-  });
-
-  it('the switch is off at L3 and says why', () => {
-    show(job('alpha', 'needs-you', { level: 3, auto: { on: true } }));
-    const box = screen.getByRole('checkbox', { name: /Auto: run to PR #1/ });
-    expect(box).toBeDisabled();
-    expect(box).not.toBeChecked();
-    // The server's own sentence (dashboard/lib/auto.js AUTO_L3).
-    expect(AUTO_L3).toBe('Auto works up to L2. An L3 job needs you to approve each step.');
-    expect(screen.getByText(AUTO_L3)).toBeInTheDocument();
-  });
-
-  it('is off too while the Foreman suggests L3', () => {
-    show(job('alpha', 'needs-you', { level: null, suggestedLevel: 3 }));
-    expect(screen.getByRole('checkbox', { name: /Auto: run to PR #1/ })).toBeDisabled();
-    expect(screen.getByText(AUTO_L3)).toBeInTheDocument();
   });
 
   it('turning it on in the header posts once and spins', async () => {
@@ -64,10 +48,10 @@ describe('AutoSwitch', () => {
   });
 
   it('shows the server\'s sentence when it refuses', async () => {
-    const post = vi.fn(async () => { throw new ApiError(409, 'Auto works up to L2. An L3 job needs you to approve each step.', { code: 'auto-level' }); });
+    const post = vi.fn(async () => { throw new ApiError(409, 'The job is marked done.', { code: 'closed' }); });
     show(job('alpha', 'needs-you', { level: 1 }), post);
     await act(async () => { fireEvent.click(screen.getByRole('checkbox', { name: /Auto: run to PR #1/ })); });
-    expect(document.querySelector('.auto-line')).toHaveTextContent('Auto works up to L2. An L3 job needs you to approve each step.');
+    expect(document.querySelector('.auto-line')).toHaveTextContent('The job is marked done.');
     expect(screen.getByRole('checkbox', { name: /Auto: run to PR #1/ })).not.toBeChecked();
   });
 
@@ -160,7 +144,7 @@ describe('AutoSwitch', () => {
   });
 
   it('on the form the hint stays as text', () => {
-    render(<AutoSwitch level={2} checked={false} onChange={vi.fn()} />);
+    render(<AutoSwitch checked={false} onChange={vi.fn()} />);
     expect(screen.getByText(AUTO_HINT)).toBeInTheDocument();
   });
 
@@ -173,29 +157,23 @@ describe('AutoSwitch', () => {
     expect(screen.getByRole('checkbox', { name: /Auto: run to PR #1/ })).not.toBeDisabled();
   });
 
-  it('the app copy of the L3 sentence is in the server\'s dashboard/lib/auto.js', () => {
-    // vitest runs from web/; the server file is read as text, never imported.
-    const server = readFileSync(path.join(process.cwd(), '..', 'dashboard/lib/auto.js'), 'utf8');
-    expect(server).toContain(AUTO_L3);
-  });
-
   it('long words in the line wrap instead of widening the header, and the row wraps', () => {
     const css = readFileSync(path.join(process.cwd(), 'src/job/auto.css'), 'utf8');
     expect(/\.auto-line span \{([^}]*)\}/.exec(css)?.[1]).toMatch(/overflow-wrap:\s*anywhere[^}]*min-width:\s*0|min-width:\s*0[^}]*overflow-wrap:\s*anywhere/);
     expect(/\.job-auto \{([^}]*)\}/.exec(css)?.[1]).toMatch(/flex-wrap:\s*wrap/);
   });
 
-  // m9: at L3 the row is greyed, but the sentence saying why Auto is off is fully readable.
-  it('at L3 the row stays greyed but its sentence is at full opacity, in the second text colour', () => {
+  // m9: a disabled row is greyed, but its sentence is fully readable.
+  it('a disabled row stays greyed but its sentence is at full opacity, in the second text colour', () => {
     const css = readFileSync(path.join(process.cwd(), 'src/job/auto.css'), 'utf8');
     const rule = (sel: string) => new RegExp(`${sel.replace(/[.()*+?[\]\\^$|{}]/g, '\\$&')}\\s*\\{([^}]*)\\}`).exec(css)?.[1] ?? '';
     expect(rule('.option-row.auto-switch-row.is-off:has(.choice:disabled)')).toMatch(/opacity:\s*1\b/);
     expect(rule('.auto-switch-row.is-off > .choice, .auto-switch-row.is-off .auto-switch-label')).toMatch(/opacity:\s*\.7/);
     expect(rule('.auto-switch-row.is-off .auto-switch-hint')).toMatch(/opacity:\s*1\b/);
     expect(rule('.auto-switch-row.is-off .auto-switch-hint')).toMatch(/color:\s*var\(--text-2\)/);
-    render(<AutoSwitch level={3} checked onChange={vi.fn()} />);
-    expect(screen.getByText(AUTO_L3)).toHaveClass('auto-switch-hint');
-    expect(screen.getByText(AUTO_L3).closest('.auto-switch-row')).toHaveClass('is-off');
+    render(<AutoSwitch checked disabled onChange={vi.fn()} />);
+    expect(screen.getByText(AUTO_HINT)).toHaveClass('auto-switch-hint');
+    expect(screen.getByText(AUTO_HINT).closest('.auto-switch-row')).toHaveClass('is-off');
   });
 
   // Round 2, M4: in the job page's head, a long line under the switch wraps inside the switch's own width.
@@ -215,17 +193,57 @@ describe('AutoSwitch', () => {
   it('on the form it is controlled and sends nothing itself', () => {
     const onChange = vi.fn();
     const post = vi.fn();
-    render(<AutoSwitch level={2} checked={false} onChange={onChange} />);
+    render(<AutoSwitch checked={false} onChange={onChange} />);
     fireEvent.click(screen.getByRole('checkbox', { name: /Auto: run to PR #1/ }));
     expect(onChange).toHaveBeenCalledWith(true);
     expect(post).not.toHaveBeenCalled();
   });
 
-  it('on the form at L3 it is off, disabled, and says why', () => {
-    render(<AutoSwitch level={3} checked onChange={vi.fn()} />);
-    const box = screen.getByRole('checkbox', { name: /Auto: run to PR #1/ });
-    expect(box).toBeDisabled();
-    expect(box).not.toBeChecked();
-    expect(screen.getByText(AUTO_L3)).toBeInTheDocument();
+  // The Auto queue (Task 17): Auto runs L3 jobs, so the switch is on or off at every level, on the
+  // laptop and on the website (where the change is queued for the laptop).
+  function showAt(j: Job, hosted: boolean) {
+    const store: Store = createStore();
+    store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [j] }) });
+    const queued = { id: 'd_abcdefgh1234', kind: 'auto', state: 'waiting', words: 'Auto on or off: waiting for your laptop. It runs when the laptop is back.', at: '2026-11-12T09:00:00Z', expiresAt: null, waiting: true, canCancel: true, permissionId: null };
+    const post = vi.fn(async (): Promise<unknown> => (hosted ? { ok: true, sent: false, held: true, queued, text: '', message: queued.words } : { ok: true }));
+    const api = { get: vi.fn(), post, ...(hosted ? { hosted: () => true } : {}) } as unknown as ApiClient;
+    const utils = render(<WorkshopContext.Provider value={{ store, api }}><AutoSwitch job={j} /></WorkshopContext.Provider>);
+    return { post, ...utils };
+  }
+
+  it('the switch works at L3', async () => {
+    for (const hosted of [false, true]) {
+      for (const levels of [{ level: 3 }, { level: null, suggestedLevel: 3 }] as const) {
+        const { post, unmount, container } = showAt(job('alpha', 'needs-you', { ...levels }), hosted);
+        const box = screen.getByRole('checkbox', { name: AUTO_LABEL });
+        expect(box).toBeEnabled();
+        expect(box).not.toBeChecked();
+        expect(box.closest('.auto-switch-row')).not.toHaveClass('is-off');
+        expect(container).not.toHaveTextContent('Auto works up to L2');
+        await act(async () => { fireEvent.click(box); });
+        expect(post).toHaveBeenCalledWith('/api/job/alpha/auto', { on: true });
+        // The laptop turns it on; the website queues it for the laptop.
+        if (hosted) expect(screen.getByText('Auto on or off: waiting for your laptop. It runs when the laptop is back.')).toBeInTheDocument();
+        else expect(screen.getByRole('checkbox', { name: AUTO_LABEL })).toBeChecked();
+        unmount();
+        clearAllSent();
+      }
+    }
+  });
+
+  it('an L3 job in Auto can be switched off', async () => {
+    for (const hosted of [false, true]) {
+      const { post, unmount } = showAt(job('alpha', 'running', { level: 3, auto: { on: true, by: 'you', ran: true } }), hosted);
+      const box = screen.getByRole('checkbox', { name: AUTO_LABEL });
+      expect(box).toBeEnabled();
+      expect(box).toBeChecked();
+      expect(screen.getByText('Auto is on')).toBeInTheDocument();
+      await act(async () => { fireEvent.click(box); });
+      expect(post).toHaveBeenCalledWith('/api/job/alpha/auto', { on: false });
+      if (hosted) expect(screen.getByText('Auto on or off: waiting for your laptop. It runs when the laptop is back.')).toBeInTheDocument();
+      else expect(screen.getByRole('checkbox', { name: AUTO_LABEL })).not.toBeChecked();
+      unmount();
+      clearAllSent();
+    }
   });
 });

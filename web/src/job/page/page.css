@@ -122,6 +122,10 @@ a.sb-top-ticket:hover { border-color: var(--border-3); }
 .sb-top-model .icon { flex: none; color: var(--text-3); }
 .sb-top-side { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-1); max-width: 55%; min-width: 0; }
 .sb-top-acts { display: flex; align-items: flex-start; justify-content: flex-end; gap: var(--space-2); min-width: 0; }
+/* What Auto decided with the risky calls beside it (the header and the phone); with neither, it takes no room. */
+.sb-decided-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); min-width: 0; }
+.sb-decided-row:empty { display: none; }
+.sb-decided-risky { font-size: var(--text-sm); color: var(--text-2); }
 .sb-job-top .auto-switch.is-inline { display: inline-grid; grid-template-columns: auto auto; justify-content: end; align-items: center; gap: var(--space-1) var(--space-2); min-width: 0; }
 .sb-job-top .auto-switch-row { width: auto; align-items: center; gap: var(--space-2); font-size: var(--text-sm); }
 .sb-job-top .auto-switch-row .choice { margin-top: 0; }

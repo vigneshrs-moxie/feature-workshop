@@ -5,7 +5,10 @@
 // Each entry: when, the step as a chip, Asked:, Chose: as a chip (the stop look for Auto stopping,
 // the done look otherwise), Why:. A stop is not a decision: its chip says Stopped and Why: carries
 // the reason, once. A record from an older laptop has no kind and no step: no step chip, the done
-// look. The foot says when a tag started Auto and on which ticket, when all three are known.
+// look. A risky call (the Approver asked a second time for the safer answer) has a Risky call mark
+// beside its step and, when it is known, what the Approver first said above Chose:. A refusal (Auto
+// refused something the crew asked for, and the job carried on) shows its chose, "Refused: …", as
+// the chip, in the quiet look. The foot says when a tag started Auto and on which ticket, when all three are known.
 import { useEffect, useState } from 'react';
 import type { AutoDecided, AutoDecision, JobAuto } from '../api/types';
 import { Button } from '../components/Button';
@@ -38,6 +41,8 @@ const stepOf = (e: AutoDecision) => (e.stop ? STOPS.find((s) => s.id === e.stop)
 function Entry({ e }: { e: AutoDecision }) {
   const step = stepOf(e);
   const stop = e.kind === 'stop';
+  const refuse = e.kind === 'refuse';
+  const first = e.risky === true && typeof e.first === 'string' && e.first.trim() ? e.first.trim() : null;
   // A stop carries its reason as what it chose; why is the same sentence, or (a high-risk stop) the
   // Approver's own explanation. Why: says each once: the two joined when they differ.
   const why = stop ? (e.chose && e.why && e.why !== e.chose ? `${e.chose} ${e.why}` : e.chose || e.why) : e.why;
@@ -46,14 +51,18 @@ function Entry({ e }: { e: AutoDecision }) {
       <div className="auto-entry-head">
         <span className="muted num" title={fullTime(e.at) || undefined}>{agoWords(e.at)}</span>
         {step ? <Chip className="sb-auto-entry-step">{step}</Chip> : <span className="auto-entry-stage">{e.stage}</span>}
+        {e.risky === true && <Chip tone="warn" icon="alert" className="sb-auto-entry-risky">Risky call</Chip>}
       </div>
       {e.asked && <p className="sb-auto-entry-asked">Asked: {e.asked}</p>}
+      {first && <p className="sb-auto-entry-first">The Approver first said: {first}</p>}
       {(stop || e.chose) && (
         <p className="sb-auto-entry-chose">
           Chose:{' '}
           {stop
             ? <Chip tone="needs-you" icon="octagon"><strong>Stopped</strong></Chip>
-            : <Chip tone="ok" icon="check"><strong>{e.chose}</strong></Chip>}
+            : refuse
+              ? <Chip icon="shield"><strong>{e.chose}</strong></Chip>
+              : <Chip tone="ok" icon="check"><strong>{e.chose}</strong></Chip>}
         </p>
       )}
       {why && <p>Why: {why}</p>}
