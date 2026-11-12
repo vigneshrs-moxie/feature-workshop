@@ -375,7 +375,8 @@ async function setup({ route = ORBIT, lock = null } = {}) {
   const driver = fakeDriver();
   const audit = [];
   const gitCalls = [];
-  const t = { now: Date.parse('2026-10-28T10:00:00Z'), status: null, ahead: 2, lock, settings: {}, refreshes: 0, emitted: [] };
+  // guess: the runner's words when the job's branch is only a guess (lib/locate.js guessWords): it then gives no worktree.
+  const t = { now: Date.parse('2026-10-28T10:00:00Z'), status: null, ahead: 2, lock, settings: {}, refreshes: 0, emitted: [], guess: null };
   // The writer, with its own git stubbed: the fork is a local folder, and a push just says done.
   const write = createGhWrite({
     gh: github.gh, audit: async (l) => { audit.push(l); }, lockFor: () => t.lock, localOnly: true,
@@ -383,7 +384,7 @@ async function setup({ route = ORBIT, lock = null } = {}) {
   });
   const coordinator = createReviewRounds({
     gh: github.gh, write, driver,
-    jobs: async () => [{ dir, slug: 'sample-job', title: 'Sample job', branch: 'feature/sample-job', worktree, repoPath: '/repos/sample-repo', closed: null, ticket: null }],
+    jobs: async () => [{ dir, slug: 'sample-job', title: 'Sample job', branch: 'feature/sample-job', worktree: t.guess ? null : worktree, repoPath: '/repos/sample-repo', closed: null, ticket: null, guess: t.guess }],
     profileFor: async () => ({ prRoute: route, checks: ['npm test'] }),
     audit: async (l) => { audit.push(l); },
     emit: (slug, view) => t.emitted.push([slug, view?.state ?? null]),
@@ -697,4 +698,29 @@ test('settings: how often to check GitHub is 1, 5, 10 or 30 minutes; anything el
   await assert.rejects(s.c.setSettings({ mergeFollowUp: 'yes' }), (e) => e.status === 400);
   assert.deepEqual(await s.c.setSettings({ githubEveryMin: 5, mergeFollowUp: false }), { githubEveryMin: 5, mergeFollowUp: false });
   assert.deepEqual(s.t.settings, { githubEveryMin: 5, mergeFollowUp: false });
+});
+
+test('a job whose branch is only a guess: every action is refused in its words, the round is dropped, and nothing reaches the pull request', async () => {
+  const GUESS = 'Starbase isn\'t sure which branch is this job\'s. It looks like feature/sample-job. Confirm it on the job page and try again.';
+  const s = await setup();
+  const { c, t, github, driver } = s;
+  await c.pass(s.flow());
+  await c.act('sample-job', 'fix', {});
+  t.status = report([
+    { id: 'c7001', state: 'fixed', commit: 'abc1234', reply: 'Fixed in abc1234.' },
+    { id: 'c7002', state: 'answered', reply: 'It is reassigned below.' },
+    { id: 'r5001', state: 'answered', reply: 'Thanks.' },
+  ]);
+  assert.equal((await c.refreshJob('sample-job')).state, 'ready');
+  assert.deepEqual(github.writes(), []);
+  // The branch turns out to be only a guess (the map still has its lane): Send back and the PR's own actions are refused in words.
+  t.guess = GUESS;
+  for (const [action, body] of [['send', { go: true }], ['merge', { go: true, confirm: true }], ['reopen', { go: true }], ['ask-review', { go: true, login: 'raj-moxie' }], ['remind', { go: true, text: 'x' }]]) {
+    await assert.rejects(c.act('sample-job', action, body), (e) => e.status === 409 && e.message === GUESS, action);
+  }
+  await c.pass(s.flow());
+  assert.deepEqual(await s.view(), { slug: 'sample-job', state: null }, 'the round is dropped from the job');
+  assert.equal(driver.cards.has(s.dir), false, 'and its card');
+  assert.deepEqual(github.writes(), [], 'no reply, resolve, review request or merge on the PR');
+  assert.equal(s.gitCalls.filter((g) => g[1] === 'push').length, 0, 'nothing pushed');
 });

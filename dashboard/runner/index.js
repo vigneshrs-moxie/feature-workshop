@@ -74,7 +74,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { GIT_SETTING_CHANGE, goAheadCovers, ORG_REMOTES, setApiPort, setStateDir } from '../lib/hard-lines.js';
 import { jobRepo, verifiedJobContext } from '../lib/auto-context.js';
-import { guessedWorktree } from '../lib/locate.js';
+import { guessedWorktree, guessWords } from '../lib/locate.js';
 import { autoGitFacts, gitIsAncestor, gitRemoteDefault, gitWorktrees } from '../lib/auto-git.js';
 import { readStack } from '../lib/stack.js';
 import { fillPattern, stackNames, stackRules, tryItRules } from '../lib/profile.js';
@@ -1345,6 +1345,9 @@ export async function createRunner(config) {
   const flow = new FlowWatch({
     jobsFor: async () => (await featuresShared())
       .filter((f) => !f.closed || Date.now() - Date.parse(f.closed.at ?? 0) < FLOW_CLOSED_DAYS * 86400000)
+      // A branch Starbase only guessed (lib/locate.js) may be another job's: no lane, so no finish, notices, nudges,
+      // PR feedback or review round from that branch's pull requests until it is confirmed (your choice) or recorded.
+      .filter((f) => !f.locate?.branchGuessed)
       // auto: the job is or was in Auto (only the demo's pretend map reads it: demo/fake-flow.js).
       .map((f) => ({ slug: f.slug, title: f.title, branch: f.branch, worktree: f.worktree, repoPath: f.repoPath, stage: f.stage ?? null, closed: f.closed ?? null, auto: f.auto?.on === true || f.auto?.ran === true })),
     gather: DEMO ? (await import('../demo/fake-flow.js')).fakeFlow : gatherRepo,
@@ -1465,8 +1468,8 @@ export async function createRunner(config) {
   let roundsFetchedAt = null;
   const reviewRounds = createReviewRounds({
     gh: feedbackGh, driver, write: ghWrites,
-    // A worktree found only through a guessed branch (lib/locate.js) is not given: Send back never pushes from another job's folder.
-    jobs: async () => (await featuresShared()).map((f) => ({ dir: f.dir, slug: f.slug, title: f.title, branch: f.branch ?? null, worktree: guessedWorktree(f) ? null : f.worktree ?? null, repoPath: f.repoPath ?? null, closed: f.closed ?? null, ticket: slugTicketKey(f.slug) ?? null })),
+    // A branch Starbase only guessed (lib/locate.js): no round, every action refused in `guess`'s words, and no worktree to push from.
+    jobs: async () => (await featuresShared()).map((f) => ({ dir: f.dir, slug: f.slug, title: f.title, branch: f.branch ?? null, worktree: guessedWorktree(f) ? null : f.worktree ?? null, repoPath: f.repoPath ?? null, closed: f.closed ?? null, ticket: slugTicketKey(f.slug) ?? null, guess: f.locate?.branchGuessed ? guessWords(f) : null })),
     profileFor: async (repo) => { const hit = await local.registry?.profileFor(repo).catch(() => null); return hit?.ok ? hit.profile : null; },
     // Settings → Workflow's "Who reviews and merges each pull request": every registered repository's route.
     routes: async () => {
@@ -2442,7 +2445,7 @@ export async function createRunner(config) {
         if (body.removeWorktree === true) {
           if (!f.worktree) throw new HttpError(400, 'This job has no worktree to remove.');
           // A worktree found only through a guessed branch (lib/locate.js) may be another job's: never removed from here.
-          if (guessedWorktree(f)) throw new HttpError(400, `This job has no worktree of its own to remove: ${f.worktree} was found only by its branch name, so it may be another job's.`);
+          if (guessedWorktree(f)) throw new HttpError(400, guessWords(f));
           // Nothing may still be working in it: a command from the job page, a crew member, a terminal.
           if (local.busy(f.slug)) throw new HttpError(409, 'Not marked yet: a command from the job page is still running in its worktree. Stop it first.');
           const run = runFor(f);
@@ -2598,6 +2601,8 @@ export async function createRunner(config) {
         const oneLine = (err) => String(err?.message ?? err).split('\n')[0];
         if (policyCleared) { try { await driver.applyModes(); settingsChanged(); } catch (err) { notes.push(`The permission modes could not be refreshed (${oneLine(err)}).`); } }
         if (autoWasOn) notes.push('A restart switches Auto off. Turn it on again on the new job if you want it.');
+        // Its branch and worktree were withheld above (a guess may be another job's): the sheet promised a backup branch, so it says so.
+        if (f.locate?.branchGuessed) notes.push('Starbase isn\'t sure which branch is this job\'s, so it left branches and folders alone.');
         try { await state.audit({ action: 'restart-done', featureDir: f.dir, slug: f.slug, newSlug: out.slug, model: body.model, was: drive.model ?? null, archive: out.archive, backupBranch: out.backupBranch, worktreeAside: out.worktreeAside }); } catch (err) { notes.push(`The restart could not be written to the record (${oneLine(err)}).`); }
         invalidate();
         return { ok: true, slug: out.slug, archive: out.archive, backupBranch: out.backupBranch, worktreeAside: out.worktreeAside, notes };

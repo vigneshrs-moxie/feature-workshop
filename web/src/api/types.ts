@@ -1026,6 +1026,11 @@ export interface JobDetail {
   dir?: string;
   /** Its own git worktree, when it has one (Mark done can remove it). */
   worktree?: string | null;
+  /**
+   * Where the job's repository and branch were found (dashboard/lib/locate.js). branchGuessed: the branch only matched by
+   * name or was only mentioned in workflow-status.md, so nothing that writes or decides uses it until you confirm it.
+   */
+  locate?: { path?: string | null; branch?: string | null; branchSource?: string | null; branchGuessed?: boolean } | null;
   /** Pull request #1 to #3 as status.json has them. */
   prs?: { number?: number; state?: string | null; url?: string | null }[] | null;
   /** The permission setting in force for this job, and its own one (null: it follows yours). */

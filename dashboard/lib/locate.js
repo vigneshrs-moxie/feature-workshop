@@ -98,6 +98,12 @@ export function guessedWorktree(f) {
   return loc?.branchGuessed === true && loc.worktree && loc.worktree !== f.statusWorktree ? loc.worktree : null;
 }
 
+/** What a refusal caused by a guessed branch says, with what to do (the job page's "This is the job's branch"). */
+export function guessWords(f) {
+  const branch = f?.locate?.branch ?? null;
+  return branch ? `Starbase isn't sure which branch is this job's. It looks like ${branch}. Confirm it on the job page and try again.` : 'Starbase doesn\'t know this job\'s branch yet.';
+}
+
 /**
  * clues: { slug, title, statusRepo, statusBranch, statusWorktree, wsRepository: {path, branch}, wsText,
  *          specPath, sessionCwds[], override: {repoPath, branch}, knownRepos[] }
@@ -136,11 +142,18 @@ export async function locateJob(clues) {
 
   // Branch: what the records say, else a local branch named after the job.
   const slugWords = new Set([...words(clues.slug), ...words(clues.title)]);
-  const jobKeys = new Set([...ticketKeys(clues.slug), ...ticketKeys(clues.title)]);
-  // By its words: never another ticket's branch; at least two words in common besides the ticket keys' words and the branch type.
+  // The job's own ticket key: the slug's; the title's only when the slug has none (a title may mention another ticket).
+  const slugKeys = ticketKeys(clues.slug);
+  const jobKeys = new Set(slugKeys.length ? slugKeys : ticketKeys(clues.title));
+  const otherTicket = (b) => { const keys = ticketKeys(b); return keys.length > 0 && jobKeys.size > 0 && !keys.some((k) => jobKeys.has(k)); };
+  // The whole slug in the branch name, ending where a word ends.
+  const slugAt = new RegExp(`${String(clues.slug ?? '').toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![a-z0-9])`);
+  // By its words: never another ticket's branch; the job's own key alone, else at least two words in common besides
+  // the ticket keys' words and the branch type.
   const byWords = (b) => {
     const keys = ticketKeys(b);
-    if (keys.length && jobKeys.size && !keys.some((k) => jobKeys.has(k))) return false;
+    if (otherTicket(b)) return false;
+    if (keys.some((k) => jobKeys.has(k))) return true;
     const skip = new Set([...BRANCH_TYPES, ...[...keys, ...jobKeys].flatMap((k) => k.split('-'))]);
     const w = words(b).filter((x) => !skip.has(x));
     return w.filter((x) => slugWords.has(x)).length >= 2;
@@ -149,7 +162,7 @@ export async function locateJob(clues) {
   let branchSource = clues.override?.branch ? 'your choice' : clues.statusBranch ? 'status.json' : null;
   let branchGuessed = false;
   if (!branch) {
-    const fromText = [clues.wsRepository?.branch, ...branchesIn(clues.wsText)].filter((b) => b && !/^(main|master|staging)$/.test(b));
+    const fromText = [clues.wsRepository?.branch, ...branchesIn(clues.wsText).filter((b) => !otherTicket(b))].filter((b) => b && !/^(main|master|staging)$/.test(b));
     if (fromText.length) { branch = fromText[0]; branchSource = 'workflow-status.md'; branchGuessed = branch !== clues.wsRepository?.branch; }
   }
   // Search known repositories for a branch named after the job when there's still no repo or branch.
@@ -160,7 +173,7 @@ export async function locateJob(clues) {
     const branches = await localBranches(r);
     if (branch && branches.includes(branch)) { branchExists = true; if (!repo) repo = { path: r, source: `has branch ${branch}` }; break; }
     if (!branch) {
-      const match = branches.find((b) => b.toLowerCase().includes(String(clues.slug).toLowerCase()))
+      const match = branches.find((b) => !otherTicket(b) && slugAt.test(b.toLowerCase()))
         ?? branches.find(byWords);
       if (match && !/^(main|master|staging)$/.test(match)) {
         branch = match; branchSource = `git branch in ${path.basename(r)}`; branchExists = true; branchGuessed = true;

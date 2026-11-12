@@ -35,6 +35,7 @@ import { JobGithub } from '../panes/Foreman/JobGithub';
 import { JobMenu } from '../panes/Foreman/JobHeader';
 import { LevelChip } from '../panes/Foreman/LevelChip';
 import { CopyDecisions } from './CopyDecisions';
+import { BranchGuess } from './BranchGuess';
 import { AutoSwitch } from './AutoSwitch';
 import { WhatAutoDecided } from './WhatAutoDecided';
 import { AUTO_DECIDING_NOTE, autoDeciding, autoLaneReason } from './autoLine';
@@ -234,6 +235,7 @@ function JobView({ job }: { job: Job }) {
               <StopMap job={{ ...job, lane }} faces={play.full && !narrow} label="Every stop, with its name" />
             </section>
             <JobFacts job={job} now={now} />
+            <BranchGuess slug={job.slug} detail={thread.detail} onConfirmed={thread.reload} />
           </More>
           {wide ? (
             <section className="job-convo" aria-label="Conversation">

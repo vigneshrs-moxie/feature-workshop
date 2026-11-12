@@ -18,7 +18,7 @@ import path from 'node:path';
 import { envGet, findOnPath, folderLabel, killTree as stopProcessTree, openIn, shellFor, terminalApps } from './platform.js';
 import { GENERAL, GENERAL_FILE_RULE, devCommand, fillPattern, tryItRules } from './profile.js';
 import { openRegistry } from './repos.js';
-import { guessedWorktree } from './locate.js';
+import { guessedWorktree, guessWords } from './locate.js';
 import { PRODUCT } from './brand.js';
 
 const OUTPUT_MAX = 200_000; // characters kept per output box
@@ -216,7 +216,7 @@ export class LocalRunner extends EventEmitter {
   async where(f) {
     if (!f.worktree) return { reason: 'This job has no worktree yet. It gets one when building starts, and then you can try it here.' };
     // Found only through a guessed branch (lib/locate.js): it may be another job's, so nothing runs or is copied there.
-    if (guessedWorktree(f)) return { reason: `This job has no worktree of its own yet: ${f.worktree} was found only by its branch name, so it may be another job's.` };
+    if (guessedWorktree(f)) return { reason: guessWords(f) };
     const { rules, profile, profileErrors } = await this.#rules(f);
     const around = (rel) => ({
       mainRoot: f.repoPath ?? null, tryIt: rules, profile, profileErrors,

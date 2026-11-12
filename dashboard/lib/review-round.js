@@ -999,7 +999,8 @@ export class ReviewRefused extends Error {
  *   gh(args)            read-only gh runner (lib/git.js ghRunner), or null: no GitHub is read
  *   write               lib/gh-write.js createGhWrite(): the only writer, every call with a yes
  *   driver              lib/driver.js: round cards, sendRoundMessage, activeRunFor
- *   jobs()              [{ dir, slug, title, branch, worktree, repoPath, closed, ticket }]
+ *   jobs()              [{ dir, slug, title, branch, worktree, repoPath, closed, ticket, guess }]; guess: the words when the
+ *                       job's branch is only a guess (lib/locate.js guessWords): no round, and every action is refused in them
  *   profileFor(repo)    the repo's profile (prRoute, checks) or null
  *   audit(line)         an audit line; emit(slug, view): the 'pr' event; changed(): pages fetch again
  *   lockFor(dir)        the job's lock when another process holds it (lib/lock.js heldElsewhere), or null
@@ -1205,7 +1206,7 @@ export function createReviewRounds(deps) {
       const mine = [r.fork?.slug?.split('/')[0], ...(Array.isArray(me) ? me : [me])].filter(Boolean);
       for (const lane of r.lanes ?? []) {
         const f = jobs.find((j) => j.slug === lane.slug);
-        if (!f || f.closed) continue;
+        if (!f || f.closed || f.guess) continue;
         const fx = facts.get(f.slug) ?? { prs: new Map() };
         Object.assign(fx, { f, lane, repo, route, twoStep, org: r.org?.remote ?? null, fork: r.fork?.remote ?? null, forkOwner: r.fork?.slug?.split('/')[0] ?? null, base: r.main?.ref?.split('/').slice(1).join('/') ?? 'main', checks: Array.isArray(profile?.checks) ? profile.checks : [] });
         facts.set(f.slug, fx);
@@ -1227,7 +1228,7 @@ export function createReviewRounds(deps) {
     for (const slug of [...facts.keys()]) {
       if (seen.has(slug)) continue;
       const fx = facts.get(slug);
-      if (jobs.find((j) => j.slug === slug && !j.closed)) continue;
+      if (jobs.find((j) => j.slug === slug && !j.closed && !j.guess)) continue;
       facts.delete(slug);
       views.delete(slug);
       if (fx?.f?.dir) deps.driver?.dropRoundCard?.(fx.f.dir, 'closed');
@@ -1749,6 +1750,9 @@ export function createReviewRounds(deps) {
     async act(slug, action, body = {}) {
       const fn = actions[action];
       if (!fn) throw new ReviewRefused(404, 'Not found');
+      // A branch Starbase only guessed may be another job's: nothing is done on its pull request.
+      const f = await jobOf(slug);
+      if (f.guess) throw new ReviewRefused(409, f.guess);
       return fn(slug, body);
     },
     settings,
