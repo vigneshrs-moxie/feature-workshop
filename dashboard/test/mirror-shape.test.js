@@ -25,10 +25,37 @@ test('a job page goes up without the Foreman’s replies, the audit, a reply’s
     permissionsPending: [{ id: 'p', kind: 'permission', toolName: 'Edit', input: { file_path: 'a.js', old_string: 'a', new_string: 'b' }, plain: { headline: 'Edit a.js', preview: '- a\n+ b' } }],
   });
   const text = JSON.stringify(r);
-  for (const gone of ['streaming', 'resultText', '<pre>code</pre>', 'rm -rf', 'old_string', '- a\\n+ b', '"audit"', 'lastReply', 'locate']) assert.ok(!text.includes(gone), gone);
+  for (const gone of ['streaming', 'resultText', '<pre>code</pre>', 'rm -rf', 'old_string', '- a\\n+ b', '"audit"', 'lastReply', 'status.json']) assert.ok(!text.includes(gone), gone);
+  // Final fixes C1: locate goes up only as its branch facts (see the guessed-branch test below).
+  assert.deepEqual(r.locate, { branch: null, branchSource: null, branchGuessed: false });
   assert.equal(r.thread[0].kind, 'note');
   assert.equal(r.run.status, 'running');
   assert.deepEqual(r.permissionsPending[0].input, { file_path: 'a.js' });
+});
+
+// ---------- Final fixes C1: the website learns that a branch is only a guess ----------
+
+test('a guessed branch goes up as a guess, with no path of the laptop’s', () => {
+  // A guessed job's detail as runner/index.js jobDetail builds it: the card's repo carries the flag,
+  // and locate is lib/locate.js locateJob's whole answer.
+  const detail = {
+    slug: 'add-export', title: 'Add export', thread: [],
+    repo: { name: 'app', branch: 'feature/someone-elses', branchGuessed: true },
+    branch: 'feature/someone-elses',
+    locate: {
+      path: '/Users/someone/Projects/app', source: 'status.json', branch: 'feature/someone-elses', branchSource: 'git branch in app',
+      branchGuessed: true, branchExists: true, worktree: '/Users/someone/Projects/app-wt', checkoutBranch: 'main',
+      tried: ['/Users/someone/Projects/app', '/Users/someone/Projects/other'],
+    },
+  };
+  const r = jobRecord(detail);
+  assert.deepEqual(r.locate, { branch: 'feature/someone-elses', branchSource: 'git branch in app', branchGuessed: true });
+  assert.equal(r.repo.branchGuessed, true, 'the job card in the record carries the flag too');
+  const text = JSON.stringify(r);
+  for (const gone of ['/Users/someone', 'app-wt', '"tried"', '"worktree"', '"path"', 'checkoutBranch', 'branchExists']) assert.ok(!text.includes(gone), gone);
+  assert.equal(makeEvent('record', { kind: 'job', key: 'add-export', value: r }).ok, true);
+  // A job with no locate: null.
+  assert.equal(jobRecord({ slug: 'y', thread: [] }).locate, null);
 });
 
 test('a job’s published link and revision go up with its page, and pass the never-carried check', () => {

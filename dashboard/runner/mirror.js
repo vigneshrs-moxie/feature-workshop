@@ -167,10 +167,20 @@ function costActivityUp(list) {
   });
 }
 
+/**
+ * Where the job's branch came from, without a path (lib/locate.js locateJob): the website reads
+ * branchGuessed to show a guessed branch as a guess. The folders and the paths tried stay here.
+ */
+function locateUp(locate) {
+  if (!isPlain(locate)) return null;
+  return { branch: locate.branch ?? null, branchSource: locate.branchSource ?? null, branchGuessed: locate.branchGuessed === true };
+}
+
 export function jobRecord(detail) {
   const { audit, lastReply, locate, runs, run, permissionsPending, thread, ...rest } = detail;
   return wireSafe({
     ...rest,
+    locate: locateUp(locate),
     ...('activity' in rest ? { activity: activityUp(rest.activity) } : {}),
     ...(isPlain(rest.costDetail) && 'activity' in rest.costDetail ? { costDetail: { ...rest.costDetail, activity: costActivityUp(rest.costDetail.activity) } } : {}),
     run: runState(run), runs: (runs ?? []).map(runState),

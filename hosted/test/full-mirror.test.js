@@ -78,6 +78,27 @@ test('the mirror round trip: the board, a job’s page, its documents and decisi
   } finally { l.link.stop(); await s.close(); }
 });
 
+test('a branch Starbase only guessed reaches the website as a guess, with no path of the laptop’s', async () => {
+  const runner = mirrorRunner();
+  runner.job = { ...runner.job, branch: 'feature/someone-elses', repo: { name: 'app', branch: 'feature/someone-elses', branchGuessed: true } };
+  // The job page's read on the laptop carries lib/locate.js locateJob's whole answer (the board's card does not).
+  const read = runner.read.job;
+  runner.read.job = async (slug) => ({
+    ...(await read(slug)),
+    locate: {
+      path: '/home/someone/app', source: 'status.json', branch: 'feature/someone-elses', branchSource: 'git branch in app', branchGuessed: true,
+      branchExists: true, worktree: '/home/someone/app-wt', checkoutBranch: 'main', tried: ['/home/someone/app'],
+    },
+  });
+  const { s, olive, l } = await setUp({ runner });
+  try {
+    const job = (await olive.person.json('/api/job/add-export')).body;
+    assert.deepEqual(job.locate, { branch: 'feature/someone-elses', branchSource: 'git branch in app', branchGuessed: true });
+    assert.equal(job.repo.branchGuessed, true);
+    assert.equal(JSON.stringify(job).includes('/home/someone'), false, 'no path of the laptop’s');
+  } finally { l.link.stop(); await s.close(); }
+});
+
 test('“never carries”: the site refuses a record with a diff, an env, a token or source; the laptop never sends a file’s content', async () => {
   const runner = mirrorRunner();
   runner.permissions = [{ id: 'perm-write-1', slug: 'add-export', kind: 'permission', toolName: 'Write', input: { file_path: 'src/a.js', content: 'export const a = 1;' }, plain: { headline: 'Write src/a.js', preview: 'export const a = 1;', previewHtml: '<p>x</p>' }, createdAt: '2026-10-30T15:50:00.000Z', draft: { rule: 'x' } }];
