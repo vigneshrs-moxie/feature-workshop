@@ -17,14 +17,15 @@
 // The open step: your pick on this page wins (it rewrites the address in place and is remembered
 // as sb.job.step.<slug>); then the step the address names; then the step the job is at while it
 // works or waits; then the one you last opened here; then the job's own step (openStep.ts). A later
-// change of the address's step (a link, Back) is a pick of that step. [ and ] pick the step before
+// change of the address's step (a link, Back) is a pick of that step, and so is reading inside the
+// open step (a click or a key press in its panel) while nothing is picked. [ and ] pick the step before
 // and after; the bar's See the pull requests and Watch, the job menu's Try it and a link to a
 // document pick the step they need. The step's panel stays mounted as the step changes; only its
 // body changes, and only once the step's view is in.
 //
 // One clock, one sent line (useSentShown) and one evidence view (useJobEvidence) for the whole page.
 // The open step's body is StepBody; the phone's step screen draws the same one.
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject, type SyntheticEvent } from 'react';
 import type { Job, JobDetail, StageAgent, StopId } from '../../api/types';
 import { BRAND } from '../../app/brand';
 import { useKeyScope } from '../../app/keyRegistry';
@@ -52,7 +53,7 @@ import { lastStepKey, pickOpenStep } from './openStep';
 import { OverviewCard } from './OverviewCard';
 import { PhoneJob } from './PhoneJob';
 import { StepBody } from './StepBody';
-import { StepPanel } from './StepPanel';
+import { STEP_PANEL_ID, StepPanel } from './StepPanel';
 import { StepsRow } from './StepsRow';
 import { statesOf } from './stepWords';
 import { recorderAgent } from './TestStep';
@@ -181,6 +182,15 @@ function LaptopJob({ job, conversation, now, step, view, sent }: {
   }, [slug]);
   const openNow = useRef(open);
   openNow.current = open;
+  /**
+   * Reading inside the open step (a click or a key press in its panel: a document, a commit's
+   * change, a fold) is a pick of that step, once, while nothing is picked, as a click on its tab
+   * is: the job moving on never takes what he reads away.
+   */
+  const readHere = (e: SyntheticEvent) => {
+    if (picked !== null) return;
+    if (e.target instanceof Element && e.target.closest(`#${STEP_PANEL_ID}`)) choose(open);
+  };
   /** A request for a step's part (See the pull requests, Watch, Try it, a document) gives the page back to the job. */
   const toStep = useCallback((stop: StopId) => {
     if (talk) leaveTalk();
@@ -248,7 +258,7 @@ function LaptopJob({ job, conversation, now, step, view, sent }: {
               evidence={evidence.view}
             />
           </div>
-          <div className="sb-job-part" hidden={talk}>
+          <div className="sb-job-part" hidden={talk} onClickCapture={readHere} onKeyDownCapture={readHere}>
             <StepsRow job={job} times={detail?.page?.times} open={open} sent={sent} now={now} onOpen={choose} />
             <StepPanel
               job={job}

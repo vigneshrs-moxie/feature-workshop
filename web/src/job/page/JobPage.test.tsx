@@ -236,6 +236,36 @@ describe('the open step', () => {
     expect(openStop()).toBe('test');
   });
 
+  // Final review A5: reading inside the open step is a pick of that step.
+  it('a commit opened in Build stays open when the job moves on to Test', async () => {
+    const { get, move } = setup({ jobs: [working('implement')] });
+    const answer = get.getMockImplementation()!;
+    get.mockImplementation((path: string) => {
+      if (path.endsWith('/commits')) return Promise.resolve({ head: 'feature/x', commits: [{ sha: 'b'.repeat(40), short: '7d03b18', author: 'Ann', date: NOW, subject: 'Leave paused visits off the route', files: [] }] });
+      if (path.includes('/commit/')) return Promise.resolve({ files: [], patchFiles: [{ path: 'src/route.ts', lines: ['@@ -1 +1 @@', '-old', '+new'] }], truncated: false });
+      return answer(path);
+    });
+    expect(openStop()).toBe('build');
+    const panel = screen.getByRole('tabpanel', { name: 'Build' });
+    fireEvent.click(await within(panel).findByRole('button', { name: /Leave paused visits off the route/ }));
+    expect(await within(panel).findByText('src/route.ts')).toBeInTheDocument();
+    // As a click on its tab: the address and the last step opened.
+    expect(window.location.hash).toBe('#/job/alpha/stage/build');
+    move([working('test')]);
+    await act(async () => {});
+    expect(openStop()).toBe('build');
+    expect(within(screen.getByRole('tabpanel', { name: 'Build' })).getByText('src/route.ts')).toBeInTheDocument();
+  });
+
+  it('a key press inside the open step counts as picking it too', async () => {
+    const { move } = setup({ jobs: [working('plan')] });
+    const panel = screen.getByRole('tabpanel', { name: 'Plan' });
+    await waitFor(() => expect(panel.querySelector('.sb-step-body')).not.toBeNull());
+    fireEvent.keyDown(panel.querySelector('.sb-step-body')!, { key: 'Tab' });
+    move([working('implement')]);
+    expect(openStop()).toBe('plan');
+  });
+
   it('a job at rest opens the step you last opened on it, else its own step', () => {
     localStorage.setItem('sb.job.step.alpha', 'review');
     setup({ jobs: [job('alpha', 'done', { stage: 'pr1', lane: 'done' })] });
