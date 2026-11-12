@@ -1088,6 +1088,8 @@ describe('the fold after a box closes, with the conversation full screen', () =>
     takePage('full screen');
     const top = watchTop();
     for (const [call, name] of [['Reply', /Your answers or a note/], [/^No go: send back/, /What should change\?/]] as const) {
+      // Scrolled down again before each box, so each close is seen to bring the area back to its top.
+      page().querySelector<HTMLElement>('.sb-job-work')!.scrollTop = 120;
       expect(briefRow()).toHaveAttribute('aria-expanded', 'false');
       const open = screen.getByRole('button', { name: call });
       await waitFor(() => expect(open).toBeEnabled());
@@ -1096,7 +1098,8 @@ describe('the fold after a box closes, with the conversation full screen', () =>
       fireEvent.click(within(document.querySelector<HTMLElement>('.job-gate-body .gate-note')!).getByRole('button', { name: 'Cancel' }));
       await waitFor(() => expect(briefRow()).toHaveAttribute('aria-expanded', 'false'));
       expect(document.querySelector('.job-gate-body')).toHaveAttribute('hidden');
-      expect(top()).toBe(0);
+      // The scroll runs in an effect just after the fold is drawn: wait for it, never read it at once.
+      await waitFor(() => expect(top()).toBe(0));
     }
   });
 
