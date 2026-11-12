@@ -139,7 +139,7 @@ describe('Plan and Build', () => {
     cleanup();
     for (const plan of [null, { version: '1', steps: [] }]) {
       const none = setup((j) => <PlanStep slug={SLUG} job={j} view={stage('plan', { plan })} />);
-      expect(screen.getByText('This plan has no numbered steps.')).toBeInTheDocument();
+      expect(screen.getByText('No numbered plan steps yet.')).toBeInTheDocument();
       expect(none.container.querySelector('.sb-plan')).toBeNull();
       cleanup();
     }
@@ -165,7 +165,7 @@ describe('Plan and Build', () => {
 
   it('a plan with no numbered steps says so and still lists the commits', async () => {
     setup((j) => <BuildStep slug={SLUG} job={j} view={stage('build', { plan: null })} />);
-    expect(screen.getByText('This plan has no numbered steps. The commits below show the work.')).toBeInTheDocument();
+    expect(screen.getByText('No numbered plan steps yet. The commits below show the work.')).toBeInTheDocument();
     expect(screen.queryByRole('list', { name: 'The plan’s steps' })).toBeNull();
     expect(await screen.findByRole('heading', { name: `Commits so far · 2 on ${BRANCH}` })).toBeInTheDocument();
     cleanup();
@@ -253,7 +253,7 @@ describe('Plan and Build', () => {
     cleanup();
 
     setup((j) => <BuildStep slug={SLUG} job={j} view={stage('build', { plan: null })} />, { hosted: true });
-    expect(screen.getByText('This plan has no numbered steps.')).toBeInTheDocument();
+    expect(screen.getByText('No numbered plan steps yet.')).toBeInTheDocument();
     expect(screen.getByText('The commits show on your laptop.')).toBeInTheDocument();
   });
 });

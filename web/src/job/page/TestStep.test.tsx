@@ -600,6 +600,24 @@ describe('TestStep', () => {
     expect(kind('Your hand test')).not.toHaveTextContent('Skipped by you');
   });
 
+  it('past Test, a row with nothing to show says Not run, with no When', () => {
+    for (const hosted of [false, true]) {
+      // No counts and no Tester; evidence wanted but none recorded.
+      show({ j: REVIEWING, hosted, view: { ...TEST, state: 'done', agents: [], finished: [], checks: undefined, handTest: undefined }, evidence: { ...EVIDENCE, evidence: null } });
+      expect([chip('Checks'), chip('Recorded evidence')]).toEqual(['Not run', 'Not run']);
+      expect(fact('Checks', 'When')).toBeNull();
+      expect(fact('Recorded evidence', 'When')).toBeNull();
+      expect(kinds()).not.toHaveTextContent(/After the build|After the checks/);
+      cleanup();
+      // Before Test it is still Not started, with when it runs.
+      show({ j: BUILDING, hosted, view: null, evidence: { ...EVIDENCE, evidence: null } });
+      expect([chip('Checks'), chip('Recorded evidence')]).toEqual(['Not started', 'Not started']);
+      expect(fact('Checks', 'When')).toBe('After the build');
+      expect(fact('Recorded evidence', 'When')).toBe('After the checks');
+      cleanup();
+    }
+  });
+
   it('Each line and its video opens the evidence strip below', async () => {
     show();
     fireEvent.click(within(kind('Recorded evidence')).getByRole('button', { name: 'Each line and its video' }));

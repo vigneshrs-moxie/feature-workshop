@@ -643,8 +643,25 @@ describe('StepPanel', () => {
     expect(rows()[0]).toHaveTextContent('Getting started');
     expect(screen.getByRole('region', { name: 'Live: what they’re doing' })).toHaveTextContent('BuilderOpus 5.5LiveNo actions to show yet.');
     expect(screen.getByText('The step’s own body')).toBeInTheDocument();
-    expect(within(screen.getByRole('region', { name: 'Documents from this step' })).getByText('No documents from this step yet.')).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Documents from this step' })).getByText('This step’s documents aren’t known yet.')).toBeInTheDocument();
     expect(panel).not.toHaveTextContent(/NaN|undefined|null/);
+  });
+
+  it('documents not known say so; a known empty list says there are none yet', () => {
+    const docs = () => screen.getByRole('region', { name: 'Documents from this step' });
+    for (const hosted of [false, true]) {
+      // A laptop older than the step's documents (no docs list), and a step that could not be read.
+      show({ ...BUILD, docs: undefined }, { hosted });
+      expect(docs()).toHaveTextContent('This step’s documents aren’t known yet.');
+      expect(docs()).not.toHaveTextContent('No documents from this step yet.');
+      cleanup();
+      show(null, { hosted, error: 'Starbase isn’t answering' });
+      expect(docs()).toHaveTextContent('This step’s documents aren’t known yet.');
+      cleanup();
+      show({ ...BUILD, docs: [] }, { hosted });
+      expect(docs()).toHaveTextContent('No documents from this step yet.');
+      cleanup();
+    }
   });
 
   // Moved from the old step page's tests, which the job page replaced.

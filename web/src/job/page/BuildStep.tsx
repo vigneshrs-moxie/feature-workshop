@@ -62,7 +62,7 @@ export function PlanStep({ slug, job, view }: { slug: string; job: Job; view: St
     <div className="sb-step-body">
       <StepAutoLine slug={slug} job={job} step="plan" approved={version ? `plan ${version}` : null} />
       {stepsOf(plan).length > 0 ? <PlanSteps plan={plan} states={false} /> : (
-        <p className="sb-step-note">{plan === undefined ? 'The plan’s steps aren’t known for this job.' : 'This plan has no numbered steps.'}</p>
+        <p className="sb-step-note">{plan === undefined ? 'The plan’s steps aren’t known for this job.' : 'No numbered plan steps yet.'}</p>
       )}
     </div>
   );
@@ -79,7 +79,7 @@ export function BuildStep({ slug, job, view }: { slug: string; job: Job; view: S
     <div className="sb-step-body">
       <StepAutoLine slug={slug} job={job} step="build" />
       {hasSteps ? <PlanSteps plan={plan} states /> : (
-        <p className="sb-step-note">{known ? `This plan has no numbered steps.${below}` : `The plan’s steps aren’t known for this job.${below}`}</p>
+        <p className="sb-step-note">{known ? `No numbered plan steps yet.${below}` : `The plan’s steps aren’t known for this job.${below}`}</p>
       )}
       {hosted ? <p className="sb-step-note">The commits show on your laptop.</p> : <Commits slug={slug} job={job} />}
     </div>

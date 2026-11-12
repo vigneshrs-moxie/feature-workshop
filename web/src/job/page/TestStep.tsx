@@ -7,6 +7,7 @@
 //   Your hand test, by you: Try it with What to check beside it (laptop only). While Auto decides
 //     the job, it says Auto skips the hand test.
 // Every fact may be missing (a record from an older laptop): each row then says its plain state.
+// Once Test is done or skipped, a row with nothing to show says Not run, with no When.
 // The evidence not known yet is never a state: the row says Loading… until the first answer, and
 // Couldn’t read the evidence. with Try again when the asks failed before any view came.
 // recorderAgent gives the open step Starbase's own row and feed while it records. Watch and Try it
@@ -112,12 +113,14 @@ export function TestStep({ slug, job, detail, view, evidence, evidenceState, wat
   const [stripOpen, setStripOpen] = useState(false);
   const id = useId();
   const stripId = `${id}-strip`;
+  const at = statesOf(job).test;
+  const past = at === 'done' || at === 'skipped';
   return (
     <section className="sb-test" aria-labelledby={`${id}-head`}>
       <h3 id={`${id}-head`}>Three kinds of test</h3>
       <div className="sb-test-rows">
-        <ChecksRow view={view} now={clock} hosted={hosted} />
-        <EvidenceRow slug={slug} evidence={evidence} known={evidenceState} now={clock} hosted={hosted} watching={watching} onWatching={onWatching} stripOpen={stripOpen} onStrip={() => setStripOpen(!stripOpen)} stripId={stripId} onRecorded={onRecorded} />
+        <ChecksRow view={view} now={clock} hosted={hosted} past={past} />
+        <EvidenceRow slug={slug} evidence={evidence} known={evidenceState} now={clock} hosted={hosted} past={past} watching={watching} onWatching={onWatching} stripOpen={stripOpen} onStrip={() => setStripOpen(!stripOpen)} stripId={stripId} onRecorded={onRecorded} />
         <HandRow slug={slug} job={job} detail={detail} view={view} now={clock} hosted={hosted} tryOpen={tryOpen} onTryOpen={onTryOpen} />
       </div>
       {/* The page's evidence view: the strip asks nothing of its own. */}
@@ -154,7 +157,7 @@ function testerOf(view: StageView | null): StageAgent | null {
   return all.sort((a, b) => (ms(b.lastAt) || 0) - (ms(a.lastAt) || 0))[0] ?? null;
 }
 
-function ChecksRow({ view, now, hosted }: { view: StageView | null; now: Date; hosted: boolean }) {
+function ChecksRow({ view, now, hosted, past }: { view: StageView | null; now: Date; hosted: boolean; /** Test is done or skipped. */ past: boolean }) {
   const ui = useUi();
   const tester = testerOf(view);
   const working = tester !== null && (tester.status === 'working' || tester.status === 'waiting');
@@ -164,14 +167,14 @@ function ChecksRow({ view, now, hosted }: { view: StageView | null; now: Date; h
   const total = passed + failed + count(checks?.notRun);
   const finished = !working && (total > 0 || tester?.status === 'done');
 
-  let state = 'Not started';
+  let state = past ? 'Not run' : 'Not started';
   let tone: Tone = '';
   if (working) { state = 'Running'; tone = 'now'; } else if (total > 0) {
     state = failed > 0 ? `Failed, ${failed} of ${total}` : `Passed, ${passed} of ${total}`;
     tone = failed > 0 ? 'err' : 'ok';
   } else if (tester?.status === 'done') { state = 'Done'; tone = 'ok'; }
 
-  let when: string | null = 'After the build';
+  let when: string | null = past ? null : 'After the build';
   if (working) when = 'Running now';
   else if (finished) {
     const ago = agoWords(checks?.at ?? tester?.lastAt, now);
@@ -198,8 +201,8 @@ function ChecksRow({ view, now, hosted }: { view: StageView | null; now: Date; h
   );
 }
 
-function EvidenceRow({ slug, evidence, known, now, hosted, watching, onWatching, stripOpen, onStrip, stripId, onRecorded }: {
-  slug: string; evidence: EvidenceView | null; known?: Pick<EvidenceState, 'loaded' | 'error' | 'reload'>; now: Date; hosted: boolean; watching: boolean; onWatching(on: boolean): void;
+function EvidenceRow({ slug, evidence, known, now, hosted, past, watching, onWatching, stripOpen, onStrip, stripId, onRecorded }: {
+  slug: string; evidence: EvidenceView | null; known?: Pick<EvidenceState, 'loaded' | 'error' | 'reload'>; now: Date; hosted: boolean; past: boolean; watching: boolean; onWatching(on: boolean): void;
   stripOpen: boolean; onStrip(): void; stripId: string; onRecorded?(): void;
 }) {
   const recording = evidence?.recording === true;
@@ -228,10 +231,10 @@ function EvidenceRow({ slug, evidence, known, now, hosted, watching, onWatching,
     );
   }
 
-  let state = 'Not started';
+  let state = past ? 'Not run' : 'Not started';
   let tone: Tone = '';
   let title: string | undefined;
-  let when: string | null = 'After the checks';
+  let when: string | null = past ? null : 'After the checks';
   if (recording) {
     const line = count(progress?.line);
     state = progress && line >= 1 ? `Running, line ${line} of ${count(progress.of) || progress.lines.length}` : 'Running';
