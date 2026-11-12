@@ -25,7 +25,7 @@
 // One clock, one sent line (useSentShown) and one evidence view (useJobEvidence) for the whole page.
 // The open step's body is StepBody; the phone's step screen draws the same one.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Job, JobDetail, JobPageFacts, StageAgent, StopId } from '../../api/types';
+import type { Job, JobDetail, StageAgent, StopId } from '../../api/types';
 import { BRAND } from '../../app/brand';
 import { useKeyScope } from '../../app/keyRegistry';
 import { isJobView, jobHref, replaceHash, stageHref, type JobView } from '../../app/router';
@@ -44,6 +44,7 @@ import { isRoundCard } from '../../views/Review/useReview';
 import { StackSuggestion, useStackIndex } from '../../views/Stack/StackRows';
 import { NextStep, useSentShown } from '../NextStep';
 import { ConversationPanel, newCount, seenKey } from './ConversationPanel';
+import { docOwner as ownerOf } from './docOwner';
 import { JobTop } from './JobTop';
 import { lastStepKey, pickOpenStep } from './openStep';
 import { OverviewCard } from './OverviewCard';
@@ -97,12 +98,6 @@ function JobScreen({ job, step, view }: { job: Job; step: StopId | undefined; vi
 function liveStep(job: Job): StopId | null {
   const states = statesOf(job);
   return STOPS.find((s) => states[s.id] === 'now' || states[s.id] === 'waiting')?.id ?? null;
-}
-
-/** The step whose documents list a file (JobPageFacts.docs); null when no step does or it is not known. */
-function ownerOf(docs: JobPageFacts['docs'], file: string | null): StopId | null {
-  if (!file || !docs || typeof docs !== 'object') return null;
-  return STOPS.find((s) => Array.isArray(docs[s.id]) && docs[s.id]!.some((d) => d?.file === file))?.id ?? null;
 }
 
 /** Something on the bar waits for you: a go / no go, a permission, or the Foreman's question. */

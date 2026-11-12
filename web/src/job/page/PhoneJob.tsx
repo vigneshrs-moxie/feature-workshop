@@ -20,9 +20,10 @@
 // so the state chip, every step row and the step's panel say the same; the evidence is asked once
 // here (useJobEvidence) for the bar's card and the Test step. On the website there is no gear: one
 // sentence says the menu is on the laptop.
-import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Job, JobDetail, StageAgent, StopId } from '../../api/types';
 import { navigate, type JobView } from '../../app/router';
+import { useUi } from '../../app/ui';
 import { Button } from '../../components/Button';
 import { Chip } from '../../components/Chip';
 import { Icon } from '../../components/Icon';
@@ -38,6 +39,7 @@ import { CopyDecisions } from '../CopyDecisions';
 import { NextStep } from '../NextStep';
 import { WhatAutoDecided } from '../WhatAutoDecided';
 import { ConversationPanel, newCount, seenKey } from './ConversationPanel';
+import { docOwner } from './docOwner';
 import { AUTO_START_WHERE, jobFacts, JobStateChip, MENU_ON_LAPTOP } from './JobTop';
 import { Column, overviewNote, TheTicket, ticketFor, WhatWereBuilding } from './OverviewCard';
 import { StepBody } from './StepBody';
@@ -83,7 +85,13 @@ export function PhoneJob({ job, conversation, now, step, view, sent }: { job: Jo
   // job's screen (so the history does not grow), else to the job's screen (a step opened from a link).
   const screenKey = step ? `stage/${step}` : view ?? 'job';
   const [trail, setTrail] = useState<{ now: string; before: string | null }>({ now: screenKey, before: null });
-  if (trail.now !== screenKey) setTrail({ now: screenKey, before: trail.now });
+  // A document asked for (below), with the step it opens under, until you leave that step's screen.
+  const [docAsk, setDocAsk] = useState<{ n: number; file: string | null; stop: StopId } | null>(null);
+  if (trail.now !== screenKey) {
+    setTrail({ now: screenKey, before: trail.now });
+    // Leaving the document's step: a later visit shows the step's list, not the document again.
+    if (docAsk && trail.now === `stage/${docAsk.stop}`) setDocAsk(null);
+  }
   const fromJob = trail.before === 'job';
   const back = useCallback(() => {
     if (fromJob) window.history.back();
@@ -97,11 +105,30 @@ export function PhoneJob({ job, conversation, now, step, view, sent }: { job: Jo
     navigate({ name: 'job', slug, view: 'conversation' });
   }, [slug]);
 
+  // A link to one of the job's documents (a Foreman message, the Tester's report, ⌘K Open docs): the
+  // step that owns the file (docOwner, the laptop's rule), else the step on screen, else the job's own
+  // step. Its screen opens (a new history entry, so Back returns) and its panel opens the document
+  // once. A request made before the page was there is not acted on.
+  const ui = useUi();
+  const handledDocs = useRef(ui.docsRequest);
+  const pageDocs = conversation.thread.detail?.page?.docs;
+  const stepNow = useRef(step);
+  stepNow.current = step;
+  const jobStep = stopOf(job.stage);
+  useEffect(() => {
+    if (ui.docsRequest === handledDocs.current) return;
+    handledDocs.current = ui.docsRequest;
+    const stop = docOwner(pageDocs, ui.docsFile) ?? stepNow.current ?? jobStep ?? STOPS[0].id;
+    setDocAsk({ n: ui.docsRequest, file: ui.docsFile, stop });
+    navigate({ name: 'stage', slug, stop });
+  }, [ui.docsRequest, ui.docsFile, pageDocs, jobStep, slug]);
+  const docRequest = useMemo(() => (docAsk && docAsk.stop === step ? { n: docAsk.n, file: docAsk.file } : undefined), [docAsk, step]);
+
   const props: ScreenProps = { job, conversation, now, sent, evidence, back, write };
   const which = step ? 'step' : view ?? 'job';
   return (
     <main className={`page sb-phone is-${which}`} aria-label="Job">
-      {step ? <StepScreen {...props} stop={step} />
+      {step ? <StepScreen {...props} stop={step} docRequest={docRequest} />
         : view === 'conversation' ? <ConversationScreen {...props} focusBox={focusBox} />
         : view === 'overview' ? <OverviewScreen job={job} detail={conversation.thread.detail ?? null} back={back} />
         : <JobScreen {...props} />}
@@ -221,7 +248,7 @@ function JobScreen({ job, conversation, now, sent, evidence, write }: ScreenProp
 
 // ---------- A step ----------
 
-function StepScreen({ job, conversation, now, sent, evidence, back, write, stop }: ScreenProps & { stop: StopId }) {
+function StepScreen({ job, conversation, now, sent, evidence, back, write, stop, docRequest }: ScreenProps & { stop: StopId; /** A document to open in this step's list (StepPanel acts on each `n` once). */ docRequest?: { n: number; file: string | null } }) {
   const slug = job.slug;
   const detail = conversation.thread.detail ?? null;
   const here = STOPS.find((s) => s.id === stop) ?? STOPS[0];
@@ -264,6 +291,7 @@ function StepScreen({ job, conversation, now, sent, evidence, back, write, stop 
           now={now}
           extraAgents={[recorder].filter((a): a is StageAgent => a !== null)}
           sent={sent}
+          docRequest={docRequest}
           bodyFirst={stop === 'test'}
         >
           {view && (

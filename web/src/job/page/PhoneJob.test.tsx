@@ -7,11 +7,11 @@
 // picks the screen. Invented jobs only; no model calls, no browser, no network.
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../../api/client';
-import type { EvidenceView, Gate, Job, JobDetail, Permission, StageView, StopId, ThreadItem } from '../../api/types';
+import type { EvidenceView, Gate, Job, JobDetail, JobDoc, JobDocEntry, Permission, StageView, StopId, ThreadItem } from '../../api/types';
 import { installKeyListener } from '../../app/keyRegistry';
 import { useRoute, type JobView } from '../../app/router';
 import { UiProvider, useUi } from '../../app/ui';
@@ -53,9 +53,13 @@ const stageView = (slug: string, stop: StopId): StageView => ({
   agents: [], finished: [], terminalApp: null, terminalApps: [], docs: [], checks: null, handTest: null, plan: null, prs: [], review: { reviewers: [] },
 });
 
+/** One of the job's documents, as GET /api/job/:slug/doc answers it, and its entry in a step's list. */
+const docOf = (file: string): JobDoc => ({ file, name: file === 'implementation-plan.md' ? 'Implementation plan' : file, type: 'md', html: `<p>${file} body</p>`, text: file, updatedAt: NOW, size: 10 });
+const entryOf = (file: string, group: string): JobDocEntry => ({ file, name: docOf(file).name, group, version: null, updatedAt: NOW, size: 10, type: 'md' } as JobDocEntry);
+
 /** What the test's server knows. */
-/** `stageHold`: while set, every step's view waits for it (a held request, resolved by the test). */
-const server = { store: null as Store | null, answered: [] as number[], stageHold: null as Promise<void> | null };
+/** `stageHold`: while set, every step's view waits for it (a held request, resolved by the test). `stageMore`: added to every step's view. */
+const server = { store: null as Store | null, answered: [] as number[], stageHold: null as Promise<void> | null, stageMore: {} as Partial<StageView> };
 
 /** The window's width for useMinWidth and useNarrow (jsdom lays nothing out): a phone. */
 function windowWidth(px: number) {
@@ -80,7 +84,7 @@ function Routed({ slug }: { slug: string }) {
   return <Screens job={j} step={route.name === 'stage' ? route.stop : undefined} view={route.name === 'job' ? route.view : undefined} />;
 }
 
-function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions = [] as Permission[], gate = null as Gate | null, auto = null as JobDetail['auto'] | null, page = undefined as JobDetail['page'], thread = [] as ThreadItem[], hosted = false, at = '#/job/alpha', extra = null as ReactNode, post = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({ ok: true })) } = {}) {
+function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions = [] as Permission[], gate = null as Gate | null, auto = null as JobDetail['auto'] | null, page = undefined as JobDetail['page'], thread = [] as ThreadItem[], hosted = false, at = '#/job/alpha', extra = null as ReactNode, mount = true, post = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({ ok: true })) } = {}) {
   window.location.hash = at;
   const store: Store = createStore();
   server.store = store;
@@ -90,11 +94,13 @@ function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions =
   const get = vi.fn(async (p: string): Promise<unknown> => {
     const stage = /^\/api\/job\/([^/]+)\/stage\/([a-z]+)$/.exec(p);
     if (stage) {
-      const v = stageView(decodeURIComponent(stage[1]), stage[2] as StopId);
+      const v = { ...stageView(decodeURIComponent(stage[1]), stage[2] as StopId), ...server.stageMore };
       return server.stageHold ? server.stageHold.then(() => v) : v;
     }
     if (p.endsWith('/evidence')) return EVIDENCE;
     if (p.endsWith('/docs')) return { docs: [] };
+    const doc = /\/doc\?file=(.+)$/.exec(p);
+    if (doc) return docOf(decodeURIComponent(doc[1]));
     if (p.endsWith('/commits')) return { commits: [] };
     if (p.endsWith('/decisions')) return { decisions: [] };
     if (p.endsWith('/auto')) return { summary: [], entries: [] };
@@ -104,7 +110,7 @@ function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions =
     return detail(p.split('/')[3]);
   });
   const api = { get, post, ...(hosted ? { hosted: () => true } : {}) } as unknown as ApiClient;
-  const utils = render(<WorkshopContext.Provider value={{ store, api }}><UiProvider>{extra}<Routed slug="alpha" /></UiProvider></WorkshopContext.Provider>);
+  const utils = render(<WorkshopContext.Provider value={{ store, api }}><UiProvider>{extra}{mount && <Routed slug="alpha" />}</UiProvider></WorkshopContext.Provider>);
   /** The job as the next snapshot has it. */
   const move = (next: Job[], perms: Permission[] = permissions) => act(() => {
     store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: next, permissions: perms, meta: { token: 't', settings: { play: { mode: 'subtle' } } } as never }) });
@@ -113,7 +119,7 @@ function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions =
 }
 
 let off = () => {};
-beforeEach(() => { off = installKeyListener(); windowWidth(390); server.stageHold = null; });
+beforeEach(() => { off = installKeyListener(); windowWidth(390); server.stageHold = null; server.stageMore = {}; });
 afterEach(() => { off(); cleanup(); clearAllSent(); clearGateSent(); localStorage.clear(); window.location.hash = ''; vi.unstubAllGlobals(); });
 
 const bar = () => screen.getByRole('region', { name: 'Next step' });
@@ -453,5 +459,69 @@ describe('the phone’s bar when no gate waits', () => {
     move(jobs, []);
     expect(screen.queryByRole('region', { name: 'Permission: Run a command' })).toBeNull();
     await threeCallsOn();
+  });
+});
+
+// A document link (a Foreman message, the Tester's report, ⌘K Open docs) opens the document under
+// the step that owns it, on that step's screen.
+describe('a document link on the phone', () => {
+  const PLAN_DOCS: JobDetail['page'] = { docs: { plan: [entryOf('implementation-plan.md', 'plan')], test: [entryOf('test-report.md', 'test')], none: [] } };
+  function Asks({ file }: { file: string }) { const ui = useUi(); return <button type="button" onClick={() => ui.openDocs(file)}>open {file}</button>; }
+  const reader = async (stop: string, name: string) => within(await screen.findByRole('tabpanel', { name: stop })).findByRole('article', { name });
+
+  it('on a phone a document link in the conversation opens the document under the step that owns it', async () => {
+    const thread: ThreadItem[] = [{ id: 'reply:1', kind: 'reply', at: NOW, html: '<p>Read <a href="implementation-plan.md">the plan</a> first.</p>' }];
+    setup({ jobs: [working('implement')], thread, page: PLAN_DOCS, at: '#/job/alpha/conversation' });
+    fireEvent.click(await screen.findByRole('link', { name: 'the plan' }));
+    expect(window.location.hash).toBe('#/job/alpha/stage/plan');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Plan' })).toBeInTheDocument();
+    const doc = await reader('Plan', 'Implementation plan');
+    expect(await within(doc).findByText('implementation-plan.md body')).toBeInTheDocument();
+    // Back returns to the conversation.
+    act(() => { window.history.back(); });
+    await waitFor(() => expect(window.location.hash).toBe('#/job/alpha/conversation'));
+    await waitFor(() => expect(document.querySelector('.sb-convo.is-full')).not.toBeNull());
+    // A later visit to the step shows its list: the document is not opened again.
+    go('#/job/alpha/stage/plan');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Plan' })).toBeInTheDocument();
+    await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+    expect(screen.queryByRole('article', { name: 'Implementation plan' })).toBeNull();
+  });
+
+  it('on a phone Open the Tester’s report opens the report under Test', async () => {
+    server.stageMore = { checks: { passed: 4, failed: 0, notRun: 0, at: NOW } };
+    setup({ jobs: [working('test')], page: PLAN_DOCS, at: '#/job/alpha/stage/test' });
+    fireEvent.click(await screen.findByRole('button', { name: 'The command and the end of its output' }));
+    expect(window.location.hash).toBe('#/job/alpha/stage/test');
+    const doc = await reader('Test', 'test-report.md');
+    expect(await within(doc).findByText('test-report.md body')).toBeInTheDocument();
+  });
+
+  it('a file no step owns opens under the step on screen', async () => {
+    setup({ jobs: [working('implement')], page: PLAN_DOCS, at: '#/job/alpha/stage/review', extra: <Asks file="notes.md" /> });
+    expect(await screen.findByRole('heading', { level: 1, name: 'Review' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'open notes.md' }));
+    expect(window.location.hash).toBe('#/job/alpha/stage/review');
+    expect(await within(await reader('Review', 'notes.md')).findByText('notes.md body')).toBeInTheDocument();
+    // On a screen with no step (the job's), under the job's own step.
+    cleanup();
+    setup({ jobs: [working('implement')], page: PLAN_DOCS, extra: <Asks file="notes.md" /> });
+    fireEvent.click(screen.getByRole('button', { name: 'open notes.md' }));
+    expect(window.location.hash).toBe('#/job/alpha/stage/build');
+    expect(await within(await reader('Build', 'notes.md')).findByText('notes.md body')).toBeInTheDocument();
+  });
+
+  it('a request made before the page was there is not replayed', async () => {
+    // The link is pressed first; the page mounts after it.
+    function Later() {
+      const ui = useUi();
+      const [on, setOn] = useState(false);
+      return on ? <Routed slug="alpha" /> : <button type="button" onClick={() => { ui.openDocs('implementation-plan.md'); setOn(true); }}>the plan, then the page</button>;
+    }
+    setup({ jobs: [working('implement')], page: PLAN_DOCS, extra: <Later />, mount: false });
+    fireEvent.click(screen.getByRole('button', { name: 'the plan, then the page' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Job alpha' })).toBeInTheDocument();
+    await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+    expect(window.location.hash).toBe('#/job/alpha');
   });
 });

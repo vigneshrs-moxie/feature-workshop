@@ -1807,6 +1807,21 @@ describe('a narrow window', () => {
     expect(window.history.length).toBe(before + 1);
   });
 
+  it('in a narrow window a document link opens the document', async () => {
+    windowWidth(PHONE);
+    function Link() { const ui = useUi(); return <button type="button" onClick={() => ui.openDocs('implementation-plan.md')}>the plan</button>; }
+    window.location.hash = '#/job/alpha';
+    const { get } = setup({ jobs: [working('implement')], routed: true, extra: <Link />, more: { page: { docs: { plan: [DOCS[0]], none: [] } } } });
+    expect(page()).toHaveClass('sb-phone');
+    // Once the job's details (with which step owns each document) are in.
+    await waitFor(() => expect(get).toHaveBeenCalledWith('/api/job/alpha'));
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: 'the plan' }));
+    expect(window.location.hash).toBe('#/job/alpha/stage/plan');
+    const reader = await within(await screen.findByRole('tabpanel', { name: 'Plan' })).findByRole('article', { name: 'Implementation plan' });
+    expect(await within(reader).findByText('implementation-plan.md body')).toBeInTheDocument();
+  });
+
   it.each([['the laptop app', false], ['the website', true]] as const)('in a narrow window a waiting Auto job has No go: send back, Reply and Go, enabled (%s)', async (_where, hosted) => {
     windowWidth(PHONE);
     const deciding = job('alpha', 'running', { stage: 'plan', lane: 'working', level: 1, waitingFor: 'approval', laneReason: 'Auto is deciding: the plan', auto: { on: true, by: 'you', ran: true } });
