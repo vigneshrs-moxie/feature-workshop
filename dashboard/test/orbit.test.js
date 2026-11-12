@@ -879,3 +879,24 @@ test('the command-line secrets are hidden in a JSON line too, and the line stays
   assert.deepEqual(back.cmds, ['mysql -p[hidden] app', 'tool --secret [hidden] run', 'run --secret ', 'curl -H "Authorization: Bearer [hidden]" -u [hidden] https://[hidden]@h/x']);
   assert.equal(back.next, 'z');
 });
+
+// ---------- Fix round 2: the scrub stays fast on long runs; a JWT is hidden everywhere ----------
+
+test('the scrub stays fast on 200 KB of the inputs that made its patterns rescan', () => {
+  const N = 200_000;
+  const rep = (s) => s.repeat(Math.ceil(N / s.length)).slice(0, N);
+  // a-a-a…: the address rule; sk-sk-…: the OpenAI key; -eyJ… and eyJaaaaa.…: the JWT; _KEY_KEY…: NAME=value.
+  for (const [what, text] of [['address', rep('a-')], ['address (dots)', rep('a.')], ['OpenAI key', rep('sk-')], ['JWT', rep('-eyJ')], ['JWT (dots)', rep('eyJaaaaa.')], ['NAME=value', `-${rep('_KEY')}`]]) {
+    const started = performance.now();
+    scrub(text);
+    const ms = performance.now() - started;
+    assert.ok(ms < 500, `${what}: ${Math.round(ms)} ms`);
+  }
+});
+
+test('a JWT is hidden by every scrub, not only a command line’s', () => {
+  const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U';
+  assert.equal(scrub(`the brief says ${jwt} works`), 'the brief says [JWT hidden] works');
+  assert.deepEqual(scrubDeep({ card: { input: { command: `curl -H "X-Session: ${jwt}" https://x` } } }), { card: { input: { command: 'curl -H "X-Session: [JWT hidden]" https://x' } } });
+  assert.equal(scrub('version 1.2.3 and eyJustAWord.no.dots'), 'version 1.2.3 and eyJustAWord.no.dots', 'not a token');
+});

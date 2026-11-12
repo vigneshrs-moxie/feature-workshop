@@ -371,3 +371,13 @@ test('F8: a message that is only Auto\'s mark is refused as empty, started or st
   release();
   await until(driver, run.id, ['done', 'error']);
 });
+
+test('a permission card’s command is scrubbed before its preview is cut', () => {
+  const token = `ghp_${'Q7w8'.repeat(9)}`;
+  // The token starts 10 characters before the 4,000 cut: cut first, its first 10 characters were too short for the scrub.
+  const card = describePermission('Bash', { command: `${'x'.repeat(3989)} ${token} done` });
+  assert.equal(card.preview.includes('ghp_'), false, card.preview.slice(-30));
+  assert.equal(card.preview.includes('Q7w8'), false);
+  assert.ok(card.previewCut, 'still says it was cut');
+  assert.equal(describePermission('Bash', { command: 'npm test' }).preview, 'npm test', 'an ordinary command as it is');
+});

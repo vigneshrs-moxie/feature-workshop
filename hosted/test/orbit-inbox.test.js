@@ -44,7 +44,8 @@ async function makeOrbitSite({ env = {}, clock = { t: Date.parse('2026-10-30T16:
   const inner = inProcessFetch(() => site, { fallback: orbit.fetch });
   const fetch = async (input, init) => {
     const res = await inner(input, init);
-    if (String(input).startsWith(SITE)) answers.push(`${res.status} ${[...res.headers].map((h) => h.join(': ')).join('\n')}\n${await res.clone().text()}`);
+    // The fake Google sign-in's own answers are the test's plumbing (its id_token is a JWT), not the site's Orbit data.
+    if (String(input).startsWith(SITE) && !String(input).startsWith(`${SITE}/fake-google/`)) answers.push(`${res.status} ${[...res.headers].map((h) => h.join(': ')).join('\n')}\n${await res.clone().text()}`);
     return res;
   };
   site = createSite({ db, config, fetch, now: () => clock.t });

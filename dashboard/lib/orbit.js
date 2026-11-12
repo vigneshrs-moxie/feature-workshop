@@ -153,7 +153,7 @@ export function rememberSecret(value) { if (typeof value === 'string' && value.l
 export const rememberedSecrets = () => [...knownSecrets];
 
 export const HIDDEN = '[hidden]';
-/** Secrets by their shape (plan §5 T7): Orbit, GitHub and Anthropic tokens. Each is replaced whole. */
+/** Secrets by their shape (plan §5 T7): Orbit, GitHub and Anthropic tokens, and the well-known key shapes below. Each is replaced whole. */
 export const SECRET_PATTERNS = [
   { name: 'Orbit token', re: /orbfb_[A-Za-z0-9_-]{16,}/g }, // a real one is orbfb_ + 43; shorter pieces are hidden too
   { name: 'GitHub token', re: /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})/g },
@@ -162,9 +162,13 @@ export const SECRET_PATTERNS = [
   { name: 'AWS key', re: /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g },
   { name: 'Slack token', re: /\bxox[abprs]-[A-Za-z0-9-]{10,}/g },
   { name: 'Stripe key', re: /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{10,}/g },
-  { name: 'OpenAI key', re: /\bsk-(?!ant-)(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]{20,}/g }, // sk-…, sk-proj-…: key length, with a digit (not a word like sk-learn-…)
+  // sk-…, sk-proj-…: key length, with a digit (not a word like sk-learn-…). It starts only where no key
+  // character is before it, so a long run (sk-sk-sk-…) is read once, not again from every sk-.
+  { name: 'OpenAI key', re: /(?<![A-Za-z0-9_-])sk-(?!ant-)(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]{20,}/g },
   // The header, its body (base64, spaces, and \n as JSON or a shell writes it) and the end line when there.
   { name: 'Private key', re: /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----(?:[A-Za-z0-9+/=\s]|\\[nr])*(?:-----END [A-Z0-9 ]*PRIVATE KEY-----)?/g },
+  // A JWT: three base64url parts, the first starting eyJ (also where no token character is before it).
+  { name: 'JWT', re: /(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}/g },
 ];
 // Secrets by where they sit on a command line: group 1 (the flag, header or address before it) is
 // kept and the value becomes [hidden]. A value already hidden ([…]) is left as it is. No value
@@ -177,8 +181,9 @@ const SECRET_PLACES = [
   /(\bBearer\s+)(?!\[)(?=[A-Za-z0-9._~+/=-]*\d)([A-Za-z0-9._~+/=-]{8,})/g,
   // curl -u user:pass, --user user:pass (a name alone, which curl asks the password for, is left).
   /((?:^|[\s"'])(?:-u\s*|--user[\s=]+))(?!\[)([^\s"'\\:]+:[^\s"'\\]+)/g,
-  // A name and password inside an address, any scheme: scheme://[hidden]@host.
-  /(\b[A-Za-z][A-Za-z0-9+.-]*:\/\/)(?!\[)([^\s/@"'\\:]+:[^\s/@"'\\]*)(?=@)/g,
+  // A name and password inside an address, any scheme: scheme://[hidden]@host. The scheme starts only
+  // where none of its own characters is before it, so a long run (a-a-a-…) is read once.
+  /((?<![A-Za-z0-9+.-])[A-Za-z][A-Za-z0-9+.-]*:\/\/)(?!\[)([^\s/@"'\\:]+:[^\s/@"'\\]*)(?=@)/g,
   // --password SECRET, --password=SECRET, and --passwd, --token, --api-key, --secret, --client-secret alike (never a next flag).
   new RegExp(String.raw`((?:^|[\s"'])--(?:password|passwd|token|api[-_]?key|secret|client[-_]secret)(?:=|\s+))(?!-)${QUOTED_OR_BARE}`, 'gi'),
   // mysql -pSECRET: the attached form, only on a mysql-family command (psql -p 5432, ssh -p 22 and mkdir -p are ports and flags).
@@ -186,7 +191,9 @@ const SECRET_PLACES = [
 ];
 // NAME=value where NAME reads like a .env secret (…_TOKEN, …SECRET…, …PASSWORD, …_KEY, DATABASE_URL…):
 // the value is hidden, the name kept. The value may be quoted, also inside a JSON string (\").
-const ENV_SECRET = /((?:^|[^A-Za-z0-9_])[A-Za-z0-9_]*?(?:TOKEN|SECRET|PASSWORD|PASSWD|PWD|API_?KEY|PRIVATE_KEY|ACCESS_KEY|_KEY|DATABASE_URL|DSN|CONNECTION_STRING|CREDENTIALS?)[A-Za-z0-9_]*\s*=\s*)(\\?"[^"\\\n]*\\?"|'[^'\n]*'|[^\s"'\\,;}[]+)/gi; // a value already hidden ([…]) is left as it is
+// The secret-like word is looked for once (a lookahead) and the name taken whole after it, so a long
+// name (_KEY_KEY_KEY…) is read once, not again from every word in it.
+const ENV_SECRET = /((?:^|[^A-Za-z0-9_])(?=[A-Za-z0-9_]*?(?:TOKEN|SECRET|PASSWORD|PASSWD|PWD|API_?KEY|PRIVATE_KEY|ACCESS_KEY|_KEY|DATABASE_URL|DSN|CONNECTION_STRING|CREDENTIALS?))[A-Za-z0-9_]+\s*=\s*)(\\?"[^"\\\n]*\\?"|'[^'\n]*'|[^\s"'\\,;}[]+)/gi; // a value already hidden ([…]) is left as it is
 
 /**
  * The text with every secret replaced by [Orbit token hidden] and the like: the token shapes in
@@ -204,16 +211,6 @@ export function scrub(text, { secrets = [] } = {}) {
   out = out.replace(ENV_SECRET, (_m, name) => `${name}${HIDDEN}`);
   for (const re of SECRET_PLACES) out = out.replace(re, (_m, before) => `${before}${HIDDEN}`);
   return out;
-}
-
-// A JWT, hidden on a command line only: the site's own Google sign-in answers carry an id_token,
-// which every other scrub() passes (hosted/test/orbit-inbox.test.js checks scrub() finds nothing there).
-const JWT = /\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}/g;
-
-/** scrub() for a command line or a line about one (a crew member's last command, the job page's feed): a JWT too. */
-export function scrubCommand(text) {
-  const out = scrub(text);
-  return typeof out === 'string' ? out.replace(JWT, '[JWT hidden]') : out;
 }
 
 /** scrub() on every string in a value (objects and arrays copied, keys kept). */

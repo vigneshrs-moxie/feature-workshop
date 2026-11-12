@@ -25,7 +25,7 @@
 // the site, which refuses a record that fails.
 
 import { NEVER_CARRIED } from '../lib/protocol.js';
-import { scrubCommand } from '../lib/orbit.js';
+import { scrub } from '../lib/orbit.js';
 import { capAutoLog } from '../lib/auto-log.js';
 
 /** The largest one part may be on the wire (a batch is at most 256 KB). */
@@ -129,7 +129,7 @@ export function boardRecord(snap) {
 
 /**
  * The crew's activity as it goes up: a command's output stays on the laptop; the command, when it ran
- * and the feed's lines go up scrubbed of secrets (lib/orbit.js scrubCommand; the laptop parsed them scrubbed
+ * and the feed's lines go up scrubbed of secrets (lib/orbit.js scrub; the laptop parsed them scrubbed
  * already, and this holds for a record from anywhere).
  */
 function activityUp(list) {
@@ -137,8 +137,8 @@ function activityUp(list) {
   return list.map((a) => {
     if (!isPlain(a)) return a;
     const out = { ...a };
-    if (isPlain(a.lastCommand)) out.lastCommand = { ...a.lastCommand, command: scrubCommand(a.lastCommand.command), tail: null };
-    if (Array.isArray(a.recent)) out.recent = a.recent.map((r) => (isPlain(r) ? { ...r, text: scrubCommand(r.text) } : r));
+    if (isPlain(a.lastCommand)) out.lastCommand = { ...a.lastCommand, command: scrub(a.lastCommand.command), tail: null };
+    if (Array.isArray(a.recent)) out.recent = a.recent.map((r) => (isPlain(r) ? { ...r, text: scrub(r.text) } : r));
     return out;
   });
 }
