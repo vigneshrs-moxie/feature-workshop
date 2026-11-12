@@ -4,13 +4,26 @@
 
 import path from 'node:path';
 import { tokensFromUsage, addTokens, ZERO_TOKENS, estimateCost } from './cost.js';
+import { scrubCommand } from './orbit.js';
+
+// What a line shows of a command or a pattern is scrubbed of secrets (lib/orbit.js scrubCommand) before it
+// is cut, so a token cut short can't slip under the scrub's shapes. Only the start is scrubbed: a
+// cut shows at most 200 characters of it, and a megabyte command stays cheap.
+const SCRUB_SPAN = 16 * 1024;
+const scrubbed = (s) => scrubCommand(String(s ?? '').slice(0, SCRUB_SPAN));
+// The first n characters, one less when the cut would split a character in two (a surrogate pair).
+function headOf(s, n) {
+  if (s.length <= n) return s;
+  const c = s.charCodeAt(n - 1);
+  return s.slice(0, c >= 0xd800 && c <= 0xdbff ? n - 1 : n);
+}
 
 // One line describing what a tool call is doing, in plain words.
 export function describeTool(name, input = {}) {
   const base = (p) => (p ? path.basename(String(p)) : '');
   const cut = (s, n = 70) => {
-    const t = String(s ?? '').replace(/\s+/g, ' ').trim();
-    return t.length > n ? `${t.slice(0, n - 1)}…` : t;
+    const t = scrubbed(s).replace(/\s+/g, ' ').trim();
+    return t.length > n ? `${headOf(t, n - 1)}…` : t;
   };
   switch (name) {
     case 'Read': return `Reading ${base(input.file_path)}`;
@@ -48,7 +61,11 @@ function outputTail(content) {
     : Array.isArray(content) ? content.filter((c) => c?.type === 'text' && typeof c.text === 'string').map((c) => c.text).join('\n') : '';
   let end = text.length;
   while (end > 0 && /\s/.test(text[end - 1])) end--;
-  return text.slice(Math.max(0, end - TAIL_MAX), end).split('\n').slice(-TAIL_LINES).join('\n');
+  let start = Math.max(0, end - TAIL_MAX);
+  // Never start on the second half of a character.
+  const c = text.charCodeAt(start);
+  if (start > 0 && c >= 0xdc00 && c <= 0xdfff) start++;
+  return text.slice(start, end).split('\n').slice(-TAIL_LINES).join('\n');
 }
 
 // Parse one JSONL log's text.
@@ -153,8 +170,8 @@ export function parseSessionLog(text) {
             if (out.recent.length > RECENT_ACTIONS) out.recent.shift();
           }
           if (c.name === 'Bash') {
-            const command = String(c.input?.command ?? '');
-            out.lastCommand = { command: command.length > COMMAND_MAX ? `${command.slice(0, COMMAND_MAX - 1)}…` : command, at: d.timestamp ?? null, tail: null };
+            const command = scrubbed(c.input?.command);
+            out.lastCommand = { command: command.length > COMMAND_MAX ? `${headOf(command, COMMAND_MAX - 1)}…` : command, at: d.timestamp ?? null, tail: null };
             commandId = c.id ?? null;
           }
           out.lastToolName = c.name;
