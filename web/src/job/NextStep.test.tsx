@@ -18,7 +18,7 @@ import type { QueuedView } from '../views/Hosted/QueuedDecision';
 import { clearAllSent } from '../lib/sentState';
 import { clearGateSent } from '../panes/Foreman/gateSent';
 import { AUTO_DECIDING_NOTE } from './autoLine';
-import { NextStep, useSentShown } from './NextStep';
+import { forHowLong, NextStep, useSentShown } from './NextStep';
 import { sentLine, SENT_WORDS } from './sentView';
 
 const NOW = new Date().toISOString();
@@ -721,5 +721,17 @@ describe('the brief folded under the bar (foldCard)', () => {
     fireEvent.click(row());
     expect(row()).toHaveAttribute('aria-expanded', 'false');
     expect(body()).not.toBeVisible();
+  });
+});
+
+// Moved from the old step page's tests: the bar's own "how long" words (its copy was the step page's).
+describe('forHowLong', () => {
+  it('forHowLong says how long in words', () => {
+    const now = new Date('2026-10-21T12:00:00Z');
+    expect(forHowLong('2026-10-21T11:42:00Z', now)).toBe('18 min');
+    expect(forHowLong('2026-10-21T09:00:00Z', now)).toBe('3 h');
+    expect(forHowLong('2026-10-18T09:00:00Z', now)).toBe('3 days');
+    expect(forHowLong('2026-10-21T11:59:30Z', now)).toBe('under a minute');
+    expect(forHowLong(null, now)).toBeNull();
   });
 });

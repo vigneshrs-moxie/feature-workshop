@@ -26,11 +26,11 @@ export const SCOPE_PRIORITY: readonly KeyScope[] = ['desk', 'alert', 'review', '
 export const SCOPES: Record<KeyScope, { title: string; where: string }> = {
   global: { title: 'Everywhere', where: 'On every page, outside a text box.' },
   rows: { title: 'Jobs', where: 'On every page but the Desk; the order is the Jobs list’s.' },
-  job: { title: 'The open job', where: 'On a job’s page and its stops.' },
-  stage: { title: 'A stop of a job', where: 'On a stop’s page (the Stage).' },
+  job: { title: 'The open job', where: 'On a job’s page.' },
+  stage: { title: 'The open step', where: 'On a job’s page.' },
   stack: { title: 'Stacks', where: 'On Stacks, a stack’s page and a part’s page.' },
-  alert: { title: 'The permission alert', where: 'While a permission waits at the top of a job or a stop.' },
-  review: { title: 'A review round', where: 'On a job’s Ship stop while its pull request is in review.' },
+  alert: { title: 'The permission alert', where: 'While a permission waits at the top of a job.' },
+  review: { title: 'A review round', where: 'On a job’s Ship step while its pull request is in review.' },
   gate: { title: 'The gate card', where: 'While a gate card waits for your decision, on the job or on the Desk.' },
   desk: { title: 'The Desk', where: 'On the Desk, while something waits for you.' },
   jobs: { title: 'The Jobs page', where: 'On Jobs, the four lanes.' },
@@ -69,7 +69,7 @@ export const KEYS = {
   'go-desk': { keys: ['g d'], label: 'Go to the Desk', scope: 'global' },
   'go-settings': { keys: ['g s'], label: 'Go to Settings', scope: 'global' },
   'go-crew': { keys: ['g x'], label: 'Go to the Crew-dex (Play mode)', scope: 'global' },
-  'github-check': { keys: ['u'], label: 'Check GitHub now', scope: 'global', where: 'Where the GitHub line shows: Jobs and a job’s Ship stop.' },
+  'github-check': { keys: ['u'], label: 'Check GitHub now', scope: 'global', where: 'Where the GitHub line shows: Jobs and a job’s Ship step.' },
   'close': { keys: ['Escape'], label: 'Close the menu, sheet or drawer on top', scope: 'global', always: true, listOnly: true },
   // Telemetry: registered by the Telemetry page while it is open, so they answer only there (listed
   // with the keys that work everywhere, each with where it works).

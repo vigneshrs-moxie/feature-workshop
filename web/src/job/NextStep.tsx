@@ -111,7 +111,7 @@ export function useSentShown(job: Job, conversation: Conversation): { kind: Gate
 }
 
 /** "18 min", "2 h", "3 days": how long since `iso`; null when not known. */
-function forHowLong(iso: string | null | undefined, now: Date): string | null {
+export function forHowLong(iso: string | null | undefined, now: Date): string | null {
   if (!iso) return null;
   const ms = now.getTime() - new Date(iso).getTime();
   if (!Number.isFinite(ms) || ms < 0) return null;

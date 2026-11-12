@@ -1,15 +1,21 @@
 // The documents from one step (design 3.2): a row each with its name, version and when it changed
 // (the Docs tab's own rows). A click opens it in place, in the Docs tab's reader, with Back to the
 // list; a new `request` (a document link, ⌘K) opens its file, or the list when it has none, with the
-// focus on its first document once there is one. The wireframes page is not a document: it opens
-// in the Screens page, as in the Docs tab.
+// focus on its first document once the step's answer is in with one (none: the request is dropped).
+// The focus never leaves a box he is typing in. The wireframes page is not a document: it opens in
+// the Screens page, as in the Docs tab.
 import { useEffect, useRef, useState } from 'react';
 import type { JobDocEntry } from '../../api/types';
+import { isTypingTarget } from '../../app/keyRegistry';
 import { useUi } from '../../app/ui';
 import { useNow } from '../../lib/time';
 import { DocItem, DocReader } from '../../panes/Preview/DocsTab';
 
-export function StepDocs({ slug, docs, request }: { slug: string; docs: JobDocEntry[]; request?: { n: number; file: string | null } }) {
+export function StepDocs({ slug, docs, request, loaded = true }: {
+  slug: string; docs: JobDocEntry[]; request?: { n: number; file: string | null };
+  /** The step's answer is in (its `docs` are known); while it is not, a request waits for them. */
+  loaded?: boolean;
+}) {
   const ui = useUi();
   const now = useNow();
   const [file, setFile] = useState<string | null>(null);
@@ -19,7 +25,8 @@ export function StepDocs({ slug, docs, request }: { slug: string; docs: JobDocEn
   // A request this list hasn't acted on (one present when it mounts counts as new: StepPanel hands
   // a request down only once, so picking the step again does not bring it back).
   const seen = useRef<number | null>(null);
-  // A request with no file (⌘K Open docs): the focus goes to the first document once the list shows.
+  // A request with no file (⌘K Open docs): the focus goes to the first document once the step's
+  // answer is in; an answer with no documents drops it, so a document arriving later never takes the focus.
   const focusFirst = useRef(false);
   const n = request?.n ?? null;
   const wanted = request?.file ?? null;
@@ -33,16 +40,16 @@ export function StepDocs({ slug, docs, request }: { slug: string; docs: JobDocEn
 
   // Back to the list: the focus goes to the document you were reading.
   useEffect(() => {
-    if (file !== null || !lastPicked.current) return;
+    if (file !== null || !lastPicked.current || isTypingTarget(document.activeElement)) return;
     const picked = lastPicked.current;
     [...(list.current?.querySelectorAll<HTMLButtonElement>('.doc-item') ?? [])].find((b) => b.dataset.file === picked)?.focus();
   }, [file]);
   useEffect(() => {
-    if (!focusFirst.current || file !== null) return;
-    const first = list.current?.querySelector<HTMLButtonElement>('.doc-item');
-    if (!first) return;
+    if (!focusFirst.current || file !== null || !loaded) return;
     focusFirst.current = false;
-    first.focus();
+    // Never out of a box he is typing in (the message box, What should change?).
+    if (isTypingTarget(document.activeElement)) return;
+    list.current?.querySelector<HTMLButtonElement>('.doc-item')?.focus();
   });
 
   const pick = (f: string) => {

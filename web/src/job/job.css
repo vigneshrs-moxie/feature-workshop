@@ -3,8 +3,6 @@
    (components/permissions/PermissionAlert.tsx). Every value is a token; controls are at least
    var(--control-h) tall; status is a word with an icon, never a colour alone. */
 
-/* The crew member's face on its stop's circle (Play full). */
-.stop-face { position: absolute; top: -8px; right: -10px; display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--bg-1); border: 1px solid var(--border-2); overflow: hidden; pointer-events: none; }
 .stop-dot { position: relative; }
 
 /* ---------- The two columns (packet R; a stack's part page): the work on the left, the conversation on the right ---------- */
@@ -72,16 +70,8 @@
   .perm-alert-actions .btn { flex: 1; justify-content: center; }
 }
 
-/* A state chip's colours by its class (the Jobs cards and the job page's header say is-<lane>). */
+/* The done chip (the Jobs cards and the job page's header draw state-chip is-done for a done job). */
 .state-chip.is-done { color: var(--status-ok); background: var(--status-ok-bg); }
-.state-chip.is-now { color: var(--lane-working-fg); background: var(--lane-working-bg); }
-.state-chip.is-waiting { color: var(--text-1); background: var(--lane-needs-you-bg); }
-.state-chip.is-next, .state-chip.is-skipped { color: var(--text-2); }
-
-/* Reduced motion: nothing on these pages moves. */
-@media (prefers-reduced-motion: reduce) {
-  .stop-face * { animation: none !important; }
-}
 
 /* The lock card above the message box (panes/Foreman/Composer.tsx): the box is off while it shows. */
 .composer-lock { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-2); margin-bottom: var(--space-2); }

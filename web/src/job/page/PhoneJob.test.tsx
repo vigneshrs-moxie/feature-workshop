@@ -84,12 +84,12 @@ function Routed({ slug }: { slug: string }) {
   return <Screens job={j} step={route.name === 'stage' ? route.stop : undefined} view={route.name === 'job' ? route.view : undefined} />;
 }
 
-function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions = [] as Permission[], gate = null as Gate | null, auto = null as JobDetail['auto'] | null, page = undefined as JobDetail['page'], thread = [] as ThreadItem[], hosted = false, at = '#/job/alpha', extra = null as ReactNode, mount = true, post = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({ ok: true })) } = {}) {
+function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions = [] as Permission[], gate = null as Gate | null, auto = null as JobDetail['auto'] | null, page = undefined as JobDetail['page'], thread = [] as ThreadItem[], hosted = false, at = '#/job/alpha', extra = null as ReactNode, mount = true, play = 'subtle' as 'subtle' | 'full', post = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({ ok: true })) } = {}) {
   window.location.hash = at;
   const store: Store = createStore();
   server.store = store;
   server.answered = [];
-  store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs, permissions, meta: { token: 't', settings: { play: { mode: 'subtle' } }, models: [{ id: 'claude-opus-5-5', label: 'Opus 5.5' }] } as never }) });
+  store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs, permissions, meta: { token: 't', settings: { play: { mode: play } }, models: [{ id: 'claude-opus-5-5', label: 'Opus 5.5' }] } as never }) });
   const detail = (s: string): JobDetail => ({ slug: s, thread, threadMore: false, gate, answeredBriefs: [...server.answered], heldReply: null, options: { level: 1 }, auto, page } as JobDetail);
   const get = vi.fn(async (p: string): Promise<unknown> => {
     const stage = /^\/api\/job\/([^/]+)\/stage\/([a-z]+)$/.exec(p);
@@ -348,6 +348,14 @@ describe('the phone’s step screen', () => {
     expect(screen.queryByRole('button', { name: /^No go: send back/ })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Reply' })).toBeNull();
     expect(screen.queryByRole('button', { name: /^Go: / })).toBeNull();
+  });
+
+  // The 3D bay is the laptop's (StepPanel draws it in Play full); the phone's screens stay simple, as drawn.
+  it('in Play full the phone’s step screen has no bay', async () => {
+    setup({ jobs: [working('implement')], at: '#/job/alpha/stage/build', play: 'full' });
+    const panel = await screen.findByRole('tabpanel', { name: 'Build' });
+    await waitFor(() => expect(panel.querySelector('.sb-step-body')).not.toBeNull());
+    expect(screen.queryByRole('region', { name: 'The bay at this stop' })).toBeNull();
   });
 
   it('a step’s body comes only once that step’s view is in', async () => {

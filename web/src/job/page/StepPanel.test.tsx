@@ -225,10 +225,11 @@ describe('StepPanel', () => {
 
   it('the step asks again when the job changes', async () => {
     let slow: (v: StageView) => void = () => {};
+    let build: StageView = BUILD;
     const { api, store, wrap } = stores(BUILDING, {
       get: async (path: string) => {
         if (path.endsWith('/stage/plan')) return new Promise((r) => { slow = r as (v: StageView) => void; });
-        return path.endsWith('/stage/test') ? { ...BUILD, stop: 'test', label: 'Test', state: 'next', agents: [], finished: [] } : BUILD;
+        return path.endsWith('/stage/test') ? { ...BUILD, stop: 'test', label: 'Test', state: 'next', agents: [], finished: [] } : build;
       },
     });
     const view = render(wrap(<Live stop="build" />));
@@ -251,9 +252,13 @@ describe('StepPanel', () => {
     expect(screen.queryByText('Writing step 3 of 6')).toBeNull();
     expect(screen.getByRole('tabpanel', { name: 'Test' })).toBeInTheDocument();
 
-    // Back on a step seen before: the last answer at once.
+    // Back on a step seen before: the last answer at once, then the fresh answer replaces it.
+    build = { ...BUILD, agents: [BUILD.agents[0], { ...BUILD.agents[1], doing: 'Writing step 4 of 6' }] };
     view.rerender(wrap(<Live stop="build" />));
     expect(screen.getByText('Writing step 3 of 6')).toBeInTheDocument();
+    expect(screen.queryByText('Loading who worked on it…')).toBeNull();
+    expect(await screen.findByText('Writing step 4 of 6')).toBeInTheDocument();
+    expect(screen.queryByText('Writing step 3 of 6')).toBeNull();
   });
 
   it('a document opens in place and Back returns to the list', async () => {

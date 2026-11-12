@@ -4,13 +4,14 @@
 // their last actions; the step's own body (children); and the documents from this step. The view
 // comes from useStage; loading and a failed load stay in the who list's place, so the rest of the
 // panel is whole. On the website there is no terminal: one sentence says where the buttons are.
-// In Play full the bay at this step, in 3D (StageStrip), sits above who worked on it, as it did on
-// the step page.
+// In Play full the bay at this step, in 3D (StageStrip), sits above who worked on it on a laptop, as
+// it did on the step page; the phone's step screen has none.
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { FeedLine, Job, JobDocEntry, StageAgent, StageView, StopId } from '../../api/types';
 import { BRAND } from '../../app/brand';
 import { Button } from '../../components/Button';
 import { Icon } from '../../components/Icon';
+import { useNarrow } from '../../components/page/Page';
 import { Select } from '../../components/Select';
 import { STOPS, stopOf } from '../../components/stops/stops';
 import type { GateKind } from '../../lib/compose';
@@ -92,6 +93,8 @@ export function StepPanel({ job, stop, view, error, onRetry, now, extraAgents, s
   children?: ReactNode;
 }) {
   const play = usePlay();
+  // The 3D bay is the laptop's: the phone's step screen stays simple, as drawn.
+  const narrow = useNarrow();
   const i = STOPS.findIndex((s) => s.id === stop);
   const here = STOPS[i];
   const state = stepState(job, stop, sent);
@@ -118,13 +121,13 @@ export function StepPanel({ job, stop, view, error, onRetry, now, extraAgents, s
       </header>
       {bodyFirst && notYet}
       {bodyFirst && children}
-      {play.full && <StageStrip job={job} stop={stop} agents={view ? listOf<StageAgent>(view.agents) : null} />}
+      {play.full && !narrow && <StageStrip job={job} stop={stop} agents={view ? listOf<StageAgent>(view.agents) : null} />}
       {who}
       {view && reached && <Feed rows={rows} now={now} />}
       {!bodyFirst && children}
       <section className="sb-panel-docs" aria-labelledby={`${title}-docs`}>
         <h3 id={`${title}-docs`}>Documents from this step</h3>
-        <StepDocs key={stop} slug={job.slug} docs={listOf<JobDocEntry>(view?.docs)} request={request} />
+        <StepDocs key={stop} slug={job.slug} docs={listOf<JobDocEntry>(view?.docs)} request={request} loaded={view !== null} />
       </section>
     </section>
   );

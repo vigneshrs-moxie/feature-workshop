@@ -1087,6 +1087,49 @@ describe('the old job page’s tests, on this page', () => {
     await waitFor(() => expect(first()).toHaveFocus());
     expect(within(panel).queryByRole('article', { name: /Test plan|test-plan\.md/ })).toBeNull();
   });
+
+  // Review of Task 18, I1: a request that found no document must not take the focus later.
+  it('Open docs on a step with no documents does not move the focus when one arrives later', async () => {
+    function Opener() { const ui = useUi(); return <button type="button" onClick={() => ui.openDocs()}>open docs</button>; }
+    let planDocs: JobDocEntry[] = [];
+    const { move } = setup({ jobs: [working('plan')], stageOf: (slug, stop) => ({ ...stageView(slug, stop), docs: stop === 'plan' ? planDocs : [] }), extra: <Opener /> });
+    const panel = screen.getByRole('tabpanel', { name: 'Plan' });
+    await waitFor(() => expect(panel.querySelector('.sb-step-body')).not.toBeNull());
+    expect(within(panel).getByText('No documents from this step yet.')).toBeInTheDocument();
+    const opener = screen.getByRole('button', { name: 'open docs' });
+    opener.focus();
+    fireEvent.click(opener);
+    await act(async () => {});
+    // Later the job changes and the step's answer has a document.
+    planDocs = [DOCS[0]];
+    move([working('plan', { updatedAt: new Date(Date.now() + 1000).toISOString() })]);
+    const doc = await within(panel).findByRole('button', { name: /^Implementation plan/ });
+    await act(async () => {});
+    expect(doc).not.toHaveFocus();
+    expect(opener).toHaveFocus();
+  });
+
+  it('Open docs never takes the focus out of a box he is typing in', async () => {
+    function Opener() { const ui = useUi(); return <button type="button" onClick={() => ui.openDocs()}>open docs</button>; }
+    const { get } = setup({ jobs: [working('plan')], extra: <Opener /> });
+    await waitFor(() => expect(screen.getByRole('tabpanel', { name: 'Plan' }).querySelector('.sb-step-body')).not.toBeNull());
+    // The Spec step's answer is held until he is typing.
+    let release = () => {};
+    const held = new Promise<void>((r) => { release = r; });
+    const answer = get.getMockImplementation()!;
+    get.mockImplementation((path: string) => (path.endsWith('/stage/spec') ? held.then(() => ({ ...stageView('alpha', 'spec'), docs: [DOCS[0]] })) : answer(path)));
+    pick('spec');
+    fireEvent.click(screen.getByRole('button', { name: 'open docs' }));
+    const box = messageBox();
+    box.focus();
+    fireEvent.change(box, { target: { value: 'Keep the icon' } });
+    await act(async () => { release(); });
+    const doc = await within(screen.getByRole('tabpanel', { name: 'Spec' })).findByRole('button', { name: /^Implementation plan/ });
+    await act(async () => {});
+    expect(doc).not.toHaveFocus();
+    expect(box).toHaveFocus();
+    expect(box).toHaveValue('Keep the icon');
+  });
 });
 
 // ---------- The old job page's blocks, run against this page ----------

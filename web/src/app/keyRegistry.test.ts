@@ -237,8 +237,12 @@ describe('the key registry', () => {
     expect(KEYS['stage-next'].label).toBe('The step after this one');
     for (const id of KEY_IDS) {
       const d = keyDef(id);
-      expect(`${d.label} ${d.where ?? ''}`, id).not.toMatch(/on a stop\b|or a stop\b|finished (here|there)/i);
+      expect(`${d.label} ${d.where ?? ''}`, id).not.toMatch(/\bstops?\b|finished (here|there)/i);
     }
+    // Nor does a scope's heading or line in the lists name a stop's page or the Stage.
+    for (const [scope, s] of Object.entries(SCOPES)) expect(`${s.title} ${s.where}`, scope).not.toMatch(/\bstops?\b|stop’s page|\bthe Stage\b/i);
+    expect(SCOPES.stage).toEqual({ title: 'The open step', where: 'On a job’s page.' });
+    expect(SCOPES.job.where).toBe('On a job’s page.');
   });
 
   it('every scope has a place in the priority order and a title and line for the lists', () => {
