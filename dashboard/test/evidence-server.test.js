@@ -13,6 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startDashboard } from './helpers/dashboard.js';
+import { evidenceRunner } from '../runner/evidence.js';
 
 const FIXTURE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'evidence');
 const OLD = '2026-10-01T10:00:00Z';
@@ -481,7 +482,7 @@ const liveAs = (slug, site) => new Promise((resolve, reject) => {
   const req = http.get(base + liveUrl(slug), { headers: site ? { 'Sec-Fetch-Site': site } : {} }, (res) => {
     const chunks = [];
     res.on('data', (c) => chunks.push(c));
-    res.on('end', () => resolve({ status: res.statusCode, type: res.headers['content-type'], body: Buffer.concat(chunks) }));
+    res.on('end', () => resolve({ status: res.statusCode, type: res.headers['content-type'], cacheControl: res.headers['cache-control'], body: Buffer.concat(chunks) }));
   });
   req.on('error', reject);
 });
@@ -573,4 +574,112 @@ test('evidence server: run/ already gone while the run is still listed answers 4
   } finally {
     await done();
   }
+});
+
+// ---------- The demo's recording under way (demo mode only; dashboard/demo/run-demo.js) ----------
+
+const DEMO_JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 7, 7, 0xff, 0xd9]);
+const demoProgress = () => ({
+  commit: 'c4f1e2a9b07', startedAt: new Date(Date.now() - 180_000).toISOString(), line: 4, of: 19,
+  lines: Array.from({ length: 19 }, (_, i) => ({ id: `AC-${i + 1}`, title: `Line ${i + 1}`, state: i < 3 ? 'passed' : i === 3 ? 'running' : 'waiting', video: null, at: null })),
+});
+/** The demo's two files in a job folder's evidence/, as run-demo.js writes them; the picture a minute old. */
+async function writeDemoFiles(dir, progress = demoProgress()) {
+  await fs.mkdir(path.join(dir, 'evidence'), { recursive: true });
+  await fs.writeFile(path.join(dir, 'evidence', 'demo-progress.json'), JSON.stringify(progress));
+  await fs.writeFile(path.join(dir, 'evidence', 'demo-live.jpg'), DEMO_JPEG);
+  await backdate(path.join(dir, 'evidence', 'demo-live.jpg'), 60_000);
+}
+/** A job folder of its own, outside the dashboard's jobs, and the evidence door alone on it, in demo mode or not. */
+async function doorJob(name, { demo }) {
+  const dir = path.join(root, 'door-jobs', name);
+  await fs.mkdir(dir, { recursive: true });
+  const door = evidenceRunner({
+    jobs: async () => [{ slug: name, dir, options: { schema_version: 2, level: 2, flow: 'small' } }],
+    local: {}, state: { audit: async () => {} }, events: { emit: () => {} }, on: () => {}, demo, env: {},
+  });
+  return { dir, door };
+}
+const noLive = (err) => err.status === 404 && err.message === 'No live picture right now.';
+
+test('evidence door: outside demo mode a job folder’s demo-progress.json and demo-live.jpg change nothing', async () => {
+  const plain = await doorJob('plain-job', { demo: false });
+  const withFiles = await doorJob('files-job', { demo: false });
+  await writeDemoFiles(withFiles.dir);
+  const view = await withFiles.door.view('files-job');
+  assert.equal(view.recording, false);
+  assert.equal(view.progress, null);
+  assert.equal(view.watch, false);
+  const strip = ({ folder, folderUrl, ...rest }) => rest;
+  assert.deepEqual(strip(view), strip(await plain.door.view('plain-job')), 'the same as a folder without them');
+  await assert.rejects(withFiles.door.live('files-job'), noLive);
+});
+
+test('evidence door, demo mode: the same files are a recording under way, line 4 of 19, and Watch answers the picture', async () => {
+  const { dir, door } = await doorJob('demo-job', { demo: true });
+  const before = await door.view('demo-job');
+  assert.equal(before.recording, false, 'no files: nothing records');
+  await assert.rejects(door.live('demo-job'), noLive);
+  await writeDemoFiles(dir);
+  const view = await door.view('demo-job');
+  assert.equal(view.recording, true);
+  assert.equal(view.watch, true);
+  assert.equal(view.progress.line, 4);
+  assert.equal(view.progress.of, 19);
+  assert.equal(view.progress.lines.length, 19);
+  assert.deepEqual(view.progress.lines[3], { id: 'AC-4', title: 'Line 4', state: 'running', video: null, at: null });
+  const frame = await door.live('demo-job');
+  assert.equal(frame.type, 'image/jpeg');
+  assert.ok(frame.bytes.equals(DEMO_JPEG), 'the picture, though a minute old: it is a still');
+  assert.equal(frame.size, DEMO_JPEG.length);
+  // The picture alone, with no progress beside it, is no recording.
+  await fs.rm(path.join(dir, 'evidence', 'demo-progress.json'));
+  await assert.rejects(door.live('demo-job'), noLive);
+});
+
+test('evidence door, demo mode: a link at either file, a link for the evidence folder, or a file not in the shape is never read', async () => {
+  const outside = path.join(root, 'door-outside');
+  await writeDemoFiles(outside);
+  // Links at the two files, pointing at real ones outside.
+  const linked = await doorJob('linked-files', { demo: true });
+  await fs.mkdir(path.join(linked.dir, 'evidence'), { recursive: true });
+  await fs.symlink(path.join(outside, 'evidence', 'demo-progress.json'), path.join(linked.dir, 'evidence', 'demo-progress.json'));
+  assert.equal((await linked.door.view('linked-files')).progress, null);
+  await fs.rm(path.join(linked.dir, 'evidence', 'demo-progress.json'));
+  await fs.writeFile(path.join(linked.dir, 'evidence', 'demo-progress.json'), JSON.stringify(demoProgress()));
+  await fs.symlink(path.join(outside, 'evidence', 'demo-live.jpg'), path.join(linked.dir, 'evidence', 'demo-live.jpg'));
+  assert.equal((await linked.door.view('linked-files')).progress.line, 4, 'the plain progress file is read');
+  await assert.rejects(linked.door.live('linked-files'), noLive, 'never through the link');
+  // The evidence folder itself a link to a folder with both files.
+  const folder = await doorJob('linked-folder', { demo: true });
+  await fs.symlink(path.join(outside, 'evidence'), path.join(folder.dir, 'evidence'));
+  assert.equal((await folder.door.view('linked-folder')).progress, null);
+  await assert.rejects(folder.door.live('linked-folder'), noLive);
+  // Not the shape: a line past the end, a line id that isn't AC-<n>, a state not known, no lines, not JSON.
+  const odd = await doorJob('odd-progress', { demo: true });
+  for (const bad of [{ ...demoProgress(), line: 20 }, { ...demoProgress(), lines: [{ id: '../x', title: 'x', state: 'running' }] },
+    { ...demoProgress(), lines: [{ id: 'AC-1', title: 'x', state: 'dancing' }] }, { ...demoProgress(), lines: [] }]) {
+    await writeDemoFiles(odd.dir, bad);
+    const v = await odd.door.view('odd-progress');
+    assert.equal(v.progress, null, JSON.stringify(bad).slice(0, 80));
+    assert.equal(v.recording, false);
+    await assert.rejects(odd.door.live('odd-progress'), noLive);
+  }
+  await fs.writeFile(path.join(odd.dir, 'evidence', 'demo-progress.json'), '{ not json');
+  assert.equal((await odd.door.view('odd-progress')).progress, null);
+});
+
+test('evidence server, demo mode: the demo’s recording shows on the job’s evidence view, and its picture on the live route', async () => {
+  const dir = await writeJob('demo-recording-job', { level: 2, report: null });
+  await writeDemoFiles(dir);
+  const view = await viewWhen('demo-recording-job', (v) => v.recording, 'the demo’s recording on the view');
+  assert.equal(view.progress.line, 4);
+  assert.equal(view.progress.of, 19);
+  assert.equal(view.watch, true);
+  const r = await liveAs('demo-recording-job', 'same-origin');
+  assert.equal(r.status, 200);
+  assert.equal(r.type, 'image/jpeg');
+  assert.ok(r.body.equals(DEMO_JPEG));
+  assert.equal(r.cacheControl, 'no-store', 'never kept by the browser, as the real picture');
+  assert.equal((await liveAs('demo-recording-job', 'cross-site')).status, 404, 'another site’s page still can’t ask');
 });

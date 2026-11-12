@@ -36,17 +36,38 @@
 
 import '../lib/env-boot.js'; // first: the old environment names still work (lib/env-names.js)
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { defaultsFor, defaultsForLevel, writeAutoOption, writeOptions } from '../lib/options.js';
 import { autoRecord } from '../lib/auto.js';
 import { suggestLevel } from '../lib/level-rules.js';
+import { TICKET_FILE, ticketFacts, ticketFile } from '../lib/ticket-file.js';
+import { DEMO_LIVE_FILE, DEMO_PROGRESS_FILE } from '../runner/evidence.js';
 
-const ROOT = path.join(os.tmpdir(), 'starbase-demo');
-const FEATURES = path.join(ROOT, 'feature-work');
-const PROJECTS = path.join(ROOT, 'projects', '-demo-acme-portal');
-const ACME = path.join(ROOT, 'acme-portal');
+// The demo's folders, all inside one temp folder (setRoot): `npm run demo` uses the system's
+// temp folder's starbase-demo; a test hands buildDemo a temp folder of its own.
+let ROOT;
+let FEATURES;
+let PROJECTS;
+let ACME;
+let repo;
+function setRoot(root) {
+  ROOT = root;
+  FEATURES = path.join(ROOT, 'feature-work');
+  PROJECTS = path.join(ROOT, 'projects', '-demo-acme-portal');
+  ACME = path.join(ROOT, 'acme-portal');
+  repo = { path: ACME, base_branch: 'main' };
+}
+setRoot(path.join(os.tmpdir(), 'starbase-demo'));
+
+/** The one rule for where the demo may write: a folder inside the system's temp folder (never that folder itself). */
+function insideTemp(dir) {
+  const rel = path.relative(os.tmpdir(), path.resolve(String(dir)));
+  return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+}
 let BASE = null;
 
 const iso = (msAgo) => new Date(Date.now() - msAgo).toISOString();
@@ -187,7 +208,75 @@ async function makeRepo() {
   await fs.appendFile(path.join(ACME, 'app', 'csv.js'), '\nexport const LIMIT = 10000; // FR-003\n');
   git('commit', '-qam', 'feat(widgets): stop at 10,000 rows with a message [S3]');
   git('switch', '-q', 'main');
+  // Bulk Archive's branch: the first three steps of its plan built, one commit each (the job page's plan reads the [S<n>]).
+  git('switch', '-q', '-c', 'feature/bulk-archive');
+  await fs.mkdir(path.join(ACME, 'app', 'tickets'), { recursive: true });
+  await fs.writeFile(path.join(ACME, 'app', 'tickets', 'archive.js'), 'export const ARCHIVED = \'archived\';\n');
+  git('add', '-A'); git('commit', '-q', '-m', 'feat(tickets): an archived state on a ticket [S1]');
+  await fs.writeFile(path.join(ACME, 'app', 'tickets', 'select.js'), 'export function selectMany(ids) {\n  return new Set(ids);\n}\n');
+  git('add', '-A'); git('commit', '-q', '-m', 'feat(tickets): pick many tickets on the list [S2]');
+  await fs.appendFile(path.join(ACME, 'app', 'tickets', 'archive.js'), '\nexport const archiveButton = \'<button>Archive</button>\';\n');
+  git('commit', '-qam', 'feat(tickets): the Archive button and its confirm [S3]');
+  git('switch', '-q', 'main');
 }
+
+// Bulk Archive's overview and plan for the job page: the ticket it came from (ticket.md as Starbase
+// writes it, lib/ticket-file.js, with an invented filer and date kept in Starbase's own record),
+// acceptance.md and a plan with ### S1 to ### S6 (commits [S1] to [S3] are on its branch, makeRepo).
+const BULK_TICKET = { key: 'DEMO-501', title: 'Archive many tickets at once', url: 'https://orbit.example.com/t/501' };
+const bulkTicketDetail = () => ({
+  ticket: {
+    subject: BULK_TICKET.title, type: 'feature', priority: 'medium', status: 'in_progress', module: 'Tickets',
+    description: 'At the end of each season we close out hundreds of old tickets, one at a time. Please let us pick many tickets on the list and archive them together.',
+    expectedBehavior: 'Tick the tickets, press Archive once, and they all leave the open list.',
+    timeline: [], references: [],
+    submitter: { fullName: 'Rowan Pike' }, createdAt: iso(6 * 24 * HOUR),
+  },
+});
+const BULK_ACCEPTANCE = `# Acceptance v1: Bulk Archive
+
+## It works when
+
+1. An admin can tick many tickets on the list and archive them with one press. (FR-001)
+2. Archived tickets leave the open list and show under Archived. (FR-002)
+3. More than 500 tickets are archived in the background, and the admin is told when it is done. (FR-003)
+4. Undo within 7 days brings every ticket back as it was. (FR-004)
+
+## It must not
+
+1. Let a technician archive tickets.
+2. Archive a ticket that still has a visit booked.
+`;
+const BULK_PLAN = `# Implementation plan v2: Bulk Archive
+
+**Spec:** v0.3 · **Findings:** v1 · **Acceptance:** v1 · **Level:** L3 Large
+
+## Steps
+
+### S1: An archived state on a ticket
+
+A new state beside open and closed, and the list hides it.
+
+### S2: Pick many tickets on the list
+
+A tick box on each row, and Select all on the page.
+
+### S3: The Archive button and its confirm
+
+It says how many tickets it will archive before it does.
+
+### S4: The archive job for large selections
+
+Over 500 tickets go to a background job that tells the admin when it is done.
+
+### S5: Undo within 7 days
+
+The archived tickets keep where they were, so Undo puts them back.
+
+### S6: The tests and the audit line
+
+Each archive and undo is written to the audit log.
+`;
 
 async function build() {
   await fs.rm(ROOT, { recursive: true, force: true });
@@ -273,12 +362,18 @@ async function build() {
       title: 'Bulk Archive', route: 'large', stage: 'implement', stage_state: 'working', waiting_for: null,
       brief: { number: 5, path: 'briefs/005-plan.md', headline: 'Bulk Archive · plan done' },
       questions: [], decided_on_your_behalf: [],
-      next_proposed: 'Finish S3 (archive job), then brief you',
-      branch: 'feature/bulk-archive', worktree: '/demo/orbit-bulk-archive', base_sha: '1234abc', repo: { path: ACME, base_branch: 'main' },
+      next_proposed: 'Finish S4 (the archive job), then brief you',
+      branch: 'feature/bulk-archive', worktree: '/demo/orbit-bulk-archive', base_sha: BASE, repo: { path: ACME, base_branch: 'main' },
+      artifacts: [{ name: 'Implementation plan', path: 'implementation-plan.md', version: '2' }, { name: 'Acceptance', path: 'acceptance.md', version: '1' }],
       session_id: 'demo-sess-0002', updated_at: iso(20 * MIN),
     },
-    workflowStatus: wsDoc({ title: 'Bulk Archive', slug: 'bulk-archive', route: 'LARGE — new lifecycle state', stage: 'implement · in progress', next: 'brief after S3' }),
+    workflowStatus: wsDoc({ title: 'Bulk Archive', slug: 'bulk-archive', route: 'LARGE — new lifecycle state', stage: 'implement · in progress', next: 'brief after S4' }),
     briefs: [{ stage: 'spec', text: 'Demo.' }, { stage: 'refine', text: 'Demo.' }, { stage: 'investigate', text: 'Demo.' }, { stage: 'spec-update', text: 'Demo.' }, { stage: 'plan', text: 'Demo.' }],
+    files: {
+      [TICKET_FILE]: ticketFile(bulkTicketDetail(), { key: BULK_TICKET.key, url: BULK_TICKET.url, readAt: iso(50 * HOUR) }),
+      'acceptance.md': BULK_ACCEPTANCE,
+      'implementation-plan.md': BULK_PLAN,
+    },
   });
   const [bulkLog] = await writeSession({
     sessionId: 'demo-sess-0002', featureDir: bulk, prompt: '/feature Let admins archive many tickets at once.', startAgo: 50 * HOUR,
@@ -287,10 +382,10 @@ async function build() {
       { dispatch: 'feature-spec-writer', description: 'Refine interview', ago: 40 * HOUR }, { ago: 39 * HOUR },
       { dispatch: 'feature-investigator', description: 'Investigate', ago: 30 * HOUR }, { ago: 29 * HOUR },
       { dispatch: 'feature-planner', description: 'Plan', ago: 10 * HOUR }, { ago: 9 * HOUR },
-      { dispatch: 'feature-implementer', description: 'Implement S3: archive job', ago: 12 * MIN, waiting: true },
+      { dispatch: 'feature-implementer', description: 'Implement S4: archive job', ago: 12 * MIN, waiting: true },
     ],
     workers: [
-      { type: 'feature-implementer', description: 'Implement S3: archive job', model: 'claude-opus-5-5', startAgo: 12 * MIN, finished: false, out: 2500,
+      { type: 'feature-implementer', description: 'Implement S4: archive job', model: 'claude-opus-5-5', startAgo: 12 * MIN, finished: false, out: 2500,
         steps: [['Read', { file_path: '/demo/orbit-bulk-archive/app/src/tickets/archive.ts' }]] },
     ],
   });
@@ -377,6 +472,8 @@ async function build() {
 
   await levelJobs();
   countLog = await floorJobs();
+  // Who filed Bulk Archive's ticket and when: Starbase's own record of it, never in the job folder (lib/ticket-file.js ticketFacts).
+  await mergeSessions({ [bulk]: { ticketFacts: ticketFacts(bulkTicketDetail()) } });
   return [bulkLog, ...reviewLogs];
 }
 
@@ -400,6 +497,11 @@ async function floorJobs() {
     workers: [{ type: 'feature-tester', description: 'Run the checks', model: 'claude-sonnet-5-5', startAgo: 6 * MIN, finished: false,
       steps: [['Bash', { description: 'Run the unit tests (npm test) · 212 of 577' }]] }],
   });
+  // Its evidence being recorded, line 4 of 19, and the hidden browser's picture for Watch: in demo
+  // mode the evidence door shows these as a recording under way (runner/evidence.js).
+  await fs.mkdir(path.join(nightly, 'evidence'), { recursive: true });
+  await fs.writeFile(path.join(nightly, 'evidence', DEMO_PROGRESS_FILE), JSON.stringify(nightlyProgress(), null, 2) + '\n');
+  await fs.writeFile(path.join(nightly, 'evidence', DEMO_LIVE_FILE), demoPicture());
 
   // Stopped: the test stage is blocked on 3 failed tests.
   await feature('price-rounding', {
@@ -455,6 +557,120 @@ async function floorJobs() {
   return testLog;
 }
 
+// Nightly Export's recording, as lib/evidence.js keeps a recording's progress: lines 1 to 3 passed,
+// line 4 running, the other 15 waiting.
+const NIGHTLY_LINES = [
+  'The export runs at 2 in the morning, office time', 'The email goes to the office address in Settings', 'The file is named with the day’s date',
+  'Each row is one finished visit', 'Cancelled visits are left out', 'Times show in the office’s time zone', 'Prices show two decimals',
+  'The header row matches the spec', 'An empty day still sends a file with its header row', 'A failed send is tried again after 10 minutes',
+  'After three failed tries the office manager is told', 'Only office managers can change the address', 'The address must look like an email address',
+  'Turning the export off stops the next email', 'Turning it on again sends the next night', 'The email says how many rows the file has',
+  'A file over 5 MB is sent as a link', 'The link stops working after 7 days', 'Each send is written to the audit log',
+];
+function nightlyProgress() {
+  const start = 3 * MIN;
+  const lines = NIGHTLY_LINES.map((title, i) => {
+    const state = i < 3 ? 'passed' : i === 3 ? 'running' : 'waiting';
+    return { id: `AC-${i + 1}`, title, state, video: null, at: i <= 3 ? iso(start - (i + 1) * 40_000) : null };
+  });
+  return { commit: 'c4f1e2a9b07', startedAt: iso(start), line: 4, of: lines.length, lines };
+}
+
+/**
+ * A small, valid baseline JPEG of a pretend settings page (640 by 400), built here from bytes: each
+ * 8 by 8 block is one flat colour, so every block needs only its DC value (no DCT), with one
+ * quantisation table of ones and the standard DC Huffman table. About 5 KB.
+ */
+function demoPicture() {
+  const W = 640;
+  const H = 400;
+  const cols = W / 8;
+  const rows = H / 8;
+  const hex = (h) => [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const inBox = (bx, by, x0, x1, y0, y1) => bx >= x0 && bx <= x1 && by >= y0 && by <= y1;
+  // The page, block by block: the top bar, the side menu, the title, the Send now button and a table.
+  const colour = (bx, by) => {
+    if (by <= 5) return inBox(bx, by, 2, 6, 2, 3) ? hex('4f7cff') : inBox(bx, by, 66, 77, 2, 3) ? hex('3a4560') : hex('1f2a44');
+    if (bx <= 15) {
+      if (inBox(bx, by, 1, 14, 12, 14)) return inBox(bx, by, 2, 11, 13, 13) ? hex('3b5bdb') : hex('dfe7ff');
+      return [9, 17, 21, 25].includes(by) && bx >= 2 && bx <= 11 ? hex('c9ced8') : hex('f1f3f7');
+    }
+    if (inBox(bx, by, 19, 42, 9, 10)) return hex('2b2f38');
+    if (inBox(bx, by, 19, 54, 13, 13)) return hex('9aa1ad');
+    if (inBox(bx, by, 63, 75, 9, 11)) return inBox(bx, by, 65, 73, 10, 10) ? hex('ffffff') : hex('2e9d5b');
+    if (inBox(bx, by, 19, 76, 17, 45)) {
+      if (by === 17 || by === 45 || bx === 19 || bx === 76) return hex('dde1e8');
+      const row = (by - 19) % 4;
+      if (by >= 19 && by <= 43 && row === 1) {
+        if (bx >= 22 && bx <= 36) return by === 20 ? hex('2b2f38') : hex('5b6270');
+        if ((bx >= 40 && bx <= 51) || (bx >= 55 && bx <= 62)) return hex('9aa1ad');
+        if (bx >= 67 && bx <= 72) return by === 28 ? hex('e8590c') : hex('2e9d5b');
+      }
+      if (by >= 22 && by <= 43 && row === 3) return hex('eef0f4');
+      return hex('ffffff');
+    }
+    return hex('ffffff');
+  };
+  // Canonical Huffman codes from a table's counts by length and its symbols.
+  const huffman = (bits, vals) => {
+    const out = new Map();
+    let code = 0;
+    let k = 0;
+    for (let len = 1; len <= 16; len++) {
+      for (let i = 0; i < bits[len - 1]; i++) out.set(vals[k++], { code: code++, len });
+      code <<= 1;
+    }
+    return out;
+  };
+  const DC_BITS = [0, 1, 5, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0];
+  const DC_VALS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+  // AC: only end-of-block is ever written (0x00); 0xf0 is there so no code is all ones.
+  const AC_BITS = [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  const AC_VALS = [0x00, 0xf0];
+  const dc = huffman(DC_BITS, DC_VALS);
+  const eob = huffman(AC_BITS, AC_VALS).get(0x00);
+  const data = [];
+  let acc = 0;
+  let n = 0;
+  const put = (code, len) => {
+    for (let i = len - 1; i >= 0; i--) {
+      acc = (acc << 1) | ((code >> i) & 1);
+      if (++n === 8) { data.push(acc); if (acc === 0xff) data.push(0); acc = 0; n = 0; }
+    }
+  };
+  const prev = [0, 0, 0];
+  for (let by = 0; by < rows; by++) {
+    for (let bx = 0; bx < cols; bx++) {
+      const [r, g, b] = colour(bx, by);
+      const ycc = [0.299 * r + 0.587 * g + 0.114 * b, 128 - 0.168736 * r - 0.331264 * g + 0.5 * b, 128 + 0.5 * r - 0.418688 * g - 0.081312 * b];
+      ycc.forEach((v, c) => {
+        // A flat block's DC coefficient is 8 × (value − 128); with a table of ones it is written as it is.
+        const coef = Math.max(-1024, Math.min(1016, Math.round(8 * (Math.max(0, Math.min(255, v)) - 128))));
+        const diff = coef - prev[c];
+        prev[c] = coef;
+        const size = diff === 0 ? 0 : Math.floor(Math.log2(Math.abs(diff))) + 1;
+        const h = dc.get(size);
+        put(h.code, h.len);
+        if (size) put(diff > 0 ? diff : diff + (1 << size) - 1, size);
+        put(eob.code, eob.len);
+      });
+    }
+  }
+  if (n) put((1 << (8 - n)) - 1, 8 - n); // the last byte padded with ones
+  const seg = (marker, body) => [0xff, marker, ((body.length + 2) >> 8) & 0xff, (body.length + 2) & 0xff, ...body];
+  const bytes = [
+    0xff, 0xd8,
+    ...seg(0xe0, [0x4a, 0x46, 0x49, 0x46, 0, 1, 1, 0, 0, 1, 0, 1, 0, 0]), // JFIF 1.1, no density units
+    ...seg(0xdb, [0x00, ...new Array(64).fill(1)]), // one quantisation table of ones
+    ...seg(0xc0, [8, H >> 8, H & 0xff, W >> 8, W & 0xff, 3, 1, 0x11, 0, 2, 0x11, 0, 3, 0x11, 0]), // baseline, Y Cb Cr at full size
+    ...seg(0xc4, [0x00, ...DC_BITS, ...DC_VALS, 0x10, ...AC_BITS, ...AC_VALS]),
+    ...seg(0xda, [3, 1, 0x00, 2, 0x00, 3, 0x00, 0, 63, 0]),
+    ...data,
+    0xff, 0xd9,
+  ];
+  return Buffer.from(bytes);
+}
+
 // Tag colours' permission card: one message from the box once the server answers, so its pretend
 // Foreman reaches the database tests and asks.
 async function permissionAfterStart(port) {
@@ -481,7 +697,6 @@ const suggestion = (description, level) => {
   const s = suggestLevel({ description });
   return { suggested_level: level, level_reason: s.level === level ? s.reasons.join(' ') : `The rules say L${s.level}, but it changes a query and more than one screen, so I’d keep L${level}: the tester and 3–4 reviewers are worth it.` };
 };
-const repo = { path: ACME, base_branch: 'main' };
 const PLAN_QUESTIONS = [
   { id: '1', text: 'Build it in how many steps?', recommendation: 'a', options: [{ id: 'a', label: 'Three steps, one commit each' }, { id: 'b', label: 'One step' }] },
   { id: '2', text: 'Which data should the tester use?', recommendation: 'a', options: [{ id: 'a', label: 'The demo seed data' }, { id: 'b', label: 'An empty copy' }] },
@@ -657,8 +872,12 @@ const STALE_SLUG = 'tech-next-stops';
 
 async function levelJobs() {
   // The older demo jobs get the level their flow stood for.
+  // Bulk Archive started from its ticket, so options.json keeps the ticket (as the New job sheet writes it).
+  await writeOptions(path.join(FEATURES, 'bulk-archive'), defaultsForLevel(3), { title: 'Let admins archive many tickets at once.', repo: ACME, kind: 'feature', ticket: BULK_TICKET });
   for (const [slug, level, description] of [
-    ['widget-export', 2, 'Add a CSV export to the widgets page.'], ['bulk-archive', 3, 'Let admins archive many tickets at once.'],
+    ['widget-export', 2, 'Add a CSV export to the widgets page.'],
+    // L2, so its evidence is wanted, as the recording under way says (floorJobs writes the job itself).
+    ['nightly-export', 2, 'Email the day’s export to the office every night.'],
     ['saved-filters', 2, 'Let people save the filters they use on the tickets page.'], ['dark-mode-toggle', 1, 'Add a dark mode toggle to the field app.'],
     ['report-scheduler', 3, 'Schedule reports to run every week.'], ['fix-login-loop', 3, 'Fix the login redirect loop for expired sessions.'],
     ['route-optimizer', 3, 'Suggest the shortest route for each technician’s day.'],
@@ -984,7 +1203,7 @@ async function widgetThread() {
 // Always into the demo's own folder: STARBASE_DIR is pointed there unless it already names a
 // folder inside the demo's temporary one, so ~/.starbase is never touched.
 async function demoUsage() {
-  const inside = process.env.STARBASE_DIR && !path.relative(os.tmpdir(), path.resolve(process.env.STARBASE_DIR)).startsWith('..');
+  const inside = process.env.STARBASE_DIR && insideTemp(process.env.STARBASE_DIR);
   if (!inside) process.env.STARBASE_DIR = path.join(ROOT, 'state');
   const dir = path.resolve(process.env.STARBASE_DIR);
   await fs.mkdir(dir, { recursive: true });
@@ -1049,15 +1268,21 @@ async function demoUsage() {
   await fs.writeFile(path.join(dir, 'usage.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
 }
 
-// Two jobs in Auto, both L1 at their quick-plan gate (Auto's design, Part 2): "Auto demo" runs to PR #1
+// Three jobs in Auto, all L1 at their quick-plan gate (Auto's design, Part 2): "Auto demo" runs to PR #1
 // with no click (its Approver is the stand-in, demo/fake-approver.js), and "Auto demo: migrate" stops
-// at once, because its description (demo: migrate) is a database change. Auto starts when the server does.
+// at once, because its description (demo: migrate) is a database change. "Ticket count in the tab"
+// (auto-yours) has a message of his own, written after its brief and after Auto was switched on, so
+// Auto's first pass leaves the step to him (lib/auto.js YOURS_NOW), before any Approver is asked.
+// Its title has no "Auto demo" in it: web/e2e/autoRun.mjs finds the other two cards by theirs.
+// Auto starts when the server does.
+const YOURS_SLUG = 'auto-yours';
 async function autoJobs() {
   const since = iso(9 * MIN);
   const record = {};
   for (const [slug, title, description] of [
     ['auto-demo', 'Auto demo', 'Show the open ticket count in the page title.'],
     ['auto-demo-migrate', 'Auto demo: migrate', 'Show the open ticket count in the page title (demo: migrate).'],
+    [YOURS_SLUG, 'Ticket count in the tab', 'Show the open ticket count in the browser tab too.'],
   ]) {
     const dir = await feature(slug, {
       status: {
@@ -1075,10 +1300,29 @@ async function autoJobs() {
     await writeAutoOption(dir, { on: true, since });
     record[dir] = { cwd: ACME, repoPath: ACME, auto: autoRecord(null, { on: true, now: since }) };
   }
-  // Their records join the demo's own (its state folder, never ~/.starbase).
+  await mergeSessions(record);
+
+  // auto-yours: its brief raised 8 minutes ago (the file's time is the brief's), his message 4 minutes
+  // ago (later than both the brief and Auto's `since`), and the Foreman's short answer, which ended.
+  const yours = path.join(FEATURES, YOURS_SLUG);
+  const raised = new Date(Date.now() - 8 * MIN);
+  await fs.utimes(path.join(yours, 'briefs', '001-plan.md'), raised, raised);
+  const base = { featureDir: yours, slug: YOURS_SLUG, sessionId: null, runId: 'demo-run-yours' };
+  const lines = [
+    { at: iso(4 * MIN), action: 'send', ...base, kind: 'message', text: 'Hold on. I want to check with the office whether the tab should count closed tickets too.', model: FOREMAN_MODEL },
+    { at: iso(3.5 * MIN), action: 'run-ended', ...base, status: 'done', costUsd: 0.04, reply: 'Understood. I’ll wait at quick plan v1 until you tell me what the office said.' },
+  ];
+  await fs.mkdir(path.join(ROOT, 'state'), { recursive: true });
+  await fs.appendFile(path.join(ROOT, 'state', 'audit.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+}
+
+/** Records joining the demo's own sessions.json (its state folder, never ~/.starbase), each merged into the one already there. */
+async function mergeSessions(records) {
   const file = path.join(ROOT, 'state', 'sessions.json');
+  await fs.mkdir(path.dirname(file), { recursive: true });
   const had = JSON.parse(await fs.readFile(file, 'utf8').catch(() => '{}'));
-  await fs.writeFile(file, JSON.stringify({ ...had, ...record }, null, 2));
+  for (const [dir, rec] of Object.entries(records)) had[dir] = { ...(had[dir] ?? {}), ...rec };
+  await fs.writeFile(file, JSON.stringify(had, null, 2));
 }
 
 async function playSecrets() {
@@ -1137,22 +1381,43 @@ function tick(logFiles) {
   return step();
 }
 
-const logFiles = await build();
-await oldSkill();
-await demoAgents();
-await widgetThread();
-await playSecrets();
-await autoJobs();
-await demoUsage();
-await (await import('./demo-stacks.js')).demoStacks({ features: FEATURES, root: ROOT }); // packet V: three demo stacks
-process.env.STARBASE_FEATURES_DIR = FEATURES;
-process.env.STARBASE_PROJECTS_DIR = path.dirname(PROJECTS);
-process.env.STARBASE_DEMO = '1';
-process.env.STARBASE_EXTRA_REPOS = ACME;
-process.env.STARBASE_SKILLS_DIR ||= path.join(ROOT, 'skills');
-process.env.STARBASE_AGENTS_DIR ||= path.join(ROOT, 'agents');
-console.log(`Demo data in ${ROOT} (invented; safe to delete).`);
-await tick(logFiles);
-await import('../server.js');
-staleAfterStart(Number(process.env.PORT) || 4477).catch((err) => console.error('Demo: could not move the stale job’s plan on:', err.message));
-permissionAfterStart(Number(process.env.PORT) || 4477).catch((err) => console.error('Demo: could not start Tag colours’ permission card:', err.message));
+/**
+ * Writes the whole demo into `root` (a folder inside the system's temp folder, made anew): its job
+ * folders, its code, its Foremen's session logs and its own state folder. Starts nothing. Returns
+ * where each part is, and the session logs tick() keeps busy. It clears `root` first, so a root
+ * that is not inside the temp folder (insideTemp) is refused before anything is touched.
+ */
+export async function buildDemo({ root = path.join(os.tmpdir(), 'starbase-demo') } = {}) {
+  if (!insideTemp(root)) throw new Error(`The demo is built only inside the system’s temp folder (${os.tmpdir()}), so ${root} is left alone.`);
+  setRoot(root);
+  const logFiles = await build();
+  await oldSkill();
+  await demoAgents();
+  await widgetThread();
+  await playSecrets();
+  await autoJobs();
+  await demoUsage();
+  await (await import('./demo-stacks.js')).demoStacks({ features: FEATURES, root: ROOT }); // packet V: three demo stacks
+  return { root: ROOT, features: FEATURES, projects: path.dirname(PROJECTS), acme: ACME, state: path.join(ROOT, 'state'), logFiles };
+}
+
+// Run as a script (`npm run demo`): build the demo, then start the dashboard on it. Imported (the
+// demo's tests), nothing runs and no server starts.
+const isMain = (() => {
+  try { return Boolean(process.argv[1]) && fsSync.realpathSync(process.argv[1]) === fsSync.realpathSync(fileURLToPath(import.meta.url)); } catch { return false; }
+})();
+
+if (isMain) {
+  const { logFiles } = await buildDemo();
+  process.env.STARBASE_FEATURES_DIR = FEATURES;
+  process.env.STARBASE_PROJECTS_DIR = path.dirname(PROJECTS);
+  process.env.STARBASE_DEMO = '1';
+  process.env.STARBASE_EXTRA_REPOS = ACME;
+  process.env.STARBASE_SKILLS_DIR ||= path.join(ROOT, 'skills');
+  process.env.STARBASE_AGENTS_DIR ||= path.join(ROOT, 'agents');
+  console.log(`Demo data in ${ROOT} (invented; safe to delete).`);
+  await tick(logFiles);
+  await import('../server.js');
+  staleAfterStart(Number(process.env.PORT) || 4477).catch((err) => console.error('Demo: could not move the stale job’s plan on:', err.message));
+  permissionAfterStart(Number(process.env.PORT) || 4477).catch((err) => console.error('Demo: could not start Tag colours’ permission card:', err.message));
+}
