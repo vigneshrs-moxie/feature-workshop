@@ -530,7 +530,7 @@ describe('Up to N jobs at a time on the website', () => {
   });
 
   // Fix round 2, N1: the laptop shows the first step while the page waits for the second.
-  it('a second step while the laptop shows the first keeps waiting, and ends on the second with no error', async () => {
+  it('a second step sent while the first is pending: the laptop then showing the first keeps the page waiting, and it ends on the second with no error', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       go('#/settings/orbit');
@@ -814,5 +814,47 @@ describe('the Auto queue on the website', () => {
       await waitFor(() => expect(snapshots(s)).toBe(before + 1));
       await waitFor(() => expect(within(row('ORBIT-12')).queryByText('Auto is working on this')).toBeNull());
     } finally { shown.mockRestore(); }
+  });
+});
+
+// Task 19 follow-up: the laptop takes the first step while the second press is on its way, and a
+// look ends the first wait before that press is answered. The second wait must still know the first
+// step was on its way, or the laptop's 4 reads as "did not take" and stays until a reload.
+describe('Up to N jobs at a time on the website: the first step lands while the second is on its way', () => {
+  const autoCalls = (s: Site) => s.calls.filter((c) => c.method === 'POST' && c.path === '/api/orbit/auto-start');
+
+  it('the page ends on the second step with no "did not take" line', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      go('#/settings/orbit');
+      const { s, api } = site({ autoStart: { on: true, tag: 'auto', max: 3 }, autoTakes: false });
+      render(<HostedApp api={api} />);
+      const group = await screen.findByRole('group', { name: 'Auto start' });
+      const box = await within(group).findByRole('spinbutton', { name: 'Jobs at a time' });
+      await waitFor(() => expect(box).toHaveValue('3'));
+      fireEvent.click(within(group).getByRole('button', { name: 'One more' }));
+      await within(group).findByText('Sent to your laptop. It takes effect there.');
+      // The second press: its answer is held.
+      let release = () => {};
+      s.autoHold = new Promise<void>((r) => { release = r; });
+      fireEvent.click(within(group).getByRole('button', { name: 'One more' }));
+      await waitFor(() => expect(autoCalls(s).map((c) => c.body?.max)).toEqual([4, 5]));
+      // Meanwhile the laptop takes 4, and the page's next look ends the first wait on it.
+      s.autoStart = { on: true, tag: 'auto', max: 4 };
+      await act(async () => { vi.advanceTimersByTime(3_100); });
+      await waitFor(() => expect(within(group).queryByText('Sent to your laptop. It takes effect there.')).toBeNull());
+      // The second press is answered: the page waits for 5, and a look that reads 4 keeps it waiting.
+      await act(async () => { release(); });
+      expect(await within(group).findByText('Sent to your laptop. It takes effect there.')).toBeInTheDocument();
+      await act(async () => { vi.advanceTimersByTime(3_100); });
+      expect(within(group).queryByText('Your laptop did not take this change.')).toBeNull();
+      expect(within(group).getByText('Sent to your laptop. It takes effect there.')).toBeInTheDocument();
+      // The laptop takes 5: the line goes, the box says 5.
+      s.autoStart = { on: true, tag: 'auto', max: 5 };
+      await act(async () => { vi.advanceTimersByTime(3_100); });
+      await waitFor(() => expect(within(group).queryByText('Sent to your laptop. It takes effect there.')).toBeNull());
+      expect(within(group).queryByText('Your laptop did not take this change.')).toBeNull();
+      expect(box).toHaveValue('5');
+    } finally { vi.useRealTimers(); }
   });
 });

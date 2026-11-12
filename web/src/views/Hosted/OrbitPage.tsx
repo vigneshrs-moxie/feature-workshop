@@ -208,7 +208,9 @@ export function OrbitPage({ api, onSignedOut }: HostedProps) {
             // Sent before the pending change but answered after it: it is on its way, not the last word.
             if (prev && prev.seq > seq) return { ...prev, onWay: [...prev.onWay, want] };
             // A change while another is pending (N1): keep the first old value, and the earlier change is on its way.
-            return { want, seq, was: prev ? prev.was : auto, onWay: prev ? [...prev.onWay, prev.want] : [], online, at: Date.now() };
+            // With no wait left (a look saw the earlier change land while this one was on its way), the change
+            // that was pending when this one was sent is on its way too, so the laptop showing it is no refusal.
+            return { want, seq, was: prev ? prev.was : auto, onWay: prev ? [...prev.onWay, prev.want] : before ? [before] : [], online, at: Date.now() };
           });
         }}
       />

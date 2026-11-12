@@ -459,6 +459,27 @@ describe('the site’s Jobs page: Yours and Auto', () => {
     expect(within(screen.getByRole('region', { name: 'Jobs on Olive’s Mac' })).getByText('1 open job')).toBeInTheDocument();
   });
 
+  // Follow-up: only the first load waits for the snapshot.
+  it('a later tick whose snapshot read is slow leaves the list in place', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const { s, api } = site({ laptops: rows('Auto builds this', 'Your own job'), snapshot: snap([working, mine]) });
+      render(<HostedApp api={api} />);
+      await screen.findByRole('tab', { name: 'Yours' });
+      // From here the list and the tabs stay drawn, while the next tick's snapshot never answers.
+      const watch = everShown(() => document.querySelector('.hosted-laptops') === null || screen.queryByRole('tablist') === null);
+      try {
+        s.snapshotHold = new Promise<void>(() => {});
+        s.laptops = rows('Auto builds this', 'Your own job', 'Another job of yours');
+        await act(async () => { vi.advanceTimersByTime(REFRESH_MS + FIRST_HOLD_MS); });
+        expect(await screen.findByText('Another job of yours')).toBeInTheDocument();
+        expect(snapshots(s)).toBe(2);
+        expect(watch.ever).toBe(false);
+        expect(count('Yours')).toBe('2');
+      } finally { watch.stop(); }
+    } finally { vi.useRealTimers(); }
+  });
+
   // Fix round 1 (M1): at laptop width the heading row is as tall without the tabs as with them.
   it('the heading row keeps its height when the tabs come', async () => {
     const { api } = site({ laptops: rows('Your own job'), snapshot: snap([mine]) });
@@ -475,7 +496,7 @@ describe('the site’s Jobs page: Yours and Auto', () => {
     expect(rules('../../app/pages.css', null, '.seg .seg-tab')).toMatch(/min-height: var\(--control-h-sm\)/);
     expect(rules('../../app/pages.css', null, '.seg:has(> .seg-tab)')).toMatch(/padding: 3px/);
     expect(rules('../../app/pages.css', null, '.seg')).toMatch(/border: 1px solid/);
-    expect(rules('./hosted.css', null, '.page-head .sb-hosted-jobs-tabs')).toMatch(/margin: 0/);
+    expect(rules('../../app/pages.css', null, '.page-head > .seg')).toMatch(/margin: 0/);
     expect(rules('./hosted.css', 'min-width: 761px', '.sb-hosted-jobs .page-head')).toMatch(/min-height: calc\(var\(--control-h-sm\) \+ 8px\)/);
   });
 });

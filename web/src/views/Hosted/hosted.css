@@ -56,9 +56,8 @@
 @media (max-width: 600px) { .hosted-jobs { grid-template-columns: minmax(0, 1fr); } }
 /* Yours and Auto: in the heading row; on a phone the full width, on a row of their own under the title.
    At laptop width the row is as tall without them as with them, so the list never moves when they come:
-   the tab bar is a 28 px tab (--control-h-sm), 3 px padding and a 1 px border above and below (pages.css
-   .seg), and here no margin (app.css gives .seg a top margin). */
-.page-head .sb-hosted-jobs-tabs { margin: 0; }
+   the tab bar is a 28 px tab (--control-h-sm), 3 px padding and a 1 px border above and below, with no
+   margin in a heading row (pages.css .seg, .page-head > .seg). */
 @media (min-width: 761px) {
   .sb-hosted-jobs .page-head { min-height: calc(var(--control-h-sm) + 8px); }
 }
