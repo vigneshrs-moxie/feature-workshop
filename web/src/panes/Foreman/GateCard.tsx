@@ -251,6 +251,10 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   const menuBox = useRef<HTMLDivElement>(null);
   const noteBox = useRef<HTMLTextAreaElement>(null);
   const stopBox = useRef<HTMLInputElement>(null);
+  // What opened the Send back or Reply box (the bar's call, or the card's link): Cancel gives focus back to it.
+  const opener = useRef<HTMLElement | null>(null);
+  // The question whose own-answer box takes focus when it opens: picked by a click, Space or Enter, never by an arrow key.
+  const focusOwn = useRef<string | null>(null);
 
   const levels = meta?.levels;
   const level = isLevel(gate.level) ? gate.level : isLevel(job.level) ? job.level : null;
@@ -357,7 +361,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
     if (r.sent) {
       const what = kind === 'stop' ? 'Stop sent: the Foreman records where things stand and starts nothing else.'
         : kind === 'approve' ? 'Your approval went to the Foreman.'
-          : kind === 'changes' ? 'The changes you asked for went to the Foreman. It stays in this stage and revises.'
+          : kind === 'changes' ? 'The changes you asked for went to the Foreman. It stays at this step and revises.'
             : 'Your reply went to the Foreman.';
       report({ tone: 'ok', text: `${what}${dropped}`, lines, focus: 'notice' });
       // m3: a reply that was taken leaves its box: cleared and closed, so a second press can't send it again.
@@ -443,7 +447,19 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   function openMode(m: Mode) {
     setError(null);
     setMenuOpen(false);
+    if (mode !== m && (m === 'changes' || m === 'message')) {
+      const at = document.activeElement;
+      opener.current = at instanceof HTMLElement && at !== document.body ? at : null;
+    }
     setMode((now) => (now === m ? null : m));
+  }
+
+  /** Cancel the open box: focus goes back to what opened it, when it is still there to take it. */
+  function cancelBox() {
+    setMode(null);
+    const back = opener.current;
+    opener.current = null;
+    if (back?.isConnected && !(back as HTMLButtonElement).disabled) back.focus();
   }
 
   // The card's keys (the 'gate' scope): off while a decision is being sent. `a` only where the Desk
@@ -469,6 +485,19 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   const approveHint = `${approve}. Sends your answers, confirms the decisions you didn’t override, adds the chips’ lines, and says “At these versions”.${gate.nextProposed ? ` The Foreman goes ahead with: ${plainInline(gate.nextProposed)}.` : ''}`;
   const staleHint = 'Off: the plan changed since this card was raised, so this approval would be for an old version.';
 
+  // Why a send went nowhere, and the terminal check it may ask for: beside the box while one is open (where its send button is), else under the calls.
+  const boxOpen = mode === 'changes' || mode === 'message';
+  const sendProblems = (
+    <>
+      {askTerminal && (
+        <label className="check" title="Claude Code is open in this repository in a terminal. Two Foremen on one job would trip over each other.">
+          <Choice type="checkbox" checked={noTerminal} onChange={(e) => setNoTerminal(e.target.checked)} /> None of the open terminals is this job’s Foreman
+        </label>
+      )}
+      {error && <p className="field-problem" role="alert">{error}</p>}
+    </>
+  );
+
   // On the Desk the card's extras go into its one Details sheet; elsewhere they stay on the card.
   const putExtras = (node: ReactNode, key: string) => (extrasTo ? createPortal(node, extrasTo, key) : node);
   return (
@@ -492,7 +521,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
             />
           </label>
           <div className="perm-actions">
-            <Button kind="quiet" disabled={busy} onClick={() => setMode(null)} title="Close this without sending. What you wrote is kept until the card goes.">Cancel</Button>
+            <Button kind="quiet" disabled={busy} onClick={cancelBox} title="Close this without sending. What you wrote is kept until the card goes.">Cancel</Button>
             <Button
               kind="primary"
               busy={spins(mode)}
@@ -505,6 +534,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
               {mode === 'changes' ? 'Send back' : 'Send the reply'}
             </Button>
           </div>
+          {sendProblems}
         </div>
       )}
 
@@ -549,18 +579,25 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
                 <span className="answer-label">
                   {o.id}) <InlineText text={o.label} />
                   {o.id === q.recommendation && <> <span className="chip gate-rec">Recommended</span></>}
-                  {c.choices[q.id] === o.id && <> <span className="chip gate-picked" aria-hidden="true">Picked</span></>}
+                  {c.choices[q.id] === o.id && <> <span className="chip sb-gate-picked" aria-hidden="true">Picked</span></>}
                   {o.consequence && <span className="muted answer-consequence" title="What changes if you pick this answer."><InlineText text={o.consequence} /></span>}
                 </span>
               </label>
             ))}
             <div className="answer-option answer-other">
               {q.options.length > 0 && (
-                <label className="answer-other-pick" title="Answer in your own words instead.">
-                  <Choice type="radio" name={group} value={OTHER} checked={c.choices[q.id] === OTHER} onChange={() => setChoice(q.id, OTHER)} />
+                <label className="answer-other-pick" title="Answer in your own words instead." onPointerDown={() => { focusOwn.current = q.id; }}>
+                  <Choice
+                    type="radio" name={group} value={OTHER} checked={c.choices[q.id] === OTHER} onChange={() => setChoice(q.id, OTHER)}
+                    onKeyDown={(e) => {
+                      if (e.key !== ' ' && e.key !== 'Enter') return;
+                      focusOwn.current = q.id;
+                      if (e.key === 'Enter') { e.preventDefault(); setChoice(q.id, OTHER); }
+                    }}
+                  />
                   <span className="answer-label">
                     Your own answer
-                    {c.choices[q.id] === OTHER && <> <span className="chip gate-picked" aria-hidden="true">Picked</span></>}
+                    {c.choices[q.id] === OTHER && <> <span className="chip sb-gate-picked" aria-hidden="true">Picked</span></>}
                   </span>
                 </label>
               )}
@@ -573,7 +610,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
                   placeholder={q.options.length > 0 ? 'Your own answer' : 'Your answer'}
                   value={c.others[q.id] ?? ''}
                   onChange={(e) => setOther(q.id, e.target.value, q.options.length > 0)}
-                  autoFocus={q.options.length > 0}
+                  ref={(el) => { if (el && focusOwn.current === q.id) { focusOwn.current = null; el.focus(); } }}
                   title="Your answer in your own words."
                 />
               )}
@@ -609,7 +646,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
           <button ref={editBtn} type="button" className="link-button" disabled={busy || stale || lock !== null} onClick={openEdit} title={stale ? staleHint : 'See the whole reply exactly as the Foreman will receive it, edit it, then send it as your approval.'}>
             Edit, then approve<Kbd id="gate-edit" />
           </button>
-          <button type="button" className="link-button" data-gate="revise" disabled={busy || lock !== null} aria-expanded={mode === 'changes'} onClick={() => openMode('changes')} title="Ask for changes: the Foreman stays in this stage and revises. Nothing is approved.">
+          <button type="button" className="link-button" data-gate="revise" disabled={busy || lock !== null} aria-expanded={mode === 'changes'} onClick={() => openMode('changes')} title="Ask for changes: the Foreman stays at this step and revises. Nothing is approved.">
             Revise with feedback<Kbd id="gate-revise" />
           </button>
           <button type="button" className="link-button" data-gate="guidance" disabled={busy || lock !== null} aria-expanded={mode === 'message'} onClick={() => openMode('message')} title="Tell the Foreman something else: a question or guidance. Nothing is approved.">
@@ -689,12 +726,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
         </div>
       )}
 
-      {askTerminal && (
-        <label className="check" title="Claude Code is open in this repository in a terminal. Two Foremen on one job would trip over each other.">
-          <Choice type="checkbox" checked={noTerminal} onChange={(e) => setNoTerminal(e.target.checked)} /> None of the open terminals is this job’s Foreman
-        </label>
-      )}
-      {error && <p className="field-problem" role="alert">{error}</p>}
+      {!boxOpen && sendProblems}
 
       {/* Screens and Try it run on the laptop: the hosted site (packet 2B) leaves them out. */}
       {gate.stage === 'wireframe' && !api.hosted?.() && <ScreensRow slug={slug} hasPage={Boolean(job.wireframes)} />}
@@ -711,7 +743,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
       {decided.length > 0 && (
         <details className="gate-decided" open={decidedOpen}>
           <summary className="gate-fold" onClick={(e) => { e.preventDefault(); setDecidedOpen(!decidedOpen); }} title="The decisions the Foreman made for you with this brief. Open them to read each one and override any of them; going ahead confirms the rest.">
-            {decided.length === 1 ? '1 decision' : `${decided.length} decisions`} made for you <span className="gate-fold-word">{decidedOpen ? 'Hide' : 'Review'}</span> <Kbd id="gate-decided" />
+            {decided.length === 1 ? '1 decision' : `${decided.length} decisions`} made for you <span className="sb-gate-fold-word">{decidedOpen ? 'Hide' : 'Review'}</span> <Kbd id="gate-decided" />
           </summary>
           <section className="gate-decided-body" aria-label="Decided on your behalf">
             <ul className="gate-decided-list">
@@ -723,7 +755,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
                     <p className="gate-decision-text">
                       {over && <><span className="chip gate-changed">Changed</span> </>}
                       <strong><InlineText text={d.decision} /></strong>
-                      {d.reason && <span className="muted"> — <InlineText text={d.reason} /></span>}
+                      {d.reason && <span className="muted">{/[.!?…]$/.test(d.decision.trim()) ? '' : '.'} Why: <InlineText text={d.reason} /></span>}
                       {d.where && <span className="muted"> (<InlineText text={d.where} />)</span>}
                     </p>
                     {over ? (
@@ -732,7 +764,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
                           <span>What should it be instead?</span>
                           <textarea className="text-area" rows={2} value={c.overrides[key]} onChange={(e) => setOverride(key, e.target.value)} disabled={busy} title="Your decision instead. It goes in your reply as “changed”." />
                         </label>
-                        <button type="button" className="link-button" onClick={() => undoOverride(key)} disabled={busy} title="Keep the Foreman’s decision after all: approving confirms it.">Undo override</button>
+                        <button type="button" className="link-button" onClick={() => undoOverride(key)} disabled={busy} title="Keep the Foreman’s decision after all. Going ahead confirms it.">Undo override</button>
                       </div>
                     ) : (
                       <button type="button" className="link-button" onClick={() => override(key)} disabled={busy} title="Change this decision: say what it should be instead. Your reply then lists it as changed, not confirmed.">Override</button>
@@ -747,11 +779,11 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
       )}
 
       {autoDecided.length > 0 && (
-        <details className="gate-auto-decided" open={autoOpen}>
+        <details className="sb-gate-auto-decided" open={autoOpen}>
           <summary className="gate-fold" onClick={(e) => { e.preventDefault(); setAutoOpen(!autoOpen); }} title="What Auto decided on this job so far, in the words Copy decisions uses. Its go-aheads are in What Auto decided.">
-            {autoDecided.length === 1 ? '1 decision' : `${autoDecided.length} decisions`} made by Auto on this job so far <span className="gate-fold-word">{autoOpen ? 'Hide' : 'Review'}</span>
+            {autoDecided.length === 1 ? '1 decision' : `${autoDecided.length} decisions`} made by Auto on this job so far <span className="sb-gate-fold-word">{autoOpen ? 'Hide' : 'Review'}</span>
           </summary>
-          <ul className="gate-auto-list" aria-label="Decided by Auto on this job">
+          <ul className="sb-gate-auto-list" aria-label="Decided by Auto on this job">
             {autoDecided.map((l, i) => <li key={`${i}:${l}`}>{l} (Auto)</li>)}
           </ul>
         </details>
@@ -802,9 +834,9 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
       <HowThisWorks id="gate-card" defaultOpen={false}>
         <p>The Foreman has briefed you and waits for your decision. Nothing goes ahead, and nothing is ever approved for you, until you press one of these.</p>
         <p><strong>Approve</strong> (its label says what it approves and what starts) sends your answers to the questions, confirms the decisions made on your behalf that you didn’t override, and names the versions you approved. <strong>Edit, then approve</strong> shows that reply in full so you can change the words first. {callsOutside
-          ? <><strong>No go: send back</strong> asks for changes: the Foreman stays in this stage. <strong>Reply</strong> sends a question or a note, and the answers you have picked so far, without approving; the card stays open.</>
-          : <><strong>Revise with feedback</strong> asks for changes: the Foreman stays in this stage. <strong>Other guidance</strong> sends a question or a note without approving; the card stays open.</>} Approve needs an answer to every question (a recommended answer is picked for you); while it is off, the card lists why, and the list empties as you resolve each point. <strong>Approve, start after reset</strong> appears when Claude’s usage limit is reached: your approval waits and goes when it resets. <strong>Stop job</strong> is under ⋯ and asks you to type the job’s name.</p>
-        <p><strong>Decisions made for you</strong> is folded to one line: open it to read each one, and <strong>Override</strong> marks one changed, with what it should be instead. <strong>Adjust the next step</strong> holds the chips, which change <strong>only the next step</strong>: skip it, make it lighter or heavier, ask Fable for a second look, do it yourself, or move the level up or down from there. Each adds one line to your reply, shown there exactly, and saves the job’s options where there is one.</p>
+          ? <><strong>No go: send back</strong> asks for changes: the Foreman stays at this step. <strong>Reply</strong> sends a question or a note, and the answers you have picked so far, without approving; the card stays open.</>
+          : <><strong>Revise with feedback</strong> asks for changes: the Foreman stays at this step. <strong>Other guidance</strong> sends a question or a note without approving; the card stays open.</>} Approve needs an answer to every question (a recommended answer is picked for you); while it is off, the card lists why, and the list empties as you resolve each point. <strong>Approve, start after reset</strong> appears when Claude’s usage limit is reached: your approval waits and goes when it resets. <strong>Stop job</strong> is under ⋯ and asks you to type the job’s name.</p>
+        <p><strong>Decisions made for you</strong> is folded to one line: open it to read each one, and <strong>Override</strong> marks one changed, with what it should be instead. On a job Auto ran on, the decisions Auto made are listed under it, each marked (Auto). The evidence is one line until you open it. <strong>Adjust the next step</strong> holds the chips, which change <strong>only the next step</strong>: skip it, make it lighter or heavier, ask Fable for a second look, do it yourself, or move the level up or down from there. Each adds one line to your reply, shown there exactly, and saves the job’s options where there is one.</p>
         <p>If the plan changes after the card appears, it greys out (“Plan changed since this was proposed”) so you can’t approve an old version. If the Foreman is still working, your reply waits in the message box until it finishes. A decision left 4 hours shows as parked.</p>
       </HowThisWorks>
       , 'how')}

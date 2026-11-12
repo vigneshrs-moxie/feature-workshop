@@ -258,8 +258,8 @@ describe('the evidence folded to one line', () => {
     const post = vi.fn(async () => ({ ...VIEW, ok: true, started: true, recording: true, evidence: EVIDENCE, commit: 'fed9876cba1' }));
     foldSetup({ ...VIEW, commit: 'fed9876cba1' }, post);
     const older = await screen.findByRole('region', { name: /^Evidence: 1 passed/ });
-    expect(within(older).queryByRole('button', { name: 'Record again' })).toBeNull();
-    fireEvent.click(within(older).getByRole('button', { name: 'Show' }));
+    // An earlier commit's evidence opens by itself (fix round 1, M4).
+    expect(within(older).getByRole('button', { name: 'Hide' })).toHaveAttribute('aria-expanded', 'true');
     await act(async () => { fireEvent.click(within(older).getByRole('button', { name: 'Record again' })); });
     expect(post).toHaveBeenCalledWith('/api/job/alpha/evidence/record', {});
   });
@@ -277,5 +277,35 @@ describe('the evidence folded to one line', () => {
     await act(async () => { fireEvent.click(within(none).getByRole('button', { name: 'Record' })); });
     expect(post).toHaveBeenCalledWith('/api/job/alpha/evidence/record', {});
     expect(screen.getByRole('region', { name: /^Evidence: recording/ })).toBeInTheDocument();
+  });
+});
+
+describe('the folded evidence opens by itself when something is wrong', () => {
+  function foldSetup(view: EvidenceView) {
+    const store: Store = createStore();
+    const api = { get: vi.fn(async (): Promise<unknown> => view), post: vi.fn() } as unknown as ApiClient;
+    return render(<WorkshopContext.Provider value={{ store, api }}><EvidenceStrip slug="alpha" fold /></WorkshopContext.Provider>);
+  }
+
+  it('evidence for an earlier commit, or a recording that failed, starts open; Hide still folds it', async () => {
+    const first = foldSetup({ ...VIEW, commit: 'fed9876cba1' });
+    const older = await screen.findByRole('region', { name: 'Evidence: 1 passed, 1 failed, 1 not recorded' });
+    expect(within(older).getByText('From an earlier commit (abc1234)')).toBeVisible();
+    const hide = within(older).getByRole('button', { name: 'Hide' });
+    expect(hide).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.click(hide);
+    expect(within(older).getByRole('button', { name: 'Show' })).toHaveAttribute('aria-expanded', 'false');
+    expect(within(older).getByText('From an earlier commit (abc1234)')).not.toBeVisible();
+    first.unmount();
+    const problem = { commit: 'abc1234def5', message: 'Playwright’s Chromium isn’t installed on this computer.', fix: 'Run npx playwright install chromium', at: '2026-10-28T12:00:00Z' };
+    const second = foldSetup({ ...VIEW, evidence: null, problem });
+    const none = await screen.findByRole('region', { name: 'Evidence: not recorded yet' });
+    expect(within(none).getByText('Playwright’s Chromium isn’t installed on this computer.', { exact: false })).toBeVisible();
+    expect(within(none).getByRole('button', { name: 'Record again' })).toBeInTheDocument();
+    second.unmount();
+    // Evidence for the commit now, with no problem: closed.
+    foldSetup(VIEW);
+    const now = await screen.findByRole('region', { name: 'Evidence: 1 passed, 1 failed, 1 not recorded' });
+    expect(within(now).getByRole('button', { name: 'Show' })).toHaveAttribute('aria-expanded', 'false');
   });
 });

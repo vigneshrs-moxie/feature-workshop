@@ -117,7 +117,8 @@ export function foldLine(view: Pick<EvidenceView, 'evidence' | 'recording' | 'pr
 export function EvidenceStrip({ slug, tested = null, refresh = null, fold = false }: { slug: string; tested?: string | null; refresh?: unknown; fold?: boolean }) {
   const { api } = useWorkshop();
   const headId = useId();
-  const [open, setOpen] = useState(false);
+  // Folded: null until he opens or folds it himself, so it follows what the evidence says (open when something is wrong).
+  const [opened, setOpen] = useState<boolean | null>(null);
   const [view, setView] = useState<EvidenceView | null>(null);
   const [note, setNote] = useState<{ tone: 'ok' | 'problem'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -177,13 +178,15 @@ export function EvidenceStrip({ slug, tested = null, refresh = null, fold = fals
   const counts = ev ? (['passed', 'failed', 'skipped'] as const).map((s) => [s, ev.criteria.filter((c) => c.status === s).length] as const) : [];
   const summary = counts.filter(([, n]) => n > 0).map(([s, n]) => `${n} ${s === 'passed' ? 'passed' : s === 'failed' ? 'failed' : 'not recorded'}`).join(', ');
 
-  // Folded: the line, then the rest once opened.
+  // Folded: the line, then the rest once opened. It starts open when the evidence is for an earlier
+  // commit or the last recording failed, so neither warning hides behind the line.
+  const open = opened ?? Boolean(earlier || (!view.recording && view.problem));
   const recordedWhen = ev && !view.recording ? agoWords(ev.at, Date.now()) : null;
   const head = fold ? (
-    <p className="gate-evidence-head gate-evidence-fold">
+    <p className="gate-evidence-head sb-gate-evidence-fold">
       <span id={headId}>{foldLine(view)}</span>
-      {ev && !view.recording && <span className="muted gate-evidence-when"> · recorded {recordedWhen ? `${recordedWhen} ` : ''}for commit <code className="num">{short(ev.commit)}</code></span>}{' '}
-      <button type="button" className="link-button gate-fold-word" aria-expanded={open} aria-controls={`${headId}-body`} onClick={() => setOpen(!open)} title={open ? 'Fold the evidence back to this line.' : 'Show each acceptance line, Copy link and Record again.'}>
+      {ev && !view.recording && <span className="muted sb-gate-evidence-when"> · recorded {recordedWhen ? `${recordedWhen} ` : ''}for commit <code className="num">{short(ev.commit)}</code></span>}{' '}
+      <button type="button" className="link-button sb-gate-fold-word" aria-expanded={open} aria-controls={`${headId}-body`} onClick={() => setOpen(!open)} title={open ? 'Fold the evidence back to this line.' : 'Show each acceptance line, Copy link and Record again.'}>
         {open ? 'Hide' : 'Show'}
       </button>
     </p>
@@ -197,7 +200,7 @@ export function EvidenceStrip({ slug, tested = null, refresh = null, fold = fals
   return (
     <section className={`gate-evidence${fold ? ' is-fold' : ''}`} aria-labelledby={headId} aria-busy={view.recording || busy}>
       {head}
-      <div className="gate-evidence-body" id={`${headId}-body`} hidden={fold && !open}>
+      <div className="sb-gate-evidence-body" id={`${headId}-body`} hidden={fold && !open}>
         {earlier && ev && (
           <p className="perm-warn gate-evidence-earlier" title={`These pictures were recorded at ${short(ev.commit)}; the checks ran on ${short(against)}.`}>
             <span aria-hidden="true">⚠ </span>From an earlier commit ({short(ev.commit)})

@@ -946,7 +946,7 @@ describe('GateCard: questions first, the evidence in one line', () => {
     return null;
   });
   /** Each part of the card, in the order the card must draw them. */
-  const PARTS = ['.gate-head', '.gate-question', '.gate-off', '.gate-actions', '.gate-try', '.gate-evidence', '.gate-decided', '.gate-auto-decided', '.gate-adjust', '.how'];
+  const PARTS = ['.gate-head', '.gate-question', '.gate-off', '.gate-actions', '.gate-try', '.gate-evidence', '.gate-decided', '.sb-gate-auto-decided', '.gate-adjust', '.how'];
   const inOrder = (root: Element, selectors: string[]) => {
     const els = selectors.map((s) => root.querySelector(s));
     els.forEach((el, i) => expect(el, selectors[i]).not.toBeNull());
@@ -982,6 +982,7 @@ describe('GateCard: questions first, the evidence in one line', () => {
     // The last choice: its box opens once it is picked.
     const own = within(q1).getByRole('radio', { name: 'Your own answer' });
     expect(within(q1).queryByRole('textbox')).toBeNull();
+    fireEvent.pointerDown(own);
     fireEvent.click(own);
     expect(own).toBeChecked();
     expect(yes.closest('label'), 'Picked moves with the pick').not.toHaveTextContent('Picked');
@@ -996,7 +997,7 @@ describe('GateCard: questions first, the evidence in one line', () => {
 
   it('a card on a job Auto ran on says how many decisions Auto made and lists them, each marked (Auto)', () => {
     const { show } = setup({ det: oneQ({}, { auto: AUTO }) });
-    const fold = () => card()!.querySelector<HTMLDetailsElement>('.gate-auto-decided');
+    const fold = () => card()!.querySelector<HTMLDetailsElement>('.sb-gate-auto-decided');
     expect(fold()!.open).toBe(false);
     const summary = fold()!.querySelector('summary')!;
     expect(summary).toHaveTextContent('2 decisions made by Auto on this job so far');
@@ -1063,7 +1064,7 @@ describe('GateCard: questions first, the evidence in one line', () => {
     expect(card()!.querySelector('.gate-try')).toBeNull();
     expect(within(screen.getByRole('group', { name: '1. Keep the old column?' })).getByRole('radio', { name: 'Your own answer' })).toBeInTheDocument();
     expect(card()!.querySelector('.gate-decided summary')).toHaveTextContent('2 decisions made for you');
-    expect(card()!.querySelector('.gate-auto-decided summary')).toHaveTextContent('2 decisions made by Auto on this job so far');
+    expect(card()!.querySelector('.sb-gate-auto-decided summary')).toHaveTextContent('2 decisions made by Auto on this job so far');
     fireEvent.click(button('Revise with feedback'));
     const box = within(card()!).getByRole('textbox', { name: 'What should change? The Foreman stays at this step and revises; nothing is approved.' });
     expect(box).toHaveAttribute('placeholder', 'Say what should change…');
@@ -1078,5 +1079,86 @@ describe('the hand test on a step that is his', () => {
     setup({ det: detail({ stage: 'test' }), jobExtra: { auto: { on: true, ran: true, yours: true } } });
     expect(screen.getByRole('button', { name: 'Try it on your computer' })).toBeInTheDocument();
     expect(screen.queryByText('Auto skips your hand test on this job. The recorded evidence still runs.')).toBeNull();
+  });
+});
+
+// ---------- Task 8, fix round 1: focus, where a send's problem shows, and the words ----------
+
+describe('GateCard: focus and the box’s own problems', () => {
+  beforeEach(disclosuresOpen);
+  const q1 = () => screen.getByRole('group', { name: '1. Keep the old column?' });
+  const ownBox = () => within(q1()).queryByRole('textbox', { name: 'Your own answer to question 1' });
+
+  it('the own-answer box takes focus on a click, Space or Enter, never on an arrow key', () => {
+    setup({ det: oneQ() });
+    const own = within(q1()).getByRole('radio', { name: 'Your own answer' });
+    const yes = within(q1()).getByRole('radio', { name: /a\) Yes/ });
+    // Arrow keys: the browser moves focus to the choice and picks it; focus stays in the group.
+    fireEvent.keyDown(yes, { key: 'ArrowDown' });
+    own.focus();
+    fireEvent.click(own);
+    expect(own).toBeChecked();
+    expect(ownBox()).not.toBeNull();
+    expect(own).toHaveFocus();
+    // A click.
+    fireEvent.click(yes);
+    expect(ownBox()).toBeNull();
+    fireEvent.pointerDown(own);
+    fireEvent.click(own);
+    expect(ownBox()).toHaveFocus();
+    // Space.
+    fireEvent.click(yes);
+    own.focus();
+    fireEvent.keyDown(own, { key: ' ' });
+    fireEvent.click(own);
+    expect(ownBox()).toHaveFocus();
+    // Enter picks it too.
+    fireEvent.click(yes);
+    own.focus();
+    fireEvent.keyDown(own, { key: 'Enter' });
+    expect(own).toBeChecked();
+    expect(ownBox()).toHaveFocus();
+  });
+
+  it('Cancel gives focus back to what opened the box', () => {
+    setup({ det: oneQ() });
+    for (const [opener, box] of [['Revise with feedback', /What should change\?/], ['Other guidance', /Your answers or a note/]] as const) {
+      const b = button(opener);
+      b.focus();
+      fireEvent.click(b);
+      expect(within(card()!).getByRole('textbox', { name: box })).toHaveFocus();
+      fireEvent.click(within(card()!.querySelector<HTMLElement>('.gate-note')!).getByRole('button', { name: 'Cancel' }));
+      expect(within(card()!).queryByRole('textbox', { name: box })).toBeNull();
+      expect(b).toHaveFocus();
+    }
+  });
+
+  it('a refused send back says why beside the box, with the terminal check there too', async () => {
+    const post = vi.fn(async () => { throw new ApiError(409, 'Claude Code is open in this repository in a terminal.', { code: 'terminal-open' }); });
+    setup({ det: oneQ(), post });
+    fireEvent.click(button('Revise with feedback'));
+    fireEvent.change(within(card()!).getByRole('textbox', { name: /What should change\?/ }), { target: { value: 'Split step 2.' } });
+    await act(async () => { fireEvent.click(button('Send back')); });
+    const box = card()!.querySelector<HTMLElement>('.gate-note')!;
+    expect(within(box).getByRole('alert')).toHaveTextContent('Claude Code is open in this repository in a terminal.');
+    expect(within(box).getByRole('checkbox', { name: /None of the open terminals is this job’s Foreman/ })).toBeInTheDocument();
+    // The box closed: they show under the calls, as before.
+    fireEvent.click(within(box).getByRole('button', { name: 'Cancel' }));
+    expect(card()!.querySelector('.gate-note')).toBeNull();
+    expect(within(card()!).getByRole('alert')).toHaveTextContent('Claude Code is open in this repository in a terminal.');
+  });
+
+  it('the decisions and the help say step, in plain sentences with no dash', () => {
+    setup({ det: oneQ() });
+    const list = screen.getByRole('region', { name: 'Decided on your behalf' });
+    const item = within(list).getByText('Reviewers: head inspector').closest('li')!;
+    expect(item.querySelector('.gate-decision-text')).toHaveTextContent('Reviewers: head inspector. Why: L1 default (review)');
+    expect(item.textContent).not.toMatch(/ — /);
+    fireEvent.click(within(item).getByRole('button', { name: 'Override' }));
+    expect(within(item).getByRole('button', { name: 'Undo override' })).toHaveAttribute('title', 'Keep the Foreman’s decision after all. Going ahead confirms it.');
+    const help = card()!.querySelector('.how-body')!;
+    expect(help).toHaveTextContent('the Foreman stays at this step');
+    expect(help.textContent).not.toMatch(/this stage/);
+    expect(button('Revise with feedback').getAttribute('title')).not.toMatch(/stage/);
   });
 });

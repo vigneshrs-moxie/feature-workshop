@@ -556,3 +556,23 @@ describe('the bar: Auto’s go, the Foreman among the crew, and the small words'
     }
   });
 });
+
+// Task 8, fix round 1 (M2): Cancel gives focus back to the bar's call that opened the box.
+describe('Cancel under the bar', () => {
+  it('Cancel gives focus back to No go: send back or Reply', async () => {
+    setup({ jobs: waiting(), gate: GATE, post: sentPost() });
+    await gateShown();
+    for (const [name, box] of [[/^No go: send back/, /What should change\?/], ['Reply', /Your answers or a note/]] as const) {
+      const call = within(bar()).getByRole('button', { name });
+      await waitFor(() => expect(call).toBeEnabled());
+      call.focus();
+      fireEvent.click(call);
+      expect(await screen.findByRole('textbox', { name: box })).toHaveFocus();
+      fireEvent.click(within(document.querySelector<HTMLElement>('.job-gate-body .gate-note')!).getByRole('button', { name: 'Cancel' }));
+      expect(screen.queryByRole('textbox', { name: box })).toBeNull();
+      expect(call).toHaveFocus();
+    }
+    // The three calls stay on.
+    for (const b of threeCalls()) await waitFor(() => expect(b).toBeEnabled());
+  });
+});
