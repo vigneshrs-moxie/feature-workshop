@@ -259,7 +259,7 @@ async function readJson(file) {
 }
 
 // The briefs' short names by number, from their file names (briefs/003-plan.md → { 3: 'plan' }).
-async function briefNames(dir) {
+export async function briefNames(dir) {
   const out = {};
   let names = [];
   try { names = await fs.readdir(path.join(dir, 'briefs')); } catch { return out; }
@@ -352,6 +352,10 @@ const dayMonth = (iso) => {
   return m && MONTHS[Number(m[1]) - 1] ? `${Number(m[2])} ${MONTHS[Number(m[1]) - 1]}` : '';
 };
 const ORBIT_KINDS = new Set(['answer', 'send-back']);
+// The rows Copy decisions keeps: an answered question, a send back, a level changed over the automatic pick.
+const orbitKept = (r) => ORBIT_KINDS.has(r.kind) || (r.kind === 'level' && r.overrode === 'auto');
+// One kept row's line, as Copy decisions writes it, before its number and its mark.
+const orbitLine = (r) => `${cleanTicketText(oneLine(r.question, 300))} ${r.kind === 'send-back' ? 'Sent back.' : cleanTicketText(oneLine(r.choice, 400))}`;
 
 /**
  * The job's decisions as a plain list to paste into an Orbit comment ("Copy decisions"). Starbase
@@ -361,18 +365,27 @@ const ORBIT_KINDS = new Set(['answer', 'send-back']);
  * "Not doing" lines. No names of people. No cut. Returns { text, count }.
  */
 export function orbitCopy(rows = [], { ticket = null, title = null, today = '', notDoing = [] } = {}) {
-  const kept = rows.filter((r) => ORBIT_KINDS.has(r.kind) || (r.kind === 'level' && r.overrode === 'auto'));
+  const kept = rows.filter(orbitKept);
   const head = [oneLine(ticket || title || 'Job', 120), 'decisions'].join(' ') + (dayMonth(today) ? `, ${dayMonth(today)}` : '');
   const not = notDoing.map((l) => cleanTicketText(String(l).trim().replace(/^[-*]\s+/, ''))).filter(Boolean);
   if (!kept.length && !not.length) return { text: `${head}\nNo product decisions recorded yet.`, count: 0 };
   const out = [head];
   kept.forEach((r, i) => {
-    const said = r.kind === 'send-back' ? 'Sent back.' : cleanTicketText(oneLine(r.choice, 400));
-    out.push(`${i + 1}. ${cleanTicketText(oneLine(r.question, 300))} ${said}${r.by === 'auto' ? ' (Auto)' : ''}`.replace(/\s+$/, ''));
+    out.push(`${i + 1}. ${orbitLine(r)}${r.by === 'auto' ? ' (Auto)' : ''}`.replace(/\s+$/, ''));
     if (oneLine(r.why)) out.push(`   Why: ${cleanTicketText(oneLine(r.why, 400))}`);
   });
   if (not.length) out.push(`Not doing: ${not.join('; ')}`);
   return { text: out.join('\n'), count: kept.length };
+}
+
+/**
+ * What Auto decided on the job that Copy decisions keeps, oldest first: for each of decisionRows'
+ * rows Auto sent that orbitCopy keeps (an answered question, a send back), the line orbitCopy
+ * writes for it, without its number and its (Auto) mark. Auto's go-aheads are left out, as
+ * orbitCopy leaves them out, so this count is the count of lines Copy decisions marks (Auto).
+ */
+export function autoLines(rows = []) {
+  return rows.filter((r) => r.by === 'auto' && orbitKept(r)).map((r) => orbitLine(r).replace(/\s+$/, ''));
 }
 
 // ---------- The repository copy (plan G21, G22, G27) ----------

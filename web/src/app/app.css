@@ -853,6 +853,8 @@ a:hover { text-decoration: underline; }
 .gate-running { margin: var(--space-1) 0 0; font-size: var(--text-sm); }
 .gate-question .answer-label { overflow-wrap: anywhere; }
 .gate-rec { margin-left: var(--space-2); background: var(--accent-soft); color: var(--accent-strong); }
+/* The answer picked (Task 8): beside Recommended. */
+.gate-picked { margin-left: var(--space-2); background: var(--surface-2); color: var(--text-2); }
 .answer-other { flex-wrap: wrap; cursor: default; }
 .answer-other:hover { background: transparent; }
 .answer-other-pick { display: flex; align-items: flex-start; gap: var(--space-2); cursor: pointer; }
@@ -1030,6 +1032,10 @@ a:hover { text-decoration: underline; }
 .gate-chosen { margin-left: var(--space-1); border-color: var(--accent); color: var(--text-1); }
 .gate-card .gate-chips { margin-top: var(--space-2); padding-top: 0; border-top: 0; }
 .gate-decided-body { margin-top: var(--space-2); }
+/* What Auto decided on the job (Task 8), folded like the decisions made for you; the fold's Review or Hide. */
+.gate-card .gate-auto-decided { margin: var(--space-3) 0 0; padding-top: var(--space-3); border-top: 1px solid var(--border-1); }
+.gate-auto-list { display: flex; flex-direction: column; gap: var(--space-1); margin: var(--space-2) 0 0; padding-left: var(--space-4); font-size: var(--text-sm); }
+.gate-fold-word { color: var(--accent-strong); font-weight: var(--weight-medium); }
 /* A question's options: the consequence of each answer, one muted line under it (clarify briefs). */
 .answer-consequence { display: block; margin-top: 2px; font-size: var(--text-sm); }
 /* The wireframe gate: one row of screen chips above the questions, each a jump into the Screens tab. */
@@ -1185,6 +1191,10 @@ a:hover { text-decoration: underline; }
 .gate-evidence-head { margin: 0 0 var(--space-1); font-size: var(--text-sm); font-weight: var(--weight-medium); }
 .gate-evidence-head code { font-size: .92em; }
 .gate-evidence-count { font-weight: var(--weight-regular); }
+/* Folded on the gate card (Task 8): one line, with Show or Hide. */
+.gate-evidence.is-fold .gate-evidence-head { margin: 0; }
+.gate-evidence-when { font-weight: var(--weight-regular); }
+.gate-evidence.is-fold .gate-evidence-body:not([hidden]) { margin-top: var(--space-2); }
 .gate-evidence-earlier, .gate-evidence-problem, .gate-evidence-recording, .gate-evidence-none, .gate-evidence-note { margin: 0 0 var(--space-1); font-size: var(--text-sm); }
 .evidence-list { display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-1) 0; padding: 0; list-style: none; }
 .evidence-row { display: flex; flex-direction: column; gap: var(--space-1); }

@@ -98,6 +98,20 @@ export function shownItems(items: ThreadItem[], facts: AnswerFacts = {}): ShownI
   return out;
 }
 
+/** What you did yourself: your messages, your answers to permissions, your saves of the job's notes. */
+export const isYours = (it: ThreadItem) => it.kind === 'you' || it.kind === 'decision' || (it.kind === 'note' && Boolean(it.notes));
+
+/**
+ * Whether a message is new to you: newer than your last look (`seenAt`, a time) and not yours.
+ * Never looked (null), or a message with no time: not new. A brief's detail file is part of its brief.
+ */
+export function isNewSince(it: ThreadItem, seenAt: string | null | undefined): boolean {
+  if (!seenAt || !it.at || isYours(it) || (it.kind === 'brief' && isDetailFile(it.file))) return false;
+  const t = Date.parse(it.at);
+  const seen = Date.parse(seenAt);
+  return Number.isFinite(t) && Number.isFinite(seen) && t > seen;
+}
+
 /** Rulings or proof lines as a list; empty when absent (then nothing is shown). */
 export function extraLines(value: Extras['rulings']): string[] {
   if (Array.isArray(value)) return value.filter((v): v is string => typeof v === 'string' && v.trim() !== '');

@@ -212,6 +212,97 @@ test('a job’s page has each step’s times and documents (Task 2)', { timeout:
   assert.deepEqual(ticketJob.page.times.spec, { startedAt: startLine.at, endedAt: null });
 });
 
+// ---------- The Tester's check counts and the hand test (Task 5c, design 3.5) ----------
+
+test('starting Try it from the page marks the hand test started; the recorder starting the app does not', { timeout: 90_000 }, async () => {
+  // Its own demo dashboard, with the evidence recorder's pretend Playwright (no browser), so the
+  // recorder can start the job's app as it does at a Test step.
+  const own = path.join(root, 'hand-test');
+  const dirs = { features: path.join(own, 'feature-work'), projects: path.join(own, 'projects'), agents: path.join(own, 'agents'), skills: path.join(own, 'skills'), state: path.join(own, 'state'), home: path.join(own, 'home') };
+  for (const d of Object.values(dirs)) await fs.mkdir(d, { recursive: true });
+  const slug = 'hours-column';
+  const dir = path.join(dirs.features, slug);
+  const worktree = path.join(own, 'worktrees', slug);
+  await fs.mkdir(path.join(dir, 'evidence', 'specs'), { recursive: true });
+  await fs.mkdir(worktree, { recursive: true });
+  await fs.writeFile(path.join(dir, 'status.json'), JSON.stringify({
+    schema_version: 1, slug, title: 'Hours column', route: 'small', stage: 'test', stage_state: 'working', worktree,
+    repo: { path: worktree, base_branch: 'main' }, updated_at: OLD,
+  }, null, 2));
+  await fs.writeFile(path.join(dir, 'options.json'), JSON.stringify({ schema_version: 2, level: 2, flow: 'small', title: 'Hours column' }, null, 2));
+  for (const n of [1, 2]) {
+    await fs.writeFile(path.join(dir, 'evidence', 'specs', `AC-${n}.spec.mjs`), `import { test, expect } from '@playwright/test';\ntest('AC-${n}: line ${n}', async ({ page }) => {\n  await page.goto('/');\n  await expect(page).toHaveTitle(/./);\n});\n`);
+  }
+  const report = path.join(dir, 'test-report.md');
+  await fs.writeFile(report, '# Test report\n\n- Commit under test: abc1234def5\n\n## Results\n- AC-1 PASS\n- AC-2 FAIL\n- AC-3 NOT RUN\n\n## Evidence\n\n- AC-1: Managers see the Hours column. Spec: evidence/specs/AC-1.spec.mjs\n- AC-2: The export is hidden. Spec: evidence/specs/AC-2.spec.mjs\n');
+  // Written well before now: the recorder waits for a report that is still changing.
+  const then = new Date(Date.now() - 60_000);
+  await fs.utimes(report, then, then);
+
+  const evidenceFixture = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'evidence');
+  const ownOutput = [];
+  const d = await startDashboard({
+    env: {
+      HOME: dirs.home, STARBASE_DEMO: '1', STARBASE_PLAYWRIGHT: path.join(evidenceFixture, 'fake-playwright.mjs'),
+      STARBASE_FEATURES_DIR: dirs.features, STARBASE_PROJECTS_DIR: dirs.projects, STARBASE_AGENTS_DIR: dirs.agents,
+      STARBASE_SKILLS_DIR: dirs.skills, STARBASE_STATE_DIR: dirs.state,
+    },
+    output: ownOutput,
+  });
+  try {
+    const getOwn = async (p) => {
+      const res = await fetch(`${d.base}${p}`);
+      assert.equal(res.status, 200, `GET ${p}`);
+      return res.json();
+    };
+    const postOwn = async (p, body = {}) => {
+      const res = await fetch(`${d.base}${p}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Starbase-Token': d.token }, body: JSON.stringify(body) });
+      return { status: res.status, body: await res.json() };
+    };
+
+    // The Tester's counts, with the report's time; nobody has started the hand test.
+    let job = await getOwn(`/api/job/${slug}`);
+    assert.deepEqual(job.page.checks, { passed: 1, failed: 1, notRun: 1, at: then.toISOString() });
+    assert.deepEqual(job.page.handTest, { startedAt: null });
+
+    // The recorder starts the job's app to record (the page's Record; it may have begun by itself).
+    const rec = await postOwn(`/api/job/${slug}/evidence/record`);
+    assert.ok(rec.status === 200 || (rec.status === 409 && rec.body.code === 'busy'), JSON.stringify(rec.body));
+    let recorded = rec.status === 200 ? rec.body.evidence : null;
+    for (let i = 0; i < 60 && !recorded; i++) { await sleep(250); recorded = (await getOwn(`/api/job/${slug}/evidence`)).evidence; }
+    assert.ok(recorded, `the recording finished:\n${ownOutput.join('').slice(-2000)}`);
+    const audit = (await fs.readFile(path.join(dirs.state, 'audit.jsonl'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
+    assert.ok(!audit.some((l) => l.action === 'local' && l.slug === slug), 'Try it’s start was never sent');
+    job = await getOwn(`/api/job/${slug}`);
+    assert.deepEqual(job.page.handTest, { startedAt: null }, 'the recorder starting the app is not the hand test');
+
+    // Try it's app started from the page: the hand test has started, kept in Starbase's own record.
+    const before = Date.now();
+    const start = await postOwn(`/api/job/${slug}/local`, { action: 'start' });
+    assert.equal(start.status, 200, JSON.stringify(start.body));
+    job = await getOwn(`/api/job/${slug}`);
+    const at = Date.parse(job.page.handTest.startedAt);
+    assert.ok(at >= before - 1000 && at <= Date.now() + 1000, job.page.handTest.startedAt);
+    const sessions = JSON.parse(await fs.readFile(path.join(dirs.state, 'sessions.json'), 'utf8'));
+    assert.equal(sessions[dir].tryStartedAt, job.page.handTest.startedAt);
+
+    // The Test step carries both; another step carries neither.
+    const testStep = await getOwn(`/api/job/${slug}/stage/test`);
+    assert.deepEqual(testStep.checks, job.page.checks);
+    assert.deepEqual(testStep.handTest, job.page.handTest);
+    const buildStep = await getOwn(`/api/job/${slug}/stage/build`);
+    assert.ok(!('checks' in buildStep) && !('handTest' in buildStep));
+  } finally {
+    await d.stop();
+  }
+});
+
+test('a job from before this change has no checks and no hand test started', { timeout: 60_000 }, async () => {
+  const job = await getJob('orbit-470-older-job');
+  assert.equal(job.page.checks, null);
+  assert.deepEqual(job.page.handTest, { startedAt: null });
+});
+
 test('a closed job’s last step ends at the closed time; an open one’s has no end (Task 2, fix round 1)', { timeout: 60_000 }, async () => {
   const slug = 'closed-at-ship';
   await writeJob(slug, {

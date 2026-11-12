@@ -114,6 +114,34 @@ test('stepDocs: a bug job’s triage, reproduce and diagnose briefs go to Spec, 
   assert.deepEqual(byStep.plan, ['briefs/003-diagnose.md']);
 });
 
+// ---------- The Tester's check counts (Task 5c, design 3.5) ----------
+
+test('checkCounts counts each acceptance line once', async () => {
+  const { checkCounts } = await import('../lib/job-page.js');
+  const report = [
+    '# Test report',
+    '',
+    '## Results',
+    '- AC-1 PASS',
+    '- AC-2 FAIL',
+    '- AC-2 PASS',
+    '- AC-3 NOT RUN',
+    '',
+    '## Evidence',
+    '- AC-1: Managers see the Hours column. Spec: evidence/specs/AC-1.spec.mjs',
+  ].join('\n');
+  assert.deepEqual(checkCounts(report), { passed: 2, failed: 0, notRun: 1 });
+  // A table row counts the same, and its last mention still wins.
+  assert.deepEqual(checkCounts('| AC-1 | Managers see it | FAIL |\n| AC-01 | Again | PASS |\n| AC-2 | Export | FAIL |\n'), { passed: 1, failed: 1, notRun: 0 });
+});
+
+test('a report with no marks is null', async () => {
+  const { checkCounts } = await import('../lib/job-page.js');
+  assert.equal(checkCounts('# Test report\n\n- AC-1: Managers see the Hours column.\n- Everything PASS here names no line.\n'), null);
+  assert.equal(checkCounts(''), null);
+  assert.equal(checkCounts(null), null);
+});
+
 // ---------- Fix round 1 ----------
 
 test('stepDocs: a bug job’s repro.md is under Investigate, its diagnosis.md under Plan and Build; a feature job is unchanged', () => {

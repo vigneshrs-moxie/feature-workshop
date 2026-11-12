@@ -15,6 +15,8 @@
 // Takes a card as built for /api/features (boardCard in server.js), with its `finish`
 // (lib/finish.js finishLineReached: { reached, landed }).
 
+import { YOURS_NOW } from './auto.js';
+
 export const GROUPS = ['needs-you', 'running', 'paused', 'idle', 'shipping', 'done'];
 
 export function groupFor(card) {
@@ -40,7 +42,7 @@ export function groupCards(cards) {
 // ---------- The four lanes of Jobs (plan §7, packet M) ----------
 //
 //   working    running: the Foreman or a crew member is at it (a usage-limit pause stays here, with
-//              `paused` set and when it carries on)
+//              `paused` set and when it carries on), or its evidence is being recorded (card.testing)
 //   needs-you  something waits for you: a go-ahead, an answer, a permission, a crew question, a PR
 //              feedback card, a stuck stack part, or changes asked for on a PR
 // An Auto job (lib/auto.js) with a gate or card waiting is working ("Auto is deciding: the plan"),
@@ -91,6 +93,9 @@ export function laneFor(card, { lane = null, pending = [], handled = null } = {}
   const leftToYou = typeof handled === 'function' && cards.some((p) => p?.id && !handled(p.id));
   if (card.auto?.on === true && (cards.length || card.needsYou)) {
     if (card.auto.stopped) return needs(`Auto stopped: ${card.auto.stopped.reason ?? 'it waits for you'}`);
+    // The person wrote to this job while its step waited (the runner's boardCards, lib/auto.js wroteWhileWaiting): the step is
+    // theirs from that moment, in the words Auto's stop writes a moment later, never "Auto is deciding".
+    if (card.auto.yours === true) return needs(`Auto stopped: ${YOURS_NOW}`);
     if (!leftToYou) return { lane: 'working', laneReason: `Auto is deciding: ${STAGE_WORDS[card.stage] ?? 'the next step'}` };
   }
   if (cards.length) {
@@ -108,6 +113,8 @@ export function laneFor(card, { lane = null, pending = [], handled = null } = {}
   if (card.stuck) return needs(`${card.stuck} is stuck and needs you`);
   // An Auto job that stopped waits for you, whatever else holds it (paused by a restart, nothing running), until a reply runs.
   if (card.auto?.on === true && card.auto.stopped && !card.working && !card.starting) return needs(`Auto stopped: ${card.auto.stopped.reason ?? 'it waits for you'}`);
+  // Its evidence being recorded (runner/evidence.js progressWords), with no card or gate waiting: the line it is on.
+  if (card.testing && !card.needsYou) return { lane: 'working', laneReason: String(card.testing) };
 
   if (card.working || card.starting) {
     const doing = (Array.isArray(card.nowDoing) ? card.nowDoing : []).find((d) => d?.doing)?.doing;

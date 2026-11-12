@@ -205,12 +205,12 @@ function gateSetup(d: JobDetail) {
 describe('the gate card’s evidence slot', () => {
   it('shows the strip at the test gate and at a later gate', async () => {
     gateSetup(detail({ stage: 'test' }));
-    expect(await screen.findByRole('region', { name: /^Evidence at abc1234/ })).toBeTruthy();
+    expect(await screen.findByRole('region', { name: /^Evidence: 1 passed, 1 failed, 1 not recorded$/ })).toBeTruthy();
   });
 
   it('shows it at the review gate too', async () => {
     gateSetup(detail({ stage: 'review', nextStage: 'pr1' }));
-    expect(await screen.findByRole('region', { name: /^Evidence at abc1234/ })).toBeTruthy();
+    expect(await screen.findByRole('region', { name: /^Evidence: 1 passed, 1 failed, 1 not recorded$/ })).toBeTruthy();
   });
 
   it('shows nothing before the test gate', async () => {
@@ -218,5 +218,64 @@ describe('the gate card’s evidence slot', () => {
     await act(async () => {});
     expect(screen.queryByRole('region', { name: /^Evidence/ })).toBeNull();
     expect(get.mock.calls.some(([p]) => String(p).endsWith('/evidence'))).toBe(false);
+  });
+});
+
+// Task 8 (design 3.3): on the gate card the evidence folds to one line with its counts.
+describe('the evidence folded to one line', () => {
+  function foldSetup(view: EvidenceView, post = vi.fn()) {
+    const store: Store = createStore();
+    const get = vi.fn(async (): Promise<unknown> => view);
+    const api = { get, post } as unknown as ApiClient;
+    const utils = render(<WorkshopContext.Provider value={{ store, api }}><EvidenceStrip slug="alpha" fold /></WorkshopContext.Provider>);
+    return { ...utils, get, post };
+  }
+  const recorded = (over: Partial<NonNullable<EvidenceView['evidence']>> = {}): EvidenceView => ({ ...VIEW, commit: 'c3e8a51ff', evidence: { ...EVIDENCE, commit: 'c3e8a51ff', at: new Date(Date.now() - 40 * 60_000).toISOString(), ...over } });
+
+  it('the evidence is one line with its counts until it is opened', async () => {
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const { unmount } = foldSetup(recorded());
+    const region = await screen.findByRole('region', { name: 'Evidence: 1 passed, 1 failed, 1 not recorded' });
+    expect(region).toHaveTextContent('recorded 40 min ago for commit c3e8a51');
+    const toggle = within(region).getByRole('button', { name: 'Show' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    // Closed: no rows, no Copy link.
+    expect(within(region).queryByRole('list', { name: 'Each acceptance line' })).toBeNull();
+    expect(within(region).queryByRole('button', { name: 'Copy link' })).toBeNull();
+    fireEvent.click(toggle);
+    expect(toggle).toHaveTextContent('Hide');
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(within(region).getByRole('list', { name: 'Each acceptance line' })).toBeInTheDocument();
+    await act(async () => { fireEvent.click(within(region).getByRole('button', { name: 'Copy link' })); });
+    expect(writeText).toHaveBeenCalledWith(VIEW.folderUrl);
+    unmount();
+    // Every line recorded: no "not recorded".
+    const passed = foldSetup(recorded({ criteria: EVIDENCE.criteria.slice(0, 2) }));
+    expect(await screen.findByRole('region', { name: 'Evidence: 1 passed, 1 failed' })).toBeInTheDocument();
+    passed.unmount();
+    // For an older commit, Record again is inside and records.
+    const post = vi.fn(async () => ({ ...VIEW, ok: true, started: true, recording: true, evidence: EVIDENCE, commit: 'fed9876cba1' }));
+    foldSetup({ ...VIEW, commit: 'fed9876cba1' }, post);
+    const older = await screen.findByRole('region', { name: /^Evidence: 1 passed/ });
+    expect(within(older).queryByRole('button', { name: 'Record again' })).toBeNull();
+    fireEvent.click(within(older).getByRole('button', { name: 'Show' }));
+    await act(async () => { fireEvent.click(within(older).getByRole('button', { name: 'Record again' })); });
+    expect(post).toHaveBeenCalledWith('/api/job/alpha/evidence/record', {});
+  });
+
+  it('while it records the line says the line number', async () => {
+    const progress = { commit: 'abc1234def5', startedAt: new Date().toISOString(), line: 4, of: 19, lines: [] };
+    const first = foldSetup({ ...VIEW, recording: true, progress });
+    expect(await screen.findByRole('region', { name: 'Evidence: recording, line 4 of 19' })).toBeInTheDocument();
+    first.unmount();
+    // Nothing recorded yet: says so, and Record is inside.
+    const post = vi.fn(async () => ({ ...VIEW, ok: true, started: true, recording: true, evidence: null }));
+    foldSetup({ ...VIEW, evidence: null }, post);
+    const none = await screen.findByRole('region', { name: 'Evidence: not recorded yet' });
+    fireEvent.click(within(none).getByRole('button', { name: 'Show' }));
+    await act(async () => { fireEvent.click(within(none).getByRole('button', { name: 'Record' })); });
+    expect(post).toHaveBeenCalledWith('/api/job/alpha/evidence/record', {});
+    expect(screen.getByRole('region', { name: /^Evidence: recording/ })).toBeInTheDocument();
   });
 });

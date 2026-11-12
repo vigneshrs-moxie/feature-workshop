@@ -42,6 +42,8 @@ export interface JobAuto {
   /** Why it stopped and waits for you ({ reason, rule, at } as the record keeps it), or null. */
   stopped?: { reason?: string; rule?: string | null; at?: string } | string | null;
   step?: string | null;
+  /** The board card's only: he wrote to the job while this step waited, so the step is his to decide, not Auto's (Task 6b); missing: not known. */
+  yours?: boolean;
   failures?: number;
   lastBrief?: string | null;
   /** The board card's view only: whether the job's level allows Auto, and the sentence when it doesn't. */
@@ -59,6 +61,10 @@ export interface AutoDecision {
   why: string;
   risk?: string;
   answers?: { question: string; choice: string; reason: string }[];
+  /** What it was: a go-ahead, an answer, a permission allowed (or refused), or Auto stopping; missing from dashboards from before. */
+  kind?: 'approve' | 'answer' | 'allow' | 'stop';
+  /** The step it was on (null: not known); missing from dashboards from before. */
+  stop?: StopId | null;
 }
 export interface AutoDecided {
   on: boolean;
@@ -66,6 +72,10 @@ export interface AutoDecided {
   tag: string | null;
   summary: [string, string, string];
   entries: AutoDecision[];
+  /** When a tag started Auto on the job (null: you started it); missing from dashboards from before. */
+  startedAt?: string | null;
+  /** The job's ticket key (null: none); missing from dashboards from before. */
+  ticket?: string | null;
 }
 
 export interface Job {
@@ -127,6 +137,8 @@ export interface Job {
   stackSuggested?: string | null;
   /** Its Auto record; missing when Auto never touched it. */
   auto?: JobAuto;
+  /** Its evidence being recorded now ("Recording evidence: line 4 of 19"); null when not, missing from dashboards from before. */
+  testing?: string | null;
   [key: string]: unknown;
 }
 
@@ -994,7 +1006,8 @@ export interface BriefItem extends ItemBase {
  * steerId: set when you steered it into a reply in progress (its delivery state is in the store).
  * gateBrief: sent from a gate card, answering that brief.
  */
-export interface YouItem extends ItemBase { kind: 'you'; text: string; sendKind?: string; steerId?: string; runId?: string; gateBrief?: number }
+/** by: 'auto' when Auto sent it for you (its answer to a brief); missing: you sent it, or not known. */
+export interface YouItem extends ItemBase { kind: 'you'; text: string; sendKind?: string; steerId?: string; runId?: string; gateBrief?: number; by?: 'auto' }
 /** `html` is rendered and sanitised by the dashboard (lib/markdown.js: raw HTML escaped, unsafe links dropped). */
 export interface ReplyItem extends ItemBase { kind: 'reply'; html: string; stopped?: boolean }
 /** rule: the id of your saved "Always allow" rule that let it run, when one did. */
@@ -1014,7 +1027,8 @@ export type ThreadItem = BriefItem | YouItem | ReplyItem | AutoItem | ProblemIte
 export interface JobDetail {
   slug: string;
   /** Auto mode's card, with the Orbit tag that started the job when Auto start did (else null). */
-  auto?: { on: boolean; tag?: string | null } & Record<string, unknown>;
+  /** decided: what Auto decided on the job, in Copy decisions' words, oldest first (only on a job Auto ran on; missing from dashboards from before). */
+  auto?: { on: boolean; tag?: string | null; decided?: string[] } & Record<string, unknown>;
   title?: string;
   kind?: string;
   branch?: string | null;
@@ -1093,6 +1107,30 @@ export interface JobPageFacts {
   review?: { at?: string | null; rows?: ReviewRow[] } | null;
   /** The three pull requests, PR #1 to #3 (dashboard/lib/job-page.js prRows). */
   prs?: PrRow[];
+  /** The Tester's check counts from test-report.md (dashboard/lib/job-page.js checkCounts); null: no report, or no line marked. */
+  checks?: TestChecks | null;
+  /** The owner's hand test: when Try it's app was last started from the page; null: not read. */
+  handTest?: HandTest | null;
+}
+
+/**
+ * How the Tester's checks came out: one count per acceptance line (AC-<n>) test-report.md marks
+ * PASS, FAIL or NOT RUN (its last mention wins). at: the report's time.
+ */
+export interface TestChecks {
+  passed?: number;
+  failed?: number;
+  notRun?: number;
+  at?: string | null;
+}
+
+/**
+ * The owner's hand test at the Test step (Try it). startedAt: when Try it's app was last started
+ * from the page (never by the evidence recorder); null: not started. It stores no result: his Go
+ * or Send back at the Test step is the result.
+ */
+export interface HandTest {
+  startedAt?: string | null;
 }
 
 /**
@@ -1594,6 +1632,21 @@ export interface EvidenceView {
   /** The evidence folder on this computer, and its address (what "Copy link" copies). */
   folder: string;
   folderUrl: string;
+  /** While Playwright records: which line of how many, and each line's state; null when not; missing from dashboards from before. */
+  progress?: EvidenceProgress | null;
+  /** Watch: true on the laptop while a recording runs (GET /api/job/:slug/evidence/live); false on the website; missing from dashboards from before. */
+  watch?: boolean;
+}
+
+/** A recording by line (dashboard/lib/evidence.js): line is the running line's place, else the last finished one's. */
+export interface EvidenceProgress {
+  commit: string;
+  startedAt: string;
+  /** The running line's place (from 1), else the last finished one's; 0: no line has begun yet. */
+  line: number;
+  of: number;
+  /** Every acceptance line in order; at: when its state last changed (null: not yet). */
+  lines: { id: string; title: string; state: 'waiting' | 'running' | 'passed' | 'failed' | 'skipped'; video: string | null; at: string | null }[];
 }
 
 /** POST /api/job/:slug/evidence/record: the view again; started when the recording carries on by itself. */
@@ -2003,6 +2056,10 @@ export interface StageView {
   time?: StepTime;
   /** The step's documents (job.page.docs for this step); missing: not known. */
   docs?: JobDocEntry[];
+  /** The Tester's check counts (job.page.checks), on the Test step only; missing: not known. */
+  checks?: TestChecks | null;
+  /** The owner's hand test (job.page.handTest), on the Test step only; missing: not known. */
+  handTest?: HandTest | null;
   /** Plan and Build: the plan's steps (job.page.plan; null: no steps); missing: not known. */
   plan?: { version?: string | null; steps?: PlanStepRow[] } | null;
   /** Ship: the three pull requests (job.page.prs); missing: not known. */

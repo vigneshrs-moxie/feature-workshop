@@ -24,7 +24,7 @@ export function jobMarks(job: Job, run: Run | null | undefined): string {
  * (`sent: true`), the run it started: kept after the bar's sent state clears, so the page can go on
  * saying it was sent while that run works or until the brief shows as answered.
  */
-interface LastSent { body: GateRequest; marks: string; gate: string | null; session: string | null; queuedId?: string; accepted?: { runId: string | null; at: number } }
+interface LastSent { body: GateRequest; marks: string; gate: string | null; session: string | null; queuedId?: string; accepted?: { runId: string | null; at: number }; answers: number; next: string | null; again?: boolean }
 const lastSent = new Map<string, LastSent>();
 
 /** A decision the server took: its kind, the brief it answered and the run it started. */
@@ -36,6 +36,10 @@ export interface AcceptedDecision {
   runId: string | null;
   /** When the server took it (ms since 1970). */
   at: number;
+  /** How many of the card's questions it answered (the count of body.answers). */
+  answers: number;
+  /** The next step's label, from the gate's nextProposed at the click (null: it named none). */
+  next: string | null;
 }
 
 /** The id of the decision the website queued for the laptop, from a gate answer. */
@@ -53,11 +57,13 @@ export interface GateSent {
   moved: boolean;
   /** The last decision the server took (`sent: true`), or null: kept once the sent state clears. */
   accepted: AcceptedDecision | null;
+  /** Try again is out: the same decision sent once more and not answered yet. */
+  retrying: boolean;
   /**
    * Send a decision: sending until it answers, then sent if it went to the Foreman; queued by the
    * website, still sending until the page shows it; else idle. Refusals throw.
    */
-  send(api: ApiClient, body: GateRequest, gate?: string | null): Promise<GateResult>;
+  send(api: ApiClient, body: GateRequest, gate?: string | null, kept?: { next?: string | null; again?: boolean }): Promise<GateResult>;
   /** Try again: the same decision once more (throws when there is none, or on a refusal). */
   retry(api: ApiClient): Promise<GateResult>;
 }
@@ -88,9 +94,11 @@ export function useGateSent(job: Job, run: Run | null | undefined, queuedId: str
     if (last?.marks !== marks) clear();
   }, [state, marks, slug, clear, queuedId, awaited]);
 
-  async function send(api: ApiClient, body: GateRequest, gate: string | null = null): Promise<GateResult> {
+  async function send(api: ApiClient, body: GateRequest, gate: string | null = null, { next = null, again = false }: { next?: string | null; again?: boolean } = {}): Promise<GateResult> {
     const key = gate ?? (typeof body.briefNumber === 'number' ? `#${body.briefNumber}` : null);
-    lastSent.set(slug, { body, marks, gate: key, session });
+    // What the sent line names: how many questions it answered and the step the gate said comes next.
+    const said = { answers: Object.keys(body.answers ?? {}).length, next };
+    lastSent.set(slug, { body, marks, gate: key, session, ...said, ...(again ? { again } : {}) });
     sent.start();
     let r: GateResult;
     try {
@@ -101,10 +109,10 @@ export function useGateSent(job: Job, run: Run | null | undefined, queuedId: str
     }
     const queued = queuedIdOf(r);
     if (r?.sent) {
-      lastSent.set(slug, { body, marks, gate: key, session, accepted: { runId: typeof r.run?.id === 'string' ? r.run.id : null, at: Date.now() } });
+      lastSent.set(slug, { body, marks, gate: key, session, ...said, accepted: { runId: typeof r.run?.id === 'string' ? r.run.id : null, at: Date.now() } });
       sent.accepted();
     }
-    else if (queued) lastSent.set(slug, { body, marks, gate: key, session, queuedId: queued });
+    else if (queued) lastSent.set(slug, { body, marks, gate: key, session, ...said, queuedId: queued });
     // Held for the usage limit or given back to the message box: nothing went to the Foreman.
     else sent.clear();
     return r;
@@ -115,17 +123,18 @@ export function useGateSent(job: Job, run: Run | null | undefined, queuedId: str
     kind: lastSent.get(slug)?.body.kind ?? null,
     moved: lastSent.has(slug) && lastSent.get(slug)!.marks !== marks,
     accepted: acceptedOf(lastSent.get(slug)),
+    retrying: state === 'sending' && lastSent.get(slug)?.again === true,
     send,
     retry: (api) => {
       const last = lastSent.get(slug);
-      return last ? send(api, last.body, last.gate) : Promise.reject(new Error('Nothing to send again.'));
+      return last ? send(api, last.body, last.gate, { next: last.next, again: true }) : Promise.reject(new Error('Nothing to send again.'));
     },
   };
 }
 
 function acceptedOf(last: LastSent | undefined): AcceptedDecision | null {
   if (!last?.accepted) return null;
-  return { kind: last.body.kind, brief: last.body.briefNumber ?? null, gate: last.gate, runId: last.accepted.runId, at: last.accepted.at };
+  return { kind: last.body.kind, brief: last.body.briefNumber ?? null, gate: last.gate, runId: last.accepted.runId, at: last.accepted.at, answers: last.answers, next: last.next };
 }
 
 /** The job's Foreman session, from its detail: a new one means the job was started again. */

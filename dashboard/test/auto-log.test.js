@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { AUTO_LOG_FILE, autoCost, autoLog, autoLogMarkdown, autoLogRecord, autoTime, writeAutoLog } from '../lib/auto-log.js';
+import { AUTO_LOG_FILE, autoCost, autoLog, autoLogMarkdown, autoLogRecord, autoTime, capAutoLog, writeAutoLog } from '../lib/auto-log.js';
 import { AUTO_MARK } from '../lib/auto.js';
 
 // Local times, so the tests do not depend on the machine's time zone.
@@ -106,11 +106,11 @@ test('the mark is the exact sentence', () => {
   assert.equal(AUTO_MARK, "(Sent by Starbase's Auto for the person. options.json says auto: true.)");
 });
 
-test('the record the site gets is { on, stopped, tag, summary, entries }, and none for a job Auto has not run on', () => {
+test('the record the site gets is { on, stopped, tag, summary, entries, startedAt, ticket }, and none for a job Auto has not run on', () => {
   assert.equal(autoLogRecord([{ action: 'send', kind: 'approve' }], { title: 'T' }), null);
   assert.equal(autoLogRecord([], {}), null);
   const rec = autoLogRecord(LINES, { title: 'T', record: { on: true, stopped: null, tag: 'auto-ok', by: 'tag', ran: true } });
-  assert.deepEqual(Object.keys(rec), ['on', 'stopped', 'tag', 'summary', 'entries']);
+  assert.deepEqual(Object.keys(rec), ['on', 'stopped', 'tag', 'summary', 'entries', 'startedAt', 'ticket']);
   assert.equal(rec.on, true);
   assert.equal(rec.stopped, null);
   assert.equal(rec.tag, 'auto-ok');
@@ -145,4 +145,41 @@ test('agent text cannot start inline markup in the Markdown', () => {
   const md = autoLogMarkdown(view);
   assert.equal(/[<`[]/.test(md.replace(/\\[<`[]/g, '')), false, md);
   assert.ok(md.includes('\\<img src=x>'), md);
+});
+
+test('a job a tag started says when and on which ticket; one you started has no start time', () => {
+  const tagged = [{ at: at(11, 7, 50), action: 'auto', what: 'on', by: 'tag' }, ...LINES.slice(1)];
+  const rec = autoLogRecord(tagged, { title: 'T', record: { on: true, by: 'tag', tag: 'auto-ok' }, ticket: 'ORBIT-479' });
+  assert.equal(rec.startedAt, at(11, 7, 50));
+  assert.equal(rec.ticket, 'ORBIT-479');
+  // Started by you (LINES' first line is by you): no start time; no ticket given: none.
+  const mine = autoLogRecord(LINES, { record: { on: true } });
+  assert.equal(mine.startedAt, null);
+  assert.equal(mine.ticket, null);
+  // An old Auto log, its lines with no stage and no by, still reads.
+  const old = autoLogRecord([{ action: 'auto', what: 'on' }, { action: 'auto', what: 'gate', chose: 'Approved' }], {});
+  assert.equal(old.startedAt, null);
+  assert.deepEqual(old.entries.map((e) => [e.kind, e.stop, e.chose]), [['approve', null, 'Approved']]);
+  assert.equal(old.summary[0], 'Auto made 1 decision on this job. The Approver cost $0.00.');
+  // Cut to the site's limits, the new facts are kept.
+  assert.deepEqual(capAutoLog(rec), rec);
+});
+
+test('each entry says its kind and its step, and a stop is an entry that the count leaves out', () => {
+  const allow = { at: at(11, 8, 15), action: 'auto', what: 'permission', stage: 'implement', asked: 'Run npm test', chose: 'Allowed', why: 'Tests only.', costUsd: 0.01 };
+  const stop = { at: at(11, 8, 20), action: 'auto', what: 'stop', stage: 'test', rule: 'database', reason: 'A migration needs you.', why: 'A migration needs you.' };
+  const rec = autoLogRecord([...LINES, allow, stop], { record: { on: true, stopped: { reason: 'A migration needs you.' } } });
+  assert.deepEqual(rec.entries.map((e) => [e.kind, e.stop, e.stage, e.chose]), [
+    ['stop', 'test', 'Test', 'A migration needs you.'],
+    ['allow', 'build', 'Build', 'Allowed'],
+    ['answer', 'build', 'Build', 'Keep the column'],
+    ['approve', 'plan', 'Plan', 'Approved the plan'],
+  ]);
+  // The count and the last decision are the decisions only: the stop is not one.
+  assert.equal(rec.summary[0], 'Auto made 3 decisions on this job. The Approver cost $0.05.');
+  assert.equal(rec.summary[2], `Last decision: ${autoTime(at(11, 8, 15))}, Build: Allowed.`);
+  // A stage that is not one of the steps has no step.
+  assert.equal(autoLogRecord([{ action: 'auto', what: 'gate', stage: 'somewhere', chose: 'x' }], {}).entries[0].stop, null);
+  // The same entries cut to the site's limits keep their kind and step.
+  assert.deepEqual(capAutoLog(rec).entries.map((e) => [e.kind, e.stop]), rec.entries.map((e) => [e.kind, e.stop]));
 });

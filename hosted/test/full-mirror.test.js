@@ -574,3 +574,58 @@ test('Auto on the website: another person’s job is a 404 and a flag that is no
     assert.equal(runner.handled.length, 0, 'the laptop was sent nothing');
   } finally { l.link.stop(); await s.close(); }
 });
+
+test('the website accepts an upload for a video the progress names', async () => {
+  const runner = mirrorRunner();
+  const dir = tmp();
+  fs.mkdirSync(path.join(dir, 'abc1234', 'AC-1'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'abc1234', 'AC-1', 'video.webm'), Buffer.from('a video, not really'));
+  runner.evidenceDir = dir;
+  // Part way through a recording: no evidence.json yet, the first line done with its video.
+  const progress = { commit: 'abc1234', startedAt: '2026-11-11T09:00:00.000Z', line: 2, of: 2, lines: [
+    { id: 'AC-1', title: 'Export button', state: 'passed', video: 'abc1234/AC-1/video.webm', at: '2026-11-11T09:01:00.000Z' },
+    { id: 'AC-2', title: 'Hidden from technicians', state: 'running', video: null, at: '2026-11-11T09:01:00.000Z' },
+  ] };
+  runner.local.evidence.view = async () => ({ evidence: null, commit: 'abc1234', wanted: true, why: null, recording: true, problem: null, progress, folder: '/home/someone/ev', folderUrl: 'file:///home/someone/ev/' });
+  const { s, olive, l } = await setUp({ runner });
+  try {
+    await until(async () => (await count(s, 'SELECT count(*)::int AS n FROM evidence_files WHERE uploaded_at IS NOT NULL')) === 1, { what: 'the video to upload' });
+    const row = (await s.db.query('SELECT file, pathname, content_type FROM evidence_files')).rows[0];
+    const personId = (await s.db.query('SELECT person_id FROM runners WHERE id = $1', [olive.runnerId])).rows[0].person_id;
+    assert.deepEqual(row, { file: 'abc1234/AC-1/video.webm', pathname: `evidence/${personId}/${olive.runnerId}/add-export/abc1234/AC-1/video.webm`, content_type: 'video/webm' });
+    assert.equal(s.site.ctx.blob.files.get(row.pathname).bytes.toString(), 'a video, not really');
+    const view = (await olive.person.json('/api/job/add-export/evidence')).body;
+    assert.equal(view.progress.lines[0].video, 'abc1234/AC-1/video.webm');
+    assert.deepEqual(view.onSite, ['abc1234/AC-1/video.webm']);
+    const link = await olive.person.get('/api/job/add-export/evidence/file?path=abc1234%2FAC-1%2Fvideo.webm');
+    assert.equal(link.status, 302);
+    assert.equal(await (await s.fetch(link.headers.get('location'))).text(), 'a video, not really');
+    // Only what the progress names, and never outside the job's own place.
+    const ask = (body) => post(s, olive.token, '/api/runner/evidence/upload', body);
+    assert.equal((await ask({ slug: 'add-export', file: 'abc1234/AC-2/video.webm', type: 'video/webm', size: 10 })).status, 404, 'a line still running names no video');
+    assert.equal((await ask({ slug: 'add-export', file: '../abc1234/AC-1/video.webm', type: 'video/webm', size: 10 })).status, 400);
+    assert.equal((await ask({ slug: 'add-export', file: '/abc1234/AC-1/video.webm', type: 'video/webm', size: 10 })).status, 400);
+  } finally { l.link.stop(); await s.close(); }
+});
+
+test('the website has no live picture and says where it is', async () => {
+  const runner = mirrorRunner();
+  // The laptop is recording and could be watched there.
+  const progress = { commit: 'abc1234', startedAt: '2026-11-11T09:00:00.000Z', line: 1, of: 1, lines: [
+    { id: 'AC-1', title: 'Export button', state: 'running', video: null, at: '2026-11-11T09:00:01.000Z' },
+  ] };
+  runner.local.evidence.view = async () => ({ evidence: null, commit: 'abc1234', wanted: true, why: null, recording: true, watch: true, problem: null, progress, folder: '/home/someone/ev', folderUrl: 'file:///home/someone/ev/' });
+  const { s, olive, l } = await setUp({ runner });
+  try {
+    const view = (await olive.person.json('/api/job/add-export/evidence')).body;
+    assert.equal(view.recording, true, 'the laptop’s recording shows');
+    assert.equal(view.watch, false, 'Watch is on the laptop only');
+    const live = await olive.person.json('/api/job/add-export/evidence/live');
+    assert.equal(live.status, 404);
+    assert.equal(live.body.error, 'The live picture shows on your laptop.');
+    // Nor can the laptop send one up.
+    const ask = await post(s, olive.token, '/api/runner/evidence/upload', { slug: 'add-export', file: 'abc1234/run/live.jpg', type: 'image/jpeg', size: 10 });
+    assert.equal(ask.status, 404);
+    assert.equal(await count(s, 'SELECT count(*)::int AS n FROM evidence_files'), 0);
+  } finally { l.link.stop(); await s.close(); }
+});

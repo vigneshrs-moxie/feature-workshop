@@ -252,3 +252,32 @@ export function keepLatest(map, key, value, max) {
   while (map.size > max) map.delete(map.keys().next().value);
   return value;
 }
+
+// ---------- The Tester's check counts (design 3.5) ----------
+
+// An acceptance line's id (AC-1, AC-01) and the Tester's mark on the same line of test-report.md.
+const AC_ID = /\bAC-(\d{1,4})\b/;
+const CHECK_MARK = /\b(NOT RUN|PASS|FAIL)\b/;
+
+/**
+ * How the Tester's checks came out, by test-report.md: { passed, failed, notRun }, one count per
+ * acceptance line (AC-<n>) the report marks PASS, FAIL or NOT RUN on the same line, its last mention
+ * winning (a line checked again). Null when no line is marked. Pure.
+ */
+export function checkCounts(reportText) {
+  if (typeof reportText !== 'string') return null;
+  const marks = new Map();
+  for (const line of reportText.split(/\r?\n/)) {
+    const id = AC_ID.exec(line);
+    const mark = id ? CHECK_MARK.exec(line) : null;
+    if (mark) marks.set(Number(id[1]), mark[1]);
+  }
+  if (!marks.size) return null;
+  const out = { passed: 0, failed: 0, notRun: 0 };
+  for (const mark of marks.values()) {
+    if (mark === 'PASS') out.passed += 1;
+    else if (mark === 'FAIL') out.failed += 1;
+    else out.notRun += 1;
+  }
+  return out;
+}

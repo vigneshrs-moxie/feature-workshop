@@ -12,6 +12,7 @@
 //   GET  /api/job/:slug/evidence/file?path=  a short-lived signed link (302) to one of your own
 //                                            files; anyone else's, or one not there yet, is a 404
 //   POST /api/job/:slug/evidence/record      recording runs on the laptop
+//   GET  /api/job/:slug/evidence/live        Watch is on the laptop: the live picture never comes here
 // These come before the job routes in routes-mirror.js, which would answer them with a 404.
 
 import { makeBlob, BlobNotSetUp } from '../lib/blob.js';
@@ -23,7 +24,7 @@ const TYPES = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg'
 const FILE = /^(?!.*\.\.)[\w.-]+(?:\/[\w.-]+){0,4}$/;
 const SLUG = (v) => typeof v === 'string' && v.length > 0 && v.length <= 200 && /^[\w.-]+$/.test(v) && v !== '.' && v !== '..';
 
-/** Every file an evidence list names. */
+/** Every file an evidence list names, and each finished line's video its progress names (a recording part way). */
 function named(view) {
   const out = new Set();
   for (const c of view?.evidence?.criteria ?? []) {
@@ -31,6 +32,7 @@ function named(view) {
     const v = typeof c.video === 'string' ? c.video : c.video?.file;
     if (typeof v === 'string') out.add(v);
   }
+  for (const l of Array.isArray(view?.progress?.lines) ? view.progress.lines : []) if (typeof l?.video === 'string') out.add(l.video);
   return out;
 }
 
@@ -93,7 +95,8 @@ export default function fileRoutes(ctx) {
         if (!rec && !(await records().get(person.id, 'job', m[1]))) throw new HttpError(404, 'No job by that name.');
         const { rows } = await db.query('SELECT file FROM evidence_files WHERE person_id = $1 AND job = $2 AND runner_id = $3 AND uploaded_at IS NOT NULL', [person.id, m[1], rec?.runnerId ?? 0]);
         const view = rec?.value ?? { evidence: null, commit: null, wanted: false, why: null, recording: false, problem: null };
-        sendJson(res, 200, { ...view, folder: null, folderUrl: null, hosted: true, onSite: rows.map((r) => r.file) });
+        // watch false: the live picture shows on the laptop only.
+        sendJson(res, 200, { ...view, folder: null, folderUrl: null, hosted: true, watch: false, onSite: rows.map((r) => r.file) });
       },
     },
     {
@@ -117,5 +120,6 @@ export default function fileRoutes(ctx) {
       },
     },
     { method: 'POST', path: /^\/api\/job\/([^/]+)\/evidence\/record$/, auth: 'session', async run() { throw new HttpError(409, 'Evidence is recorded on your laptop. Open the job there to record again.', { code: 'on-laptop' }); } },
+    { method: 'GET', path: /^\/api\/job\/([^/]+)\/evidence\/live$/, auth: 'session', async run() { throw new HttpError(404, 'The live picture shows on your laptop.', { code: 'on-laptop' }); } },
   ];
 }

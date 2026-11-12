@@ -327,6 +327,9 @@ export function stageView(job, stop, { activity = job.activity ?? [], agents = j
   // Plan and Build: the plan's steps; Ship: the three pull requests; Review: its findings by reviewer
   // (job.page.plan, .prs, .review). Left out when the answer has none of them (an older Starbase).
   const page = job.page && typeof job.page === 'object' ? job.page : {};
+  // The Test step's check counts and hand test, as the job answer's page has them; on no other step,
+  // and left out when the answer has none (an older Starbase: not known).
+  const testOwn = stop === 'test' && job.page ? Object.fromEntries(['checks', 'handTest'].filter((k) => Object.hasOwn(job.page, k)).map((k) => [k, job.page[k]])) : {};
 
   const apps = Array.isArray(local?.terminalApps) ? local.terminalApps : [];
   return {
@@ -346,6 +349,7 @@ export function stageView(job, stop, { activity = job.activity ?? [], agents = j
     ...((stop === 'plan' || stop === 'build') && page.plan !== undefined ? { plan: page.plan } : {}),
     ...(stop === 'ship' && Array.isArray(page.prs) ? { prs: page.prs } : {}),
     ...(stop === 'review' && page.review !== undefined ? { review: reviewByReviewer(page.review, [...agentsHere, ...finished]) } : {}),
+    ...testOwn,
   };
 }
 

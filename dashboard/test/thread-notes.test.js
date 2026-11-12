@@ -74,3 +74,15 @@ test('a message you wrote is still yours', () => {
   const t = buildThread({ audit: [line('2026-10-27T10:00:00Z', { action: 'send', kind: 'message', text: 'Use the smaller table.', runId: 'r1' })] });
   assert.deepEqual(yours(t).map((x) => x.text), ['Use the smaller table.']);
 });
+
+// Task 7 fix: Auto's own answer to a brief keeps who sent it, so the job page never says it was his.
+test('a gate answer Auto sent keeps by: auto on its message; one he sent has none', () => {
+  const t = buildThread({ audit: [
+    line('2026-10-27T10:00:00Z', { action: 'send', kind: 'approve', text: 'Approved.', runId: 'r1', sessionId: 's1', gateBrief: 2, by: 'auto' }),
+    line('2026-10-27T10:05:00Z', { action: 'send', kind: 'approve', text: 'Approved.', runId: 'r2', sessionId: 's1', gateBrief: 3 }),
+  ] });
+  const [auto, his] = yours(t);
+  assert.equal(auto.by, 'auto');
+  assert.equal(auto.gateBrief, 2);
+  assert.equal('by' in his, false);
+});

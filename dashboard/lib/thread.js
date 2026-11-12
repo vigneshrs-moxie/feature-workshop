@@ -115,8 +115,8 @@ export function buildThread({ briefs = [], audit = [], autoResume = true, servic
     // Review rounds (lib/review-round.js): the round's message is shown by its notes, never as yours.
     else if (e.action === 'send' && e.kind === 'review-round') continue;
     else if (e.action?.startsWith('review-') || e.action === 'gh-write') { const text = roundNote(e); if (text) note(text); }
-    // gateBrief: sent from a gate card, answering that brief.
-    else if (e.action === 'send') thread.push({ id: id('you'), kind: 'you', at: e.at, text: e.text, sendKind: e.kind, ...(Number.isInteger(e.gateBrief) ? { gateBrief: e.gateBrief } : {}) });
+    // gateBrief: sent from a gate card, answering that brief. by: 'auto' when Auto sent it, not you.
+    else if (e.action === 'send') thread.push({ id: id('you'), kind: 'you', at: e.at, text: e.text, sendKind: e.kind, ...(Number.isInteger(e.gateBrief) ? { gateBrief: e.gateBrief } : {}), ...(e.by === 'auto' ? { by: 'auto' } : {}) });
     // A gate reply held until Claude's usage limit resets (lib/limits.js hold); sent then as a 'send'.
     else if (e.action === 'send-held') note(`Your reply${Number.isInteger(e.gateBrief) ? ` to brief ${e.gateBrief}` : ''} waits for Claude’s usage limit to reset${e.autoResume === false ? ' and for you to press “Carry on now”' : ''}; it goes to the Foreman then.`);
     // A held reply dropped because you sent a message yourself meanwhile (lib/limits.js forget).

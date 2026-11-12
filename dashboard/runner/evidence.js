@@ -11,8 +11,15 @@
 //     local      its LocalRunner (Try it)
 //     on         its event door: a 'change' (a job folder changed) looks for jobs ready to record
 //   returns the door the site's routes use (site/routes-evidence.js, through runner.local.evidence):
-//     view(slug)          { evidence, commit, wanted, why, recording, problem, folder, folderUrl }
+//     view(slug)          { evidence, commit, wanted, why, recording, problem, progress, watch, folder, folderUrl }
+//                         (progress: by line while Playwright runs, else null; each change is an
+//                         `evidence` event with outcome 'progress', and one with progress null at the end;
+//                         watch: true while Playwright runs, so the laptop's page can show Watch)
+//     progressWords(slug) "Recording evidence: line 4 of 19" while it runs ("…: starting, 19 lines" before
+//                         a line begins), else null (the Jobs card's `testing`)
 //     file(slug, rel)     { abs, type, size } of one picture or video inside evidence/, else 404
+//     live(slug)          { abs, type: 'image/jpeg', size } of the hidden browser's picture while it records
+//                         and someone watches (each ask marks it watched for 5 s), else 404; laptop only
 //     record(slug)        records for the commit the report names now (409 "Already recorded for …");
 //                         one that takes longer than a moment carries on by itself ({ started: true })
 //
@@ -23,11 +30,12 @@
 // mode nothing real runs, so only that script can record there.
 
 import { spawn } from 'node:child_process';
+import fsp from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { HttpError } from '../lib/http-guard.js';
-import { EVIDENCE_DIR, EvidenceError, evidenceFile, evidenceWanted, readEvidence, readyToRecord, recordEvidence, reportCommit, shortCommit } from '../lib/evidence.js';
+import { EVIDENCE_DIR, EvidenceError, LIVE_FRESH_MS, NO_LIVE, evidenceFile, evidenceWanted, liveFiles, readEvidence, readyToRecord, recordEvidence, recordingWords, reportCommit, shortCommit } from '../lib/evidence.js';
 import { fillPattern } from '../lib/profile.js';
 import { killTree, shellFor } from '../lib/platform.js';
 import { PRODUCT } from '../lib/brand.js';
@@ -64,6 +72,7 @@ function runShell(command, { cwd, timeoutMs = 15_000 } = {}) {
 export function evidenceRunner({ jobs, local, state, events, on, demo = false, env = process.env }) {
   const recording = new Set(); // slugs being recorded now
   const problems = new Map(); // slug -> { commit, message, fix, at }: the last recording that couldn't finish
+  const progress = new Map(); // slug -> the recording's progress by line (lib/evidence.js), while Playwright runs
   const tried = new Set(); // `${slug}@${commit}` the change watcher already started once (Record tries again)
   let queue = Promise.resolve(); // one recording at a time: one browser, one worker
 
@@ -81,18 +90,28 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
     return { script: own.cli, url: own.url };
   }
 
-  function runPlaywright(script, { configFile, cwd, specs }) {
+  /** onLine(text): each line of Playwright's own output (stdout, where the progress reporter writes) as it comes. */
+  function runPlaywright(script, { configFile, cwd, specs, onLine = null }) {
     return new Promise((resolve) => {
       let output = '';
+      let partial = '';
       const child = spawn(process.execPath, [script, 'test', '--config', configFile], {
         cwd, env: { ...process.env, FORCE_COLOR: '0', PLAYWRIGHT_HTML_OPEN: 'never' }, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
       });
       const limit = setTimeout(() => { if (child.pid) killTree(child.pid); }, 60_000 * (specs.length + 2));
       const keep = (d) => { output = (output + d).slice(-200_000); };
-      child.stdout.on('data', keep);
+      const tell = (line) => { try { onLine?.(line); } catch { /* a reader's trouble never stops the run */ } };
+      const lines = (d) => {
+        partial += d;
+        const all = partial.split('\n');
+        partial = all.pop().slice(-200_000);
+        for (const line of all) tell(line);
+      };
+      child.stdout.setEncoding('utf8');
+      child.stdout.on('data', (d) => { keep(d); lines(d); });
       child.stderr.on('data', keep);
       child.on('error', (err) => { clearTimeout(limit); resolve({ code: null, output: `${output}\n${err.message}` }); });
-      child.on('close', (code) => { clearTimeout(limit); resolve({ code, output }); });
+      child.on('close', (code) => { clearTimeout(limit); if (partial) tell(partial); resolve({ code, output }); });
     });
   }
 
@@ -160,6 +179,10 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
       const result = await recordEvidence({
         job: f, playwrightUrl: pw?.url, cwd,
         onStart: () => events.emit('evidence', f.slug, { slug: f.slug, outcome: 'recording', at: new Date().toISOString() }),
+        onProgress: (p) => {
+          progress.set(f.slug, p);
+          events.emit('evidence', f.slug, { slug: f.slug, outcome: 'progress', at: new Date().toISOString(), progress: p });
+        },
         server: { start: async () => { const s = await server.start(); cwd = s.cwd ?? cwd; return s; }, stop: server.stop },
         dbCheck: await dbCheckFor(f),
         run: (opts) => runPlaywright(pw.script, { ...opts, cwd }),
@@ -181,6 +204,9 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
       }
       if (!(err instanceof EvidenceError)) console.error(`evidence (${f.slug}):`, err);
       throw e;
+    } finally {
+      // However it ended (recorded, refused, Playwright dead part way), the card and the page stop saying a line runs.
+      if (progress.delete(f.slug)) events.emit('evidence', f.slug, { slug: f.slug, outcome: 'progress', at: new Date().toISOString(), progress: null });
     }
   }
 
@@ -228,13 +254,38 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
       const folder = evidence ? path.join(f.dir, EVIDENCE_DIR, evidence.commit) : path.join(f.dir, EVIDENCE_DIR);
       return {
         evidence, commit: await reportCommit(f.dir), wanted: wanted.on, why: wanted.why,
-        recording: recording.has(f.slug), problem: problems.get(f.slug) ?? null,
+        recording: recording.has(f.slug), problem: problems.get(f.slug) ?? null, progress: progress.get(f.slug) ?? null,
+        watch: progress.has(f.slug),
         folder, folderUrl: pathToFileURL(folder).href + (folder.endsWith(path.sep) ? '' : '/'),
       };
+    },
+    /** The Jobs card's words while Playwright records the job ("Recording evidence: line 4 of 19"; lib/evidence.js recordingWords), else null. */
+    progressWords(slug) {
+      return recordingWords(progress.get(slug));
     },
     async file(slug, rel) {
       const f = await jobOf(slug);
       try { return await evidenceFile(f.dir, rel); } catch (err) { throw httpError(err); }
+    },
+    /**
+     * Watch (the laptop only): the hidden browser's newest picture while Playwright records the job.
+     * Each ask touches the run's watch file, so the guard saves a picture every half second for the
+     * next 5 s (lib/evidence.js guardModule); the picture is answered when one was saved in the last
+     * 5 s, else a 404. Both paths are the server's own (evidence/<commit>/run/), never the asker's,
+     * and nothing is made when no recording runs (the run's folder goes with the run).
+     */
+    async live(slug) {
+      const f = await jobOf(slug);
+      const p = progress.get(f.slug);
+      if (!p?.commit) throw new HttpError(404, NO_LIVE);
+      const { liveFile, watchFile } = liveFiles(path.join(f.dir, EVIDENCE_DIR), p.commit);
+      // Only into the run's folder while it is there: no folder is made for it. Touched, or made new
+      // ('wx' never follows a link a spec left there), never written through.
+      const t = new Date();
+      await fsp.utimes(watchFile, t, t).catch(() => fsp.writeFile(watchFile, '', { flag: 'wx' })).catch(() => {});
+      const st = await fsp.lstat(liveFile).catch(() => null);
+      if (!st?.isFile() || Date.now() - st.mtimeMs >= LIVE_FRESH_MS || !progress.has(f.slug)) throw new HttpError(404, NO_LIVE);
+      return { abs: liveFile, type: 'image/jpeg', size: st.size };
     },
     /**
      * Record now. A quick answer (already recorded, not for this job, the database copy down…) comes
@@ -259,7 +310,8 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
 const UPLOAD_TYPES = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webm': 'video/webm', '.mp4': 'video/mp4' };
 
 /**
- * Sends a job's pictures and videos to the site's private Blob store, each once (sent: a Map kept
+ * Sends a job's pictures and videos (its evidence list's, and while it records, each finished
+ * line's video its progress names) to the site's private Blob store, each once (sent: a Map kept
  * by the caller, `${slug}\n${file}` -> its size and time). For each new one the site makes a
  * one-time upload link for exactly that path (ask → { url, pathname }), the file goes straight to
  * the store with a PUT (putFile: fetch), and the site is told it is there (done). The file's bytes
@@ -267,8 +319,13 @@ const UPLOAD_TYPES = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'imag
  */
 export async function uploadEvidence({ slug, view, door, sent, ask, done, putFile, log = () => {} }) {
   const fsp = await import('node:fs/promises');
-  for (const c of view?.evidence?.criteria ?? []) {
-    const files = [...(c.screenshots ?? []).map((x) => x?.file), typeof c.video === 'string' ? c.video : c.video?.file].filter((f) => typeof f === 'string');
+  // The evidence list's files, and each finished line's video while a recording runs (its progress).
+  const groups = [
+    ...(view?.evidence?.criteria ?? []).map((c) => [...(c.screenshots ?? []).map((x) => x?.file), typeof c.video === 'string' ? c.video : c.video?.file]),
+    (view?.progress?.lines ?? []).map((l) => l?.video),
+  ];
+  for (const group of groups) {
+    const files = group.filter((f) => typeof f === 'string');
     for (const file of files) {
       const type = UPLOAD_TYPES[path.extname(file).toLowerCase()];
       if (!type) continue;

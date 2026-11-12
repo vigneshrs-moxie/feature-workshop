@@ -6,6 +6,7 @@
 import path from 'node:path';
 import { writeFileAtomic } from './atomic-write.js';
 import { STAGES } from './stages.js';
+import { stopOf } from './stage-view.js';
 
 export const AUTO_LOG_FILE = 'auto-log.md';
 
@@ -16,6 +17,8 @@ export const AUTO_LOG_FILE = 'auto-log.md';
 export const AUTO_LOG_LIMITS = Object.freeze({ entries: 200, text: 1000, answers: 20, line: 400, summary: 3, at: 40, stage: 100, stopped: 300, tag: 100 });
 
 const DECISIONS = new Set(['gate', 'question', 'permission']);
+// What each kind of Auto line is, on the list: a go-ahead, an answer, a permission allowed (or refused), a stop.
+const KIND = { gate: 'approve', question: 'answer', permission: 'allow', stop: 'stop' };
 const CAP = 300;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -91,17 +94,22 @@ function lineTwo(lines, record) {
  * Auto record from sessions.json ({ on, stopped, ... }) when there is one. The view carries title
  * and now (as `written`) for the Markdown.
  */
-export function autoLog(lines = [], { title = '', now = null, record = null } = {}) {
+export function autoLog(lines = [], { title = '', now = null, record = null, stops = false } = {}) {
   const all = (Array.isArray(lines) ? lines : []).filter((l) => l && typeof l === 'object');
-  const decided = all.filter((l) => isAuto(l) && DECISIONS.has(l.what));
-  const entries = decided.map((l, i) => {
-    const e = { at: text(l.at), stage: stageLabel(l.stage), chose: text(l.chose), asked: text(l.asked), why: text(l.why) };
+  // stops: Auto's stop lines join the entries too (the list's kind 'stop', the reason as what it chose); they are not decisions.
+  const listed = all.filter((l) => isAuto(l) && (DECISIONS.has(l.what) || (stops && l.what === 'stop')));
+  const entries = listed.map((l, i) => {
+    const stop = l.what === 'stop';
+    const e = { at: text(l.at), stage: stageLabel(l.stage), chose: stop ? reasonOf(l.reason ?? l.why) : text(l.chose), asked: text(l.asked), why: text(l.why) };
     if (text(l.risk)) e.risk = text(l.risk);
     if (Array.isArray(l.answers) && l.answers.length) e.answers = l.answers.map((a) => ({ question: text(a?.question), choice: text(a?.choice), reason: text(a?.reason) }));
+    e.kind = KIND[l.what];
+    e.stop = typeof l.stage === 'string' ? stopOf(l.stage) : null;
     return { e, i };
   }).sort((a, b) => timeOf(b.e.at) - timeOf(a.e.at) || b.i - a.i).map((x) => x.e);
-  const n = entries.length;
-  const last = entries[0];
+  const decisions = entries.filter((e) => e.kind !== 'stop');
+  const n = decisions.length;
+  const last = decisions[0];
   const summary = [
     `Auto made ${n} decision${n === 1 ? '' : 's'} on this job. The Approver cost $${autoCost(all).toFixed(2)}.`,
     lineTwo(all, record),
@@ -111,14 +119,18 @@ export function autoLog(lines = [], { title = '', now = null, record = null } = 
 }
 
 /**
- * What a job's Auto list is, as the site and the laptop's own page get it: { on, stopped, tag, summary, entries }.
+ * What a job's Auto list is, as the site and the laptop's own page get it: { on, stopped, tag, summary, entries, startedAt, ticket }.
+ * Each entry has its kind ('approve', 'answer', 'allow', 'stop') and its step (null: not known); Auto's stops are entries
+ * too, and the first summary line counts the decisions only. startedAt: when a tag started Auto on the job (its first
+ * Auto 'on' line by a tag), else null. ticket: the job's ticket key, as the caller gives it, else null.
  * Null for a job with no Auto line (Auto has not run on it).
  */
-export function autoLogRecord(lines = [], { title = '', record = null } = {}) {
+export function autoLogRecord(lines = [], { title = '', record = null, ticket = null } = {}) {
   if (!(Array.isArray(lines) ? lines : []).some(isAuto)) return null;
-  const { summary, entries } = autoLog(lines, { title, record });
+  const { summary, entries } = autoLog(lines, { title, record, stops: true });
   const stopped = record?.stopped && typeof record.stopped === 'object' ? text(record.stopped.reason) : text(record?.stopped);
-  return { on: record?.on === true, stopped: stopped || null, tag: record?.tag ? text(record.tag) : null, summary, entries };
+  const byTag = lines.find((l) => isAuto(l) && l.what === 'on' && l.by === 'tag');
+  return { on: record?.on === true, stopped: stopped || null, tag: record?.tag ? text(record.tag) : null, summary, entries, startedAt: byTag && text(byTag.at) ? text(byTag.at) : null, ticket: ticket ? text(ticket) : null };
 }
 
 /** An Auto record cut to AUTO_LOG_LIMITS: the newest entries, every string shortened. A record within the limits comes back equal. */
@@ -132,7 +144,8 @@ export function capAutoLog(v) {
     if (Array.isArray(e.answers)) o.answers = e.answers.slice(0, L.answers).map((a) => ({ ...a, question: cut(a?.question, L.text), choice: cut(a?.choice, L.text), reason: cut(a?.reason, L.text) }));
     return o;
   });
-  return { ...v, stopped: cut(v.stopped, L.stopped), tag: cut(v.tag, L.tag), summary: v.summary.slice(0, L.summary).map((x) => cut(x, L.line)), entries };
+  const facts = { ...('startedAt' in v ? { startedAt: cut(v.startedAt, L.at) } : {}), ...('ticket' in v ? { ticket: cut(v.ticket, L.tag) } : {}) };
+  return { ...v, stopped: cut(v.stopped, L.stopped), tag: cut(v.tag, L.tag), summary: v.summary.slice(0, L.summary).map((x) => cut(x, L.line)), entries, ...facts };
 }
 
 /** The view as Markdown: every string from the Approver or a ticket on one line, at most 300 characters. */

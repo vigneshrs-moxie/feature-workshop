@@ -109,12 +109,12 @@ describe('the Job page', () => {
     expect(screen.getByText(/There’s no job called “nobody”/)).toBeInTheDocument();
   });
 
-  it('with nothing waiting, says what is happening in words, with the stop’s call greyed', () => {
-    setup({ jobs: [job('alpha', 'running', { stage: 'implement', lane: 'working', nowDoing: [{ who: 'feature-implementer', doing: 'Writing the form' }] })] });
+  it('while the crew works the bar names who and what, with no button', () => {
+    setup({ jobs: [job('alpha', 'running', { stage: 'implement', lane: 'working', nowDoing: [{ who: 'feature-implementer', name: 'Builder', doing: 'Building step 3 of 6: the Pause dialog', model: 'Sonnet 5.5', since: new Date(Date.now() - 12 * 60_000).toISOString() }] })] });
     const bar = screen.getByRole('region', { name: 'Next step' });
-    expect(bar).toHaveTextContent('Nothing to do right now');
-    expect(bar).toHaveTextContent('Writing the form');
-    expect(within(bar).getByRole('button', { name: 'Approve the tests' })).toBeDisabled();
+    expect(bar).toHaveTextContent('The Builder is building step 3 of 6: the Pause dialog');
+    expect(bar).toHaveTextContent('Builder on Sonnet 5.5, 12 min on this step. The Foreman waits for it. Nothing for you to do until the tests.');
+    expect(within(bar).queryByRole('button')).toBeNull();
   });
 
   it('a question from the Foreman: Reply puts the cursor in the message box', () => {
@@ -226,7 +226,7 @@ describe('the go / no go bar', () => {
     fireEvent.click(screen.getByRole('button', { name: /^No go: send back/ }));
     fireEvent.change(await screen.findByRole('textbox', { name: /What should change\?/ }), { target: { value: 'Use the small table.' } });
     await waitFor(() => expect(go).toBeDisabled());
-    expect(go).toHaveAttribute('title', 'You wrote what should change. Send the changes or cancel them first.');
+    expect(go).toHaveAttribute('title', 'You wrote what should change. Send it back or cancel it first.');
     fireEvent.click(go);
     fireEvent.keyDown(document.body, { key: 'a' });
     await act(async () => {});
@@ -292,11 +292,11 @@ describe('after a click on the go / no go bar', () => {
   const bar = () => screen.getByRole('region', { name: 'Next step' });
   /** The page's one live region for a decision on its way (always there, empty when idle). */
   const live = () => document.querySelector('[data-next-live]')!;
-  /** No go: send back, a note, then the card's Send the changes. */
+  /** No go: send back, a note, then the card's Send back. */
   async function sendBack(note = 'Use the small table.') {
     fireEvent.click(await screen.findByRole('button', { name: /^No go: send back/ }));
     fireEvent.change(await screen.findByRole('textbox', { name: /What should change\?/ }), { target: { value: note } });
-    return screen.getByRole('button', { name: 'Send the changes' });
+    return screen.getByRole('button', { name: 'Send back' });
   }
 
   afterEach(() => { vi.useRealTimers(); });
@@ -571,8 +571,8 @@ describe('after a click on the go / no go bar', () => {
     setup({ jobs: waiting(), gate: GATE, post: sentPost() });
     fireEvent.click(await sendBack());
     expect(await within(bar()).findByText(SENT_LINE)).toBeInTheDocument();
-    expect(bar()).toHaveTextContent('The Foreman will rework this step with your note.');
-    expect(live()).toHaveTextContent(`${SENT_LINE} The Foreman will rework this step with your note.`);
+    expect(bar()).toHaveTextContent('Sent back: the Foreman stays at Plan and revises. Nothing is approved.');
+    expect(live()).toHaveTextContent(`${SENT_LINE} Sent back: the Foreman stays at Plan and revises. Nothing is approved.`);
   });
 
   it('after the server accepts a reply, the bar says nothing is approved', async () => {
@@ -582,8 +582,8 @@ describe('after a click on the go / no go bar', () => {
     fireEvent.change(await screen.findByRole('textbox', { name: /Your answers or a note/ }), { target: { value: 'A note.' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send the reply' }));
     expect(await within(bar()).findByText(SENT_LINE)).toBeInTheDocument();
-    expect(bar()).toHaveTextContent('Your reply is with the Foreman. Nothing is approved.');
-    expect(live()).toHaveTextContent(`${SENT_LINE} Your reply is with the Foreman. Nothing is approved.`);
+    expect(bar()).toHaveTextContent('Your reply reached the Foreman. Nothing is approved, so the card stays open.');
+    expect(live()).toHaveTextContent(`${SENT_LINE} Your reply reached the Foreman. Nothing is approved, so the card stays open.`);
   });
 
   it('after the Foreman answers a reply, Reply, Go and Send back can be pressed again', async () => {
@@ -595,7 +595,7 @@ describe('after a click on the go / no go bar', () => {
     await within(bar()).findByText(SENT_LINE);
     // The Foreman picks the message up (the run the reply started): the bar keeps its words, no calls.
     expect(store.getState().runs.alpha).toEqual(expect.objectContaining({ id: 'r_sent_1', status: 'running' }));
-    expect(bar()).toHaveTextContent('Your reply is with the Foreman. Nothing is approved.');
+    expect(bar()).toHaveTextContent('Your reply reached the Foreman. Nothing is approved, so the card stays open.');
     expect(calls()).toHaveLength(0);
     // It answers: the gate is still waiting.
     act(() => { store.dispatch({ type: 'event', event: ev(200, 'run', 'alpha', { id: 'r_sent_1', slug: 'alpha', status: 'done' }) }); });
@@ -604,7 +604,7 @@ describe('after a click on the go / no go bar', () => {
     expect(screen.getByRole('button', { name: /^No go: send back/ })).toBeEnabled();
     // The bar reads as waiting again.
     expect(bar()).toHaveTextContent('Say go and the Foreman goes ahead: Build step 1');
-    expect(bar()).not.toHaveTextContent('Nothing is approved.');
+    expect(bar()).not.toHaveTextContent('Nothing is approved');
   });
 
   it('a reply with answers and no note is sent', async () => {
@@ -650,7 +650,7 @@ describe('after a click on the go / no go bar', () => {
 
   // Deep review D, I1: the server answers `sent` with a started run, so the sent state clears at once;
   // the bar keeps its words after the run started, and the old ask never comes back.
-  it('Go: after the run started the bar still says it was sent, with no calls and no second line', async () => {
+  it('Go: after the run started the bar still says it was sent, with no calls', async () => {
     const { store } = setup({ jobs: waiting(), gate: GATE, post: sentPost() });
     const go = await screen.findByRole('button', { name: /^Go: approve/ });
     const watch = watchBar();
@@ -661,6 +661,7 @@ describe('after a click on the go / no go bar', () => {
     expect(within(bar()).getByText(SENT_LINE)).toBeInTheDocument();
     expect(live()).toHaveTextContent(SENT_LINE);
     expect(calls()).toHaveLength(0);
+    expect(bar()).toHaveTextContent('Your go reached the Foreman. Build starts next.');
     expect(bar()).not.toHaveTextContent('Nothing is approved');
     expect(bar()).not.toHaveTextContent('rework');
     // A run is at work: no Try again.
@@ -668,7 +669,7 @@ describe('after a click on the go / no go bar', () => {
     expect(watch.stop().comeBack).toEqual([]);
   });
 
-  it('Send back: after the run started the bar says it was sent and that the Foreman will rework the step', async () => {
+  it('Send back: after the run started the bar says it was sent and that the Foreman stays at the step', async () => {
     const { store } = setup({ jobs: waiting(), gate: GATE, post: sentPost() });
     const send = await sendBack();
     const watch = watchBar();
@@ -677,7 +678,7 @@ describe('after a click on the go / no go bar', () => {
     expect(store.getState().runs.alpha).toEqual(expect.objectContaining({ status: 'running' }));
     await act(async () => {});
     expect(within(bar()).getByText(SENT_LINE)).toBeInTheDocument();
-    expect(bar()).toHaveTextContent('The Foreman will rework this step with your note.');
+    expect(bar()).toHaveTextContent('Sent back: the Foreman stays at Plan and revises. Nothing is approved.');
     expect(calls()).toHaveLength(0);
     expect(watch.stop().comeBack).toEqual([]);
   });
@@ -693,7 +694,7 @@ describe('after a click on the go / no go bar', () => {
     expect(store.getState().runs.alpha).toEqual(expect.objectContaining({ status: 'running' }));
     await act(async () => {});
     expect(within(bar()).getByText(SENT_LINE)).toBeInTheDocument();
-    expect(bar()).toHaveTextContent('Your reply is with the Foreman. Nothing is approved.');
+    expect(bar()).toHaveTextContent('Your reply reached the Foreman. Nothing is approved, so the card stays open.');
     expect(calls()).toHaveLength(0);
     expect(watch.stop().comeBack).toEqual([]);
   });

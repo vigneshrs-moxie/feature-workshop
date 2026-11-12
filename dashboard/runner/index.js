@@ -53,12 +53,12 @@ import { groupCards, laneFor } from '../lib/snapshot.js';
 import { FINISH_LINES, FINISH_LINE_INFO, finishLineReached } from '../lib/finish.js';
 import { NUDGE_IDS, nudgesFor } from '../lib/nudges.js';
 import { buildThread, pageThread } from '../lib/thread.js';
-import { DECISIONS_FILE, decisionLog, localDay, orbitCopy, writeDecisionsFile } from '../lib/decisions.js';
+import { DECISIONS_FILE, autoLines, briefNames, decisionLog, decisionRows, localDay, orbitCopy, writeDecisionsFile } from '../lib/decisions.js';
 import { typicalRuns } from '../lib/run-typical.js';
 import { proofStamp } from '../lib/proof.js';
 import { suggestLevel, changedPaths, diffSummary } from '../lib/levels.js';
 import { checkDiff, chooseLevel } from '../lib/auto-level.js';
-import { AUTO_MARK, autoAllowed, autoCardView, autoOption, autoRecord } from '../lib/auto.js';
+import { AUTO_MARK, autoAllowed, autoCardView, autoOption, autoRecord, wroteWhileWaiting } from '../lib/auto.js';
 import { createAuto } from './auto.js';
 import { askApprover as askApproverLib, approverOptions, setApproverStateDir } from '../lib/approver.js';
 import { autoCost, autoLog, autoLogRecord, writeAutoLog } from '../lib/auto-log.js';
@@ -89,6 +89,7 @@ import { planView, prRows } from '../lib/job-page.js';
 import { keepLatest, planDone } from '../lib/job-page.js';
 import { reviewRows } from '../lib/play.js';
 import { stopOf } from '../lib/stage-view.js';
+import { checkCounts } from '../lib/job-page.js';
 import { writeFileAtomic } from '../lib/atomic-write.js';
 import { UsageLog, TurnMeter, turnLines, usageDir, starbaseUser, claudeAccountId } from '../lib/usage-log.js';
 import { statusTicketKey, slugTicketKey } from '../lib/orbit.js';
@@ -919,6 +920,8 @@ export async function createRunner(config) {
 
   // A job's review round state (set once review rounds exist, below): its nudges leave out what the round covers.
   let roundStateOf = () => null;
+  // The evidence recording's words for a job while Playwright runs it (set once the evidence door exists, below).
+  let testingOf = () => null;
   function boardCard(f, run) {
     const ids = STAGES.map((s) => s.id).filter((id) => !f.skipped.includes(id));
     const at = ids.indexOf(f.stage);
@@ -982,6 +985,8 @@ export async function createRunner(config) {
       finish,
       // Auto mode (lib/auto.js): on, ran, stopped, deciding, and whether this job's level allows it.
       auto: autoCardView(f.auto, { level: f.level, suggestedLevel: f.suggestedLevel }),
+      // Its evidence being recorded now, by line ("Recording evidence: line 4 of 19"; runner/evidence.js), else null.
+      testing: testingOf(f.slug),
       // The PR hand-offs waiting on someone (lib/nudges.js): the Desk's nudge items.
       nudges: nudgesFor({ stage: f.stage, prs: f.prs, closed: off ? f.closed : null, finish }, lane, { dismissed: f.dismissedNudges, sent: f.sentNudges, inRound: roundStateOf(f.slug) !== null }),
       // Marked done or dropped: off the board, unless something is going on or the job changed since.
@@ -1117,6 +1122,33 @@ export async function createRunner(config) {
     return { times, docs };
   }
 
+  // The Test step's own facts (design 3.5): the Tester's check counts from test-report.md, with the
+  // report's time (null: no report, or no line marked), and the owner's hand test: when Try it's app
+  // was last started from the page (Starbase's own record, tryStartedAt; null: not started). The
+  // hand test stores no result: his Go or Send back at the Test step is the result. A read that
+  // fails gives that part null.
+  async function testFacts(f) {
+    const part = (read) => read().catch(() => null);
+    const checks = await part(async () => {
+      const text = await readInside(f.dir, 'test-report.md', { noLink: true });
+      const counts = text === null ? null : checkCounts(text);
+      if (!counts) return null;
+      const at = await fsp.stat(path.join(f.dir, 'test-report.md')).then((st) => st.mtime.toISOString(), () => null);
+      return { ...counts, at };
+    });
+    const handTest = await part(async () => {
+      const at = (await state.sessionFor(f.dir))?.tryStartedAt;
+      return { startedAt: typeof at === 'string' ? at : null };
+    });
+    return { checks, handTest };
+  }
+
+  // Try it's app started from the page (the try-it command's start) is the hand test starting. The
+  // evidence recorder starts the app itself (runner/evidence.js), never through here.
+  async function markHandTestStarted(f) {
+    try { await state.setSession(f.dir, { tryStartedAt: new Date().toISOString() }); } catch { /* the page shows it as not started */ }
+  }
+
   async function jobDetail(f) {
     const run = runFor(f);
     const latestPath = f.latestBrief?.path ?? f.briefs.at(-1)?.file ?? null;
@@ -1182,11 +1214,13 @@ export async function createRunner(config) {
 
     const threadPart = await threadPage(f, audit);
     const card = boardCard(f, run);
+    // What Auto decided that Copy decisions keeps, in its words, oldest first (the gate card lists it): only on a job Auto ran on.
+    const autoDecided = f.auto?.ran === true ? autoLines(decisionRows(audit, { briefs: await briefNames(f.dir) })) : null;
     return {
       ...card,
       rulesLevel, gate,
       // The card's Auto, with the tag that started it (or null).
-      auto: { ...card.auto, tag: f.auto?.tag ?? null },
+      auto: { ...card.auto, tag: f.auto?.tag ?? null, ...(autoDecided ? { decided: autoDecided } : {}) },
       // Briefs already decided: a deciding gate reply (audit 'send' lines with gateBrief), or a
       // decision from the classic page sent after the current brief was written.
       answeredBriefs: answeredBriefs(audit, f.currentBrief),
@@ -1200,6 +1234,7 @@ export async function createRunner(config) {
       page: {
         ...(await pageFacts(f)),
         ...(await stepFacts(f, audit)),
+        ...(await testFacts(f)),
         plan: await planFacts(f),
         review: await reviewFacts(f),
         prs: prRows(f.prs, flowLanes.get(f.slug) ?? null),
@@ -1410,7 +1445,12 @@ export async function createRunner(config) {
 
   // Every job's card, most urgent first (jobs being started from here come first).
   async function boardCards(list) {
-    const cards = [...startingCards(list), ...list.map((f) => boardCard(f, runFor(f)))];
+    // A step the person wrote to while it waited is theirs at once (lib/auto.js wroteWhileWaiting), before Auto's pass writes the
+    // stop: auto.yours. Only a card with Auto on, not stopped and a gate waiting reads the job's audit lines.
+    const yours = async (f) => f.auto?.on === true && !f.auto.stopped && isGateWaiting(f) && !closedOff(f)
+      && wroteWhileWaiting(await state.auditFor(f.dir, Infinity), { briefAt: f.currentBrief?.at, since: f.auto.since });
+    const withYours = (c, mine) => ({ ...c, auto: { ...c.auto, yours: mine } });
+    const cards = [...startingCards(list).map((c) => withYours(c, false)), ...await Promise.all(list.map(async (f) => withYours(boardCard(f, runFor(f)), await yours(f))))];
     const rank = (c) => (c.needsYou ? 0 : c.working || c.stageState === 'working' ? 1 : c.stageState === 'done' ? 3 : 2);
     cards.sort((a, b) => rank(a) - rank(b) || (a.needsYou ? String(a.waitingSince ?? '').localeCompare(String(b.waitingSince ?? '')) : 0));
     // Each card's lane on Jobs and the reason in words (lib/snapshot.js laneFor, packet M).
@@ -2816,7 +2856,7 @@ export async function createRunner(config) {
       const audit = (extra = {}) => state.audit({ action: 'local', featureDir: f.dir, slug: f.slug, what: action, ...extra });
       try {
         if (action === 'env') { const r = await local.setupEnv(f); await audit({ changed: r.changed }); return r; }
-        if (action === 'start') { const r = await local.startServer(f); await audit({ port: r.port }); return r; }
+        if (action === 'start') { const r = await local.startServer(f); await audit({ port: r.port }); await markHandTestStarted(f); return r; }
         if (action === 'stop') return { ok: local.stopServer(f.slug) };
         if (action === 'run') {
           const preset = body.preset || null;
@@ -3241,7 +3281,9 @@ export async function createRunner(config) {
     async autoLog(slug) {
       const f = await jobOf(slug);
       if (f.auto?.ran !== true) return null; // Auto has never run here: no reason to read and parse the audit
-      return autoLogRecord(await state.auditFor(f.dir, Infinity), { title: f.title, record: f.auto ?? null });
+      // The job's ticket key: its status.json's, else the one it was started from, else its slug's (orbit-<n>-…).
+      const ticket = (await statusTicketKey(f.dir)) ?? f.options?.ticket?.key ?? slugTicketKey(f.slug);
+      return autoLogRecord(await state.auditFor(f.dir, Infinity), { title: f.title, record: f.auto ?? null, ticket });
     },
     async docs(slug) {
       // The Docs tab's list: every document of the job, grouped, with versions and times (lib/docs.js).
@@ -3449,6 +3491,19 @@ export async function createRunner(config) {
     /** Something outside the runner changed what the page shows (the screens server went down): every page fetches again. */
     changed() { invalidate(); notifyChange(); },
   };
+  testingOf = (slug) => local_.evidence.progressWords(slug);
+  // A recording's line moving, or its progress gone, changes that job's card (`testing`, its lane): the pages fetch
+  // again. The card reads the progress live, so nothing cached is dropped. Lines that come close together make one
+  // change (at most one per job each 150 ms, always one after the last).
+  const testingMoved = new Map(); // slug -> its pending change
+  on('evidence', (slug, data) => {
+    if (data?.outcome !== 'progress' || !slug || testingMoved.has(slug)) return;
+    testingMoved.set(slug, setTimeout(() => {
+      testingMoved.delete(slug);
+      broadcast('change', { at: Date.now() });
+      events.emit('change', slug, { at: Date.now() });
+    }, 150));
+  });
 
   // ---------- After a restart (runner/replay.js) ----------
 

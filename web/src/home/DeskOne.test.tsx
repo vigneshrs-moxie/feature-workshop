@@ -6,9 +6,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../api/client';
 import type { Gate, Job, JobDetail, Permission } from '../api/types';
 import { installKeyListener } from '../app/keyRegistry';
-import { createStore, WorkshopContext, type Store } from '../state/store';
+import { createStore, useWorkshopState, WorkshopContext, type Store } from '../state/store';
 import { ev, job, permission, snapshot } from '../state/test-fixtures';
 import { DeskView } from './DeskView';
+import { UiProvider } from '../app/ui';
+import { NextStep } from '../job/NextStep';
+import { useJobConversation } from '../panes/Foreman/ForemanPane';
+import { jobBySlug } from '../state/reducer';
 import { deskQueue } from './homeModel';
 import { clearDecisions } from './nudges';
 
@@ -41,7 +45,7 @@ function setup({ jobs = [ALPHA], permissions = [] as Permission[], play = 'subtl
   });
   const api = { get, post } as unknown as ApiClient;
   render(<WorkshopContext.Provider value={{ store, api }}><DeskView items={deskQueue(jobs, permissions)} now={NOW} layout="one" /></WorkshopContext.Provider>);
-  return { get, post, store };
+  return { get, post, store, api };
 }
 
 const kbd = (el: HTMLElement) => el.querySelector('kbd')?.textContent ?? null;
@@ -106,14 +110,14 @@ describe('the Desk card after a send', () => {
     expect(card).not.toHaveTextContent('Go / no go');
   });
 
-  it('Send back: the card says the Foreman will rework the step', async () => {
+  it('Send back: the card says the Foreman stays at the step', async () => {
     setup({ server: true });
     const card = screen.getByRole('region', { name: /^Job alpha:/ });
     fireEvent.click(await within(card).findByRole('button', { name: /^No go/ }));
     fireEvent.change(await screen.findByRole('textbox', { name: /What should change\?/ }), { target: { value: 'Smaller.' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Send the changes' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Send back' }));
     expect(await within(card).findByText('Sent. Waiting for the Foreman to start.')).toBeInTheDocument();
-    expect(card).toHaveTextContent('The Foreman will rework this step with your note.');
+    expect(card).toHaveTextContent('Sent back: the Foreman stays at Plan and revises. Nothing is approved.');
   });
 });
 
@@ -192,5 +196,45 @@ describe('the Desk, one at a time', () => {
     const fold = screen.getByText('Decided today').closest('details')!;
     expect(fold.open).toBe(false);
     act(() => { fold.open = true; });
+  });
+});
+
+// Task 7: the Desk's card and the job page's bar read one rule (job/sentView.ts), so they say the same lines.
+describe('the Desk and the bar', () => {
+  /** The job page's bar for the same job, drawn beside the Desk on the same store. */
+  function Bar({ slug }: { slug: string }) {
+    const j = jobBySlug(useWorkshopState(), slug)!;
+    const conversation = useJobConversation(j);
+    return <NextStep job={j} conversation={conversation} now={NOW} />;
+  }
+
+  it('the Desk’s card says the same sent lines as the bar', async () => {
+    const { post, store, api } = setup({ server: true });
+    render(<WorkshopContext.Provider value={{ store, api }}><UiProvider><Bar slug="alpha" /></UiProvider></WorkshopContext.Provider>);
+    const card = screen.getByRole('region', { name: /^Job alpha:/ });
+    fireEvent.click(await within(card).findByRole('button', { name: /^Go: approve/ }));
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/api/job/alpha/gate', expect.objectContaining({ kind: 'approve' })));
+    const bar = screen.getByRole('region', { name: 'Next step' });
+    await within(card).findByText('Sent. Waiting for the Foreman to start.');
+    await within(bar).findByText('Sent. Waiting for the Foreman to start.');
+    const line = 'Your go reached the Foreman. Build starts next.';
+    await waitFor(() => expect(card.querySelector('.desk-sub')).toHaveTextContent(new RegExp(`^${line}$`)));
+    expect(bar.querySelector('.next-sub')).toHaveTextContent(new RegExp(`^${line}$`));
+  });
+});
+
+// Task 7 fix round 1: Auto's own Go on a brief is never said to be his.
+describe('the Desk card after Auto’s go', () => {
+  it('a brief Auto approved: the card says it was sent, never “Your go reached the Foreman.”', async () => {
+    const autoGo = { id: 'you-auto', kind: 'you', at: '2026-10-21T11:59:00Z', text: 'Approved.', sendKind: 'approve', gateBrief: 2, by: 'auto' };
+    const { get, store } = setup({ jobs: [{ ...ALPHA, auto: { on: true, by: 'you', ran: true } }] });
+    const card = screen.getByRole('region', { name: /^Job alpha:/ });
+    await within(card).findByRole('button', { name: /^Go: approve/ });
+    // Auto approved brief 2; the Foreman's run is at work.
+    get.mockImplementation(async (path: string) => ({ ...detail(path.split('/')[3]), answeredBriefs: [2], thread: [autoGo] }) as JobDetail);
+    act(() => { store.dispatch({ type: 'event', event: ev(20, 'run', 'alpha', { id: 'r_auto', slug: 'alpha', status: 'running' }) }); });
+    act(() => { store.dispatch({ type: 'event', event: ev(21, 'thread', 'alpha', {}) }); });
+    await within(card).findByText('Sent. Waiting for the Foreman to start.');
+    expect(card).not.toHaveTextContent('Your go');
   });
 });

@@ -605,7 +605,8 @@ test('turning Auto on writes the record, options.json and the audit line', { tim
   const line = (await auditLines()).filter((e) => e.action === 'auto' && e.slug === 'auto-job').at(-1);
   assert.deepEqual([line.what, line.by, line.featureDir], ['on', 'you', dir]);
   const job = await getJson('/api/job/auto-job');
-  assert.deepEqual(job.auto, { on: true, by: 'you', ran: true, stopped: null, deciding: false, allowed: true, why: null, tag: null });
+  // decided: what Auto decided that Copy decisions keeps (Task 8): nothing yet.
+  assert.deepEqual(job.auto, { on: true, by: 'you', ran: true, stopped: null, deciding: false, allowed: true, why: null, tag: null, decided: [] });
   const card = (await getJson('/api/snapshot')).jobs.find((j) => j.slug === 'auto-job');
   assert.equal(card.auto.on, true);
   assert.equal(card.auto.tag, undefined, 'the tag is the job page’s');

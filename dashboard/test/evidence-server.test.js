@@ -17,7 +17,7 @@ import { startDashboard } from './helpers/dashboard.js';
 const FIXTURE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'evidence');
 const OLD = '2026-10-01T10:00:00Z';
 
-let root, featuresDir, stateDir, dashboard, base, token;
+let root, featuresDir, stateDir, dashboard, base, token, hold;
 const output = [];
 
 const REPORT = (commit) => `# Test report
@@ -67,9 +67,13 @@ before(async () => {
   await writeJob('hours-column', { level: 2, report: null });
   await writeJob('tiny-tweak', { level: 0 });
   await writeJob('later-report', { level: 3, report: null });
+  // The fake playwright holds after a recording's first line until this file is there: here from
+  // the start, so only the tests that take it away see a recording part way.
+  hold = path.join(root, 'hold');
+  await fs.writeFile(hold, 'go');
   dashboard = await startDashboard({
     env: {
-      HOME: dirs.home, STARBASE_DEMO: '1', STARBASE_PLAYWRIGHT: path.join(FIXTURE, 'fake-playwright.mjs'),
+      HOME: dirs.home, STARBASE_DEMO: '1', STARBASE_PLAYWRIGHT: path.join(FIXTURE, 'fake-playwright.mjs'), STARBASE_FAKE_HOLD: hold,
       STARBASE_FEATURES_DIR: featuresDir, STARBASE_PROJECTS_DIR: dirs.projects, STARBASE_AGENTS_DIR: dirs.agents,
       STARBASE_SKILLS_DIR: dirs.skills, STARBASE_STATE_DIR: dirs.state,
     },
@@ -171,7 +175,7 @@ test('evidence server: an L2 job gets evidence.json with pictures and a video pe
   assert.deepEqual(audit.map((l) => [l.outcome, l.commit, l.passed, l.failed, l.skipped]), [['recorded', 'abc1234def5', 1, 1, 1]]);
   // One evidence event saying it was recorded (after the one saying it started).
   const { epoch } = await getJson('/api/snapshot');
-  const seen = (await eventsFor(800, epoch)).filter((e) => e.type === 'evidence' && e.job === 'hours-column');
+  const seen = (await eventsFor(800, epoch)).filter((e) => e.type === 'evidence' && e.job === 'hours-column' && e.data.outcome !== 'progress');
   assert.deepEqual(seen.map((e) => e.data.outcome), ['recording', 'recorded']);
   assert.equal(seen[1].data.commit, 'abc1234def5');
 });
@@ -218,4 +222,254 @@ test('evidence server: the file route serves pictures and videos inside the job�
   }
   // Another job's picture through this job's route isn't there either.
   assert.equal((await get(fileUrl('tiny-tweak', shot))).status, 404);
+});
+
+// ---------- Recording progress by line (the hold: STARBASE_FAKE_HOLD) ----------
+
+/** The job's evidence view once `ok` says so. */
+async function viewWhen(slug, ok, what) {
+  for (let i = 0; i < 80; i++) {
+    const view = await getJson(`/api/job/${slug}/evidence`);
+    if (ok(view)) return view;
+    await pause(250);
+  }
+  assert.fail(`${what} (${slug}):\n${output.join('').slice(-2000)}`);
+}
+const cardOf = async (slug) => (await getJson('/api/snapshot')).jobs.find((j) => j.slug === slug);
+// The hold file, written whole (a rename), so the fake never reads it half written.
+async function setHold(text) {
+  await fs.writeFile(`${hold}.next`, text);
+  await fs.rename(`${hold}.next`, hold);
+}
+const runningFirst = (v) => v.progress?.lines?.[0]?.state === 'running';
+
+test('evidence server: while it records, the view says which line of how many and each line’s state', async () => {
+  await fs.rm(hold, { force: true }); // the next recording holds once its first line begins
+  try {
+    await writeJob('held-job', { level: 2 }); // the change watcher records it by itself
+    const view = await viewWhen('held-job', runningFirst, 'no recording part way');
+    assert.equal(view.recording, true);
+    assert.equal(view.progress.line, 1);
+    assert.equal(view.progress.of, 3);
+    assert.equal(view.progress.commit, 'abc1234def5');
+    assert.deepEqual(view.progress.lines.map((l) => [l.id, l.state]), [['AC-1', 'running'], ['AC-2', 'waiting'], ['AC-3', 'waiting']]);
+    assert.ok(view.progress.lines.every((l) => l.video === null));
+    // The Jobs card and its lane say the same.
+    const card = await cardOf('held-job');
+    assert.equal(card.testing, 'Recording evidence: line 1 of 3');
+    assert.equal(card.lane, 'working');
+    assert.equal(card.laneReason, 'Recording evidence: line 1 of 3');
+  } finally {
+    await setHold('go');
+  }
+});
+
+test('evidence server: when the recording ends the progress is gone', async () => {
+  const view = await viewWhen('held-job', (v) => v.evidence && !v.recording, 'the held recording never ended');
+  assert.equal(view.progress, null);
+  assert.equal((await cardOf('held-job')).testing, null);
+  const { epoch } = await getJson('/api/snapshot');
+  const seen = (await eventsFor(800, epoch)).filter((e) => e.type === 'evidence' && e.job === 'held-job');
+  assert.ok(seen.some((e) => e.data.outcome === 'progress' && e.data.progress?.line === 1 && e.data.progress.lines[0].state === 'running'), 'each change is sent');
+  assert.equal(seen.at(-1).data.outcome, 'progress');
+  assert.equal(seen.at(-1).data.progress, null, 'the last one says it is gone');
+  assert.equal(seen.filter((e) => e.data.progress === null).length, 1, 'once');
+});
+
+test('evidence server: when the recording dies the progress is gone and the problem is said', async () => {
+  await fs.rm(hold, { force: true });
+  try {
+    await writeJob('dying-job', { level: 2 });
+    await viewWhen('dying-job', runningFirst, 'no recording part way');
+    assert.equal((await cardOf('dying-job')).testing, 'Recording evidence: line 1 of 3');
+    await setHold('exit 1'); // Playwright stops part way, before it writes its report
+    const view = await viewWhen('dying-job', (v) => v.problem && !v.recording, 'the recording never ended');
+    assert.equal(view.progress, null);
+    assert.equal(view.evidence, null);
+    assert.match(view.problem.message, /^Playwright stopped before it wrote its report, so nothing was recorded/);
+    assert.doesNotMatch(view.problem.message, /@@starbase/);
+    const card = await cardOf('dying-job');
+    assert.equal(card.testing, null);
+    assert.doesNotMatch(card.laneReason, /Recording evidence/);
+    const { epoch } = await getJson('/api/snapshot');
+    const seen = (await eventsFor(800, epoch)).filter((e) => e.type === 'evidence' && e.job === 'dying-job');
+    assert.deepEqual(seen.slice(-2).map((e) => [e.data.outcome, e.data.progress]), [['not-recorded', undefined], ['progress', null]]);
+  } finally {
+    await setHold('go');
+  }
+});
+
+test('evidence server: a line’s video is there as soon as the line ends', async () => {
+  await fs.rm(hold, { force: true });
+  try {
+    await writeJob('video-job', { level: 2 });
+    await viewWhen('video-job', runningFirst, 'no recording part way');
+    await setHold('one'); // the first line ends, then the fake holds again before the next begins
+    const view = await viewWhen('video-job', (v) => v.progress?.lines?.[0]?.video, 'the first line’s video never came');
+    // Before the run's end: still recording, no evidence.json yet.
+    assert.equal(view.recording, true);
+    assert.equal(view.evidence, null);
+    assert.deepEqual(view.progress.lines.map((l) => [l.id, l.state, l.video]), [
+      ['AC-1', 'passed', 'abc1234def5/AC-1/video.webm'], ['AC-2', 'waiting', null], ['AC-3', 'waiting', null],
+    ]);
+    // At the place it has at the end, served by the file route.
+    const res = await get(fileUrl('video-job', view.progress.lines[0].video));
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('content-type'), 'video/webm');
+    assert.deepEqual(Buffer.from(await res.arrayBuffer()), await fs.readFile(path.join(FIXTURE, 'output', 'AC-1-chromium', 'video.webm')));
+    await setHold('go');
+    const done = await viewWhen('video-job', (v) => v.evidence && !v.recording, 'the recording never ended');
+    assert.equal(done.evidence.criteria[0].video, 'abc1234def5/AC-1/video.webm', 'the same place at the end');
+    assert.equal((await get(fileUrl('video-job', done.evidence.criteria[0].video))).status, 200);
+  } finally {
+    await setHold('go');
+  }
+});
+
+// ---------- The laptop's Jobs card hears the progress (fix round 1) ----------
+
+/**
+ * One job's v2 events as they come, as the laptop page reads them: on each `change` for the job the
+ * page fetches the snapshot again, so its card is fetched right then (entry.card, a promise).
+ */
+function watchJob(slug, epoch) {
+  const seen = [];
+  const req = http.get(`${base}/api/events?v=2&since=0&epoch=${epoch}`, (res) => {
+    let buf = '';
+    res.on('data', (chunk) => {
+      buf += chunk;
+      let i;
+      while ((i = buf.indexOf('\n\n')) >= 0) {
+        const data = buf.slice(0, i).split('\n').find((l) => l.startsWith('data: '));
+        buf = buf.slice(i + 2);
+        if (!data) continue;
+        const e = JSON.parse(data.slice(6));
+        if (e.job !== slug) continue;
+        seen.push(e.type === 'change' ? { e, card: cardOf(slug) } : { e });
+      }
+    });
+  });
+  req.on('error', () => {});
+  return { seen, stop: () => req.destroy() };
+}
+/** The first `change` for the job after the first evidence event `after` matches, once it is there. */
+async function changeAfter(w, after, what) {
+  for (let n = 0; n < 400; n++) {
+    const i = w.seen.findIndex((x) => x.e.type === 'evidence' && after(x.e.data));
+    const change = i >= 0 ? w.seen.slice(i + 1).find((x) => x.e.type === 'change') : null;
+    if (change) return change;
+    await pause(50);
+  }
+  return assert.fail(`${what}:\n${JSON.stringify(w.seen.map((x) => [x.e.type, x.e.data?.outcome, x.e.data?.progress?.line ?? x.e.data?.progress]))}`);
+}
+
+test('evidence server: the laptop’s card hears each line as it moves, and the end of the recording', async () => {
+  const w = watchJob('heard-job', (await getJson('/api/snapshot')).epoch);
+  try {
+    await fs.rm(hold, { force: true });
+    try {
+      await writeJob('heard-job', { level: 2 });
+      await viewWhen('heard-job', runningFirst, 'no recording part way');
+      const moved = await changeAfter(w, (d) => d.progress?.line === 1, 'no change after the line moved to 1');
+      assert.equal((await moved.card).testing, 'Recording evidence: line 1 of 3');
+    } finally {
+      await setHold('go');
+    }
+    const ended = await changeAfter(w, (d) => d.outcome === 'progress' && d.progress === null, 'no change after the progress was gone');
+    const card = await ended.card;
+    assert.equal(card.testing, null);
+    assert.doesNotMatch(card.laneReason, /Recording evidence/);
+  } finally {
+    w.stop();
+  }
+});
+
+test('evidence server: the laptop’s card hears the end of a recording that dies part way', async () => {
+  const w = watchJob('heard-dying-job', (await getJson('/api/snapshot')).epoch);
+  try {
+    await fs.rm(hold, { force: true });
+    try {
+      await writeJob('heard-dying-job', { level: 2 });
+      await viewWhen('heard-dying-job', runningFirst, 'no recording part way');
+      await setHold('exit 1');
+      const ended = await changeAfter(w, (d) => d.outcome === 'progress' && d.progress === null, 'no change after the progress was gone');
+      const card = await ended.card;
+      assert.equal(card.testing, null);
+      assert.doesNotMatch(card.laneReason, /Recording evidence/);
+      assert.ok((await getJson('/api/job/heard-dying-job/evidence')).problem, 'the problem is said');
+    } finally {
+      await setHold('go');
+    }
+  } finally {
+    w.stop();
+  }
+});
+
+// ---------- Watch: the hidden browser's picture (Task 6) ----------
+
+const liveUrl = (slug) => `/api/job/${slug}/evidence/live`;
+const runDirOf = (slug) => path.join(featuresDir, slug, 'evidence', 'abc1234def5', 'run');
+const there = (f) => fs.access(f).then(() => true, () => false);
+/** A GET from this computer, with the Host header a page elsewhere (a rebound name) would send. */
+const getAs = (p, host) => new Promise((resolve, reject) => {
+  const req = http.get(base + p, { headers: { Host: host } }, (res) => { res.resume(); resolve(res.statusCode); });
+  req.on('error', reject);
+});
+
+test('evidence server: the live route answers the newest frame while a recording is watched, and 404 after it ends', async () => {
+  await fs.rm(hold, { force: true });
+  try {
+    await writeJob('watched-job', { level: 2 });
+    const view = await viewWhen('watched-job', runningFirst, 'no recording part way');
+    assert.equal(view.watch, true, 'Watch is there while it records');
+    const first = await get(liveUrl('watched-job'));
+    assert.equal(first.status, 404, 'nobody watched yet, so there is no picture');
+    assert.equal((await first.json()).error, 'No live picture right now.');
+    assert.ok(await there(path.join(runDirOf('watched-job'), 'watching')), 'asking marks it watched');
+    let res = null;
+    for (let i = 0; i < 40; i++) {
+      res = await get(liveUrl('watched-job'));
+      if (res.status === 200) break;
+      await res.arrayBuffer();
+      await pause(250);
+    }
+    assert.equal(res.status, 200, `no frame while watched:\n${output.join('').slice(-2000)}`);
+    assert.equal(res.headers.get('content-type'), 'image/jpeg');
+    assert.equal(res.headers.get('cache-control'), 'no-store');
+    assert.equal(res.headers.get('cross-origin-resource-policy'), 'same-origin', 'no other origin may show it');
+    const bytes = Buffer.from(await res.arrayBuffer());
+    assert.deepEqual([...bytes.subarray(0, 2)], [0xff, 0xd8], 'a JPEG');
+    assert.equal(Number(res.headers.get('content-length')), bytes.length);
+    // Only at the laptop's own address.
+    assert.equal(await getAs(liveUrl('watched-job'), 'starbase.example.test'), 421);
+    // Another job that isn't recording has none, and asking marks nothing.
+    assert.equal((await get(liveUrl('tiny-tweak'))).status, 404);
+    assert.equal(await there(path.join(featuresDir, 'tiny-tweak', 'evidence', 'abc1234def5')), false);
+    assert.equal((await get(liveUrl('no-such-job'))).status, 404);
+  } finally {
+    await setHold('go');
+  }
+  const done = await viewWhen('watched-job', (v) => v.evidence && !v.recording, 'the watched recording never ended');
+  assert.equal(done.watch, false, 'no Watch once it ended');
+  const after = await get(liveUrl('watched-job'));
+  assert.equal(after.status, 404);
+  assert.equal((await after.json()).error, 'No live picture right now.');
+  assert.equal(await there(runDirOf('watched-job')), false, 'the picture and the watch mark went with the run');
+  assert.ok(!JSON.stringify(done).includes('live.jpg'), 'the evidence names no live picture');
+});
+
+test('evidence server: nobody watching, no frame is written', async () => {
+  await fs.rm(hold, { force: true });
+  try {
+    await writeJob('unwatched-job', { level: 2 });
+    await viewWhen('unwatched-job', runningFirst, 'no recording part way');
+    await pause(1200); // more than two of the fake's half-second looks, the view read in between
+    await getJson('/api/job/unwatched-job/evidence');
+    assert.ok(await there(path.join(runDirOf('unwatched-job'), 'guard.mjs')), 'the run is there');
+    assert.equal(await there(path.join(runDirOf('unwatched-job'), 'live.jpg')), false, 'no frame');
+    assert.equal(await there(path.join(runDirOf('unwatched-job'), 'watching')), false, 'reading the view marks nothing');
+  } finally {
+    await setHold('go');
+  }
+  await viewWhen('unwatched-job', (v) => v.evidence && !v.recording, 'the recording never ended');
 });

@@ -107,3 +107,24 @@ test('R3: a brief answered, or held for the usage limit, still counts after a re
   feedParking(q, () => 'job', [{ action: 'restart', at: '2026-10-01T09:00:00Z' }, { action: 'send', kind: 'approve', gateBrief: 1, at: '2026-10-01T10:00:00Z' }]);
   assert.equal(q.isAnswered('job', 1), true);
 });
+
+test('wroteWhileWaiting: a message of his after the brief is his; one before the brief or before Auto was switched on is not; Starbase\'s own sends are not; a steer is', async () => {
+  const { wroteWhileWaiting } = await import('../lib/auto.js');
+  const at = (hm) => `2026-11-10T${hm}:00.000Z`;
+  const when = { briefAt: at('10:00'), since: at('09:00') };
+  const one = (line, w = when) => wroteWhileWaiting([line], w);
+  assert.equal(one({ action: 'send', kind: 'message', at: at('10:05'), text: 'Use the other table.' }), true, 'his message after the brief');
+  assert.equal(one({ action: 'send', kind: 'message', at: at('09:55'), text: 'Earlier words.' }), false, 'before the brief was raised');
+  assert.equal(one({ action: 'send', kind: 'message', at: at('10:05') }, { briefAt: at('10:00'), since: at('10:10') }), false, 'before Auto was switched on');
+  assert.equal(one({ action: 'send', kind: 'message', at: at('10:00') }), false, 'at the brief\'s own time is not after it');
+  for (const kind of ['nudge', 'resume', 'resume-after-restart', 'status-fix', 'pr-feedback', 'review-round', 'stack-section', 'stack-ready', 'stack-merged', 'stack-stuck', 'stack-checks-failed']) {
+    assert.equal(one({ action: 'send', kind, at: at('10:05') }), false, `Starbase's own: ${kind}`);
+  }
+  for (const kind of ['stack-plan', 'stack-plan-change', 'stack-push', 'stack-push-no', 'stack-sendback']) assert.equal(one({ action: 'send', kind, at: at('10:05') }), true, `his: ${kind}`);
+  assert.equal(one({ action: 'send', kind: 'approve', gateBrief: 1, by: 'auto', at: at('10:05') }), false, 'Auto\'s own reply');
+  assert.equal(one({ action: 'steer', at: at('10:05'), text: 'Leave the old table alone.' }), true, 'a steer');
+  assert.equal(one({ action: 'run-ended', at: at('10:05') }), false, 'not a message');
+  // No time known: any message of his counts. No lines: nothing he wrote.
+  assert.equal(wroteWhileWaiting([{ action: 'send', kind: 'message', at: at('10:05') }], { briefAt: null, since: null }), true);
+  assert.equal(wroteWhileWaiting([], when), false);
+});

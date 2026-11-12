@@ -10,7 +10,7 @@ import { writeStored } from '../../lib/stored';
 import { createStore, WorkshopContext, type Store } from '../../state/store';
 import { job, LEVELS, REVIEWERS, snapshot } from '../../state/test-fixtures';
 import { Composer, draftKey } from './Composer';
-import { GateSlot } from './GateCard';
+import { CHANGES_TYPED, GateSlot } from './GateCard';
 import { clearGateSent, gateSentKey } from './gateSent';
 import { clearAllSent, useSent } from '../../lib/sentState';
 
@@ -115,13 +115,13 @@ describe('GateCard', () => {
     expect(card()).toHaveTextContent('Claude’s five-hour limit is at 85%');
   });
 
-  it('picks the recommendation, labelled Recommended; questions are labelled radio groups with Other…', () => {
+  it('picks the recommendation, labelled Recommended; questions are labelled radio groups with Your own answer', () => {
     setup();
     const q1 = screen.getByRole('group', { name: '1. Keep the old column?' });
     expect(within(q1).getByRole('radio', { name: /a\) Yes/ })).toBeChecked();
     expect(within(q1).getByRole('radio', { name: /a\) Yes/ }).closest('label')).toHaveTextContent('Recommended');
     expect(within(q1).getByRole('radio', { name: /b\) No/ })).not.toBeChecked();
-    expect(within(q1).getByRole('radio', { name: 'Other…' })).not.toBeChecked();
+    expect(within(q1).getByRole('radio', { name: 'Your own answer' })).not.toBeChecked();
     const q2 = screen.getByRole('group', { name: '2. What should the button say?' });
     expect(within(q2).queryByRole('radio')).toBeNull();
     expect(within(q2).getByRole('textbox', { name: 'Your answer to question 2' })).toBeInTheDocument();
@@ -157,7 +157,8 @@ describe('GateCard', () => {
     expect(adjust.open).toBe(false);
     expect(decided.open).toBe(false);
     expect(adjust.querySelector('summary')).toHaveTextContent('Adjust the next step (Build)');
-    expect(decided.querySelector('summary')).toHaveTextContent('2 decisions made for you · review');
+    expect(decided.querySelector('summary')).toHaveTextContent('2 decisions made for you');
+    expect(decided.querySelector('summary')).toHaveTextContent('Review');
     fireEvent.click(adjust.querySelector('summary')!);
     expect(adjust.open).toBe(true);
     fireEvent.click(button('Heavier (Build)'));
@@ -169,7 +170,9 @@ describe('GateCard', () => {
     expect(adjust.querySelector('summary')).toHaveTextContent('1 chosen');
     fireEvent.click(decided.querySelector('summary')!);
     expect(decided.open).toBe(true);
+    expect(decided.querySelector('summary')).toHaveTextContent('Hide');
     expect(screen.getByRole('region', { name: 'Decided on your behalf' })).toHaveTextContent('Toast text is “Copied”');
+    expect(screen.getByRole('region', { name: 'Decided on your behalf' })).toHaveTextContent('Going ahead confirms the ones you don’t override.');
     unmount();
     // Remembered: a new card opens the way you left them.
     setup();
@@ -318,10 +321,10 @@ describe('GateCard', () => {
     fireEvent.click(button('Edit, then approve'));
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(within(card()!).getByRole('alert')).toHaveTextContent('Question 2 has no answer.');
-    // "Other…" picked on question 1 with nothing written: no answer either.
+    // "Your own answer" picked on question 1 with nothing written: no answer either.
     fireEvent.change(screen.getByRole('textbox', { name: 'Your answer to question 2' }), { target: { value: 'Copy ID' } });
     expect(offList(), 'question 2 answered').toBeNull();
-    fireEvent.click(within(screen.getByRole('group', { name: '1. Keep the old column?' })).getByRole('radio', { name: 'Other…' }));
+    fireEvent.click(within(screen.getByRole('group', { name: '1. Keep the old column?' })).getByRole('radio', { name: 'Your own answer' }));
     expect(offList()).toHaveTextContent('Question 1 has no answer.');
     expect(button(/^Approve quick plan/)).toBeDisabled();
     fireEvent.click(within(screen.getByRole('group', { name: '1. Keep the old column?' })).getByRole('radio', { name: /a\) Yes/ }));
@@ -353,7 +356,7 @@ describe('GateCard', () => {
     fireEvent.click(button('Check again'));
     expect(reload).toHaveBeenCalledTimes(1);
     fireEvent.click(button('Revise with feedback'));
-    const send = button('Send the changes');
+    const send = button('Send back');
     expect(send).toBeDisabled(); // a note is required
     fireEvent.change(within(c).getByRole('textbox', { name: /What should change/ }), { target: { value: 'Split step 2.' } });
     await act(async () => { fireEvent.click(send); });
@@ -548,7 +551,7 @@ describe('GateCard', () => {
     fireEvent.click(button('Decide again here'));
     await act(async () => { fireEvent.click(button('Revise with feedback')); });
     fireEvent.change(within(card()!).getByRole('textbox', { name: /What should change/ }), { target: { value: 'Split step 2.' } });
-    await act(async () => { fireEvent.click(button('Send the changes')); });
+    await act(async () => { fireEvent.click(button('Send back')); });
     expect(localStorage.getItem(draftKey('alpha'))).toBe('NEW decision');
     expect(JSON.parse(localStorage.getItem(gateDraftKey('alpha'))!)).toEqual({ brief: 2, kind: 'changes', text: 'NEW decision' });
     expect(screen.getByText(/It replaces your earlier reply to this brief\./)).toBeInTheDocument();
@@ -696,6 +699,7 @@ describe('the gate card’s keys', () => {
     fireEvent.keyDown(document.body, { key: 'v' });
     expect(adjust().open).toBe(false);
     expect(decided().open).toBe(false);
+    fireEvent.click(screen.getByRole('radio', { name: 'Your own answer' }));
     fireEvent.keyDown(screen.getByRole('textbox', { name: 'Your own answer to question 1' }), { key: '.' });
     expect(adjust().open, 'not while typing').toBe(false);
     show(oneQ({ decided: [] }));
@@ -710,6 +714,8 @@ describe('the gate card’s keys', () => {
     setup({ det: oneQ(), jobExtra: { waitingFor: 'approval' } });
     fireEvent.keyDown(document.body, { key: 'r' });
     expect(button('Revise with feedback')).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.click(screen.getByRole('radio', { name: 'Your own answer' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Your own answer to question 1' }), { target: { value: 'Only for admins' } });
     fireEvent.keyDown(screen.getByRole('textbox', { name: 'Your own answer to question 1' }), { key: 'o' });
     expect(button('Other guidance')).toHaveAttribute('aria-expanded', 'false');
     fireEvent.keyDown(document.body, { key: 'o' });
@@ -916,5 +922,161 @@ describe('the hand test under Auto', () => {
     setup({ det: detail({ stage: 'test' }), jobExtra: { auto: { on: true, ran: true, stopped: { reason: 'a database change needs you.', rule: 'database', at: '2026-11-11T08:00:00.000Z' } } } });
     expect(screen.getByRole('button', { name: 'Try it on your computer' })).toBeInTheDocument();
     expect(screen.queryByText(HAND_TEST_LINE)).toBeNull();
+  });
+});
+
+// ---------- Task 8 (design 3.3): questions first, the evidence in one line ----------
+
+describe('GateCard: questions first, the evidence in one line', () => {
+  beforeEach(disclosuresOpen);
+
+  const PROOF = { tested: 'c3e8a51ff', head: 'c3e8a51ff', stale: false, reportAt: null };
+  const testGate = (gate: Partial<Gate> = {}, extra: Partial<JobDetail> = {}) => detail({ stage: 'test', nextStage: 'review', nextProposed: 'Review', proof: PROOF, ...gate }, extra);
+  const EVIDENCE_VIEW = {
+    evidence: {
+      version: 1, commit: 'c3e8a51ff', at: new Date(Date.now() - 40 * 60_000).toISOString(), level: 1,
+      criteria: [{ id: 'AC-1', title: 'The column shows', status: 'passed', reason: null, spec: 'evidence/specs/AC-1.spec.mjs', screenshots: [], video: null }],
+    },
+    commit: 'c3e8a51ff', wanted: true, why: 'Evidence is recorded at L1.', recording: false, problem: null, folder: '/tmp/alpha/evidence', folderUrl: 'file:///tmp/alpha/evidence/',
+  };
+  const RECORDING = (line: number) => ({ ...EVIDENCE_VIEW, recording: true, progress: { commit: 'c3e8a51ff', startedAt: new Date().toISOString(), line, of: 19, lines: [] } });
+  const evidenceGet = (view: () => unknown = () => EVIDENCE_VIEW) => vi.fn(async (path: string): Promise<unknown> => {
+    if (path.endsWith('/evidence')) return view();
+    if (path === '/api/job/alpha/doc?file=wireframes.json') return { file: 'wireframes.json', name: 'Wireframes data', type: 'json', html: '', text: JSON.stringify({ version: 1, screens: [{ key: 's-list', name: 'The list', states: [] }], choices: [] }) };
+    return null;
+  });
+  /** Each part of the card, in the order the card must draw them. */
+  const PARTS = ['.gate-head', '.gate-question', '.gate-off', '.gate-actions', '.gate-try', '.gate-evidence', '.gate-decided', '.gate-auto-decided', '.gate-adjust', '.how'];
+  const inOrder = (root: Element, selectors: string[]) => {
+    const els = selectors.map((s) => root.querySelector(s));
+    els.forEach((el, i) => expect(el, selectors[i]).not.toBeNull());
+    for (let i = 1; i < els.length; i++) {
+      expect(els[i - 1]!.compareDocumentPosition(els[i]!) & Node.DOCUMENT_POSITION_FOLLOWING, `${selectors[i - 1]} before ${selectors[i]}`).toBeTruthy();
+    }
+  };
+  const AUTO = { on: true, tag: null, decided: ['Keep the old column? Yes', 'Brief 1 (plan): go ahead? Sent back.'] };
+
+  it('the questions come before the evidence, the decisions and the extras', async () => {
+    const { unmount } = setup({ det: testGate({}, { auto: AUTO }), get: evidenceGet() });
+    await screen.findByRole('region', { name: /^Evidence: / });
+    inOrder(card()!, PARTS);
+    // An open box goes first, above the head.
+    fireEvent.click(button('Revise with feedback'));
+    inOrder(card()!, ['.gate-note', '.gate-head', '.gate-question']);
+    unmount();
+    // The screens row: after the calls, before the decisions.
+    setup({ det: detail({ stage: 'wireframe', nextStage: 'investigate', questions: [QUESTIONS[0]] }), get: evidenceGet(), jobExtra: { wireframes: { version: '1' } } });
+    await within(card()!).findByRole('button', { name: 'The list' });
+    inOrder(card()!, ['.gate-head', '.gate-question', '.gate-actions', '.gate-screens', '.gate-decided', '.gate-adjust', '.how']);
+  });
+
+  it('the recommended answer is picked and says Picked; the last choice reads Your own answer', async () => {
+    const { post } = setup();
+    const q1 = screen.getByRole('group', { name: '1. Keep the old column?' });
+    const yes = within(q1).getByRole('radio', { name: /a\) Yes/ });
+    expect(yes).toBeChecked();
+    expect(yes.closest('label')).toHaveTextContent('Recommended');
+    expect(yes.closest('label')).toHaveTextContent('Picked');
+    expect(within(q1).getByRole('radio', { name: /b\) No/ }).closest('label')).not.toHaveTextContent('Picked');
+    expect(q1).not.toHaveTextContent('Other…');
+    // The last choice: its box opens once it is picked.
+    const own = within(q1).getByRole('radio', { name: 'Your own answer' });
+    expect(within(q1).queryByRole('textbox')).toBeNull();
+    fireEvent.click(own);
+    expect(own).toBeChecked();
+    expect(yes.closest('label'), 'Picked moves with the pick').not.toHaveTextContent('Picked');
+    expect(own.closest('label')).toHaveTextContent('Picked');
+    const box = within(q1).getByRole('textbox', { name: 'Your own answer to question 1' });
+    expect(box).toHaveFocus();
+    fireEvent.change(box, { target: { value: 'Only for admins' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Your answer to question 2' }), { target: { value: 'Copy ID' } });
+    await act(async () => { fireEvent.click(button(/^Approve quick plan/)); });
+    expect(post.mock.calls[0][1].answers).toEqual({ 1: { other: 'Only for admins' }, 2: { other: 'Copy ID' } });
+  });
+
+  it('a card on a job Auto ran on says how many decisions Auto made and lists them, each marked (Auto)', () => {
+    const { show } = setup({ det: oneQ({}, { auto: AUTO }) });
+    const fold = () => card()!.querySelector<HTMLDetailsElement>('.gate-auto-decided');
+    expect(fold()!.open).toBe(false);
+    const summary = fold()!.querySelector('summary')!;
+    expect(summary).toHaveTextContent('2 decisions made by Auto on this job so far');
+    expect(summary).toHaveTextContent('Review');
+    fireEvent.click(summary);
+    expect(fold()!.open).toBe(true);
+    expect(summary).toHaveTextContent('Hide');
+    const list = within(card()!).getByRole('list', { name: 'Decided by Auto on this job' });
+    expect([...list.querySelectorAll('li')].map((li) => li.textContent)).toEqual(['Keep the old column? Yes (Auto)', 'Brief 1 (plan): go ahead? Sent back. (Auto)']);
+    show(oneQ({}, { auto: { on: true, decided: ['Keep the old column? Yes'] } }));
+    expect(fold()!.querySelector('summary')).toHaveTextContent('1 decision made by Auto on this job so far');
+    // Nothing Auto decided to list, or a job (or an older Starbase) with no list: no line.
+    show(oneQ({}, { auto: { on: true, decided: [] } }));
+    expect(fold()).toBeNull();
+    show(oneQ());
+    expect(fold()).toBeNull();
+  });
+
+  it('what you typed in a box is still there after the job is fetched again', async () => {
+    let line = 4;
+    const { show } = setup({ det: testGate(), get: evidenceGet(() => RECORDING(line)) });
+    await screen.findByRole('region', { name: 'Evidence: recording, line 4 of 19' });
+    fireEvent.click(button('Revise with feedback'));
+    fireEvent.change(within(card()!).getByRole('textbox', { name: /What should change\?/ }), { target: { value: 'Split step 2.' } });
+    // The job fetched again: a new detail for the same brief, and the evidence moves on a line.
+    line = 5;
+    show(testGate());
+    await screen.findByRole('region', { name: 'Evidence: recording, line 5 of 19' });
+    expect(within(card()!).getByRole('textbox', { name: /What should change\?/ })).toHaveValue('Split step 2.');
+    expect(button('Revise with feedback')).toHaveAttribute('aria-expanded', 'true');
+    // The same for Reply's box.
+    fireEvent.click(button('Other guidance'));
+    fireEvent.change(within(card()!).getByRole('textbox', { name: /Your answers or a note/ }), { target: { value: 'Is the CSV in scope?' } });
+    show(testGate({ waitingSince: new Date().toISOString() }));
+    expect(within(card()!).getByRole('textbox', { name: /Your answers or a note/ })).toHaveValue('Is the CSV in scope?');
+  });
+
+  it('words typed in What should change? keep Go off and say so', () => {
+    expect(CHANGES_TYPED).toBe('You wrote what should change. Send it back or cancel it first.');
+    setup({ det: oneQ() });
+    const approve = button(/^Approve quick plan/);
+    expect(approve).toBeEnabled();
+    fireEvent.click(button('Revise with feedback'));
+    fireEvent.change(within(card()!).getByRole('textbox', { name: /What should change\?/ }), { target: { value: 'Split step 2.' } });
+    expect(approve).toBeDisabled();
+    expect(approve).toHaveAttribute('data-off-why', 'You wrote what should change. Send it back or cancel it first.');
+    expect(offList()).toHaveTextContent('You wrote what should change. Send it back or cancel it first.');
+    fireEvent.click(within(card()!).getByRole('button', { name: 'Cancel' }));
+    expect(approve).toBeEnabled();
+  });
+
+  it('on the website the card has the same order and words', async () => {
+    const store: Store = createStore();
+    store.dispatch({ type: 'snapshot', snapshot: snapshot({ meta: { token: 't', levels: LEVELS, models: MODELS, jobOptions: { reviewers: REVIEWERS } }, jobs: [job('alpha', 'needs-you', { level: 1 })] }) });
+    const api = { get: evidenceGet(), post: vi.fn(async () => SENT), hosted: () => true } as unknown as ApiClient;
+    render(
+      <WorkshopContext.Provider value={{ store, api }}>
+        <UiProvider><GateSlot job={store.getState().jobs[0]} detail={testGate({}, { auto: AUTO })} now={new Date()} reload={vi.fn()} /></UiProvider>
+      </WorkshopContext.Provider>,
+    );
+    await screen.findByRole('region', { name: /^Evidence: 1 passed, 0 failed$/ });
+    // Try it is the laptop's: the rest is in the same order.
+    inOrder(card()!, PARTS.filter((p) => p !== '.gate-try'));
+    expect(card()!.querySelector('.gate-try')).toBeNull();
+    expect(within(screen.getByRole('group', { name: '1. Keep the old column?' })).getByRole('radio', { name: 'Your own answer' })).toBeInTheDocument();
+    expect(card()!.querySelector('.gate-decided summary')).toHaveTextContent('2 decisions made for you');
+    expect(card()!.querySelector('.gate-auto-decided summary')).toHaveTextContent('2 decisions made by Auto on this job so far');
+    fireEvent.click(button('Revise with feedback'));
+    const box = within(card()!).getByRole('textbox', { name: 'What should change? The Foreman stays at this step and revises; nothing is approved.' });
+    expect(box).toHaveAttribute('placeholder', 'Say what should change…');
+    inOrder(card()!, ['.gate-note', '.gate-head']);
+    expect([...card()!.querySelectorAll('.gate-note button')].map((b) => b.textContent)).toEqual(['Cancel', 'Send back']);
+  });
+});
+
+// Task 7 fix round 1: once he wrote to an Auto job while the step waited, the step is his: his hand test is back.
+describe('the hand test on a step that is his', () => {
+  it('an Auto job whose step is his offers Try it on your computer, not the hand test line', () => {
+    setup({ det: detail({ stage: 'test' }), jobExtra: { auto: { on: true, ran: true, yours: true } } });
+    expect(screen.getByRole('button', { name: 'Try it on your computer' })).toBeInTheDocument();
+    expect(screen.queryByText('Auto skips your hand test on this job. The recorded evidence still runs.')).toBeNull();
   });
 });

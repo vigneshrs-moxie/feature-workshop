@@ -9,6 +9,10 @@
 //   GET  /api/job/:slug/evidence/file?path=…     one picture or video, only when the path is a plain
 //                                                file inside that job's evidence/ folder (else 404);
 //                                                a video answers byte ranges, so it can be scrubbed
+//   GET  /api/job/:slug/evidence/live            Watch: the hidden browser's newest picture (JPEG, never
+//                                                kept by the browser) while the job records, else 404;
+//                                                each ask keeps the pictures coming for 5 s. Laptop only:
+//                                                it is never mirrored or uploaded
 //   POST /api/job/:slug/evidence/record          record again for the commit the report names now
 //                                                (token-checked like every write; 409 "Already
 //                                                recorded for abc1234"); 202 when it carries on by
@@ -17,11 +21,13 @@
 import fs from 'node:fs';
 import { HttpError } from '../lib/http-guard.js';
 import { PRODUCT } from '../lib/brand.js';
+import { NO_LIVE } from '../lib/evidence.js';
 
 const NOT_READY = `This copy of ${PRODUCT} can’t record evidence yet. Restart it, and if this stays, tell whoever looks after it.`;
 const VIEW = /^\/api\/job\/([^/]+)\/evidence$/;
 const FILE = /^\/api\/job\/([^/]+)\/evidence\/file$/;
 const RECORD = /^\/api\/job\/([^/]+)\/evidence\/record$/;
+const LIVE = /^\/api\/job\/([^/]+)\/evidence\/live$/;
 
 /** The first range of a Range header, clamped to the file: { start, end } or null (the whole file), or 'bad'. */
 function rangeOf(header, size) {
@@ -64,6 +70,17 @@ export default function evidenceRoutes({ local, needJob, sendJson, SECURITY_HEAD
           stream.on('end', resolve);
           stream.pipe(res);
         });
+      },
+    },
+    {
+      method: 'GET', path: LIVE,
+      run: async ({ res, m }) => {
+        const frame = await door().live(await slugOf(m));
+        // Read whole: the next picture is renamed over this one, so its size is the one read now.
+        const bytes = await fs.promises.readFile(frame.abs).catch(() => null);
+        if (!bytes?.length) throw new HttpError(404, NO_LIVE);
+        res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': frame.type, 'Content-Length': String(bytes.length), 'Cache-Control': 'no-store' });
+        return res.end(bytes);
       },
     },
     {
