@@ -10,8 +10,9 @@ import { readFileSync } from 'node:fs';
 import { useState, type ReactNode } from 'react';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ApiClient } from '../../api/client';
+import { ApiError, type ApiClient } from '../../api/client';
 import type { EvidenceView, Gate, Job, JobDetail, JobDoc, JobDocEntry, Permission, StageView, StopId, ThreadItem } from '../../api/types';
+import { DETAIL_KEY } from '../../app/detail';
 import { installKeyListener } from '../../app/keyRegistry';
 import { useRoute, type JobView } from '../../app/router';
 import { UiProvider, useUi } from '../../app/ui';
@@ -428,6 +429,19 @@ describe('the phone’s step screen', () => {
     expect(screen.queryByRole('region', { name: 'The bay at this stop' })).toBeNull();
   });
 
+  // Final review A6 (page Minor 7, the phone's half): the step's screen and the list say the same time.
+  it.each([['the laptop app', false], ['the website', true]] as const)('a step with no time span shows no time on its own screen either (%s)', async (_where, hosted) => {
+    server.stageMore = { since: new Date(Date.now() - 12 * 60_000).toISOString() };
+    setup({ jobs: [working('implement')], hosted });
+    const row = await screen.findByRole('button', { name: /^Build: / });
+    expect(row).toHaveAccessibleName(/^Build: Working now$/);
+    fireEvent.click(row);
+    expect(await screen.findByRole('heading', { level: 1, name: 'Build' })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('region', { name: 'Build' }).querySelector('.sb-step-body')).not.toBeNull());
+    expect(document.querySelector('.sb-phone-facts .num')).toBeNull();
+    expect(document.querySelector('.sb-phone-facts')).not.toHaveTextContent(/so far|min/);
+  });
+
   it('a step’s body comes only once that step’s view is in', async () => {
     let release = () => {};
     server.stageHold = new Promise<void>((r) => { release = r; });
@@ -444,6 +458,49 @@ describe('the phone’s step screen', () => {
     expect(screen.getByRole('region', { name: 'Build' })).toBe(panel);
   });
 
+  // Final review A2: the folded card on the waiting step's screen shows what it says after a press.
+  it.each([['the laptop app', false], ['the website', true]] as const)('a refused Go on the phone’s step screen shows the error (%s)', async (_where, hosted) => {
+    localStorage.setItem(DETAIL_KEY, 'simple');
+    const TERMINAL = 'Claude Code is open in this repository in a terminal.';
+    const post = vi.fn(async (p: string): Promise<unknown> => {
+      if (p === '/api/job/alpha/gate') throw new ApiError(409, TERMINAL, { code: 'terminal-open' });
+      return { ok: true };
+    });
+    setup({ jobs: [AUTO_OFF[1]], gate: GATE, hosted, post, at: '#/job/alpha/stage/plan' });
+    await threeCallsOn();
+    expect(screen.getByRole('button', { name: /^The brief/ })).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(screen.getByRole('button', { name: /^Go: approve/ }));
+    await waitFor(() => expect(screen.getByText(TERMINAL)).toBeVisible());
+    expect(screen.getByRole('checkbox', { name: /None of the open terminals is this job’s Foreman/ })).toBeVisible();
+  });
+
+  it('on the website a queued Go on a folded card shows its words and Cancel (the phone’s step screen)', async () => {
+    localStorage.setItem(DETAIL_KEY, 'simple');
+    const QUEUED = { id: 'd_abcdefgh1234', kind: 'approve', state: 'waiting', words: 'Go: waiting for your laptop. It runs when the laptop is back.', at: NOW, expiresAt: null, waiting: true, canCancel: true, permissionId: null };
+    setup({ jobs: [AUTO_OFF[1]], gate: GATE, hosted: true, at: '#/job/alpha/stage/plan', detailMore: { queued: QUEUED } as Partial<JobDetail> });
+    const card = await waitFor(() => { const c = document.querySelector<HTMLElement>('.queued-decision'); expect(c).not.toBeNull(); return c!; });
+    expect(card).toBeVisible();
+    expect(within(card).getByText(QUEUED.words)).toBeVisible();
+    expect(within(card).getByRole('button', { name: 'Cancel' })).toBeVisible();
+    expect(bar()).toHaveTextContent(QUEUED.words);
+    expect(bar()).not.toHaveTextContent(/Say go/);
+  });
+
+  // Final review A4: the card's words are kept across the phone's screens.
+  it.each([['the laptop app', false], ['the website', true]] as const)('words typed in What should change? survive the phone’s screens (%s)', async (_where, hosted) => {
+    setup({ jobs: [AUTO_OFF[1]], gate: GATE, hosted });
+    await threeCallsOn();
+    fireEvent.click(screen.getByRole('button', { name: /^No go: send back/ }));
+    fireEvent.change(await screen.findByRole('textbox', { name: /What should change\?/ }), { target: { value: 'Use the small table.' } });
+    // A step's screen, then the overview, then back to the job.
+    go('#/job/alpha/stage/spec');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Spec' })).toBeInTheDocument();
+    go('#/job/alpha/overview');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Overview' })).toBeInTheDocument();
+    go('#/job/alpha');
+    expect(await screen.findByRole('textbox', { name: /What should change\?/ })).toHaveValue('Use the small table.');
+  });
+
   it('after Go the chip reads Sent and the step’s row and screen read Approved', async () => {
     let n = 0;
     const sentPost = vi.fn(async (p: string, body?: unknown): Promise<unknown> => {
@@ -456,7 +513,7 @@ describe('the phone’s step screen', () => {
     });
     setup({ jobs: [AUTO_OFF[1]], gate: GATE, post: sentPost });
     fireEvent.click(await screen.findByRole('button', { name: /^Go: approve/ }));
-    await within(bar()).findByText('Sent. Waiting for the Foreman to start.');
+    await within(bar()).findByText('Sent. The Foreman is at work on it.');
     const main = screen.getByRole('main', { name: 'Job' });
     await waitFor(() => expect(main.querySelector('.state-chip')).toHaveTextContent('Sent'));
     expect(screen.getByRole('button', { name: /^Plan: / })).toHaveAccessibleName(/^Plan: Approved/);
@@ -523,6 +580,28 @@ describe('the phone’s bar when no gate waits', () => {
     expect(reply()).toBeEnabled();
     fireEvent.click(reply());
     expect(window.location.hash).toBe('#/job/alpha/conversation');
+    await waitFor(() => expect(box()).toHaveFocus());
+  });
+
+  // Final review A1: the card's hand to the message box lands in a box he can see.
+  it.each([['the laptop app', false], ['the website', true]] as const)('a decision handed to the message box opens the conversation screen (%s)', async (_where, hosted) => {
+    const post = vi.fn(async (p: string): Promise<unknown> => (p === '/api/job/alpha/gate' ? { ok: true, sent: false, text: 'Go ahead with the plan.' } : { ok: true }));
+    setup({ jobs: [AUTO_OFF[1]], gate: { ...GATE, runActive: true }, hosted, post });
+    fireEvent.click(await screen.findByRole('button', { name: /^Go: approve/ }));
+    await waitFor(() => expect(window.location.hash).toBe('#/job/alpha/conversation'));
+    await waitFor(() => expect(box()).toHaveFocus());
+    expect(box()).toHaveValue('Go ahead with the plan.');
+  });
+
+  it.each([['the laptop app', false], ['the website', true]] as const)('the c key opens the conversation screen with the box focused (%s)', async (_where, hosted) => {
+    setup({ jobs: [ASKED], hosted });
+    await within(bar()).findByText('The Foreman asked you something');
+    fireEvent.keyDown(document.body, { key: 'c' });
+    expect(window.location.hash).toBe('#/job/alpha/conversation');
+    await waitFor(() => expect(box()).toHaveFocus());
+    // On the conversation screen the c key puts the cursor back in the box.
+    box().blur();
+    fireEvent.keyDown(document.body, { key: 'c' });
     await waitFor(() => expect(box()).toHaveFocus());
   });
 

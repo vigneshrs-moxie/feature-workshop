@@ -25,7 +25,7 @@ import { ThreadItemView, YouMessage } from './ThreadItems';
 import { Composer } from './Composer';
 import { useJobThread } from './useJobThread';
 import { useShown } from '../../app/detail';
-import { Button } from '../../components/Button';
+import { Button, buttonClass } from '../../components/Button';
 import { Pending } from '../../components/Pending';
 
 const HOW = 'This is your conversation with the job’s Foreman, the Claude session that plans the work and runs the crew. Its briefs, questions and permission requests appear here for you to answer.';
@@ -118,11 +118,38 @@ export function ThreadList({ job, conversation, now, cards = true, level = true,
   const cut = newest !== undefined && !earlier && shown.length > newest ? shown.length - newest : 0;
   const visible = cut ? shown.slice(cut) : shown;
   const fresh = newFrom ? shown.filter((s) => isNewSince(s.kind === 'brief-card' ? s.brief.item : s.item, newFrom)) : [];
+  // Load older keeps the keyboard focus (final review A6, calls Minor 6): the button stays, enabled
+  // and busy, while it loads; when it goes with the focus on it, the first message loaded takes it.
+  const ownSection = useRef<HTMLElement | null>(null);
+  const setSection = (el: HTMLElement | null) => {
+    ownSection.current = el;
+    if (typeof sectionRef === 'function') sectionRef(el);
+    else if (sectionRef) (sectionRef as { current: HTMLElement | null }).current = el;
+  };
+  const olderButton = useRef<HTMLButtonElement>(null);
+  const olderHadFocus = useRef(false);
+  const loadOlder = () => {
+    if (thread.loadingOlder) return;
+    olderHadFocus.current = document.activeElement === olderButton.current;
+    thread.loadOlder();
+  };
+  const olderShown = !cut && thread.more;
+  useEffect(() => {
+    if (!olderHadFocus.current || thread.loadingOlder) return;
+    olderHadFocus.current = false;
+    if (olderShown) return;
+    const at = document.activeElement;
+    if (at && at !== document.body && at.isConnected) return;
+    const first = ownSection.current?.querySelector<HTMLElement>(':scope > .thread-item');
+    if (!first) return;
+    if (!first.hasAttribute('tabindex')) first.setAttribute('tabindex', '-1');
+    first.focus();
+  }, [thread.loadingOlder, olderShown]);
   const newLine = fresh.length > 0 && (
     <p className="sb-convo-new" role="separator" aria-label={`${fresh.length} new since you last looked`}><span>{fresh.length} new</span></p>
   );
   return (
-    <section ref={sectionRef} className="thread" aria-label={name} aria-busy={thread.loading || thread.loadingOlder}>
+    <section ref={setSection} className="thread" aria-label={name} aria-busy={thread.loading || thread.loadingOlder}>
       {cut > 0 && (
         <Button kind="quiet" size="sm" icon="chevron-down" className="thread-earlier" onClick={() => setEarlier(true)} title="Show the earlier messages of this conversation, above the newest.">
           Earlier ({cut})
@@ -133,16 +160,18 @@ export function ThreadList({ job, conversation, now, cards = true, level = true,
           Only the newest
         </Button>
       )}
-      {!cut && thread.more && (
-        <Button
-          kind="quiet"
-          className="load-older"
-          onClick={thread.loadOlder}
-          disabled={thread.loadingOlder}
+      {olderShown && (
+        // A plain button, not Button's busy: its words change in place and it keeps the focus.
+        <button
+          ref={olderButton}
+          type="button"
+          className={buttonClass({ kind: 'quiet', className: 'load-older' })}
+          onClick={loadOlder}
+          aria-busy={thread.loadingOlder || undefined}
           title="Show the earlier part of this conversation."
         >
-          {thread.loadingOlder ? 'Loading…' : 'Load older'}
-        </Button>
+          <span className="btn-label">{thread.loadingOlder ? 'Loading…' : 'Load older'}</span>
+        </button>
       )}
       {thread.error && <p className="thread-error" role="alert">{thread.error}</p>}
       <Pending loading={thread.loading} say="Loading the conversation…" />

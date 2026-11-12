@@ -345,10 +345,23 @@ describe('GateCard', () => {
   });
 
   it('with no level, L↑ and L↓ are off and point to the level chip', () => {
+    // The page's level chip (the job page's header has one).
+    const chip = document.createElement('button');
+    chip.className = 'chip level-chip';
+    document.body.append(chip);
+    try {
+      setup({ det: detail({ level: null }), jobExtra: { level: null } });
+      expect(button('Raise the level')).toHaveAttribute('aria-disabled', 'true');
+      expect(button('Lower the level')).toHaveAttribute('title', 'Pick a level first: this job has none yet.');
+      expect(button('Pick a level first')).toBeInTheDocument();
+    } finally { chip.remove(); }
+  });
+
+  // Final review A6 (calls Minor 4): no level chip on the page (the phone), no link to one.
+  it('with no level chip on the page, Pick a level first is not offered', () => {
     setup({ det: detail({ level: null }), jobExtra: { level: null } });
-    expect(button('Raise the level')).toHaveAttribute('aria-disabled', 'true');
-    expect(button('Lower the level')).toHaveAttribute('title', 'Pick a level first: this job has none yet.');
-    expect(button('Pick a level first')).toBeInTheDocument();
+    expect(screen.getByText(/L↑ and L↓ need a level\./)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Pick a level first' })).toBeNull();
   });
 
   it('greys out when the plan changed since it was proposed: approvals off, the rest still work', async () => {

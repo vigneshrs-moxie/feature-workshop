@@ -6,7 +6,7 @@
 // the evidence being recorded. The owner's one requirement: on every step that waits for him, on
 // Auto jobs too (Auto on, deciding, stopped, or the step his once he wrote), the three calls are
 // there and pressable. After a send the bar says what reached the Foreman (sentView.ts).
-import { isOpen, queuedOf } from '../views/Hosted/QueuedDecision';
+import { isOpen, needsLook, queuedOf } from '../views/Hosted/QueuedDecision';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import type { EvidenceView, Job, NowDoing, Run, StopId, TestChecks } from '../api/types';
 import { BRAND } from '../app/brand';
@@ -19,7 +19,9 @@ import { PermissionAlert } from '../components/permissions/PermissionAlert';
 import { stopOf } from '../components/stops/stops';
 import { laneOf } from '../home/JobsPage';
 import type { useJobConversation } from '../panes/Foreman/ForemanPane';
-import { GateSlot, pressReply } from '../panes/Foreman/GateCard';
+import { draftKey, focusMessageBox } from '../panes/Foreman/Composer';
+import { GateSlot, gateMovedKey, movedWordsLine, pressReply, readMovedWords } from '../panes/Foreman/GateCard';
+import { useStored } from '../lib/stored';
 import { sessionOf, useGateSent, type GateSent } from '../panes/Foreman/gateSent';
 import { isActiveRun } from '../panes/Foreman/thread';
 import type { GateKind } from '../lib/compose';
@@ -61,7 +63,7 @@ const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
  * button goes to the job page. While a permission card has the bar's place the gate card stays
  * mounted, only hidden, so a box opened in it and the words typed there are still there after.
  */
-export function NextStep({ job, conversation, now, onShip, onWatch, onWrite, foldCard = false, foldHere = false, evidence }: { job: Job; conversation: Conversation; now: Date; onShip?: () => void; /** Shows the evidence being recorded (laptop only). */ onWatch?: () => void; /** Reply while no gate waits (left out: it puts the focus in the page's message box; the phone's goes to its conversation screen). */ onWrite?: () => void; /** The phone's screens: the brief under the bar folds to one row (the laptop's job page has it in full). */ foldCard?: boolean; /** The job page while its conversation takes the screen: the brief is one row each time, whatever the Detail setting, and open only while a box in it is open or he opens the row (not remembered for any other page). */ foldHere?: boolean; /** The page's own evidence view for the gate card's strip (left out: the strip asks for itself). */ evidence?: EvidenceView | null }) {
+export function NextStep({ job, conversation, now, onShip, onWatch, onWrite, foldCard = false, foldHere = false, evidence }: { job: Job; conversation: Conversation; now: Date; onShip?: () => void; /** Shows the evidence being recorded (laptop only). */ onWatch?: () => void; /** The page's way to its message box: Reply while no gate waits, and a decision the card hands to the box (left out: the cursor goes to the box on the page). The job page shows the box first when it is out of sight; the phone's goes to its conversation screen. */ onWrite?: () => void; /** The phone's screens: the brief under the bar folds to one row (the laptop's job page has it in full). */ foldCard?: boolean; /** The job page while its conversation takes the screen: the brief is one row each time, whatever the Detail setting, and open only while a box in it is open or he opens the row (not remembered for any other page). */ foldHere?: boolean; /** The page's own evidence view for the gate card's strip (left out: the strip asks for itself). */ evidence?: EvidenceView | null }) {
   const state = useWorkshopState();
   const play = usePlay();
   const review = useReview(job.slug);
@@ -78,12 +80,31 @@ export function NextStep({ job, conversation, now, onShip, onWatch, onWrite, fol
   const problem = after.problem && <p ref={after.problemRef} className="field-problem" role="alert" tabIndex={-1}>{after.problem}</p>;
   const alert = perms.length > 0 ? <PermissionAlert permissions={perms} now={now} /> : null;
   // The gate's bar and card stay in one place whether or not a permission card is up: hidden under it.
-  const gate = thread.detail?.gate ? <GoBar job={job} detail={thread.detail} now={now} reload={thread.reload} call={play.on} foldCard={foldCard} foldHere={foldHere} after={after} sent={sent} run={run} evidence={evidence} hidden={alert !== null} /> : null;
+  const gate = thread.detail?.gate ? <GoBar job={job} detail={thread.detail} now={now} reload={thread.reload} call={play.on} foldCard={foldCard} foldHere={foldHere} after={after} sent={sent} run={run} evidence={evidence} onWrite={onWrite} hidden={alert !== null} /> : null;
   // Neither: the review round's bar, else what is happening in words.
   const bar: ReactNode = alert || gate ? null
     : review.view ? <ReviewBar view={review.view} act={review.act} problem={review.problem} />
     : <StateBar job={job} now={now} checks={thread.detail?.page?.checks ?? null} onShip={onShip} onWatch={onWatch} onWrite={onWrite} hosted={Boolean(api.hosted?.())} after={after} />;
-  return <>{alert}{gate}{bar}{live}{problem}</>;
+  return <>{alert}{gate}{bar}<MovedWordsLine slug={job.slug} />{live}{problem}</>;
+}
+
+/**
+ * Once the card went with his words still in its boxes (the brief answered by Auto or elsewhere, or
+ * replaced): one line saying they are in the message box, until he writes there or puts it away.
+ */
+function MovedWordsLine({ slug }: { slug: string }) {
+  const [raw, setRaw] = useStored(gateMovedKey(slug));
+  const [draft] = useStored(draftKey(slug));
+  const moved = readMovedWords(raw);
+  const wrote = moved !== null && (draft ?? '') !== moved.draft;
+  useEffect(() => { if (wrote) setRaw(null); }, [wrote, setRaw]);
+  if (!moved || wrote) return null;
+  return (
+    <div className="gate-notice is-ok sb-moved-words" role="status">
+      <p className="gate-notice-text">{movedWordsLine(moved.brief)}</p>
+      <Button kind="quiet" onClick={() => setRaw(null)} title="Close this note.">Got it</Button>
+    </div>
+  );
 }
 
 type Conversation = ReturnType<typeof useJobConversation>;
@@ -238,7 +259,7 @@ function useAfterSend(job: Job, run: Run | null, reload: () => void, queuedId: s
     }
   }
   const waits = out === 'sent' || out === 'stuck' || (retrying && out === 'sending');
-  const lines = stateLines(decision, job);
+  const lines = stateLines(decision, job, isActiveRun(run));
   const words = lines?.words ?? STUCK_WORDS;
   const shown = !waits ? null : out === 'sent' ? 'sent' : 'stuck';
   const tryShown = out === 'stuck' || retrying;
@@ -283,7 +304,7 @@ function TryAgain({ after }: { after: AfterSend }) {
  * the decisions made for you, a stale plan, the evidence); its own row of buttons is hidden, and
  * the bar's three calls press them (Reply opens the message box). Go is off while the card asks a question: a never answers one.
  */
-function GoBar({ job, detail, now, reload, call, foldCard = false, foldHere = false, after, sent, run, evidence, hidden = false }: { job: Job; detail: NonNullable<ReturnType<typeof useJobConversation>['thread']['detail']>; now: Date; reload(): void; call: boolean; foldCard?: boolean; /** See NextStep. */ foldHere?: boolean; after: AfterSend; sent: SentShown | null; run: Run | null; evidence?: EvidenceView | null; /** A permission card has the bar's place: kept, not shown, its keys at rest. */ hidden?: boolean }) {
+function GoBar({ job, detail, now, reload, call, foldCard = false, foldHere = false, after, sent, run, evidence, onWrite, hidden = false }: { job: Job; detail: NonNullable<ReturnType<typeof useJobConversation>['thread']['detail']>; now: Date; reload(): void; call: boolean; foldCard?: boolean; /** See NextStep. */ foldHere?: boolean; after: AfterSend; sent: SentShown | null; run: Run | null; evidence?: EvidenceView | null; /** See NextStep. */ onWrite?: () => void; /** A permission card has the bar's place: kept, not shown, its keys at rest. */ hidden?: boolean }) {
   // With foldCard the brief is remembered open or folded (useShown); over the job page's conversation
   // it starts as one row each time and is opened there only.
   const [stageShown, setStageShown] = useShown('stage', 'brief');
@@ -297,12 +318,26 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, foldHere = fa
   const setCardShown = foldHere ? setShownHere : setStageShown;
   const folds = foldCard || foldHere;
   const body = useRef<HTMLDivElement>(null);
-  const [go, setGo] = useState({ words: '', off: true, asks: false, backOff: false, replyOff: true, why: '', boxOpen: false });
+  const [go, setGo] = useState({ words: '', off: true, asks: false, backOff: false, replyOff: true, why: '', boxOpen: false, box: '', holds: false });
   // Over the job page's conversation (foldHere) a box open in the card (What should change?, Reply)
   // keeps it open, so typed words are never out of sight, and its row is off meanwhile. On the
   // phone's screens (foldCard) the row folds the brief, box and all, as he asks.
   const boxHolds = foldHere && go.boxOpen;
-  const folded = folds && !cardShown && !boxHolds;
+  // What the card says after a press keeps it open on every folding layout, its row off meanwhile:
+  // an error, a notice, the terminal tick box (data-gate-holds), or a website decision on its way
+  // or to look at. Once it goes, the fold is what he chose again.
+  const queued = queuedOf(detail.queued);
+  const queuedOpen = isOpen(queued);
+  const holds = go.holds || queuedOpen || needsLook(queued);
+  const folded = folds && !cardShown && !boxHolds && !holds;
+  // A Go queued on the website takes the pressed call away: the focus goes to the decision's words
+  // on the bar, when it would otherwise be lost.
+  const queuedRef = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (!queuedOpen) return;
+    const at = document.activeElement;
+    if (!at || at === document.body || !at.isConnected) queuedRef.current?.focus();
+  }, [queuedOpen, queued?.id]);
   useLayoutEffect(() => {
     const el = body.current;
     if (!el) return;
@@ -312,21 +347,22 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, foldHere = fa
       // Off whenever the card's button can't be pressed: disabled, aria-disabled, or busy.
       const reply = el.querySelector<HTMLButtonElement>('[data-gate="guidance"]');
       // The card's own reason when Go must wait for something on it (words typed for a send back).
-      const next = { words: wordsOf(b), off: !isPressable(b), asks: Boolean(el.querySelector('.gate-question')), backOff: !isPressable(back), replyOff: !isPressable(reply), why: b?.dataset.offWhy ?? '', boxOpen: Boolean(el.querySelector('.gate-note')) };
-      setGo((was) => (was.words === next.words && was.off === next.off && was.asks === next.asks && was.backOff === next.backOff && was.replyOff === next.replyOff && was.why === next.why && was.boxOpen === next.boxOpen ? was : next));
+      const next = { words: wordsOf(b), off: !isPressable(b), asks: Boolean(el.querySelector('.gate-question')), backOff: !isPressable(back), replyOff: !isPressable(reply), why: b?.dataset.offWhy ?? '', boxOpen: Boolean(el.querySelector('.gate-note')), box: el.querySelector<HTMLElement>('.gate-note')?.dataset.box ?? '', holds: Boolean(el.querySelector('[data-gate-holds]')) };
+      setGo((was) => (was.words === next.words && was.off === next.off && was.asks === next.asks && was.backOff === next.backOff && was.replyOff === next.replyOff && was.why === next.why && was.boxOpen === next.boxOpen && was.box === next.box && was.holds === next.holds ? was : next));
     };
     read();
     const watch = new MutationObserver(read);
     watch.observe(el, { subtree: true, childList: true, attributes: true, characterData: true });
     return () => watch.disconnect();
   }, [detail]);
-  // With the conversation taking the screen the bar's area is capped and scrolls (page.css): as a
-  // box opens, the row with its send button comes into view inside it. (jsdom may lack the call.)
+  // With the conversation taking the screen the bar's area is capped and scrolls (page.css): each
+  // time a box becomes the open one (Reply straight to What should change? too), the row with its
+  // send button comes into view inside it; never on a keystroke. (jsdom may lack the call.)
   useEffect(() => {
-    if (!foldHere || !go.boxOpen) return;
+    if (!foldHere || !go.box) return;
     const row = body.current?.querySelector<HTMLElement>('.gate-note .perm-actions');
     if (typeof row?.scrollIntoView === 'function') row.scrollIntoView({ block: 'nearest' });
-  }, [foldHere, go.boxOpen]);
+  }, [foldHere, go.box]);
   const press = (what: 'approve' | 'revise') => { const b = body.current?.querySelector(`[data-gate="${what}"]`); if (isPressable(b)) b.click(); };
   // Send back and Reply open a box in the card: a folded brief opens first so the box is seen.
   const reply = () => { if (folded) setCardShown(true); pressReply(body.current); };
@@ -351,13 +387,13 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, foldHere = fa
         tone={stopped ? 'stop' : 'go'}
         icon={stopped ? 'hand' : 'clipboard'}
         label={call && !waits ? 'Go / no go' : null}
-        say={waits ? sentSay : stopped ?? (gate?.headline || (typeof job.headline === 'string' && job.headline) || 'The Foreman waits for your go-ahead')}
-        sub={waits ? (sent?.more ?? after.more) : stopped ? AUTO_STOPPED_SUB : autoLaneReason(job) ?? (gate?.nextProposed ? `Say go and the Foreman goes ahead: ${gate.nextProposed}` : job.laneReason)}
+        say={waits ? sentSay : queuedOpen ? <span ref={queuedRef} tabIndex={-1}>{queued.words}</span> : stopped ?? (gate?.headline || (typeof job.headline === 'string' && job.headline) || 'The Foreman waits for your go-ahead')}
+        sub={waits ? (sent?.more ?? after.more) : queuedOpen ? null : stopped ? AUTO_STOPPED_SUB : autoLaneReason(job) ?? (gate?.nextProposed ? `Say go and the Foreman goes ahead: ${gate.nextProposed}` : job.laneReason)}
       >
         {/* Try again: the send itself is stuck, or the answered brief has stalled with no run at work. */}
         {waits && !isActiveRun(run) && (after.stuck || sent?.canRetry) && <TryAgain after={after} />}
-        {/* On the hosted site a Go made there waits for the laptop (the card under this says so): no calls meanwhile. */}
-        {!waits && !isOpen(queuedOf(detail.queued)) && <>
+        {/* On the hosted site a Go made there waits for the laptop (the bar says its words, and the card under this, shown, has Cancel): no calls meanwhile. */}
+        {!waits && !queuedOpen && <>
         <Button size="lg" keyId="gate-revise" busy={spins('changes')} busyLabel={SENDING_WORDS} disabled={go.backOff} onClick={() => { if (folded) setCardShown(true); press('revise'); }} title={go.backOff ? offWhy : 'No go: say what should change. The Foreman stays at this stop and revises; nothing is approved (key: r).'}>
           {call ? 'No go: send back' : 'Send back'}
         </Button>
@@ -384,14 +420,15 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, foldHere = fa
       </NextBar>
       {autoDeciding(job) && !stopped && !waits && <p className="job-go-auto muted">{AUTO_DECIDING_NOTE}</p>}
       {folds && (
-        <button type="button" className="desk-details-row stage-brief-row" aria-expanded={!folded} disabled={boxHolds} onClick={() => setCardShown(folded)} title={folded ? 'Show the brief’s questions and details here; Go sends the answers picked in it.' : 'Fold the brief back to this row.'}>
+        <button type="button" className="desk-details-row stage-brief-row" aria-expanded={!folded} disabled={boxHolds || holds} onClick={() => setCardShown(folded)} title={folded ? 'Show the brief’s questions and details here; Go sends the answers picked in it.' : 'Fold the brief back to this row.'}>
           <Icon name="file" size={16} />
           <span className="desk-details-words"><b>The brief</b><span className="muted">{foldHere ? 'its questions and details; Go sends the answers picked in it' : 'its questions and details, also on the job’s page; Go sends the answers picked in it'}</span></span>
           <Icon name="chevron-down" size={14} className={`fold-chevron${folded ? '' : ' is-up'}`} />
         </button>
       )}
       <div ref={body} className="job-gate-body" hidden={folded}>
-        <GateSlot job={job} detail={detail} now={now} reload={reload} callsOutside onOpenBox={() => { if (folded) setCardShown(true); }} evidence={evidence} keysOff={hidden} />
+        {/* Folded, the card's answer keys rest: no key picks an answer he cannot see. */}
+        <GateSlot job={job} detail={detail} now={now} reload={reload} callsOutside answerKeysOff={folded} onOpenBox={() => { if (folded) setCardShown(true); }} onWrite={onWrite} evidence={evidence} keysOff={hidden} />
       </div>
     </div>
   );
@@ -412,7 +449,7 @@ function StateBar({ job, now, checks, onShip, onWatch, onWrite, hosted, after }:
   const prs = onShip
     ? <Button kind="primary" size="lg" onClick={onShip} title="The pull requests and what waits on them.">See the pull requests</Button>
     : <Button kind="primary" size="lg" href={jobHref(job.slug)} title="The job’s page: its Ship tab has the pull requests.">See the pull requests</Button>;
-  const write = <Button kind="primary" size="lg" keyId="write" keyShown onClick={onWrite ?? (() => document.querySelector<HTMLTextAreaElement>('[data-composer-input]')?.focus())} title="Write to the Foreman (key: c).">Reply</Button>;
+  const write = <Button kind="primary" size="lg" keyId="write" keyShown onClick={onWrite ?? (() => focusMessageBox())} title="Write to the Foreman (key: c).">Reply</Button>;
   const testing = text(job.testing);
   const working = workingWords(job, now);
   /** The Foreman waits for him: its question (or what the card says), and Reply. */

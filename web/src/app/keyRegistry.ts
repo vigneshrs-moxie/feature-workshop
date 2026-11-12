@@ -284,6 +284,18 @@ function runToken(token: string, e: KeyboardEvent, enabled: boolean): boolean {
   return false;
 }
 
+/**
+ * Run a binding as its key would, for an action offered elsewhere too (⌘K's Write to the Foreman is
+ * the c key): the first active handler that takes it, whatever the Keys setting. True when one did.
+ */
+export function pressKey(id: KeyId): boolean {
+  for (const reg of ordered()) {
+    const run = reg.handlers.current[id];
+    if (run && run(new KeyboardEvent('keydown')) !== false) return true;
+  }
+  return false;
+}
+
 /** Whether some active binding starts a chord with this key (e.g. `g`). */
 function startsChord(token: string, enabled: boolean): boolean {
   return ordered().some((reg) => (Object.keys(reg.handlers.current) as KeyId[]).some((id) => {

@@ -38,7 +38,7 @@ import { readStored, useStored, writeStored } from '../../lib/stored';
 import { clockTime, fullTime, relativeTime } from '../../lib/time';
 import { useWorkshop, useWorkshopState } from '../../state/store';
 import { stageLabel } from '../Jobs/stages';
-import { draftKey, SendPreview } from './Composer';
+import { draftKey, focusMessageBox, SendPreview } from './Composer';
 import { EVIDENCE_STAGES, EvidenceStrip } from './EvidenceStrip';
 import { sessionOf, useGateSent } from './gateSent';
 import { nextStepOf } from '../../job/sentView';
@@ -71,11 +71,6 @@ function waitedText(iso: string | null, now: Date): string {
   const rel = relativeTime(iso, now);
   if (!rel) return '';
   return /^\d/.test(rel) ? `waiting ${rel}` : `waiting since ${rel}`;
-}
-
-/** Focus the composer's text box (a reply waits there). */
-function focusComposer() {
-  document.querySelector<HTMLTextAreaElement>('[data-composer-input]')?.focus();
 }
 
 /** Open the job header's level chip, so you can pick a level. */
@@ -144,11 +139,15 @@ export function pressReply(root: Element | null | undefined) {
 }
 
 /**
+ * What the card says after a press carries `data-gate-holds` (a notice, an error, the terminal tick
+ * box): a page that folds the card shows it while any of them is there.
  * `callsOutside`: the page draws its own big calls (the Desk's Go / No go / Reply) and presses the card's buttons, so the card's row is hidden.
  * `evidence`: the page's own evidence view for the card's strip (left out: the strip asks for itself).
  * `keysOff`: the card is kept but hidden (a permission card has the bar's place): its keys rest.
+ * `onWrite`: the page's own way to its message box, for a decision handed to it (the job page shows
+ * the box first when it is out of sight); left out, the cursor goes to the box on the page.
  */
-export function GateSlot({ job, detail, now, reload, callsOutside = false, extrasTo = null, onOpenBox, evidence, keysOff = false }: { job: Job; detail: JobDetail; now: Date; reload(): void; callsOutside?: boolean; /** The page opens a folded card before a key opens its box. */ onOpenBox?(): void; /** The Desk's Details sheet (packet R): Adjust the next step and How this works are drawn there instead. */ extrasTo?: HTMLElement | null; evidence?: EvidenceView | null; keysOff?: boolean }) {
+export function GateSlot({ job, detail, now, reload, callsOutside = false, extrasTo = null, onOpenBox, onWrite, evidence, keysOff = false, answerKeysOff = false }: { job: Job; detail: JobDetail; now: Date; reload(): void; callsOutside?: boolean; /** The page opens a folded card before a key opens its box. */ onOpenBox?(): void; onWrite?(): void; /** The card is folded: 1, 2 and 3 never pick an answer he cannot see. */ answerKeysOff?: boolean; /** The Desk's Details sheet (packet R): Adjust the next step and How this works are drawn there instead. */ extrasTo?: HTMLElement | null; evidence?: EvidenceView | null; keysOff?: boolean }) {
   const { runs } = useWorkshopState();
   const [notice, setNotice] = useState<GateNotice | null>(null);
   const [memoRaw, setMemo] = useStored(gateDraftKey(job.slug));
@@ -162,7 +161,8 @@ export function GateSlot({ job, detail, now, reload, callsOutside = false, extra
 
   useEffect(() => {
     if (!notice) return;
-    if (notice.focus === 'composer') focusComposer();
+    // Once per notice: a new onWrite is not a new hand to the box.
+    if (notice.focus === 'composer') (onWrite ?? (() => focusMessageBox()))();
     else noticeEl.current?.focus();
   }, [notice]);
 
@@ -175,7 +175,7 @@ export function GateSlot({ job, detail, now, reload, callsOutside = false, extra
   return (
     <>
       {notice && (
-        <div ref={noticeEl} className={`gate-notice is-${notice.tone}`} role={notice.tone === 'problem' ? 'alert' : 'status'} tabIndex={-1}>
+        <div ref={noticeEl} className={`gate-notice is-${notice.tone}`} data-gate-holds role={notice.tone === 'problem' ? 'alert' : 'status'} tabIndex={-1}>
           <p className="gate-notice-text">{notice.text}</p>
           {notice.lines && notice.lines.length > 0 && (
             <ul className="gate-notice-lines" aria-label="How the job runs from the next step">
@@ -205,17 +205,82 @@ export function GateSlot({ job, detail, now, reload, callsOutside = false, extra
           </div>
         </section>
       ) : (
-        <GateCard key={`${job.slug}#${gate.briefNumber ?? '-'}`} job={job} detail={detail} gate={gate} now={now} reload={reload} report={setNotice} running={running} callsOutside={callsOutside} extrasTo={extrasTo} onOpenBox={onOpenBox} evidence={evidence} keysOff={keysOff} />
+        <GateCard key={`${job.slug}#${gate.briefNumber ?? '-'}`} job={job} detail={detail} gate={gate} now={now} reload={reload} report={setNotice} running={running} callsOutside={callsOutside} extrasTo={extrasTo} onOpenBox={onOpenBox} evidence={evidence} keysOff={keysOff} answerKeysOff={answerKeysOff} />
       ))}
     </>
   );
 }
 
 type Mode = null | 'changes' | 'message' | 'stop';
+/** The words typed in each of the card's two boxes. */
+interface Notes { changes: string; message: string }
 
-function GateCard({ job, detail, gate, now, reload, report, running, callsOutside = false, extrasTo = null, onOpenBox, evidence, keysOff = false }: {
+/** Where a job's card keeps its open box and each box's words (final review A4), beside the message box's draft. */
+export const gateBoxKey = (slug: string) => `fw.gateBox.${slug}`;
+/** Where the bar's line about words moved to the message box waits until he writes or dismisses it. */
+export const gateMovedKey = (slug: string) => `fw.gateMoved.${slug}`;
+
+/** What is kept: for which go / no go (gateKey) and its brief number, the open box, and the words. */
+interface KeptBox { gate: string; brief: number | null; mode: 'changes' | 'message' | null; notes: Notes }
+
+function readKeptBox(raw: string | null): KeptBox | null {
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw) as Partial<KeptBox> | null;
+    const n = v?.notes as Partial<Notes> | undefined;
+    if (!v || typeof v.gate !== 'string' || !n) return null;
+    return {
+      gate: v.gate,
+      brief: typeof v.brief === 'number' ? v.brief : null,
+      mode: v.mode === 'changes' || v.mode === 'message' ? v.mode : null,
+      notes: { changes: typeof n.changes === 'string' ? n.changes : '', message: typeof n.message === 'string' ? n.message : '' },
+    };
+  } catch { return null; }
+}
+
+/** The bar's line once words were moved: for which brief, and the message box's text then. */
+export interface MovedWords { brief: number | null; draft: string }
+
+export function readMovedWords(raw: string | null): MovedWords | null {
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw) as Partial<MovedWords> | null;
+    return v && typeof v.draft === 'string' ? { brief: typeof v.brief === 'number' ? v.brief : null, draft: v.draft } : null;
+  } catch { return null; }
+}
+
+/** The bar's line, once, after the card went with his words still held. */
+export const movedWordsLine = (brief: number | null) => `${brief !== null ? `Brief ${brief}` : 'The brief'} was answered while you were writing. Your words are in the message box.`;
+
+/**
+ * The page (one call, mounted for as long as the job's page is): when the card's brief is answered
+ * (by Auto, or by him elsewhere) or replaced by a new brief while words are still held in its boxes,
+ * the words go into the message box's draft, after what is there with a blank line between, and the
+ * bar says so once (gateMovedKey). Nothing happens until the job's details are in.
+ */
+export function useKeptBoxWords(job: Job, detail: JobDetail | null) {
+  const slug = job.slug;
+  const [raw] = useStored(gateBoxKey(slug));
+  const closed = Boolean(job.closed);
+  useEffect(() => {
+    if (!detail) return;
+    const kept = readKeptBox(raw);
+    if (!kept) return;
+    const gate = openGate(detail, closed);
+    if (gate && gateKey(gate) === kept.gate) return;
+    writeStored(gateBoxKey(slug), null);
+    const words = [kept.notes.changes, kept.notes.message].map((w) => w.trim()).filter(Boolean).join('\n\n');
+    if (!words) return;
+    const draft = (readStored(draftKey(slug)) ?? '').replace(/\s+$/, '');
+    const text = draft ? `${draft}\n\n${words}` : words;
+    writeStored(draftKey(slug), text);
+    writeStored(gateMovedKey(slug), JSON.stringify({ brief: kept.brief, draft: text } satisfies MovedWords));
+  }, [raw, detail, closed, slug]);
+}
+
+function GateCard({ job, detail, gate, now, reload, report, running, callsOutside = false, extrasTo = null, onOpenBox, evidence, keysOff = false, answerKeysOff = false }: {
   job: Job; detail: JobDetail; gate: Gate; now: Date; reload(): void; report(n: GateNotice): void; callsOutside?: boolean; extrasTo?: HTMLElement | null; onOpenBox?(): void;
-  evidence?: EvidenceView | null; keysOff?: boolean;
+  evidence?: EvidenceView | null; keysOff?: boolean; answerKeysOff?: boolean;
   /** The Foreman is working on a reply for this job right now. */
   running: boolean;
 }) {
@@ -225,8 +290,27 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   const uid = useId();
   const headId = `${uid}-head`;
   const [c, setC] = useState<GateChoices>(() => initialChoices(gate));
-  const [mode, setMode] = useState<Mode>(null);
-  const [note, setNote] = useState('');
+  // The open box and each box's words, kept for this job and brief (final review A4) as the message
+  // box keeps its draft: drawn again (the phone's screens, a refresh), the card has them back.
+  const thisGate = gateKey(gate);
+  const [restored] = useState(() => { const k = readKeptBox(readStored(gateBoxKey(slug))); return k && k.gate === thisGate ? k : null; });
+  const [mode, setMode] = useState<Mode>(restored?.mode ?? null);
+  // Each box keeps its own words (final review A3): what was typed as a change is never a Reply's note.
+  const [notes, setNotes] = useState<Notes>(restored?.notes ?? { changes: '', message: '' });
+  /** Write what is held now; written at once where the card may go straight after (a send, Cancel). */
+  const keep = (m: Mode, n: Notes) => {
+    const box = m === 'changes' || m === 'message' ? m : null;
+    const held = box !== null || n.changes.trim() !== '' || n.message.trim() !== '';
+    if (held) { writeStored(gateBoxKey(slug), JSON.stringify({ gate: thisGate, brief: gate.briefNumber ?? null, mode: box, notes: n } satisfies KeptBox)); return; }
+    // Nothing held: forget this brief's, never another brief's words still to be moved (useKeptBoxWords).
+    const was = readKeptBox(readStored(gateBoxKey(slug)));
+    if (was && was.gate === thisGate) writeStored(gateBoxKey(slug), null);
+  };
+  const keepRef = useRef(keep);
+  keepRef.current = keep;
+  useEffect(() => { keepRef.current(mode, notes); }, [mode, notes]);
+  const note = mode === 'changes' || mode === 'message' ? notes[mode] : '';
+  const setNote = (words: string) => { if (mode === 'changes' || mode === 'message') setNotes((n) => ({ ...n, [mode]: words })); };
   const [stopName, setStopName] = useState('');
   const [stopNote, setStopNote] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
@@ -310,6 +394,9 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   // What Auto decided on this job, in Copy decisions' words (only on a job Auto ran on; none from an older Starbase).
   const autoDecided = Array.isArray(detail.auto?.decided) ? detail.auto.decided.filter((l): l is string => typeof l === 'string' && l !== '') : [];
   const [autoOpen, setAutoOpen] = useState(false);
+  // Pick a level first opens the page's level chip: offered only where the page has one (not the phone).
+  const [chipHere, setChipHere] = useState(false);
+  useEffect(() => { setChipHere(document.querySelector('.level-chip') !== null); });
 
   // The ⋯ menu: closes on Escape (focus back on ⋯) or a click elsewhere.
   useEffect(() => {
@@ -322,7 +409,11 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
     return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
   }, [menuOpen]);
 
+  // A box opened takes the focus; one drawn again with the card (restored) leaves it where it is.
+  const focusedFor = useRef<Mode>(restored?.mode ?? null);
   useEffect(() => {
+    if (mode === focusedFor.current) return;
+    focusedFor.current = mode;
     if (mode === 'stop') stopBox.current?.focus();
     else if (mode) noteBox.current?.focus();
   }, [mode]);
@@ -368,6 +459,15 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
 
   /** What happened, said in the slot; a reply given back (the Foreman is working) waits in the composer. */
   function done(kind: GateKind, r: GateResult) {
+    // What went leaves its box, cleared and closed (m3: so a second press can't send it again), and is
+    // never kept to be restored or moved to the message box: sent, held, or waiting in the message box.
+    if (kind !== 'stop') {
+      const went: Notes = { changes: kind === 'changes' ? '' : notes.changes, message: kind === 'message' || (kind === 'approve' && mode === 'message') ? '' : notes.message };
+      const open = mode === kind || (kind === 'approve' && mode === 'message') ? null : mode;
+      setNotes(went);
+      setMode(open);
+      keep(open, went);
+    }
     const dropped = r.chipsDropped ? ` ${r.chipsDropped} option ${plural(r.chipsDropped, 'change didn’t', 'changes didn’t')} apply and ${plural(r.chipsDropped, 'was', 'were')} left out.` : '';
     const lines = r.summary?.length ? r.summary : undefined;
     if (r.sent) {
@@ -376,8 +476,6 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
           : kind === 'changes' ? 'The changes you asked for went to the Foreman. It stays at this step and revises.'
             : 'Your reply went to the Foreman.';
       report({ tone: 'ok', text: `${what}${dropped}`, lines, focus: 'notice' });
-      // m3: a reply that was taken leaves its box: cleared and closed, so a second press can't send it again.
-      if (kind === 'message') { setNote(''); setMode(null); }
     } else if (r.held) {
       report({ tone: 'ok', text: `${r.message ?? 'Held until Claude’s usage limit resets.'}${dropped}`, lines, focus: 'notice' });
     } else {
@@ -405,7 +503,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   /** Approve; a note typed in the open reply box goes with it (I2), and words for a send back stop it. */
   function approveNow(extra: Partial<GateRequest> = {}, button: NonNullable<typeof pressed> = 'approve') {
     if (changesTyped) return;
-    void act('approve', { ...(mode === 'message' && note.trim() ? { note } : {}), ...extra }, button);
+    void act('approve', { ...(mode === 'message' && notes.message.trim() ? { note: notes.message } : {}), ...extra }, button);
   }
 
   async function act(kind: GateKind, extra: Partial<GateRequest> = {}, button: NonNullable<typeof pressed> = kind === 'stop' ? 'stop' : kind) {
@@ -456,19 +554,30 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
     await act('stop', { note: stopNote });
   }
 
+  /**
+   * Open a box (What should change?, Reply, Stop). Never a toggle (final review A3): pressed again
+   * while it is open, the cursor goes back in it; only the box's own Cancel closes it.
+   */
   function openMode(m: Mode) {
     setError(null);
     setMenuOpen(false);
-    if (mode !== m && (m === 'changes' || m === 'message')) {
+    if (mode === m) {
+      (m === 'stop' ? stopBox : noteBox).current?.focus();
+      return;
+    }
+    if (m === 'changes' || m === 'message') {
       const at = document.activeElement;
       opener.current = at instanceof HTMLElement && at !== document.body ? at : null;
     }
-    setMode((now) => (now === m ? null : m));
+    setMode(m);
   }
 
   /** Cancel the open box: focus goes back to what opened it, when it is still there to take it. */
   function cancelBox() {
+    const n = mode === 'changes' || mode === 'message' ? { ...notes, [mode]: '' } : notes;
+    setNotes(n);
     setMode(null);
+    keep(null, n);
     const back = opener.current;
     opener.current = null;
     if (back?.isConnected && !(back as HTMLButtonElement).disabled) back.focus();
@@ -482,6 +591,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
     'gate-revise': () => { onOpenBox?.(); openMode('changes'); },
     'gate-guidance': () => { onOpenBox?.(); openMode('message'); },
     'gate-answer': (e) => {
+      if (answerKeysOff) return false;
       const n = unansweredQuestion(gate, c);
       const q = n === null ? null : gate.questions[n - 1];
       const o = q?.options[Number(e.key) - 1];
@@ -502,11 +612,11 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   const sendProblems = (
     <>
       {askTerminal && (
-        <label className="check" title="Claude Code is open in this repository in a terminal. Two Foremen on one job would trip over each other.">
+        <label className="check" data-gate-holds title="Claude Code is open in this repository in a terminal. Two Foremen on one job would trip over each other.">
           <Choice type="checkbox" checked={noTerminal} onChange={(e) => setNoTerminal(e.target.checked)} /> None of the open terminals is this job’s Foreman
         </label>
       )}
-      {error && <p className="field-problem" role="alert">{error}</p>}
+      {error && <p className="field-problem" role="alert" data-gate-holds>{error}</p>}
     </>
   );
 
@@ -516,7 +626,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
     <section className={`perm-card question-card gate-card${stale ? ' is-stale' : ''}`} data-ask="question" aria-labelledby={headId} aria-busy={busy}>
       {/* The Send back or Reply box, when open: first, directly under the page's bar. */}
       {(mode === 'changes' || mode === 'message') && (
-        <div className="gate-note">
+        <div className="gate-note" data-box={mode}>
           <label className="field">
             <span>{mode === 'changes' ? 'What should change? The Foreman stays at this step and revises; nothing is approved.' : 'Your answers or a note for the Foreman. Nothing is approved.'}</span>
             <textarea
@@ -533,7 +643,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
             />
           </label>
           <div className="perm-actions">
-            <Button kind="quiet" disabled={busy} onClick={cancelBox} title="Close this without sending. What you wrote is kept until the card goes.">Cancel</Button>
+            <Button kind="quiet" disabled={busy} onClick={cancelBox} title="Close this without sending. What you wrote in it is cleared.">Cancel</Button>
             <Button
               kind="primary"
               busy={spins(mode)}
@@ -836,8 +946,8 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
         </div>
         {level === null && (
           <p className="muted gate-hint">
-            L↑ and L↓ need a level.{' '}
-            <button type="button" className="link-button" onClick={openLevelChip} title="Open the level chip in the job header to pick this job’s level.">Pick a level first</button>
+            L↑ and L↓ need a level.
+            {chipHere && <>{' '}<button type="button" className="link-button" onClick={openLevelChip} title="Open the level chip in the job header to pick this job’s level.">Pick a level first</button></>}
           </p>
         )}
         {/* A stop carries no option changes, so its lines aren't shown while you stop. */}

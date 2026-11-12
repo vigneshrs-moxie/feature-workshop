@@ -132,7 +132,8 @@ function JobConversation({ job, conversation, now, wide, onWide, full = false }:
   const { thread, run } = conversation;
   const state = useWorkshopState();
   const items = thread.items;
-  const count = shownItems(items).length;
+  // While older pages are not loaded the count would be only the pages loaded: left out (final review A6, calls Minor 9).
+  const count = thread.more ? null : shownItems(items).length;
   const key = seenKey(job.slug);
   // Your last look before this view: the new line and count stay put while you read. The job page
   // keeps the panel mounted and only shows or hides it, so each time the full form opens it is a new
@@ -171,13 +172,13 @@ function JobConversation({ job, conversation, now, wide, onWide, full = false }:
         {full ? (
           <>
             <h2 className="sb-convo-title">Conversation</h2>
-            <p className="sb-convo-count">{messagesWords(count)}{fresh > 0 && ` · ${fresh} new`}</p>
+            <p className="sb-convo-count">{[count !== null ? messagesWords(count) : null, fresh > 0 ? `${fresh} new` : null].filter(Boolean).join(' · ')}</p>
           </>
         ) : (
           <>
             <Icon name="message" size={16} />
             <h3>Conversation</h3>{' '}
-            {count > 0 && <span className="muted">· {messagesWords(count)}</span>}
+            {count !== null && count > 0 && <span className="muted">· {messagesWords(count)}</span>}
             <span className="sb-convo-spacer" />
             <Button
               kind="quiet"

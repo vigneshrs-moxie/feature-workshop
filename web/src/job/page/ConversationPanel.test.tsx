@@ -149,6 +149,49 @@ describe('ConversationPanel', () => {
     expect(panel()).toHaveClass('sb-convo');
   });
 
+  // Final review A6 (calls Minor 9): a count of the pages loaded is not the conversation's count.
+  it('the head leaves out the count while older messages are not loaded', async () => {
+    for (const hosted of [false, true]) {
+      for (const full of [false, true]) {
+        setup({ thread: LONG, more: true, older: OLDER, hosted, full });
+        await loaded('Message 40 from the Foreman.');
+        expect(head()).not.toHaveTextContent(/messages?\b/);
+        fireEvent.click(screen.getByRole('button', { name: 'Load older' }));
+        await screen.findByText('Message 1 from the Foreman.');
+        await waitFor(() => expect(head()).toHaveTextContent('40 messages'));
+        cleanup();
+      }
+    }
+  });
+
+  // Final review A6 (calls Minor 6): Load older keeps the keyboard focus.
+  it('Load older keeps the focus while it loads, then gives it to the first message loaded', async () => {
+    for (const hosted of [false, true]) {
+      const { get } = setup({ thread: LONG, more: true, older: OLDER, hosted });
+      await loaded('Message 40 from the Foreman.');
+      let release = () => {};
+      const held = new Promise<void>((r) => { release = r; });
+      const answer = get.getMockImplementation()!;
+      get.mockImplementation((path: string) => (path.includes('?before=') ? held.then(() => answer(path)) : answer(path)));
+      const older = screen.getByRole('button', { name: 'Load older' });
+      older.focus();
+      fireEvent.click(older);
+      // While it loads the button stays, enabled and busy, with the focus.
+      await waitFor(() => expect(older).toHaveAttribute('aria-busy', 'true'));
+      expect(older).toBeEnabled();
+      expect(older).toHaveFocus();
+      // A second press while it loads asks for nothing more.
+      fireEvent.click(older);
+      expect(get.mock.calls.filter(([p]) => String(p).includes('?before=')).length).toBe(1);
+      await act(async () => { release(); });
+      await screen.findByText('Message 1 from the Foreman.');
+      expect(screen.queryByRole('button', { name: 'Load older' })).toBeNull();
+      await waitFor(() => expect(document.activeElement).toHaveTextContent('Message 1 from the Foreman.'));
+      expect(document.activeElement).not.toHaveTextContent('Message 2 from the Foreman.');
+      cleanup();
+    }
+  });
+
   it('one region is named Conversation: the messages inside it are Messages', async () => {
     setup();
     await screen.findByText('Message 9 from the Foreman.');

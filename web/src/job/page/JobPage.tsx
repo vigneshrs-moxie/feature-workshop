@@ -17,19 +17,19 @@
 // The open step: your pick on this page wins (it rewrites the address in place and is remembered
 // as sb.job.step.<slug>); then the step the address names; then the step the job is at while it
 // works or waits; then the one you last opened here; then the job's own step (openStep.ts). A later
-// change of the address's step (a link, Back) is a pick of that step. [ and ] pick the step before
+// change of the address's step (a link, Back) is a pick of that step, and so is reading inside the
+// open step (a click or a key press in its panel) while nothing is picked. [ and ] pick the step before
 // and after; the bar's See the pull requests and Watch, the job menu's Try it and a link to a
 // document pick the step they need. The step's panel stays mounted as the step changes; only its
 // body changes, and only once the step's view is in.
 //
 // One clock, one sent line (useSentShown) and one evidence view (useJobEvidence) for the whole page.
 // The open step's body is StepBody; the phone's step screen draws the same one.
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject, type SyntheticEvent } from 'react';
 import type { Job, JobDetail, StageAgent, StopId } from '../../api/types';
 import { BRAND } from '../../app/brand';
 import { useKeyScope } from '../../app/keyRegistry';
 import { isJobView, jobHref, replaceHash, stageHref, type JobView } from '../../app/router';
-import { useUi } from '../../app/ui';
 import { Button } from '../../components/Button';
 import { Chip } from '../../components/Chip';
 import { Page, useMinWidth, useNarrow } from '../../components/page/Page';
@@ -37,25 +37,26 @@ import { isStopId, STOPS, stopOf } from '../../components/stops/stops';
 import { laneOf } from '../../home/JobsPage';
 import { readStored, useStored, writeStored } from '../../lib/stored';
 import { useNow } from '../../lib/time';
+import { focusMessageBox } from '../../panes/Foreman/Composer';
 import { useCurrentJob, useJobConversation } from '../../panes/Foreman/ForemanPane';
+import { useKeptBoxWords } from '../../panes/Foreman/GateCard';
 import { jobBySlug } from '../../state/reducer';
 import { useWorkshopState } from '../../state/store';
 import { isRoundCard } from '../../views/Review/useReview';
 import { StackSuggestion, useStackIndex } from '../../views/Stack/StackRows';
 import { NextStep, useSentShown } from '../NextStep';
 import { ConversationPanel, newCount, seenKey } from './ConversationPanel';
-import { docOwner as ownerOf } from './docOwner';
 import { JobTop } from './JobTop';
 import { lastStepKey, pickOpenStep } from './openStep';
 import { OverviewCard } from './OverviewCard';
 import { PhoneJob } from './PhoneJob';
 import { StepBody } from './StepBody';
-import { StepPanel } from './StepPanel';
+import { STEP_PANEL_ID, StepPanel, stepTabId } from './StepPanel';
 import { StepsRow } from './StepsRow';
 import { statesOf } from './stepWords';
 import { recorderAgent } from './TestStep';
 import { useJobEvidence } from './useJobEvidence';
-import { useJobMenuRequests } from './useJobMenuRequests';
+import { useDocRequests, useJobMenuRequests, type DocAsk } from './useJobMenuRequests';
 import { useStage } from './useStage';
 import './page.css';
 
@@ -88,6 +89,8 @@ function JobScreen({ job, step, view }: { job: Job; step: StopId | undefined; vi
   const conversation = useJobConversation(job);
   useCurrentJob(job, conversation);
   const sent = useSentShown(job, conversation);
+  // Words left in the card's boxes when its brief is answered or replaced go to the message box.
+  useKeptBoxWords(job, conversation.thread.detail ?? null);
   // A phone (760 px and under): its own simple screens, and nothing only the laptop uses runs.
   const narrow = useNarrow();
   if (narrow) return <PhoneJob job={job} conversation={conversation} now={now} step={step} view={view} sent={sent} />;
@@ -109,7 +112,6 @@ function LaptopJob({ job, conversation, now, step, view, sent }: {
   job: Job; conversation: Conversation; now: Date; step: StopId | undefined; view: JobView | undefined; sent: ReturnType<typeof useSentShown>;
 }) {
   const slug = job.slug;
-  const ui = useUi();
   const state = useWorkshopState();
   const { thread, run } = conversation;
   const detail = thread.detail ?? null;
@@ -120,8 +122,11 @@ function LaptopJob({ job, conversation, now, step, view, sent }: {
   const [talk, setTalk] = useState(view === 'conversation');
   const [seenView, setSeenView] = useState(view);
   if (seenView !== view) {
-    setSeenView(view);
+    // The address and the full screen never drift apart: leaving the conversation's address (a
+    // link, Back) gives the page back to the job.
     if (view === 'conversation') setTalk(true);
+    else if (seenView === 'conversation') setTalk(false);
+    setSeenView(view);
   }
   // The overview's address opens the overview (its fold remembers it, as a click would).
   useEffect(() => { if (view === 'overview') writeStored(OVERVIEW_FOLD, 'open'); }, [view]);
@@ -129,15 +134,29 @@ function LaptopJob({ job, conversation, now, step, view, sent }: {
   const full = !column && talk;
   // The full screen's own buttons come and go with it: the focus goes to Back to the job as it
   // opens, and back to the Conversation button as it closes (Widen's button stays where it is).
-  const focusTo = useRef<'back' | 'talk' | null>(null);
+  // Opened to write to the Foreman, the focus goes to the message box instead.
+  const focusTo = useRef<'back' | 'talk' | 'composer' | null>(null);
   const backRef = useRef<HTMLDivElement>(null);
   const talkRef = useRef<HTMLDivElement>(null);
+  const convoRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const to = focusTo.current;
-    if (!to) return;
+    // The message box only once the conversation is on screen (a child's effect may ask first).
+    if (!to || (to === 'composer' && !column && !talk)) return;
     focusTo.current = null;
-    (to === 'back' ? backRef : talkRef).current?.querySelector<HTMLButtonElement>('button')?.focus();
+    if (to === 'composer') focusMessageBox(convoRef.current);
+    else (to === 'back' ? backRef : talkRef).current?.querySelector<HTMLButtonElement>('button')?.focus();
   });
+  /**
+   * Writing to the Foreman (the bar's Reply, the c key, a decision the card hands to the message
+   * box): the cursor in the message box, with the conversation opened full screen first while it
+   * is behind the Conversation button (under 1100 px), so the box is always one he can see.
+   */
+  const writeToForeman = useCallback(() => {
+    if (!column && !talk) { focusTo.current = 'composer'; setTalk(true); }
+    else focusMessageBox(convoRef.current);
+  }, [column, talk]);
+  useKeyScope('job', { 'write': () => writeToForeman() });
   const leaveTalk = useCallback(() => {
     setTalk(false);
     // The conversation's own address would open it again: the job's address instead.
@@ -161,8 +180,15 @@ function LaptopJob({ job, conversation, now, step, view, sent }: {
     writeStored(lastStepKey(slug), stop);
     replaceHash(stageHref(slug, stop));
   }, [slug]);
-  const openNow = useRef(open);
-  openNow.current = open;
+  /**
+   * Reading inside the open step (a click or a key press in its panel: a document, a commit's
+   * change, a fold) is a pick of that step, once, while nothing is picked, as a click on its tab
+   * is: the job moving on never takes what he reads away.
+   */
+  const readHere = (e: SyntheticEvent) => {
+    if (picked !== null) return;
+    if (e.target instanceof Element && e.target.closest(`#${STEP_PANEL_ID}`)) choose(open);
+  };
   /** A request for a step's part (See the pull requests, Watch, Try it, a document) gives the page back to the job. */
   const toStep = useCallback((stop: StopId) => {
     if (talk) leaveTalk();
@@ -170,10 +196,24 @@ function LaptopJob({ job, conversation, now, step, view, sent }: {
   }, [talk, leaveTalk, choose]);
 
   // [ and ]: the step before and after, as a click picks it. They rest while the steps are hidden.
+  // With the focus inside the open step (its body changes under it), the focus goes to the new
+  // step's tab, never to the page.
   const at = STOPS.findIndex((s) => s.id === open);
+  const tabFocus = useRef<StopId | null>(null);
+  const stepTo = (stop: StopId) => {
+    const inPanel = document.activeElement instanceof Element && document.activeElement.closest(`#${STEP_PANEL_ID}`) !== null;
+    tabFocus.current = inPanel ? stop : null;
+    choose(stop);
+  };
+  useEffect(() => {
+    const stop = tabFocus.current;
+    if (!stop) return;
+    tabFocus.current = null;
+    document.getElementById(stepTabId(stop))?.focus();
+  });
   useKeyScope('stage', {
-    'stage-prev': () => { const prev = STOPS[at - 1]; if (!prev) return false; choose(prev.id); },
-    'stage-next': () => { const next = STOPS[at + 1]; if (!next) return false; choose(next.id); },
+    'stage-prev': () => { const prev = STOPS[at - 1]; if (!prev) return false; stepTo(prev.id); },
+    'stage-next': () => { const next = STOPS[at + 1]; if (!next) return false; stepTo(next.id); },
   }, !talk);
 
   // ---- The evidence: asked once here for the bar's gate card, the Test step and its strip ----
@@ -183,19 +223,16 @@ function LaptopJob({ job, conversation, now, step, view, sent }: {
 
   // The job menu's "Try it on your computer" (the Test step, with Try it open) and "Review the screens".
   useJobMenuRequests(slug, () => { toStep('test'); setTryOpen(true); });
-  // A link to one of the job's documents (or ⌘K Open docs): the step that owns the file opens with
-  // it; a file no step owns, or no file, opens under the open step. Each request is handed down
-  // only while its step is open, and StepPanel acts on it once.
-  const [docAsk, setDocAsk] = useState<{ n: number; file: string | null; stop: StopId } | null>(null);
-  const handledDocs = useRef(ui.docsRequest);
-  const pageDocs = detail?.page?.docs;
-  useEffect(() => {
-    if (ui.docsRequest === handledDocs.current) return;
-    handledDocs.current = ui.docsRequest;
-    const stop = ownerOf(pageDocs, ui.docsFile) ?? openNow.current;
-    setDocAsk({ n: ui.docsRequest, file: ui.docsFile, stop });
-    toStep(stop);
-  }, [ui.docsRequest, ui.docsFile, pageDocs, toStep]);
+  // A link to one of the job's documents (or ⌘K Open docs): it opens under the step useDocRequests
+  // names (the open step, when it is one of the file's owners or nothing owns it). A link picks that
+  // step; ⌘K Open docs with no file is the open step's list and no pick: the page keeps following
+  // the job. Each request is handed down only while its step is open, and StepPanel acts on it once.
+  const [docAsk, setDocAsk] = useState<DocAsk | null>(null);
+  useDocRequests(detail?.page?.docs, open, stopOf(job.stage), (ask) => {
+    setDocAsk(ask);
+    if (ask.file) toStep(ask.stop);
+    else if (talk) leaveTalk();
+  });
   const docRequest = useMemo(() => (docAsk && docAsk.stop === open ? { n: docAsk.n, file: docAsk.file } : undefined), [docAsk, open]);
 
   // ---- The open step's view: never another step's facts under this step's name ----
@@ -225,11 +262,12 @@ function LaptopJob({ job, conversation, now, step, view, sent }: {
               now={now}
               onShip={() => toStep('ship')}
               onWatch={() => { toStep('test'); setWatching(true); }}
+              onWrite={writeToForeman}
               foldHere={talk}
               evidence={evidence.view}
             />
           </div>
-          <div className="sb-job-part" hidden={talk}>
+          <div className="sb-job-part" hidden={talk} onClickCapture={readHere} onKeyDownCapture={readHere}>
             <StepsRow job={job} times={detail?.page?.times} open={open} sent={sent} now={now} onOpen={choose} />
             <StepPanel
               job={job}
@@ -254,7 +292,7 @@ function LaptopJob({ job, conversation, now, step, view, sent }: {
             </StepPanel>
           </div>
         </div>
-        <div className="sb-job-talk" hidden={!column && !talk}>
+        <div className="sb-job-talk" ref={convoRef} hidden={!column && !talk}>
           <ConversationPanel job={job} conversation={conversation} now={now} wide={wide} full={full} onWide={(on) => (on ? setTalk(true) : leaveTalk())} />
         </div>
       </div>

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  activeScopes, handleKey, installKeyListener, isTypingTarget, KEY_IDS, KEYS, keyDef, keyLabel, keysText, registerKeys, resetChord, SCOPE_PRIORITY, SCOPES, type KeyHandlers, type KeyId, type KeyScope,
+  activeScopes, handleKey, installKeyListener, pressKey, isTypingTarget, KEY_IDS, KEYS, keyDef, keyLabel, keysText, registerKeys, resetChord, SCOPE_PRIORITY, SCOPES, type KeyHandlers, type KeyId, type KeyScope,
 } from './keyRegistry';
 import { writeKeysSetting } from './keysSetting';
 
@@ -46,6 +46,16 @@ describe('the key registry', () => {
     handleKey(press(document.body, { key: 'j' }));
     expect(rows).toHaveBeenCalledTimes(1);
     expect(activeScopes().has('desk')).toBe(false);
+  });
+
+  // Final review A1: ⌘K's Write to the Foreman does what the c key does on the page that answers it.
+  it('pressKey runs the first active binding that takes it, keys on or off, and says when none did', () => {
+    expect(pressKey('write')).toBe(false);
+    const page = vi.fn();
+    on('job', { 'write': page });
+    writeKeysSetting({ enabled: false });
+    expect(pressKey('write')).toBe(true);
+    expect(page).toHaveBeenCalledTimes(1);
   });
 
   it('a handler that answers false passes the key on to the next scope', () => {
