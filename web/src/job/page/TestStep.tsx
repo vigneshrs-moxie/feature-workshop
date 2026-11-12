@@ -21,6 +21,7 @@ import { TryTab } from '../../panes/Preview/TryTab';
 import { useWorkshop } from '../../state/store';
 import { AUTO_SKIPS_HAND_TEST } from '../../views/JobDrawer/OptionsEditor';
 import { spentWords, statesOf } from './stepWords';
+import { listOf } from './useStage';
 import { WatchPicture } from './WatchPicture';
 import { WhatToCheck } from './WhatToCheck';
 import './page.css';
@@ -139,7 +140,7 @@ function Kind({ name, by, state, tone = '', stateTitle, where, when, children }:
 
 /** The Tester at this step: the one working now, else the last one to finish. */
 function testerOf(view: StageView | null): StageAgent | null {
-  const all = [...(view?.agents ?? []), ...(view?.finished ?? [])].filter((a) => a && a.who === 'feature-tester');
+  const all = [...listOf<StageAgent>(view?.agents), ...listOf<StageAgent>(view?.finished)].filter((a) => a.who === 'feature-tester');
   const live = all.find((a) => a.status === 'working' || a.status === 'waiting');
   if (live) return live;
   return all.sort((a, b) => (ms(b.lastAt) || 0) - (ms(a.lastAt) || 0))[0] ?? null;

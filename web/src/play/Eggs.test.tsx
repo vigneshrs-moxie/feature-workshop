@@ -37,9 +37,7 @@ function fakeApi(found: string[] = []) {
     // The ledger: CRT Terminal unlocked once the Konami secret is in it.
     get: vi.fn(async (p: string) => (p === '/api/play'
       ? { mode: 'subtle', crew: {}, quests: { done: 0, bugs: 0, recent: [] }, achievements: [], secrets: { found: [...found], total: 13 }, themesTried: [], unlocks: { crt: found.includes('konami'), gold: false } }
-      // The job page asks for its open step's view too: a step with nobody on it.
-      : /\/stage\/[a-z]+$/.test(p) ? { slug: 'alpha', stop: p.split('/').pop(), label: '', state: 'done', stateWords: 'Done', since: null, stages: [], agents: [], finished: [], docs: [], prs: [] }
-        : { slug: 'alpha', thread: [], threadMore: false })),
+      : { slug: 'alpha', thread: [], threadMore: false })),
     post: vi.fn(async (p: string, body: { id?: string }) => {
       posts.push([p, body]);
       if (p === '/api/play/secret' && body.id) found.push(body.id);

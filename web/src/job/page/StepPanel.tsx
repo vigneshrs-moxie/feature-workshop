@@ -5,7 +5,7 @@
 // comes from useStage; loading and a failed load stay in the who list's place, so the rest of the
 // panel is whole. On the website there is no terminal: one sentence says where the buttons are.
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import type { FeedLine, Job, StageAgent, StageView, StopId } from '../../api/types';
+import type { FeedLine, Job, JobDocEntry, StageAgent, StageView, StopId } from '../../api/types';
 import { BRAND } from '../../app/brand';
 import { Button } from '../../components/Button';
 import { Icon } from '../../components/Icon';
@@ -16,6 +16,7 @@ import { initialsOf, ROLE_WORDS, roleOf } from '../../play/crewPack';
 import { useWorkshop } from '../../state/store';
 import { StepDocs } from './StepDocs';
 import { openPr, spentWords, statesOf, stepState, stepTimeWords } from './stepWords';
+import { listOf } from './useStage';
 import './page.css';
 
 /** The panel's id, which each step's tab names (aria-controls), and each tab's id. */
@@ -91,7 +92,7 @@ export function StepPanel({ job, stop, view, error, onRetry, now, extraAgents, s
   const state = stepState(job, stop, sent);
   const time = stepTimeWords(job, stop, view?.time, now, view?.since, sent);
   const reached = (view?.state ?? statesOf(job)[stop]) !== 'next';
-  const rows = view ? [...view.agents, ...view.finished, ...(extraAgents ?? [])] : extraAgents ?? [];
+  const rows = view ? [...listOf<StageAgent>(view.agents), ...listOf<StageAgent>(view.finished), ...(extraAgents ?? [])] : extraAgents ?? [];
   const title = `${STEP_PANEL_ID}-title`;
   // The last document request handed down: each step's list is its own (keyed by step), so a request
   // already acted on is not handed to the next list, and picking the step again does not reopen it.
@@ -117,7 +118,7 @@ export function StepPanel({ job, stop, view, error, onRetry, now, extraAgents, s
       {!bodyFirst && children}
       <section className="sb-panel-docs" aria-labelledby={`${title}-docs`}>
         <h3 id={`${title}-docs`}>Documents from this step</h3>
-        <StepDocs key={stop} slug={job.slug} docs={view?.docs ?? []} request={request} />
+        <StepDocs key={stop} slug={job.slug} docs={listOf<JobDocEntry>(view?.docs)} request={request} />
       </section>
     </section>
   );
@@ -147,12 +148,12 @@ function Who({ job, stop, view, error, onRetry, now, rows, reached, notYet }: { 
   const openAgent = (a: StageAgent) => act(a.ref, async () => {
     const r = await api.post<{ demo?: boolean }>(`/api/job/${encodeURIComponent(job.slug)}/stage/${stop}/terminal`, { ref: a.ref });
     const role = roleWord(a);
-    if (r?.demo) return `In the demo nothing opens; on your computer this would ${a.terminal.kind === 'continue' ? `open the ${role} in a terminal` : `follow the ${role}’s log in a terminal`}.`;
-    return a.terminal.kind === 'continue' ? `Opened the ${role} in ${app ?? 'a terminal'}. Its session carries on there.` : `Following the ${role}’s log in ${app ?? 'a terminal'}. It only reads; nothing you type reaches it.`;
+    if (r?.demo) return `In the demo nothing opens; on your computer this would ${a.terminal?.kind === 'continue' ? `open the ${role} in a terminal` : `follow the ${role}’s log in a terminal`}.`;
+    return a.terminal?.kind === 'continue' ? `Opened the ${role} in ${app ?? 'a terminal'}. Its session carries on there.` : `Following the ${role}’s log in ${app ?? 'a terminal'}. It only reads; nothing you type reaches it.`;
   });
 
   const heading = reached ? 'Who worked on it' : 'Who will work on it';
-  const apps = view?.terminalApps ?? [];
+  const apps = Array.isArray(view?.terminalApps) ? view.terminalApps.filter((t): t is string => typeof t === 'string') : [];
   const id = `${STEP_PANEL_ID}-who`;
   let body: ReactNode;
   if (!view && error) {
@@ -206,7 +207,7 @@ function Who({ job, stop, view, error, onRetry, now, rows, reached, notYet }: { 
 function WhoRow({ a, status, now, hosted, busy, off, onOpen }: { a: StageAgent; status: { cls: string; words: string }; now: Date; hosted: boolean; busy: boolean; off: boolean; onOpen(): void }) {
   const role = roleWord(a);
   const time = rowTime(a, now);
-  const cont = a.terminal.kind === 'continue';
+  const cont = a.terminal?.kind === 'continue';
   return (
     <li className={`sb-who-row is-${a.status}`}>
       <span className="sb-who-initials" aria-hidden="true">{initials(a)}</span>
@@ -223,13 +224,13 @@ function WhoRow({ a, status, now, hosted, busy, off, onOpen }: { a: StageAgent; 
             kind={cont ? 'secondary' : 'quiet'}
             icon={cont ? 'terminal' : 'scroll'}
             busy={busy}
-            disabled={!a.terminal.ready || off}
+            disabled={!a.terminal?.ready || off}
             onClick={onOpen}
-            title={a.terminal.ready ? (cont ? 'Open the Foreman in a terminal and carry on its session there.' : `Follow the ${role}’s log in a terminal. Read-only: nothing you type reaches it.`) : a.terminal.why ?? 'Not available now.'}
+            title={a.terminal?.ready ? (cont ? 'Open the Foreman in a terminal and carry on its session there.' : `Follow the ${role}’s log in a terminal. Read-only: nothing you type reaches it.`) : a.terminal?.why ?? 'Not available now.'}
           >
             {cont ? 'Open in terminal' : 'Watch in terminal'}
           </Button>
-          <span className="muted sb-who-term-note">{a.terminal.ready ? (cont ? 'Continues its session' : 'Read-only: follows its log') : a.terminal.why}</span>
+          <span className="muted sb-who-term-note">{a.terminal?.ready ? (cont ? 'Continues its session' : 'Read-only: follows its log') : a.terminal?.why}</span>
         </div>
       )}
     </li>

@@ -401,6 +401,42 @@ describe('the job page at a job’s and a step’s address', () => {
   });
 });
 
+// Review Focus 1: a step view from an older laptop, or a half-written answer, never takes the page down.
+describe('a step view with missing parts', () => {
+  it('a step view with no agents shows the step with nobody working, and the page is whole', async () => {
+    window.location.hash = '#/job/alpha/stage/build';
+    const get = serverGet();
+    const answer = get.getMockImplementation()!;
+    // No agents, no finished, documents that are not a list, no terminal apps. Done, so whether the
+    // step is live is read from its agents.
+    // At Test: agents that are not a list, and a finished row with a hole before it and no terminal.
+    const tester = { who: 'feature-tester', role: 'Tester', model: null, doing: null, since: null, lastAt: null, status: 'done', ref: '7' };
+    get.mockImplementation(async (path: string) => (/\/stage\/test$/.test(path)
+      ? { slug: 'alpha', stop: 'test', label: 'Test', state: 'done', stateWords: 'Done', since: null, agents: 'nobody', finished: [null, tester] }
+      : /\/stage\/[a-z]+$/.test(path)
+        ? { slug: 'alpha', stop: path.split('/').pop(), label: 'Build', state: 'done', stateWords: 'Done', since: null, docs: {} }
+        : answer(path)));
+    const api = { snapshot: vi.fn(async () => snapshot({ jobs: [job('alpha', 'running', { stage: 'implement', lane: 'working' })] })), setToken: vi.fn(), get, post: vi.fn(async () => ({ ok: true })), put: vi.fn() } as unknown as ApiClient;
+    render(<App api={api} openStream={() => new FakeStream()} />);
+    const page = await screen.findByRole('main', { name: 'Job' });
+    const panel = within(page).getByRole('tabpanel', { name: 'Build' });
+    expect(await within(panel).findByText('Nobody is working here now.')).toBeInTheDocument();
+    expect(within(panel).getByText('No documents from this step yet.')).toBeInTheDocument();
+    // The page is whole: the header, the seven steps, the bar and the conversation are all there.
+    expect(within(page.querySelector<HTMLElement>('.sb-job-top')!).getByRole('heading', { name: 'Job alpha' })).toBeInTheDocument();
+    expect(within(within(page).getByRole('tablist', { name: 'The job’s seven steps' })).getAllByRole('tab')).toHaveLength(7);
+    expect(within(page).getByRole('region', { name: 'Next step' })).toBeInTheDocument();
+    expect(within(page).getByRole('textbox', { name: /Your message to the Foreman/ })).toBeInTheDocument();
+    // Another step with the same answer: still whole.
+    fireEvent.click(document.getElementById('sb-step-test')!);
+    const test = await screen.findByRole('tabpanel', { name: 'Test' });
+    expect(await within(test).findByRole('heading', { name: 'Three kinds of test' })).toBeInTheDocument();
+    // The Tester's row shows; with no terminal facts its button rests.
+    expect(within(test).getByText('Finished its part')).toBeInTheDocument();
+    expect(screen.getByRole('main', { name: 'Job' })).toBe(page);
+  });
+});
+
 describe('Job drawer in the shell', () => {
   function renderWithJob() {
     window.location.hash = '#/job/alpha';

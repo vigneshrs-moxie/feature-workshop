@@ -14,11 +14,12 @@ import { clearAllSent } from '../../lib/sentState';
 import { deskQueue } from '../../home/homeModel';
 import { clearDecisions } from '../../home/nudges';
 import { PermissionCard } from '../../components/permissions/PermissionCard';
-import { createStore, WorkshopContext } from '../../state/store';
+import { createStore, WorkshopContext, type Store } from '../../state/store';
+import { hrefFor } from '../../app/router';
 import { job, snapshot } from '../../state/test-fixtures';
 import { hostedStream, POLL_MS } from './hostedStream';
 import { HostedWorkshop } from './HostedWorkshop';
-import type { MirrorRoute } from './route';
+import { useHostedRoute, type MirrorRoute } from './route';
 import { askedLine, type QueuedView } from './QueuedDecision';
 
 const NOW = new Date('2026-10-30T16:00:00Z');
@@ -223,7 +224,7 @@ describe('the job page on the website', () => {
     slug, stop, label: STOPS.find((s) => s.id === stop)!.label, state: 'done', stateWords: 'Done', since: null, stages: [],
     agents: [], finished: [], terminalApp: null, terminalApps: [], docs: [], checks: null, handTest: null, plan: null, prs: [], review: { reviewers: [] },
   });
-  function site(route: MirrorRoute) {
+  function site(route: MirrorRoute | 'address') {
     const store = createStore();
     // Play subtle: the bar's calls carry the page's own words (No go: send back, Reply, Go: …).
     store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [ALPHA], meta: { token: null, settings: { play: { mode: 'subtle' } } } as never }) });
@@ -238,9 +239,22 @@ describe('the job page on the website', () => {
       return { slug: 'alpha', thread: [], threadMore: false, gate: GATE, answeredBriefs: [], heldReply: null, options: { level: 1 }, queued: null } as JobDetail;
     });
     const api = { get, post: vi.fn(async () => ({ ok: true })), hosted: () => true } as unknown as ApiClient;
-    const utils = render(<HostedWorkshop api={api} store={store} route={route} />);
+    // 'address': the site's own route from the address bar (useHostedRoute), as HostedApp mounts it.
+    const utils = render(route === 'address' ? <AtTheAddress api={api} store={store} /> : <HostedWorkshop api={api} store={store} route={route} />);
     return { ...utils, go: (next: MirrorRoute) => utils.rerender(<HostedWorkshop api={api} store={store} route={next} />) };
   }
+  /** The website's job page under the site's own route, which it shows as data-route. */
+  function AtTheAddress({ api, store }: { api: ApiClient; store: Store }) {
+    const route = useHostedRoute();
+    return (
+      <div data-route={route.name === 'mirror' ? hrefFor(route.route) : route.name}>
+        {route.name === 'mirror' && <HostedWorkshop api={api} store={store} route={route.route} />}
+      </div>
+    );
+  }
+  const heldRoute = () => document.querySelector('[data-route]')?.getAttribute('data-route');
+  /** Opens the site at an address, once the browser's own hashchange for it has come and gone. */
+  const openAt = async (hash: string) => { window.location.hash = hash; await new Promise((r) => setTimeout(r, 20)); };
   const openTab = () => screen.getByRole('tab', { selected: true, hidden: true });
 
   it('the website’s job page is the new page', async () => {
@@ -279,6 +293,37 @@ describe('the job page on the website', () => {
     expect(screen.getByRole('main', { name: 'Job' })).toBe(page);
     expect(screen.getByRole('textbox', { name: /What should change\?/ })).toBe(box);
     expect(box).toHaveValue('Use the small table.');
+  });
+
+  it('on the website a pick moves the route the site holds, with no new history entry', async () => {
+    await openAt('#/job/alpha/stage/test');
+    try {
+      site('address');
+      await screen.findByRole('main', { name: 'Job' });
+      expect(heldRoute()).toBe('#/job/alpha/stage/test');
+      const entries = window.history.length;
+      fireEvent.click(document.getElementById('sb-step-spec')!);
+      await act(async () => {});
+      expect(window.location.hash).toBe('#/job/alpha/stage/spec');
+      expect(window.history.length).toBe(entries);
+      expect(heldRoute()).toBe('#/job/alpha/stage/spec');
+      expect(openTab().id).toBe('sb-step-spec');
+    } finally { window.location.hash = ''; }
+  });
+
+  it('on the website, after a pick, the address of the step the page opened at opens it again', async () => {
+    await openAt('#/job/alpha/stage/test');
+    try {
+      site('address');
+      await screen.findByRole('main', { name: 'Job' });
+      expect(openTab().id).toBe('sb-step-test');
+      fireEvent.click(document.getElementById('sb-step-spec')!);
+      await act(async () => {});
+      expect(openTab().id).toBe('sb-step-spec');
+      // A link (or Back) to the step the page opened at: a hashchange.
+      act(() => { window.location.hash = '#/job/alpha/stage/test'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
+      await waitFor(() => expect(openTab().id).toBe('sb-step-test'));
+    } finally { window.location.hash = ''; }
   });
 });
 

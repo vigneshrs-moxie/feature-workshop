@@ -236,6 +236,17 @@ export function replaceHash(href: string) {
   window.dispatchEvent(new Event(REPLACED));
 }
 
+/**
+ * Calls `fn` whenever the address changes: a hashchange (a link, Back) or replaceHash (in place).
+ * The laptop's route (useRoute) and the website's (views/Hosted/route.ts) both listen this way.
+ * Returns the way to stop listening.
+ */
+export function onAddressChange(fn: () => void): () => void {
+  window.addEventListener('hashchange', fn);
+  window.addEventListener(REPLACED, fn);
+  return () => { window.removeEventListener('hashchange', fn); window.removeEventListener(REPLACED, fn); };
+}
+
 export function useRoute(): Route {
   const [route, setRoute] = useState(() => parseHash(window.location.hash));
   useEffect(() => {
@@ -245,10 +256,9 @@ export function useRoute(): Route {
       const next = parseHash(window.location.hash);
       setRoute((prev) => (hrefFor(prev) === hrefFor(next) ? prev : next));
     };
-    window.addEventListener('hashchange', onChange);
-    window.addEventListener(REPLACED, onChange);
+    const stop = onAddressChange(onChange);
     onChange();
-    return () => { window.removeEventListener('hashchange', onChange); window.removeEventListener(REPLACED, onChange); };
+    return stop;
   }, []);
   return route;
 }

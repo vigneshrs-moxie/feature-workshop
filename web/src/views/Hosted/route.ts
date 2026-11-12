@@ -13,7 +13,7 @@
 //   anything else the laptop's app has (Screens, …)
 //                           a calm "open this on your laptop for now" page, never an error
 import { useEffect, useState } from 'react';
-import { pageName, parseHash, type Route } from '../../app/router';
+import { onAddressChange, pageName, parseHash, type Route } from '../../app/router';
 
 /** The laptop app's pages the hosted site serves from the mirror (packet 2B). */
 export type MirrorRoute = Extract<Route, { name: 'desk' | 'job' | 'stage' | 'stacks' | 'stack' | 'stack-part' }>;
@@ -52,13 +52,10 @@ export function parseHostedHash(raw: string): HostedRoute {
   return { name: 'later', page: pageName(r) };
 }
 
+/** The site's page from the address; it follows a link or Back and a replaceHash (a step's pick) alike. */
 export function useHostedRoute(): HostedRoute {
   const [route, setRoute] = useState(() => parseHostedHash(window.location.hash));
-  useEffect(() => {
-    const on = () => setRoute(parseHostedHash(window.location.hash));
-    window.addEventListener('hashchange', on);
-    return () => window.removeEventListener('hashchange', on);
-  }, []);
+  useEffect(() => onAddressChange(() => setRoute(parseHostedHash(window.location.hash))), []);
   return route;
 }
 
