@@ -21,7 +21,7 @@ import { usePlay } from '../../play/usePlay';
 import { useWorkshop } from '../../state/store';
 import { StepDocs } from './StepDocs';
 import { openPr, spentWords, statesOf, stepState, stepTimeWords } from './stepWords';
-import { listOf } from './useStage';
+import { listOf } from '../../lib/lists';
 import './page.css';
 
 /** The panel's id, which each step's tab names (aria-controls), and each tab's id. */

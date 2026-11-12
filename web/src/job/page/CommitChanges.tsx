@@ -2,6 +2,7 @@
 // removed (−). Moved out of the old job page's Code tab so the Build step opens it the same way.
 // Nothing here changes a file.
 import { useEffect, useState } from 'react';
+import { listOf, textsOf } from '../../lib/lists';
 import { useWorkshop } from '../../state/store';
 
 interface Shown { sha: string; message: string; files: { path: string; added: number | null; removed: number | null }[]; patchFiles: { path: string; lines: string[] }[]; truncated: boolean }
@@ -27,16 +28,18 @@ export function CommitChanges({ slug, sha }: { slug: string; sha: string }) {
 }
 
 function Change({ value }: { value: Shown }) {
-  const files = Array.isArray(value.patchFiles) ? value.patchFiles : [];
+  // Not a list, or holes in one (an older or half-written answer): left out, never a crash.
+  const files = listOf<Shown['patchFiles'][number]>(value.patchFiles);
+  const stats = listOf<Shown['files'][number]>(value.files);
   return (
     <div className="code-change">
       {files.length === 0 && <p className="muted">No file changes in this commit.</p>}
       {files.map((f) => {
-        const stat = value.files?.find((x) => x.path === f.path);
+        const stat = stats.find((x) => x.path === f.path);
         return (
           <details key={f.path} className="code-file" open={files.length <= 3}>
             <summary><code>{f.path}</code>{stat && <span className="muted"> · {stat.added ?? '?'} added, {stat.removed ?? '?'} removed</span>}</summary>
-            <pre className="code-lines">{f.lines.map((l, i) => <span key={i} className={l.startsWith('+') ? 'is-add' : l.startsWith('-') ? 'is-del' : l.startsWith('@@') ? 'is-hunk' : undefined}>{l}{'\n'}</span>)}</pre>
+            <pre className="code-lines">{textsOf(f.lines).map((l, i) => <span key={i} className={l.startsWith('+') ? 'is-add' : l.startsWith('-') ? 'is-del' : l.startsWith('@@') ? 'is-hunk' : undefined}>{l}{'\n'}</span>)}</pre>
           </details>
         );
       })}

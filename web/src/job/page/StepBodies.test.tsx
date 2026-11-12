@@ -16,6 +16,7 @@ import { job, SCREENS_ORIGIN, snapshot } from '../../state/test-fixtures';
 import { flow, view as reviewView } from '../../views/Review/test-fixtures';
 import { clearWireframes } from '../../panes/Preview/wireframes';
 import { BuildStep, PlanStep, PlanSteps } from './BuildStep';
+import { CommitChanges } from './CommitChanges';
 import { ReviewStep } from './ReviewStep';
 import { ShipStep } from './ShipStep';
 import { SpecStep } from './SpecStep';
@@ -69,15 +70,16 @@ interface Setup {
   auto?: { entries: AutoDecision[] } | Error | null;
   commits?: unknown;
   review?: ReturnType<typeof reviewView> | null;
+  change?: unknown;
 }
 
-function setup(ui: (j: Job) => ReactNode, { hosted = false, jobExtra = {}, slug = SLUG, auto = null, commits = COMMITS, review = null }: Setup = {}) {
+function setup(ui: (j: Job) => ReactNode, { hosted = false, jobExtra = {}, slug = SLUG, auto = null, commits = COMMITS, review = null, change = CHANGE }: Setup = {}) {
   const j = job(slug, 'running', { stage: 'implement', ...jobExtra });
   const store = createStore();
   store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [j], meta: { token: 't', wireframesOrigin: SCREENS_ORIGIN } as never }) });
   const get = vi.fn(async (path: string): Promise<unknown> => {
     if (path.endsWith('/commits')) return commits;
-    if (/\/commit\//.test(path)) return CHANGE;
+    if (/\/commit\//.test(path)) return change;
     if (path.endsWith('/auto')) {
       if (auto instanceof Error) throw auto;
       return auto ? { on: true, stopped: null, tag: null, summary: ['', '', ''], ...auto } : null;
@@ -207,6 +209,22 @@ describe('Plan and Build', () => {
     expect(within(first).queryByText('+new')).toBeNull();
     // A long path keeps its whole self in the hover text.
     expect(within(first).getByText('src/routes/buildRoute.test.ts')).toHaveAttribute('title', 'src/routes/buildRoute.test.ts');
+  });
+
+  it('a change whose files or lines are not lists, or have holes, shows what it can, never a crash', async () => {
+    const change = {
+      files: 'not a list',
+      patchFiles: [null, { path: 'src/a.ts', lines: 'not a list' }, { path: 'src/b.ts', lines: ['@@ -1 +1 @@', null, 5, '+new'] }],
+      truncated: false,
+    };
+    setup(() => <CommitChanges slug={SLUG} sha={'b'.repeat(40)} />, { change });
+    expect(await screen.findByText('src/a.ts')).toBeInTheDocument();
+    expect(screen.getByText('src/b.ts')).toBeInTheDocument();
+    expect(screen.getByText('+new')).toHaveClass('is-add');
+    expect(screen.queryByRole('alert')).toBeNull();
+    cleanup();
+    setup(() => <CommitChanges slug={SLUG} sha={'b'.repeat(40)} />, { change: { files: null, patchFiles: { 0: 'x' }, truncated: false } });
+    expect(await screen.findByText('No file changes in this commit.')).toBeInTheDocument();
   });
 
   it('a commit with many files lists the first 50, then how many more', async () => {

@@ -8,6 +8,7 @@ import type { Job, JobDetail, JobPageFacts } from '../../api/types';
 import { Icon } from '../../components/Icon';
 import { Fold } from '../../components/page/Page';
 import { ticketOf } from '../NextStep';
+import { textsOf } from '../../lib/lists';
 import { WhatToCheck } from './WhatToCheck';
 import './page.css';
 
@@ -81,8 +82,9 @@ export function TheTicket({ ticket }: { ticket: Ticket | null }) {
 }
 
 export function WhatWereBuilding({ building }: { building: Building }) {
-  const outcome = building?.outcome ?? [];
-  const risks = building?.risks ?? [];
+  // Not a list, or holes in one (an older or half-written answer): nothing, never a crash.
+  const outcome = textsOf(building?.outcome);
+  const risks = textsOf(building?.risks);
   if (!building || (!outcome.length && !risks.length)) return <p className="sb-ov-empty">{BUILDING_NOT_WRITTEN}</p>;
   const version = text(building.version);
   const from = building.from === 'brief' ? 'From the first brief' : version ? `From spec v${version}` : 'From the spec';

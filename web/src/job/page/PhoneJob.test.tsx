@@ -293,6 +293,24 @@ describe('the phone’s job screen', () => {
     expect(within(empty).getByText('Not written yet. The Foreman writes this list with the plan.')).toBeInTheDocument();
   });
 
+  it('the overview screen: a list that is not a list, or has holes, shows as nothing, never a crash', async () => {
+    const bad = {
+      ...PAGE,
+      building: { from: 'spec', version: '3', outcome: 'Pause a service.', risks: [null, 'A visit already on today’s route stays.'] },
+      check: { version: null, worksWhen: { 0: 'x' }, mustNot: [null, 'Charge for a paused visit.', 5] },
+    } as unknown as JobDetail['page'];
+    for (const hosted of [false, true]) {
+      setup({ jobs: [working('plan')], page: bad, hosted, at: '#/job/alpha/overview' });
+      const main = screen.getByRole('main', { name: 'Job' });
+      expect(await within(main).findByText('ORBIT-900 · filed by Dana Whitfield on Nov 3')).toBeInTheDocument();
+      expect(within(main).getByText('A visit already on today’s route stays.')).toBeInTheDocument();
+      expect(within(main).queryByText('Pause a service.')).toBeNull();
+      expect(within(main).getByText('Charge for a paused visit.')).toBeInTheDocument();
+      expect(within(main).queryByText('It works when')).toBeNull();
+      cleanup();
+    }
+  });
+
   it('What Auto decided is a row only once Auto has decided, its note Newest first', async () => {
     const { move } = setup({ jobs: [working('plan', { auto: { on: true, by: 'you', ran: false } })] });
     expect(screen.getByRole('checkbox', { name: AUTO_LABEL })).toBeChecked();

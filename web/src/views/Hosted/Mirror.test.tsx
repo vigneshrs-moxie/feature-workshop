@@ -253,8 +253,15 @@ describe('the job page on the website', () => {
     );
   }
   const heldRoute = () => document.querySelector('[data-route]')?.getAttribute('data-route');
-  /** Opens the site at an address, once the browser's own hashchange for it has come and gone. */
-  const openAt = async (hash: string) => { window.location.hash = hash; await new Promise((r) => setTimeout(r, 20)); };
+  /**
+   * Sets the address and waits for the browser's own hashchange for it (jsdom fires it as a later
+   * task), so it never lands after the page has mounted. An address already there fires none.
+   */
+  const openAt = (hash: string) => new Promise<void>((done) => {
+    if (window.location.hash === (hash === '#' ? '' : hash)) { done(); return; }
+    window.addEventListener('hashchange', () => done(), { once: true });
+    window.location.hash = hash;
+  });
   const openTab = () => screen.getByRole('tab', { selected: true, hidden: true });
 
   it('the website’s job page is the new page', async () => {
@@ -308,7 +315,7 @@ describe('the job page on the website', () => {
       expect(window.history.length).toBe(entries);
       expect(heldRoute()).toBe('#/job/alpha/stage/spec');
       expect(openTab().id).toBe('sb-step-spec');
-    } finally { window.location.hash = ''; }
+    } finally { cleanup(); await openAt(''); }
   });
 
   it('on the website, after a pick, the address of the step the page opened at opens it again', async () => {
@@ -323,7 +330,7 @@ describe('the job page on the website', () => {
       // A link (or Back) to the step the page opened at: a hashchange.
       act(() => { window.location.hash = '#/job/alpha/stage/test'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
       await waitFor(() => expect(openTab().id).toBe('sb-step-test'));
-    } finally { window.location.hash = ''; }
+    } finally { cleanup(); await openAt(''); }
   });
 });
 

@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { StageAgent, StageView, StopId } from '../../api/types';
 import { lastKnown, remember } from '../../lib/lastKnown';
+import { listOf } from '../../lib/lists';
 import { jobBySlug } from '../../state/reducer';
 import { useWorkshop, useWorkshopState } from '../../state/store';
 
@@ -16,13 +17,7 @@ type Load = { state: 'loading' } | { state: 'error'; message: string } | { state
 export const STAGE_LIVE_MS = 5_000;
 export const STAGE_QUIET_MS = 30_000;
 
-/**
- * A step view's list (its agents, finished, documents): a missing one, one that is not a list (an
- * older laptop, a half-written answer) and any hole in it count as none, never as a crash.
- */
-export function listOf<T extends object>(v: unknown): T[] {
-  return Array.isArray(v) ? v.filter((x): x is T => x !== null && typeof x === 'object') : [];
-}
+// A step view's lists (its agents, finished, documents) are read with listOf (lib/lists.ts).
 
 const live = (view: StageView | null) => Boolean(view) && (view!.state === 'now' || view!.state === 'waiting' || listOf<StageAgent>(view!.agents).some((a) => a.status === 'working' || a.status === 'waiting'));
 

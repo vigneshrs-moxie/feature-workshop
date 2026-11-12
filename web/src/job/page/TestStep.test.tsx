@@ -266,6 +266,26 @@ describe('TestStep', () => {
     ]);
   });
 
+  it('holes in the evidence’s lines and criteria are left out, never a crash', () => {
+    const p = progress();
+    const holed = { ...p, lines: [p.lines[0], null, ...p.lines.slice(2)] } as unknown as EvidenceProgress;
+    // Starbase's row: the lines it has, each by its own number.
+    const recorder = recorderAgent(holed)!;
+    expect(recorder.doing).toBe('Recording evidence: line 4 of 19');
+    expect(recorder.feed!.map((l) => l.text)).toEqual([`Line 1 passed: ${TITLES[0]}`, `Line 3 passed: ${TITLES[2]}`, `Line 4: ${TITLES[3]}`]);
+    for (const hosted of [false, true]) {
+      show({ hosted, evidence: { ...RECORDING, watch: !hosted, progress: holed } });
+      expect(chip('Recorded evidence')).toBe('Running, line 4 of 19');
+      expect(lineRows().map((r) => r.querySelector('.sb-test-line-n')?.textContent)).toEqual(['1', '3', '4', '5', '6', '7', '8']);
+      cleanup();
+      // A recording with a hole in its criteria counts the rest.
+      const ev = EVIDENCE.evidence!;
+      show({ hosted, evidence: { ...EVIDENCE, evidence: { ...ev, criteria: [null, ...ev.criteria] as unknown as EvidenceCriterion[] } } });
+      expect(chip('Recorded evidence')).toBe('17 passed, 2 failed');
+      cleanup();
+    }
+  });
+
   it('a finished line plays its video while the rest still record', () => {
     show({ evidence: { ...RECORDING, progress: progress({ noVideo: [2] }) } });
     const [one, two, three, four] = lineRows();
