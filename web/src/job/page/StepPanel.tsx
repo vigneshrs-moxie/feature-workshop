@@ -104,7 +104,8 @@ export function StepPanel({ job, stop, view, error, onRetry, now, extraAgents, s
   const i = STOPS.findIndex((s) => s.id === stop);
   const here = STOPS[i];
   const state = stepState(job, stop, sent);
-  const time = stepTimeWords(job, stop, view?.time, now, view?.since, sent);
+  // The step's span only, as the steps row reads it: never a time of its own from view.since.
+  const time = stepTimeWords(job, stop, view?.time, now, null, sent);
   const reached = (view?.state ?? statesOf(job)[stop]) !== 'next';
   const rows = view ? [...listOf<StageAgent>(view.agents), ...listOf<StageAgent>(view.finished), ...(extraAgents ?? [])] : extraAgents ?? [];
   const title = `${STEP_PANEL_ID}-title`;

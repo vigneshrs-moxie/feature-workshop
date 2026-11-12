@@ -1,7 +1,8 @@
 // The Ship step's body in the open step (design 3.2): the three pull requests (job.page.prs through
 // the step's view), each with where it goes, its state in words, its checks and when it was opened,
 // and Open on GitHub; then today's review panel, the hand-off nudges and the GitHub line, as the Job
-// page's Ship tab draws them. While Auto is on, a line says where Auto stops (or that it stopped here).
+// page's Ship tab draws them. While Auto is on, not stopped now and the step is not his (he wrote to
+// it), a line says where Auto stops; stopped here, it says so.
 // Nothing here hides or turns off anything because of Auto. A record from an older laptop (no pull
 // requests known) says so in a sentence and the rest draws.
 import type { Job, PrRow, StageView } from '../../api/types';
@@ -68,17 +69,18 @@ function ShipNudges({ job }: { job: Job }) {
 
 export function ShipStep({ slug, job, view }: { slug: string; job: Job; view: StageView | null | undefined }) {
   const entries = useAutoEntries(slug, job);
-  // Auto stopped now, at Ship: its stop. Else, only while Auto is on: where it stops.
+  // Auto stopped now, at Ship: its stop. Else, only while Auto runs the job (on, not stopped, the step
+  // not his): where it stops.
   const stop = entries && entries.some((e) => e.kind) && autoStoppedNow(job) ? stopHere(entries, 'ship') : null;
   const stopped = stop ? stoppedWords(stop) : null;
-  const autoOn = job.auto?.on === true;
+  const autoRuns = job.auto?.on === true && !autoStoppedNow(job) && job.auto?.yours !== true;
   const prs = Array.isArray(view?.prs) ? view.prs.filter((p) => p && typeof p === 'object') : null;
   const shipping = stopOf(job.stage) === 'ship' || (job.nudges?.length ?? 0) > 0;
   const now = useNow().getTime();
   return (
     <div className="sb-step-body">
       {stopped ? <AutoLine icon="octagon-pause" words={stopped} />
-        : autoOn && <AutoLine icon="git-pr" words="Auto stops once PR #1 is open. It never merges." />}
+        : autoRuns && <AutoLine icon="git-pr" words="Auto stops once PR #1 is open. It never merges." />}
       <section className="sb-block sb-prs" aria-label="The pull requests">
         <h3 className="eyebrow">The pull requests</h3>
         {!prs ? <p className="sb-step-note">The pull requests aren’t known for this job yet.</p> : (

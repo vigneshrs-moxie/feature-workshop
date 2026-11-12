@@ -494,6 +494,26 @@ describe('Auto', () => {
     cleanup();
   });
 
+  it('Ship says where Auto stops only while Auto is on, not stopped now, and the step is not his', async () => {
+    for (const hosted of [false, true]) {
+      // Auto stopped at Plan (an earlier step): Ship has no stop of its own and no rule.
+      let s = setup((j) => <ShipStep slug={SLUG} job={j} view={stage('ship', { prs: PRS })} />, { auto: { entries: ENTRIES }, jobExtra: STOPPED, hosted });
+      await read(s.get);
+      expect(screen.queryByText(SHIP_LINE)).toBeNull();
+      cleanup();
+      // He wrote to the job while the step waited: the step is his, so no rule.
+      s = setup((j) => <ShipStep slug={SLUG} job={j} view={stage('ship', { prs: PRS })} />, { auto: { entries: ENTRIES }, jobExtra: { auto: { ...AUTO.auto, yours: true } }, hosted });
+      await read(s.get);
+      expect(screen.queryByText(SHIP_LINE)).toBeNull();
+      cleanup();
+      // On, running, and not his: the rule.
+      s = setup((j) => <ShipStep slug={SLUG} job={j} view={stage('ship', { prs: PRS })} />, { auto: { entries: ENTRIES }, jobExtra: AUTO, hosted });
+      await read(s.get);
+      expect(screen.getByText(SHIP_LINE)).toBeInTheDocument();
+      cleanup();
+    }
+  });
+
   it('the stop line shows only while Auto is stopped now, at the step of its newest stop', async () => {
     const later: AutoDecision = { at: ago(1), stage: 'Plan', chose: 'Approved', asked: 'Plan v1 ready', why: '', kind: 'approve', stop: 'plan' };
     // Still stopped: a later entry of another kind doesn't take the stop away.

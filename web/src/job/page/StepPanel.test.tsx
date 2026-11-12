@@ -13,6 +13,7 @@ import { createStore, useWorkshopState, WorkshopContext } from '../../state/stor
 import { job, snapshot } from '../../state/test-fixtures';
 import { StepDocs } from './StepDocs';
 import { StepPanel } from './StepPanel';
+import { StepsRow } from './StepsRow';
 import { useStage } from './useStage';
 
 const NOW = new Date('2026-11-10T12:00:00Z');
@@ -645,6 +646,32 @@ describe('StepPanel', () => {
     expect(screen.getByText('The step’s own body')).toBeInTheDocument();
     expect(within(screen.getByRole('region', { name: 'Documents from this step' })).getByText('This step’s documents aren’t known yet.')).toBeInTheDocument();
     expect(panel).not.toHaveTextContent(/NaN|undefined|null/);
+  });
+
+  it('the steps row and the open step show the same time for a step: with no time known, neither shows one', () => {
+    // A step with no span (an older laptop, a job started in a terminal), though its view has a start.
+    const s = stores(BUILDING);
+    render(s.wrap(
+      <>
+        <StepsRow job={BUILDING} times={{ build: null }} open="build" sent={null} now={NOW} onOpen={() => {}} />
+        <StepPanel job={BUILDING} stop="build" view={{ ...BUILD, time: null, since: ago(12) }} error={null} onRetry={() => {}} now={NOW}><p>The step’s own body</p></StepPanel>
+      </>,
+    ));
+    const tab = screen.getByRole('tab', { name: /^Build/ });
+    expect(tab.querySelector('.sb-step-time')).toBeNull();
+    expect(screen.getByRole('tabpanel', { name: 'Build' }).querySelector('.sb-panel-time')).toBeNull();
+    cleanup();
+    // With a span, both say the same.
+    const t = stores(BUILDING);
+    render(t.wrap(
+      <>
+        <StepsRow job={BUILDING} times={{ build: BUILD.time }} open="build" sent={null} now={NOW} onOpen={() => {}} />
+        <StepPanel job={BUILDING} stop="build" view={BUILD} error={null} onRetry={() => {}} now={NOW}><p>The step’s own body</p></StepPanel>
+      </>,
+    ));
+    const rowTime = screen.getByRole('tab', { name: /^Build/ }).querySelector('.sb-step-time')?.textContent;
+    expect(rowTime).toBe('32 min so far');
+    expect(screen.getByRole('tabpanel', { name: 'Build' }).querySelector('.sb-panel-time')?.textContent).toBe(rowTime);
   });
 
   it('documents not known say so; a known empty list says there are none yet', () => {
