@@ -13,8 +13,9 @@
 // JobPage draws it in a narrow window (760 px and under), in place of the laptop's layout.
 // Each row goes by `navigate` (a new history entry), so Back returns to the job. A screen's back row
 // goes back in the history when the screen before was this job's (the history does not grow), else
-// to the job's screen. The bar's Reply while no gate waits opens the conversation's screen with the
-// message box focused. The head scrolls with the screen.
+// to the job's screen. Writing to the Foreman (the bar's Reply while no gate waits, the c key, a
+// decision the card hands to the message box) opens the conversation's screen with the message box
+// focused. The head scrolls with the screen.
 //
 // The bar's three calls are NextStep's own buttons, placed by page.css (Send back and Reply side by
 // side, Go under them). The caller gives the one conversation and the one sent line (useSentShown),
@@ -23,6 +24,7 @@
 // sentence says the menu is on the laptop.
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Job, JobDetail, StageAgent, StopId } from '../../api/types';
+import { useKeyScope } from '../../app/keyRegistry';
 import { navigate, type JobView } from '../../app/router';
 import { useUi } from '../../app/ui';
 import { Button } from '../../components/Button';
@@ -31,6 +33,7 @@ import { Icon } from '../../components/Icon';
 import { STOPS, stopOf } from '../../components/stops/stops';
 import type { GateKind } from '../../lib/compose';
 import { readStored } from '../../lib/stored';
+import { focusMessageBox } from '../../panes/Foreman/Composer';
 import { JobMenu } from '../../panes/Foreman/JobHeader';
 import type { useJobConversation } from '../../panes/Foreman/ForemanPane';
 import { DecisionsTab } from '../../panes/Preview/DecisionsTab';
@@ -99,13 +102,17 @@ export function PhoneJob({ job, conversation, now, step, view, sent }: { job: Jo
     if (fromJob) window.history.back();
     else navigate({ name: 'job', slug });
   }, [fromJob, slug]);
-  // Reply while no gate waits: the conversation's screen, its message box focused once (a plain tap
-  // on Conversation leaves the keyboard down).
+  // Writing to the Foreman (Reply while no gate waits, the c key, a decision the card hands to the
+  // message box): the conversation's screen, its message box focused once (a plain tap on
+  // Conversation leaves the keyboard down). On that screen already, the cursor goes to the box.
   const focusBox = useRef(false);
+  const onConvo = view === 'conversation' && !step;
   const write = useCallback(() => {
+    if (onConvo) { focusMessageBox(document.querySelector('.sb-phone-convo')); return; }
     focusBox.current = true;
     navigate({ name: 'job', slug, view: 'conversation' });
-  }, [slug]);
+  }, [slug, onConvo]);
+  useKeyScope('job', { 'write': () => write() });
 
   // A link to one of the job's documents (a Foreman message, the Tester's report, ⌘K Open docs): the
   // step that owns the file (docOwner, the laptop's rule), else the step on screen, else the job's own
@@ -320,7 +327,7 @@ function ConversationScreen({ job, conversation, now, back, focusBox }: ScreenPr
   useEffect(() => {
     if (!focusBox.current) return;
     focusBox.current = false;
-    document.querySelector<HTMLTextAreaElement>('.sb-phone-convo [data-composer-input]')?.focus();
+    focusMessageBox(document.querySelector('.sb-phone-convo'));
   }, [focusBox]);
   return (
     <>

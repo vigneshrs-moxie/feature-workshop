@@ -37,6 +37,7 @@ import { isStopId, STOPS, stopOf } from '../../components/stops/stops';
 import { laneOf } from '../../home/JobsPage';
 import { readStored, useStored, writeStored } from '../../lib/stored';
 import { useNow } from '../../lib/time';
+import { focusMessageBox } from '../../panes/Foreman/Composer';
 import { useCurrentJob, useJobConversation } from '../../panes/Foreman/ForemanPane';
 import { jobBySlug } from '../../state/reducer';
 import { useWorkshopState } from '../../state/store';
@@ -129,15 +130,29 @@ function LaptopJob({ job, conversation, now, step, view, sent }: {
   const full = !column && talk;
   // The full screen's own buttons come and go with it: the focus goes to Back to the job as it
   // opens, and back to the Conversation button as it closes (Widen's button stays where it is).
-  const focusTo = useRef<'back' | 'talk' | null>(null);
+  // Opened to write to the Foreman, the focus goes to the message box instead.
+  const focusTo = useRef<'back' | 'talk' | 'composer' | null>(null);
   const backRef = useRef<HTMLDivElement>(null);
   const talkRef = useRef<HTMLDivElement>(null);
+  const convoRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const to = focusTo.current;
-    if (!to) return;
+    // The message box only once the conversation is on screen (a child's effect may ask first).
+    if (!to || (to === 'composer' && !column && !talk)) return;
     focusTo.current = null;
-    (to === 'back' ? backRef : talkRef).current?.querySelector<HTMLButtonElement>('button')?.focus();
+    if (to === 'composer') focusMessageBox(convoRef.current);
+    else (to === 'back' ? backRef : talkRef).current?.querySelector<HTMLButtonElement>('button')?.focus();
   });
+  /**
+   * Writing to the Foreman (the bar's Reply, the c key, a decision the card hands to the message
+   * box): the cursor in the message box, with the conversation opened full screen first while it
+   * is behind the Conversation button (under 1100 px), so the box is always one he can see.
+   */
+  const writeToForeman = useCallback(() => {
+    if (!column && !talk) { focusTo.current = 'composer'; setTalk(true); }
+    else focusMessageBox(convoRef.current);
+  }, [column, talk]);
+  useKeyScope('job', { 'write': () => writeToForeman() });
   const leaveTalk = useCallback(() => {
     setTalk(false);
     // The conversation's own address would open it again: the job's address instead.
@@ -225,6 +240,7 @@ function LaptopJob({ job, conversation, now, step, view, sent }: {
               now={now}
               onShip={() => toStep('ship')}
               onWatch={() => { toStep('test'); setWatching(true); }}
+              onWrite={writeToForeman}
               foldHere={talk}
               evidence={evidence.view}
             />
@@ -253,7 +269,7 @@ function LaptopJob({ job, conversation, now, step, view, sent }: {
             </StepPanel>
           </div>
         </div>
-        <div className="sb-job-talk" hidden={!column && !talk}>
+        <div className="sb-job-talk" ref={convoRef} hidden={!column && !talk}>
           <ConversationPanel job={job} conversation={conversation} now={now} wide={wide} full={full} onWide={(on) => (on ? setTalk(true) : leaveTalk())} />
         </div>
       </div>

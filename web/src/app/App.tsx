@@ -41,7 +41,8 @@ import { PlayToasts } from '../play/PlayToasts';
 import { usePlay } from '../play/usePlay';
 import { commandsFor, jobsInOrder, type CommandHandlers } from './commands';
 import { reopenJob, setJobPolicy, stopRun } from './jobActions';
-import { dialogOpen, useKeyListener, useKeyScope } from './keyRegistry';
+import { dialogOpen, pressKey, useKeyListener, useKeyScope } from './keyRegistry';
+import { focusMessageBox } from '../panes/Foreman/Composer';
 import { classicHref, navigate, oldPages, openFromHash, pageName, useRoute, type Route } from './router';
 import { pageTitle } from './brand';
 import { TopBar } from './TopBar';
@@ -56,11 +57,6 @@ import { BRAND } from './brand';
 // A page reachable only by its address, for checking the 3D floor by eye (packet S). Never linked
 // or named anywhere in the app; in its own chunk, and it loads no 3D unless Play is full.
 const FloorLab = lazy(() => import('../play/floor3d/FloorLab'));
-
-/** Put the cursor in the message box at the foot of the Foreman pane. */
-export function focusComposer() {
-  document.querySelector<HTMLTextAreaElement>('[data-composer-input]')?.focus();
-}
 
 /** The open sheet, if any, and what each of ⌘K's actions does. */
 function Sheets({ route }: { route: Route }) {
@@ -77,8 +73,9 @@ function Sheets({ route }: { route: Route }) {
     openJob: (s) => navigate({ name: 'job', slug: s }),
     newJob: () => ui.openSheet({ kind: 'new-job' }),
     stop: (runId) => attempt(stopRun(api, runId)),
-    // After the palette has closed and given focus back.
-    focusComposer: () => setTimeout(focusComposer, 0),
+    // After the palette has closed and given focus back: as the c key does on the job page (which
+    // shows its message box first when it is out of sight), else the box on the page.
+    focusComposer: () => setTimeout(() => { if (!pressKey('write')) focusMessageBox(); }, 0),
     markDone: (s) => ui.openSheet({ kind: 'close-job', slug: s, worktree: ui.current?.slug === s ? ui.current.worktree : undefined }),
     reopen: (s) => attempt(reopenJob(api, s)),
     jobDrawer: (s) => ui.openSheet({ kind: 'job-drawer', slug: s }),
@@ -124,9 +121,9 @@ function Sheets({ route }: { route: Route }) {
     'next-job': () => stepJob(1),
     'prev-job': () => stepJob(-1),
   }, route.name !== 'desk' && route.name !== 'settings');
+  // The job page answers c and i (write) itself: its message box can be out of sight.
   useKeyScope('job', {
     'notes': () => { if (slug) ui.openSheet({ kind: 'job-drawer', slug }); },
-    'write': () => focusComposer(),
   }, slug !== null && state.status === 'ready');
 
   function stepJob(by: 1 | -1) {

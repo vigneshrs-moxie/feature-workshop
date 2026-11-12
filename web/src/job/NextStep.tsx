@@ -19,6 +19,7 @@ import { PermissionAlert } from '../components/permissions/PermissionAlert';
 import { stopOf } from '../components/stops/stops';
 import { laneOf } from '../home/JobsPage';
 import type { useJobConversation } from '../panes/Foreman/ForemanPane';
+import { focusMessageBox } from '../panes/Foreman/Composer';
 import { GateSlot, pressReply } from '../panes/Foreman/GateCard';
 import { sessionOf, useGateSent, type GateSent } from '../panes/Foreman/gateSent';
 import { isActiveRun } from '../panes/Foreman/thread';
@@ -61,7 +62,7 @@ const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
  * button goes to the job page. While a permission card has the bar's place the gate card stays
  * mounted, only hidden, so a box opened in it and the words typed there are still there after.
  */
-export function NextStep({ job, conversation, now, onShip, onWatch, onWrite, foldCard = false, foldHere = false, evidence }: { job: Job; conversation: Conversation; now: Date; onShip?: () => void; /** Shows the evidence being recorded (laptop only). */ onWatch?: () => void; /** Reply while no gate waits (left out: it puts the focus in the page's message box; the phone's goes to its conversation screen). */ onWrite?: () => void; /** The phone's screens: the brief under the bar folds to one row (the laptop's job page has it in full). */ foldCard?: boolean; /** The job page while its conversation takes the screen: the brief is one row each time, whatever the Detail setting, and open only while a box in it is open or he opens the row (not remembered for any other page). */ foldHere?: boolean; /** The page's own evidence view for the gate card's strip (left out: the strip asks for itself). */ evidence?: EvidenceView | null }) {
+export function NextStep({ job, conversation, now, onShip, onWatch, onWrite, foldCard = false, foldHere = false, evidence }: { job: Job; conversation: Conversation; now: Date; onShip?: () => void; /** Shows the evidence being recorded (laptop only). */ onWatch?: () => void; /** The page's way to its message box: Reply while no gate waits, and a decision the card hands to the box (left out: the cursor goes to the box on the page). The job page shows the box first when it is out of sight; the phone's goes to its conversation screen. */ onWrite?: () => void; /** The phone's screens: the brief under the bar folds to one row (the laptop's job page has it in full). */ foldCard?: boolean; /** The job page while its conversation takes the screen: the brief is one row each time, whatever the Detail setting, and open only while a box in it is open or he opens the row (not remembered for any other page). */ foldHere?: boolean; /** The page's own evidence view for the gate card's strip (left out: the strip asks for itself). */ evidence?: EvidenceView | null }) {
   const state = useWorkshopState();
   const play = usePlay();
   const review = useReview(job.slug);
@@ -78,7 +79,7 @@ export function NextStep({ job, conversation, now, onShip, onWatch, onWrite, fol
   const problem = after.problem && <p ref={after.problemRef} className="field-problem" role="alert" tabIndex={-1}>{after.problem}</p>;
   const alert = perms.length > 0 ? <PermissionAlert permissions={perms} now={now} /> : null;
   // The gate's bar and card stay in one place whether or not a permission card is up: hidden under it.
-  const gate = thread.detail?.gate ? <GoBar job={job} detail={thread.detail} now={now} reload={thread.reload} call={play.on} foldCard={foldCard} foldHere={foldHere} after={after} sent={sent} run={run} evidence={evidence} hidden={alert !== null} /> : null;
+  const gate = thread.detail?.gate ? <GoBar job={job} detail={thread.detail} now={now} reload={thread.reload} call={play.on} foldCard={foldCard} foldHere={foldHere} after={after} sent={sent} run={run} evidence={evidence} onWrite={onWrite} hidden={alert !== null} /> : null;
   // Neither: the review round's bar, else what is happening in words.
   const bar: ReactNode = alert || gate ? null
     : review.view ? <ReviewBar view={review.view} act={review.act} problem={review.problem} />
@@ -283,7 +284,7 @@ function TryAgain({ after }: { after: AfterSend }) {
  * the decisions made for you, a stale plan, the evidence); its own row of buttons is hidden, and
  * the bar's three calls press them (Reply opens the message box). Go is off while the card asks a question: a never answers one.
  */
-function GoBar({ job, detail, now, reload, call, foldCard = false, foldHere = false, after, sent, run, evidence, hidden = false }: { job: Job; detail: NonNullable<ReturnType<typeof useJobConversation>['thread']['detail']>; now: Date; reload(): void; call: boolean; foldCard?: boolean; /** See NextStep. */ foldHere?: boolean; after: AfterSend; sent: SentShown | null; run: Run | null; evidence?: EvidenceView | null; /** A permission card has the bar's place: kept, not shown, its keys at rest. */ hidden?: boolean }) {
+function GoBar({ job, detail, now, reload, call, foldCard = false, foldHere = false, after, sent, run, evidence, onWrite, hidden = false }: { job: Job; detail: NonNullable<ReturnType<typeof useJobConversation>['thread']['detail']>; now: Date; reload(): void; call: boolean; foldCard?: boolean; /** See NextStep. */ foldHere?: boolean; after: AfterSend; sent: SentShown | null; run: Run | null; evidence?: EvidenceView | null; /** See NextStep. */ onWrite?: () => void; /** A permission card has the bar's place: kept, not shown, its keys at rest. */ hidden?: boolean }) {
   // With foldCard the brief is remembered open or folded (useShown); over the job page's conversation
   // it starts as one row each time and is opened there only.
   const [stageShown, setStageShown] = useShown('stage', 'brief');
@@ -391,7 +392,7 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, foldHere = fa
         </button>
       )}
       <div ref={body} className="job-gate-body" hidden={folded}>
-        <GateSlot job={job} detail={detail} now={now} reload={reload} callsOutside onOpenBox={() => { if (folded) setCardShown(true); }} evidence={evidence} keysOff={hidden} />
+        <GateSlot job={job} detail={detail} now={now} reload={reload} callsOutside onOpenBox={() => { if (folded) setCardShown(true); }} onWrite={onWrite} evidence={evidence} keysOff={hidden} />
       </div>
     </div>
   );
@@ -412,7 +413,7 @@ function StateBar({ job, now, checks, onShip, onWatch, onWrite, hosted, after }:
   const prs = onShip
     ? <Button kind="primary" size="lg" onClick={onShip} title="The pull requests and what waits on them.">See the pull requests</Button>
     : <Button kind="primary" size="lg" href={jobHref(job.slug)} title="The job’s page: its Ship tab has the pull requests.">See the pull requests</Button>;
-  const write = <Button kind="primary" size="lg" keyId="write" keyShown onClick={onWrite ?? (() => document.querySelector<HTMLTextAreaElement>('[data-composer-input]')?.focus())} title="Write to the Foreman (key: c).">Reply</Button>;
+  const write = <Button kind="primary" size="lg" keyId="write" keyShown onClick={onWrite ?? (() => focusMessageBox())} title="Write to the Foreman (key: c).">Reply</Button>;
   const testing = text(job.testing);
   const working = workingWords(job, now);
   /** The Foreman waits for him: its question (or what the card says), and Reply. */

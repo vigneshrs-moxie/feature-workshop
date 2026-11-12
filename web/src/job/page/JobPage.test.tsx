@@ -903,6 +903,45 @@ describe('a window under 1100 px', () => {
   });
 });
 
+// Final review A1: writing to the Foreman always lands in a box he can see. jsdom lets a hidden
+// element take focus, so each test also checks the focused box has no [hidden] ancestor.
+describe('writing to the Foreman under 1100 px', () => {
+  const ASKED = () => [job('alpha', 'needs-you', { stage: 'spec', lane: 'needs-you', headline: 'Which login page?' })];
+  const MODES = [['the laptop app', false], ['the website', true]] as const;
+  async function expectTheBoxInSight() {
+    await waitFor(() => expect(messageBox()).toHaveFocus());
+    expect(shown(messageBox())).toBe(true);
+    expect(page()).toHaveClass('is-full');
+  }
+
+  it.each(MODES)('under 1100 px Reply opens the conversation and puts the cursor in the message box (%s)', async (_where, hosted) => {
+    windowWidth(800);
+    setup({ jobs: ASKED(), hosted });
+    expect(page().querySelector('.sb-job-talk')).toHaveAttribute('hidden');
+    fireEvent.click(within(bar()).getByRole('button', { name: /^Reply/ }));
+    await expectTheBoxInSight();
+  });
+
+  it.each(MODES)('under 1100 px the c key does the same (%s)', async (_where, hosted) => {
+    windowWidth(800);
+    setup({ jobs: ASKED(), hosted });
+    await screen.findByText('Overview');
+    fireEvent.keyDown(document.body, { key: 'c' });
+    await expectTheBoxInSight();
+  });
+
+  it.each(MODES)('under 1100 px a decision handed to the message box shows that box (%s)', async (_where, hosted) => {
+    windowWidth(800);
+    simple();
+    // The Foreman is still replying: the server gives the decision back for the message box.
+    const post = vi.fn(async (p: string): Promise<unknown> => (p === '/api/job/alpha/gate' ? { ok: true, sent: false, text: 'Go ahead with the plan.' } : { ok: true }));
+    setup({ jobs: waiting(), gate: { ...GATE, runActive: true }, hosted, post });
+    fireEvent.click(await screen.findByRole('button', { name: /^Go: approve/ }));
+    await expectTheBoxInSight();
+    expect(messageBox()).toHaveValue('Go ahead with the plan.');
+  });
+});
+
 describe('when the job’s details are slow, fail, or come from an older laptop', () => {
   it('the job’s details failing leaves the bar, the steps and the conversation in place', async () => {
     setup({ jobs: [working('plan')], fail: true });

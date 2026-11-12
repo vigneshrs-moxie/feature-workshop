@@ -27,6 +27,17 @@ import { Icon } from '../../components/Icon';
 
 export const draftKey = (slug: string) => `fw.draft.${slug}`;
 
+/**
+ * Put the cursor in the message box (the first one under `within`, else on the page). The one way
+ * to do it: a page whose box can be out of sight (the job page under 1100 px, the phone's screens)
+ * first shows it, then calls this. True when there was a box to take the focus.
+ */
+export function focusMessageBox(within: ParentNode | null = document): boolean {
+  const box = within?.querySelector<HTMLTextAreaElement>('[data-composer-input]');
+  box?.focus();
+  return Boolean(box);
+}
+
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 function modelLabel(models: ModelChoice[], id: string | null | undefined): string {

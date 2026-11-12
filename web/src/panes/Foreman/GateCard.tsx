@@ -38,7 +38,7 @@ import { readStored, useStored, writeStored } from '../../lib/stored';
 import { clockTime, fullTime, relativeTime } from '../../lib/time';
 import { useWorkshop, useWorkshopState } from '../../state/store';
 import { stageLabel } from '../Jobs/stages';
-import { draftKey, SendPreview } from './Composer';
+import { draftKey, focusMessageBox, SendPreview } from './Composer';
 import { EVIDENCE_STAGES, EvidenceStrip } from './EvidenceStrip';
 import { sessionOf, useGateSent } from './gateSent';
 import { nextStepOf } from '../../job/sentView';
@@ -71,11 +71,6 @@ function waitedText(iso: string | null, now: Date): string {
   const rel = relativeTime(iso, now);
   if (!rel) return '';
   return /^\d/.test(rel) ? `waiting ${rel}` : `waiting since ${rel}`;
-}
-
-/** Focus the composer's text box (a reply waits there). */
-function focusComposer() {
-  document.querySelector<HTMLTextAreaElement>('[data-composer-input]')?.focus();
 }
 
 /** Open the job header's level chip, so you can pick a level. */
@@ -147,8 +142,10 @@ export function pressReply(root: Element | null | undefined) {
  * `callsOutside`: the page draws its own big calls (the Desk's Go / No go / Reply) and presses the card's buttons, so the card's row is hidden.
  * `evidence`: the page's own evidence view for the card's strip (left out: the strip asks for itself).
  * `keysOff`: the card is kept but hidden (a permission card has the bar's place): its keys rest.
+ * `onWrite`: the page's own way to its message box, for a decision handed to it (the job page shows
+ * the box first when it is out of sight); left out, the cursor goes to the box on the page.
  */
-export function GateSlot({ job, detail, now, reload, callsOutside = false, extrasTo = null, onOpenBox, evidence, keysOff = false }: { job: Job; detail: JobDetail; now: Date; reload(): void; callsOutside?: boolean; /** The page opens a folded card before a key opens its box. */ onOpenBox?(): void; /** The Desk's Details sheet (packet R): Adjust the next step and How this works are drawn there instead. */ extrasTo?: HTMLElement | null; evidence?: EvidenceView | null; keysOff?: boolean }) {
+export function GateSlot({ job, detail, now, reload, callsOutside = false, extrasTo = null, onOpenBox, onWrite, evidence, keysOff = false }: { job: Job; detail: JobDetail; now: Date; reload(): void; callsOutside?: boolean; /** The page opens a folded card before a key opens its box. */ onOpenBox?(): void; onWrite?(): void; /** The Desk's Details sheet (packet R): Adjust the next step and How this works are drawn there instead. */ extrasTo?: HTMLElement | null; evidence?: EvidenceView | null; keysOff?: boolean }) {
   const { runs } = useWorkshopState();
   const [notice, setNotice] = useState<GateNotice | null>(null);
   const [memoRaw, setMemo] = useStored(gateDraftKey(job.slug));
@@ -162,7 +159,8 @@ export function GateSlot({ job, detail, now, reload, callsOutside = false, extra
 
   useEffect(() => {
     if (!notice) return;
-    if (notice.focus === 'composer') focusComposer();
+    // Once per notice: a new onWrite is not a new hand to the box.
+    if (notice.focus === 'composer') (onWrite ?? (() => focusMessageBox()))();
     else noticeEl.current?.focus();
   }, [notice]);
 

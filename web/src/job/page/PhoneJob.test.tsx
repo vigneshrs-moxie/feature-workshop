@@ -526,6 +526,28 @@ describe('the phone’s bar when no gate waits', () => {
     await waitFor(() => expect(box()).toHaveFocus());
   });
 
+  // Final review A1: the card's hand to the message box lands in a box he can see.
+  it.each([['the laptop app', false], ['the website', true]] as const)('a decision handed to the message box opens the conversation screen (%s)', async (_where, hosted) => {
+    const post = vi.fn(async (p: string): Promise<unknown> => (p === '/api/job/alpha/gate' ? { ok: true, sent: false, text: 'Go ahead with the plan.' } : { ok: true }));
+    setup({ jobs: [AUTO_OFF[1]], gate: { ...GATE, runActive: true }, hosted, post });
+    fireEvent.click(await screen.findByRole('button', { name: /^Go: approve/ }));
+    await waitFor(() => expect(window.location.hash).toBe('#/job/alpha/conversation'));
+    await waitFor(() => expect(box()).toHaveFocus());
+    expect(box()).toHaveValue('Go ahead with the plan.');
+  });
+
+  it.each([['the laptop app', false], ['the website', true]] as const)('the c key opens the conversation screen with the box focused (%s)', async (_where, hosted) => {
+    setup({ jobs: [ASKED], hosted });
+    await within(bar()).findByText('The Foreman asked you something');
+    fireEvent.keyDown(document.body, { key: 'c' });
+    expect(window.location.hash).toBe('#/job/alpha/conversation');
+    await waitFor(() => expect(box()).toHaveFocus());
+    // On the conversation screen the c key puts the cursor back in the box.
+    box().blur();
+    fireEvent.keyDown(document.body, { key: 'c' });
+    await waitFor(() => expect(box()).toHaveFocus());
+  });
+
   it('a permission waiting on the phone takes the bar’s place, and once it is answered the three calls are back', async () => {
     const ask: Permission = { ...permission('p1', 'alpha'), createdAt: '2026-10-21T10:00:00Z', input: { command: 'npm test' } };
     const jobs = [AUTO_OFF[1]];
