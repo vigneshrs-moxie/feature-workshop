@@ -1,4 +1,6 @@
 // Nothing jumps when something folds, hides or opens (packet R, rule 2), checked in a real browser.
+// A landmark's place is taken inside the scroll area it scrolls with (the job page's work column and
+// conversation scroll by themselves), so a scroll is never a move but a move inside it still is.
 //
 // On Jobs, three job pages (customer-merge, bulk-archive, and nightly-export at its Test step), the
 // Desk, Telemetry and Settings → Look it presses every fold, hide and open control on the page (a
@@ -47,6 +49,19 @@ const PICK_STAYS = [
 ];
 const STEP_TABS = '.sb-steps [role="tab"]';
 
+/**
+ * True once the page has nothing left saying it is loading (a status line starting "Loading" or
+ * "Reading": the job's overview, who worked on the open step, its commits). Moving between job
+ * pages only changes the address's hash, so there is no network idle to wait for, and a busy
+ * server answers after any fixed wait: without this a page was checked half-loaded (no overview
+ * fold yet) and its checks were silently fewer.
+ */
+async function settled(page, ms = 10_000) {
+  return page.waitForFunction(() => ![...document.querySelectorAll('main [role="status"]')]
+    .some((e) => e.checkVisibility() && /^(Loading|Reading)\b/.test((e.textContent || '').trim())), null, { timeout: ms })
+    .then(() => true, () => false);
+}
+
 const browser = await chromium.launch();
 
 async function runAt(WIDTH) {
@@ -59,10 +74,31 @@ async function runAt(WIDTH) {
       localStorage.setItem('gc.guide.seen', JSON.stringify(['jobs', 'desk', 'stage', 'job', 'job-page-2', 'inbox', 'telemetry', 'stack', 'stacks', 'review', 'review-round']));
     } catch { /* storage off */ }
   }, THEME);
+  // A landmark's place, measured so that a scroll is never a move: inside the scroll area it scrolls
+  // with (the job page's work column, the conversation's list), its place in that area's content;
+  // outside any, from the page's own top-left (.page-inner on the older pages, else the body).
+  await page.addInitScript(() => {
+    window.__spot = (el) => {
+      let c = el.parentElement;
+      while (c && c !== document.body && c !== document.documentElement) {
+        const s = getComputedStyle(c);
+        if (/(auto|scroll)/.test(`${s.overflowY} ${s.overflowX}`)) break;
+        c = c.parentElement;
+      }
+      const b = el.getBoundingClientRect();
+      if (!c || c === document.body || c === document.documentElement) {
+        const o = (document.querySelector('.page-inner') ?? document.body).getBoundingClientRect();
+        return { x: b.left - o.left, y: b.top - o.top };
+      }
+      const cr = c.getBoundingClientRect();
+      return { x: b.left - cr.left + c.scrollLeft, y: b.top - cr.top + c.scrollTop };
+    };
+  });
 
   for (const [name, hash] of SCREENS) {
     await page.goto(BASE + hash, { waitUntil: 'networkidle' });
     await page.waitForTimeout(800);
+    if (!(await settled(page))) problems.push(`${name}: still loading after 10 s`);
     const count = await page.locator(TOGGLES).count();
     for (let i = 0; i < Math.min(count, 40); i++) {
       const toggle = page.locator(TOGGLES).nth(i);
@@ -74,7 +110,8 @@ async function runAt(WIDTH) {
           const ib = (t.parentElement?.closest(ITEM) ?? t).getBoundingClientRect();
           const item = { left: ib.left - o0.left, right: ib.right - o0.left, top: ib.top - o0.top };
           const own = t.parentElement?.closest(ITEM);
-          // Places are measured from the page's own top-left, so scrolling never counts as moving.
+          // Which landmarks must stay: judged on screen, as he sees them now. Where each is: __spot, so
+          // a scroll (Playwright's own, to reach the control, or a clamp after a fold) never counts.
           const o = (document.querySelector('.page-inner') ?? document.body).getBoundingClientRect();
           return [...(document.querySelector(".page-inner") ?? document).querySelectorAll(LANDMARKS)].map((el, n) => {
             const b = el.getBoundingClientRect();
@@ -82,18 +119,13 @@ async function runAt(WIDTH) {
             const above = r.bottom <= item.top + 0.5;
             const aside = r.right <= item.left + 0.5 || r.left >= item.right - 0.5;
             const inside = own ? own.contains(el) || el.contains(own) : false;
-            return { n, x: r.left, y: r.top, keep: (above || aside) && !inside && r.width > 0, what: `${el.className || el.tagName}`.toString().slice(0, 60) };
+            const at = window.__spot(el);
+            return { n, x: at.x, y: at.y, keep: (above || aside) && !inside && r.width > 0, what: `${el.className || el.tagName}`.toString().slice(0, 60) };
           });
         }, [ITEM, LANDMARKS]);
         await toggle.click({ trial: false }).catch(() => {});
         await page.waitForTimeout(260);
-        const after = await page.evaluate((LANDMARKS) => {
-          const o = (document.querySelector('.page-inner') ?? document.body).getBoundingClientRect();
-          return [...(document.querySelector(".page-inner") ?? document).querySelectorAll(LANDMARKS)].map((el) => {
-            const r = el.getBoundingClientRect();
-            return { x: r.left - o.left, y: r.top - o.top };
-          });
-        }, LANDMARKS);
+        const after = await page.evaluate((LANDMARKS) => [...(document.querySelector('.page-inner') ?? document).querySelectorAll(LANDMARKS)].map((el) => window.__spot(el)), LANDMARKS);
         if (after.length === before.length) {
           for (const b of before) {
             const a = after[b.n];
@@ -121,14 +153,20 @@ async function runAt(WIDTH) {
       }, PICK_STAYS);
       /** Which step is open now: its place in the row. */
       const openAt = async () => (await tabs.evaluateAll((ts) => ts.map((t) => t.getAttribute('aria-selected') === 'true'))).indexOf(true);
+      // From the top of the work column (the loop above may have left it scrolled). The page never
+      // scrolls on a pick; each tab is brought into view before its place is taken, so the click
+      // itself scrolls nothing, and what is measured is what he sees on screen.
+      await page.evaluate(() => { const w = document.querySelector('.sb-job-work'); if (w) w.scrollTop = 0; });
       for (let i = 0; i < steps; i++) {
         const was = await openAt();
         if (i === was) continue;
         for (const [round, at] of [['pick', i], ['pick back', was]]) {
           if (at < 0) continue;
+          await tabs.nth(at).scrollIntoViewIfNeeded().catch(() => {});
           const before = await places();
           await tabs.nth(at).click().catch(() => {});
           await page.waitForTimeout(400);
+          await settled(page); // the new step's view is in: "after" is the layout he ends up with
           const after = await places();
           for (const b of before) {
             const a = after.find((p) => p.what === b.what);

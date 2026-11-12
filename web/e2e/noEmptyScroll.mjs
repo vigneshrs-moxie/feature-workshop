@@ -17,7 +17,8 @@
 //      or more (only while it is shown: under 1100 px it is behind the Conversation button, and the
 //      phone layout, 760 px and under, has its own conversation screen);
 //   5. the screen is not there: the address could not be opened, or the page has no main, or its
-//      main has no text (a blank page or a crashed route never passes).
+//      main has no text (a blank page or a crashed route never passes), or it still says it is
+//      loading 10 s after it opened (each screen is checked only once it has finished loading).
 // The check only reads: it refuses every request that is not a GET.
 //
 // Run it against a running app (the demo is best):
@@ -47,7 +48,9 @@ const HEIGHT = 820;
 const THEME = ({ dark: 'default' })[process.env.THEME || 'light'] ?? (process.env.THEME || 'light');
 // Every fold: a "Details" or "More" row, a <summary> (the job page's overview is one), and on the
 // Test step the evidence fold, Try it and Watch (each opens something in the page).
-const FOLDS = 'main .more-head, main details > summary, main .sb-test-link[aria-expanded], main .sb-test-action > button';
+// (Only Try it, which has aria-expanded, and Watch / Stop watching in the Test step's actions: never
+// Record again, which would start a recording.)
+const FOLDS = 'main .more-head, main details > summary, main .sb-test-link[aria-expanded], main .sb-test-action > button[aria-expanded], main .sb-test-action > button:has-text("Watch")';
 /** A fold is open: a <summary>'s details is, an aria-expanded control says so, Watch reads Stop watching. */
 const isOpen = (el) => (el.tagName === 'SUMMARY' ? el.parentElement.open
   : el.hasAttribute('aria-expanded') ? el.getAttribute('aria-expanded') === 'true'
@@ -185,7 +188,7 @@ function check() {
   // Only text counts: a key hint, a tooltip or a menu placed on a box's corner on purpose is
   // positioned absolutely, so text inside such a piece is left out; so is anything inside a box
   // that scrolls sideways or ends in an ellipsis.
-  const CARD = '[class*="card"], .more, .job-side-card, .job-convo, .job-details, .desk-console, .sb-job-top, .fold, .sb-panel, .sb-convo';
+  const CARD = '[class*="card"], .more, .job-side-card, .job-convo, .job-details, .desk-console, .sb-job-top, .sb-job-page .fold, .sb-phone .fold, .sb-panel, .sb-convo';
   const placed = (t, box) => {
     for (let p = t.parentElement; p && p !== box; p = p.parentElement) {
       const s = getComputedStyle(p);
@@ -223,6 +226,19 @@ function check() {
   return out;
 }
 
+/**
+ * True once the page has nothing left saying it is loading (a status line starting "Loading" or
+ * "Reading": the job's overview, who worked on the open step, its commits). Moving between job
+ * pages only changes the address's hash, so there is no network idle to wait for, and a busy
+ * server answers after any fixed wait: without this a page was checked half-loaded (no overview
+ * fold yet) and its checks were silently fewer.
+ */
+async function settled(page, ms = 10_000) {
+  return page.waitForFunction(() => ![...document.querySelectorAll('main [role="status"]')]
+    .some((e) => e.checkVisibility() && /^(Loading|Reading)\b/.test((e.textContent || '').trim())), null, { timeout: ms })
+    .then(() => true, () => false);
+}
+
 const browser = await chromium.launch();
 
 async function runAt(WIDTH) {
@@ -256,6 +272,7 @@ async function runAt(WIDTH) {
     const opened = await page.goto(BASE + hash, { waitUntil: 'networkidle' }).then((r) => (r && !r.ok() ? `the address answered ${r.status()}` : null), (err) => `the address could not be opened (${String(err.message).split('\n')[0]})`);
     if (opened) { checks += 1; problems.push(`${screen}: ${opened}`); continue; }
     await page.waitForTimeout(700);
+    if (!(await settled(page))) { checks += 1; problems.push(`${screen}: still loading after 10 s`); }
     // 5. The screen must be there: a main with text in it.
     const main = await page.evaluate(() => { const m = document.querySelector('main'); return m ? (m.innerText || '').trim().length : -1; });
     if (main <= 0) { checks += 1; problems.push(`${screen}: ${main < 0 ? 'the page has no main' : 'the page\'s main has no text'}`); continue; }
