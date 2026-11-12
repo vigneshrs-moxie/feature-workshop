@@ -399,6 +399,56 @@ describe('StepPanel', () => {
     expect(screen.queryByText('Writing step 3 of 6')).toBeNull();
   });
 
+  it('while a picked step loads the panel keeps its last height as a minimum, and drops it when the step shows', () => {
+    // jsdom lays nothing out: the panel's measured height is a stub (640 px), the rest measure 0.
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      return { height: this.classList.contains('sb-panel') ? 640 : 0, width: 0, top: 0, left: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON() {} } as DOMRect;
+    });
+    try {
+      const planView: StageView = { ...BUILD, stop: 'plan', label: 'Plan', agents: [], finished: [], docs: [] };
+      for (const hosted of [false, true]) {
+        const { wrap } = stores(BUILDING, { hosted });
+        const panelOf = (stop: StopId, view: StageView | null, error: string | null = null) => wrap(
+          <StepPanel job={BUILDING} stop={stop} view={view} error={error} onRetry={() => {}} now={NOW}>{view && <p>The step’s own body</p>}</StepPanel>,
+        );
+        const view = render(panelOf('build', BUILD));
+        const panel = () => document.querySelector<HTMLElement>('.sb-panel')!;
+        // The first draw holds nothing.
+        expect(panel().style.minHeight).toBe('');
+        // Another step picked: while its view loads the panel keeps the height it had.
+        view.rerender(panelOf('plan', null));
+        expect(within(panel()).getByText('Loading who worked on it…')).toBeInTheDocument();
+        expect(panel().style.minHeight).toBe('640px');
+        // The step shows: the minimum goes.
+        view.rerender(panelOf('plan', planView));
+        expect(panel().style.minHeight).toBe('');
+        // A pick whose load fails: the error shows and the minimum goes.
+        view.rerender(panelOf('build', null));
+        expect(panel().style.minHeight).toBe('640px');
+        view.rerender(panelOf('build', null, 'Starbase isn’t answering'));
+        expect(within(panel()).getByRole('alert')).toBeInTheDocument();
+        expect(panel().style.minHeight).toBe('');
+        // Try again loads the same step again: no pick, so nothing is held.
+        view.rerender(panelOf('build', null));
+        expect(panel().style.minHeight).toBe('');
+        // A step whose view is in at the pick (seen before) holds nothing.
+        view.rerender(panelOf('plan', planView));
+        expect(panel().style.minHeight).toBe('');
+        cleanup();
+      }
+
+      // The phone's step screen is its own screen: nothing is held there.
+      vi.stubGlobal('matchMedia', (q: string) => ({ matches: q.includes('760'), addEventListener() {}, removeEventListener() {} }));
+      const { wrap } = stores(BUILDING);
+      const view = render(wrap(<StepPanel job={BUILDING} stop="build" view={BUILD} error={null} onRetry={() => {}} now={NOW} />));
+      view.rerender(wrap(<StepPanel job={BUILDING} stop="plan" view={null} error={null} onRetry={() => {}} now={NOW} />));
+      expect(document.querySelector<HTMLElement>('.sb-panel')!.style.minHeight).toBe('');
+    } finally {
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('a step not reached says so', () => {
     const notYet = (stop: StopId, label: string) => ({ ...BUILD, stop, label, state: 'next' as const, stateWords: 'Not yet', since: null, agents: [], finished: [], docs: [] });
     show(notYet('test', 'Test'));

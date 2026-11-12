@@ -6,7 +6,7 @@
 // panel is whole. On the website there is no terminal: one sentence says where the buttons are.
 // In Play full the bay at this step, in 3D (StageStrip), sits above who worked on it on a laptop, as
 // it did on the step page; the phone's step screen has none.
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import type { FeedLine, Job, JobDocEntry, StageAgent, StageView, StopId } from '../../api/types';
 import { BRAND } from '../../app/brand';
 import { Button } from '../../components/Button';
@@ -109,8 +109,10 @@ export function StepPanel({ job, stop, view, error, onRetry, now, extraAgents, s
   useEffect(() => { if (docRequest) handled.current = docRequest.n; }, [docRequest]);
   const notYet = !reached && <p className="muted sb-not-yet">{NOT_YET[stop] ?? 'Not yet.'}</p>;
   const who = <Who key={stop} job={job} stop={stop} view={view} error={error} onRetry={onRetry} now={now} rows={rows} reached={reached} notYet={bodyFirst ? null : notYet} />;
+  const box = useRef<HTMLElement>(null);
+  const minHeight = useHeldHeight(box, stop, view === null && error === null, !narrow);
   return (
-    <section className="sb-panel" id={STEP_PANEL_ID} role="tabpanel" aria-labelledby={title}>
+    <section className="sb-panel" id={STEP_PANEL_ID} role="tabpanel" aria-labelledby={title} ref={box} style={minHeight ? { minHeight } : undefined}>
       <header className="sb-panel-head">
         <span className="sb-panel-icon" aria-hidden="true"><Icon name={here.icon} size={24} /></span>
         <h2 className="sb-panel-name" id={title}>{here.label}</h2>
@@ -131,6 +133,31 @@ export function StepPanel({ job, stop, view, error, onRetry, now, extraAgents, s
       </section>
     </section>
   );
+}
+
+/**
+ * A pick never makes the laptop's work column shorter while the picked step loads: the panel keeps
+ * the height it had just before the pick as its minimum, until the step's view (or its error)
+ * shows. Without it the panel shrinks to its loading line and the browser pulls the column's
+ * scroll back, so the steps row and the bar drop. A pick (another stop) whose view is not in yet
+ * measures the panel as it still stands on the page (the draw for the pick is not on the page yet)
+ * and holds that. Nothing is held on the first draw, on a load of the same step (Try again), or
+ * when `on` is false (the phone's step screen is its own screen).
+ */
+function useHeldHeight(box: RefObject<HTMLElement | null>, stop: StopId, loading: boolean, on: boolean): number | null {
+  const [held, setHeld] = useState<{ stop: StopId; px: number } | null>(null);
+  const [seenStop, setSeenStop] = useState(stop);
+  let hold = held;
+  if (seenStop !== stop) {
+    setSeenStop(stop);
+    const px = on && loading ? box.current?.getBoundingClientRect().height ?? 0 : 0;
+    hold = px > 0 ? { stop, px } : null;
+    setHeld(hold);
+  } else if (hold && !loading) {
+    hold = null;
+    setHeld(null);
+  }
+  return hold && on ? hold.px : null;
 }
 
 function Who({ job, stop, view, error, onRetry, now, rows, reached, notYet }: { job: Job; stop: StopId; view: StageView | null; error: string | null; onRetry(): void; now: Date; rows: StageAgent[]; reached: boolean; /** The not-yet line, when it sits in the list's place (else drawn above the body). */ notYet: ReactNode }) {
