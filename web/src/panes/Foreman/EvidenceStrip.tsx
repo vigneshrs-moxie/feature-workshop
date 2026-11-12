@@ -6,12 +6,17 @@
 // Record (again) asks the dashboard to record for the commit the test report names now.
 //
 // Everything here is a button or a link, so it is reached with Tab; it has no keys of its own.
+//
+// Folded (the gate card, design 3.3): one line until it is opened, "Evidence: 17 passed, 2 failed"
+// with when and for which commit it was recorded, "Evidence: recording, line 4 of 19" while it
+// records, "Evidence: not recorded yet" with none; Show opens the rows, Copy link and Record again.
 import { useEffect, useId, useState } from 'react';
 import { ApiError } from '../../api/client';
 import type { EvidenceCriterion, EvidenceRecordResult, EvidenceView } from '../../api/types';
 import { useWorkshop } from '../../state/store';
 import { BRAND } from '../../app/brand';
 import { Button } from '../../components/Button';
+import { agoWords } from '../../views/Review/GithubLine';
 
 /** The gates that show the strip: the test gate and every one after it. */
 export const EVIDENCE_STAGES = ['test', 'review', 'pr1', 'pr2', 'staging-qa', 'pr3'];
@@ -94,13 +99,25 @@ function Row({ slug, c }: { slug: string; c: EvidenceCriterion }) {
   );
 }
 
+/** The folded strip's one line: the counts, recording by line, or not recorded yet. */
+export function foldLine(view: Pick<EvidenceView, 'evidence' | 'recording' | 'progress'>): string {
+  if (view.recording) return view.progress && view.progress.line >= 1 ? `Evidence: recording, line ${view.progress.line} of ${view.progress.of}` : 'Evidence: recording';
+  const ev = view.evidence;
+  if (!ev) return 'Evidence: not recorded yet';
+  const n = (s: EvidenceCriterion['status']) => ev.criteria.filter((c) => c.status === s).length;
+  const skipped = n('skipped');
+  return `Evidence: ${n('passed')} passed, ${n('failed')} failed${skipped > 0 ? `, ${skipped} not recorded` : ''}`;
+}
+
 /**
  * The strip. tested: the commit the checks ran on (the gate's proof stamp), else the one the test
  * report names; refresh: anything that changes when the job is fetched again (it reads again then).
+ * fold: one line until it is opened (the gate card).
  */
-export function EvidenceStrip({ slug, tested = null, refresh = null }: { slug: string; tested?: string | null; refresh?: unknown }) {
+export function EvidenceStrip({ slug, tested = null, refresh = null, fold = false }: { slug: string; tested?: string | null; refresh?: unknown; fold?: boolean }) {
   const { api } = useWorkshop();
   const headId = useId();
+  const [open, setOpen] = useState(false);
   const [view, setView] = useState<EvidenceView | null>(null);
   const [note, setNote] = useState<{ tone: 'ok' | 'problem'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -160,43 +177,59 @@ export function EvidenceStrip({ slug, tested = null, refresh = null }: { slug: s
   const counts = ev ? (['passed', 'failed', 'skipped'] as const).map((s) => [s, ev.criteria.filter((c) => c.status === s).length] as const) : [];
   const summary = counts.filter(([, n]) => n > 0).map(([s, n]) => `${n} ${s === 'passed' ? 'passed' : s === 'failed' ? 'failed' : 'not recorded'}`).join(', ');
 
+  // Folded: the line, then the rest once opened.
+  const recordedWhen = ev && !view.recording ? agoWords(ev.at, Date.now()) : null;
+  const head = fold ? (
+    <p className="gate-evidence-head gate-evidence-fold">
+      <span id={headId}>{foldLine(view)}</span>
+      {ev && !view.recording && <span className="muted gate-evidence-when"> · recorded {recordedWhen ? `${recordedWhen} ` : ''}for commit <code className="num">{short(ev.commit)}</code></span>}{' '}
+      <button type="button" className="link-button gate-fold-word" aria-expanded={open} aria-controls={`${headId}-body`} onClick={() => setOpen(!open)} title={open ? 'Fold the evidence back to this line.' : 'Show each acceptance line, Copy link and Record again.'}>
+        {open ? 'Hide' : 'Show'}
+      </button>
+    </p>
+  ) : (
+    <h4 className="gate-evidence-head" id={headId}>
+      Evidence{ev ? <> at <code className="num">{short(ev.commit)}</code></> : ''}
+      {summary && <span className="muted gate-evidence-count"> · {summary}</span>}
+    </h4>
+  );
+
   return (
-    <section className="gate-evidence" aria-labelledby={headId} aria-busy={view.recording || busy}>
-      <h4 className="gate-evidence-head" id={headId}>
-        Evidence{ev ? <> at <code className="num">{short(ev.commit)}</code></> : ''}
-        {summary && <span className="muted gate-evidence-count"> · {summary}</span>}
-      </h4>
-      {earlier && ev && (
-        <p className="perm-warn gate-evidence-earlier" title={`These pictures were recorded at ${short(ev.commit)}; the checks ran on ${short(against)}.`}>
-          <span aria-hidden="true">⚠ </span>From an earlier commit ({short(ev.commit)})
-        </p>
-      )}
-      {view.recording && <p className="muted gate-evidence-recording" role="status">Recording the evidence now: the app runs on its own port and each acceptance line is played in a browser. This takes a minute or two.</p>}
-      {!view.recording && view.problem && (
-        <p className="perm-warn gate-evidence-problem" role="status">
-          {view.problem.message}
-          {view.problem.fix && <> <code>{view.problem.fix}</code></>}
-        </p>
-      )}
-      {!ev && !view.recording && !view.problem && (
-        <p className="muted gate-evidence-none">Not recorded yet. {BRAND.name} records it once the tester’s report names the commit it tested.</p>
-      )}
-      {ev && ev.criteria.length > 0 && (
-        <ul className="evidence-list" aria-label="Each acceptance line">
-          {ev.criteria.map((c) => <Row key={c.id} slug={slug} c={c} />)}
-        </ul>
-      )}
-      <p className="gate-evidence-actions">
-        {ev && (
-          <button type="button" className="link-button" onClick={copyLink} title="Copy the evidence folder’s address, to paste on the ticket.">Copy link</button>
+    <section className={`gate-evidence${fold ? ' is-fold' : ''}`} aria-labelledby={headId} aria-busy={view.recording || busy}>
+      {head}
+      <div className="gate-evidence-body" id={`${headId}-body`} hidden={fold && !open}>
+        {earlier && ev && (
+          <p className="perm-warn gate-evidence-earlier" title={`These pictures were recorded at ${short(ev.commit)}; the checks ran on ${short(against)}.`}>
+            <span aria-hidden="true">⚠ </span>From an earlier commit ({short(ev.commit)})
+          </p>
         )}
-        {canRecord && (
-          <Button kind="quiet" size="sm" busy={busy} busyLabel="Recording…" onClick={() => void record()} title="Record the evidence for the commit the test report names now: starts this job’s app, plays each acceptance line in a browser and keeps the pictures and video.">
-            {ev || view.problem ? 'Record again' : 'Record'}
-          </Button>
+        {view.recording && <p className="muted gate-evidence-recording" role="status">Recording the evidence now: the app runs on its own port and each acceptance line is played in a browser. This takes a minute or two.</p>}
+        {!view.recording && view.problem && (
+          <p className="perm-warn gate-evidence-problem" role="status">
+            {view.problem.message}
+            {view.problem.fix && <> <code>{view.problem.fix}</code></>}
+          </p>
         )}
-      </p>
-      {note && <p className={note.tone === 'ok' ? 'muted gate-evidence-note' : 'perm-warn gate-evidence-note'} role="status">{note.text}</p>}
+        {!ev && !view.recording && !view.problem && (
+          <p className="muted gate-evidence-none">Not recorded yet. {BRAND.name} records it once the tester’s report names the commit it tested.</p>
+        )}
+        {ev && ev.criteria.length > 0 && (
+          <ul className="evidence-list" aria-label="Each acceptance line">
+            {ev.criteria.map((c) => <Row key={c.id} slug={slug} c={c} />)}
+          </ul>
+        )}
+        <p className="gate-evidence-actions">
+          {ev && (
+            <button type="button" className="link-button" onClick={copyLink} title="Copy the evidence folder’s address, to paste on the ticket.">Copy link</button>
+          )}
+          {canRecord && (
+            <Button kind="quiet" size="sm" busy={busy} busyLabel="Recording…" onClick={() => void record()} title="Record the evidence for the commit the test report names now: starts this job’s app, plays each acceptance line in a browser and keeps the pictures and video.">
+              {ev || view.problem ? 'Record again' : 'Record'}
+            </Button>
+          )}
+        </p>
+        {note && <p className={note.tone === 'ok' ? 'muted gate-evidence-note' : 'perm-warn gate-evidence-note'} role="status">{note.text}</p>}
+      </div>
     </section>
   );
 }

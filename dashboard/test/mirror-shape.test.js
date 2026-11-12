@@ -190,3 +190,20 @@ test('the feed and the command go up once: the cost part has none of them', () =
   assert.equal('lastCommand' in cost, false);
   assert.equal(cost.doing, 'Run the checks', 'the rest of the entry still goes up');
 });
+
+test('the website’s Auto list keeps the start time, the ticket and each entry’s kind and step', async () => {
+  const { autoLogRecord: autoListOf } = await import('../lib/auto-log.js');
+  const lines = [
+    { at: '2026-11-11T08:00:00.000Z', action: 'auto', what: 'on', by: 'tag' },
+    { at: '2026-11-11T08:05:00.000Z', action: 'auto', what: 'gate', stage: 'plan', asked: 'Brief 1: go ahead?', chose: 'Approved', why: 'It matches the ticket.' },
+    { at: '2026-11-11T08:09:00.000Z', action: 'auto', what: 'stop', stage: 'implement', rule: 'database', reason: 'A migration needs you.' },
+  ];
+  const sent = autoLogRecord(autoListOf(lines, { title: 'T', record: { on: true, by: 'tag', tag: 'auto-ok' }, ticket: 'ORBIT-479' }));
+  assert.equal(sent.startedAt, '2026-11-11T08:00:00.000Z');
+  assert.equal(sent.ticket, 'ORBIT-479');
+  assert.deepEqual(sent.entries.map((e) => [e.kind, e.stop, e.chose]), [['stop', 'build', 'A migration needs you.'], ['approve', 'plan', 'Approved']]);
+  assert.equal(makeEvent('record', { kind: 'auto-log', key: 'x', value: sent }).ok, true);
+  // A list from an older laptop, with none of them, goes as it is.
+  const old = { on: true, stopped: null, tag: null, summary: ['a', 'b', 'c'], entries: [{ at: 'x', stage: 'Plan', chose: 'c', asked: 'a', why: 'w' }] };
+  assert.deepEqual(autoLogRecord(old), old);
+});

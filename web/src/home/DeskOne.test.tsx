@@ -115,7 +115,7 @@ describe('the Desk card after a send', () => {
     const card = screen.getByRole('region', { name: /^Job alpha:/ });
     fireEvent.click(await within(card).findByRole('button', { name: /^No go/ }));
     fireEvent.change(await screen.findByRole('textbox', { name: /What should change\?/ }), { target: { value: 'Smaller.' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Send the changes' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Send back' }));
     expect(await within(card).findByText('Sent. Waiting for the Foreman to start.')).toBeInTheDocument();
     expect(card).toHaveTextContent('Sent back: the Foreman stays at Plan and revises. Nothing is approved.');
   });

@@ -226,7 +226,7 @@ describe('the go / no go bar', () => {
     fireEvent.click(screen.getByRole('button', { name: /^No go: send back/ }));
     fireEvent.change(await screen.findByRole('textbox', { name: /What should change\?/ }), { target: { value: 'Use the small table.' } });
     await waitFor(() => expect(go).toBeDisabled());
-    expect(go).toHaveAttribute('title', 'You wrote what should change. Send the changes or cancel them first.');
+    expect(go).toHaveAttribute('title', 'You wrote what should change. Send it back or cancel it first.');
     fireEvent.click(go);
     fireEvent.keyDown(document.body, { key: 'a' });
     await act(async () => {});
@@ -292,11 +292,11 @@ describe('after a click on the go / no go bar', () => {
   const bar = () => screen.getByRole('region', { name: 'Next step' });
   /** The page's one live region for a decision on its way (always there, empty when idle). */
   const live = () => document.querySelector('[data-next-live]')!;
-  /** No go: send back, a note, then the card's Send the changes. */
+  /** No go: send back, a note, then the card's Send back. */
   async function sendBack(note = 'Use the small table.') {
     fireEvent.click(await screen.findByRole('button', { name: /^No go: send back/ }));
     fireEvent.change(await screen.findByRole('textbox', { name: /What should change\?/ }), { target: { value: note } });
-    return screen.getByRole('button', { name: 'Send the changes' });
+    return screen.getByRole('button', { name: 'Send back' });
   }
 
   afterEach(() => { vi.useRealTimers(); });

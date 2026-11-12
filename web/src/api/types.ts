@@ -61,6 +61,10 @@ export interface AutoDecision {
   why: string;
   risk?: string;
   answers?: { question: string; choice: string; reason: string }[];
+  /** What it was: a go-ahead, an answer, a permission allowed (or refused), or Auto stopping; missing from dashboards from before. */
+  kind?: 'approve' | 'answer' | 'allow' | 'stop';
+  /** The step it was on (null: not known); missing from dashboards from before. */
+  stop?: StopId | null;
 }
 export interface AutoDecided {
   on: boolean;
@@ -68,6 +72,10 @@ export interface AutoDecided {
   tag: string | null;
   summary: [string, string, string];
   entries: AutoDecision[];
+  /** When a tag started Auto on the job (null: you started it); missing from dashboards from before. */
+  startedAt?: string | null;
+  /** The job's ticket key (null: none); missing from dashboards from before. */
+  ticket?: string | null;
 }
 
 export interface Job {
@@ -1016,7 +1024,8 @@ export type ThreadItem = BriefItem | YouItem | ReplyItem | AutoItem | ProblemIte
 export interface JobDetail {
   slug: string;
   /** Auto mode's card, with the Orbit tag that started the job when Auto start did (else null). */
-  auto?: { on: boolean; tag?: string | null } & Record<string, unknown>;
+  /** decided: what Auto decided on the job, in Copy decisions' words, oldest first (only on a job Auto ran on; missing from dashboards from before). */
+  auto?: { on: boolean; tag?: string | null; decided?: string[] } & Record<string, unknown>;
   title?: string;
   kind?: string;
   branch?: string | null;

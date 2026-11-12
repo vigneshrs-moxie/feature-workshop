@@ -3628,3 +3628,35 @@ test('the board says a step he wrote to is his before Auto\'s next pass', { time
     assert.deepEqual({ lane: after.lane, laneReason: after.laneReason }, { lane: 'needs-you', laneReason: `Auto stopped: ${YOURS}` });
   } finally { release(); await w.stop(); }
 });
+
+// Task 8: the gate card lists what Auto decided on the job, in the words Copy decisions marks (Auto).
+const autoCopyLines = (orbit) => orbit.text.split('\n').filter((l) => / \(Auto\)$/.test(l)).map((l) => l.replace(/^\d+\.\s/, '').replace(/ \(Auto\)$/, ''));
+
+test('the job answer lists what Auto decided, in the Copy decisions words', { timeout: 30_000 }, async () => {
+  const w = await world();
+  try {
+    await w.pass();
+    await w.until(async () => (await w.sends()).length === 1, 'Auto’s approval');
+    const detail = await w.runner.read.job(w.slug);
+    assert.deepEqual(detail.auto.decided, ['Question 1? Yes', 'Question 2? Yes']);
+    const { orbit } = await w.runner.read.decisionsFile(w.slug);
+    assert.deepEqual(detail.auto.decided, autoCopyLines(orbit), 'the same lines Copy decisions marks (Auto)');
+  } finally { await w.stop(); }
+});
+
+test('Auto’s routine go-aheads are not in that list', { timeout: 30_000 }, async () => {
+  const w = await world({ jobStatus: status(1, { questions: [] }) });
+  try {
+    await w.pass();
+    await w.until(async () => (await w.sends()).length === 1, 'Auto’s go-ahead');
+    const detail = await w.runner.read.job(w.slug);
+    assert.deepEqual(detail.auto.decided, []);
+    const { orbit } = await w.runner.read.decisionsFile(w.slug);
+    assert.deepEqual(autoCopyLines(orbit), []);
+  } finally { await w.stop(); }
+  // A job Auto never ran on has no list.
+  const mine = await world({ auto: null });
+  try {
+    assert.equal((await mine.runner.read.job(mine.slug)).auto?.decided, undefined);
+  } finally { await mine.stop(); }
+});

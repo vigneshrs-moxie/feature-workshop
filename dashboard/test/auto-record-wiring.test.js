@@ -38,7 +38,7 @@ async function boot() {
   return { root, dirs, dirOf, runner };
 }
 
-test('GET /api/job/:slug/auto answers the five fields, and 404 for an unknown job', async () => {
+test('GET /api/job/:slug/auto answers its fields (the five, and the start time and ticket once Auto ran), and 404 for an unknown job', async () => {
   const { root, runner } = await boot();
   try {
     const needJob = async (slug) => { if (!(await runner.read.features()).features.some((f) => f.slug === slug)) throw new HttpError(404, 'No such job.'); return slug; };
@@ -53,7 +53,8 @@ test('GET /api/job/:slug/auto answers the five fields, and 404 for an unknown jo
     };
     const ran = await get('ran-job');
     assert.equal(ran.status, 200);
-    assert.deepEqual(Object.keys(ran.body).sort(), ['entries', 'on', 'stopped', 'summary', 'tag']);
+    // Task 8 adds when a tag started it and the ticket (both null here).
+    assert.deepEqual(Object.keys(ran.body).sort(), ['entries', 'on', 'startedAt', 'stopped', 'summary', 'tag', 'ticket']);
     assert.equal(ran.body.on, true);
     assert.equal(ran.body.entries.length, 1);
     assert.equal(ran.body.entries[0].chose, 'Approved');

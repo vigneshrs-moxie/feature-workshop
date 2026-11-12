@@ -239,7 +239,7 @@ describe('the bar on an Auto job (the owner’s requirement)', () => {
     await waitFor(() => expect(back).toBeEnabled());
     fireEvent.click(back);
     fireEvent.change(await screen.findByRole('textbox', { name: /What should change\?/ }), { target: { value: 'Keep the old column.' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Send the changes' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Send back' }));
     await waitFor(() => expect(post).toHaveBeenCalledWith('/api/job/alpha/gate', expect.objectContaining({ kind: 'changes', note: 'Keep the old column.' })));
     expect(post.mock.calls.filter(([, b]) => (b as { kind?: string })?.kind === 'approve')).toHaveLength(0);
   });
@@ -351,7 +351,7 @@ describe('what the bar says after a send', () => {
     await waitFor(() => expect(back).toBeEnabled());
     fireEvent.click(back);
     fireEvent.change(await screen.findByRole('textbox', { name: /What should change\?/ }), { target: { value: 'Record line 4 again.' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Send the changes' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Send back' }));
     await within(bar()).findByText(SENT_WORDS);
     expect(bar().querySelector('.next-sub')).toHaveTextContent(/^Sent back: the Foreman stays at Test and revises\. Nothing is approved\.$/);
   });
@@ -401,5 +401,46 @@ describe('what the bar says after a send', () => {
     expect(sentLine('message', { answers: 2, next: 'Review', step: 'Test', auto: true })).toBe('Your reply reached the Foreman. Nothing is approved, so the card stays open.');
     expect(sentLine('changes', { answers: 0, next: 'Review', step: 'Test', auto: true })).toBe('Sent back: the Foreman stays at Test and revises. Nothing is approved.');
     expect(sentLine('changes', { answers: null, next: null, step: null, auto: false })).toBe('Sent back: the Foreman stays at this step and revises. Nothing is approved.');
+  });
+});
+
+// Task 8 (design 3.3): the Reply and Send back boxes open at the top of the card, directly under the bar.
+describe('the boxes under the bar', () => {
+  /** The card under the bar, and its first part. */
+  const gateCard = () => document.querySelector('.job-gate-body .gate-card')!;
+
+  it('Send back’s box opens at the top of the card, asks What should change? and its button says Send back', async () => {
+    const post = sentPost({ runEvent: false });
+    setup({ jobs: waiting(), gate: TWO_QUESTIONS, post });
+    await gateShown();
+    const back = within(bar()).getByRole('button', { name: /^No go: send back/ });
+    await waitFor(() => expect(back).toBeEnabled());
+    fireEvent.click(back);
+    const box = await screen.findByRole('textbox', { name: 'What should change? The Foreman stays at this step and revises; nothing is approved.' });
+    expect(box).toHaveAttribute('placeholder', 'Say what should change…');
+    expect(box).toHaveFocus();
+    // Above the card's head and its questions.
+    expect(gateCard().firstElementChild).toHaveClass('gate-note');
+    expect(gateCard().firstElementChild).toContainElement(box);
+    expect([...gateCard().querySelectorAll('.gate-note button')].map((b) => b.textContent)).toEqual(['Cancel', 'Send back']);
+    fireEvent.change(box, { target: { value: 'Keep the old column.' } });
+    fireEvent.click(within(gateCard() as HTMLElement).getByRole('button', { name: 'Send back' }));
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/api/job/alpha/gate', expect.objectContaining({ kind: 'changes', note: 'Keep the old column.' })));
+    expect(post.mock.calls.filter(([, b]) => (b as { kind?: string })?.kind === 'approve')).toHaveLength(0);
+  });
+
+  it('Reply’s box says nothing is approved', async () => {
+    setup({ jobs: waiting(), gate: GATE, post: sentPost(), hosted: true });
+    await gateShown();
+    const reply = within(bar()).getByRole('button', { name: 'Reply' });
+    await waitFor(() => expect(reply).toBeEnabled());
+    fireEvent.click(reply);
+    const box = await screen.findByRole('textbox', { name: 'Your answers or a note for the Foreman. Nothing is approved.' });
+    expect(box).toHaveAttribute('placeholder', 'Write your answers or a note…');
+    expect(gateCard().firstElementChild).toContainElement(box);
+    expect([...gateCard().querySelectorAll('.gate-note button')].map((b) => b.textContent)).toEqual(['Cancel', 'Send the reply']);
+    // Cancel closes it; nothing went.
+    fireEvent.click(within(gateCard() as HTMLElement).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('textbox', { name: /Your answers or a note/ })).toBeNull();
   });
 });

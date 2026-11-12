@@ -168,7 +168,7 @@ export function jobRecord(detail) {
 export const docsRecord = (docs) => wireSafe(docs);
 export const docRecord = (doc) => wireSafe(doc);
 export const decisionsRecord = (d) => wireSafe(d);
-/** What Auto decided on a job: { on, stopped, tag, summary, entries } (the site cleans it again on its side). */
+/** What Auto decided on a job: { on, stopped, tag, summary, entries, startedAt, ticket }, each entry with its kind and step (the site cleans it again on its side). */
 export function autoLogRecord(v) {
   // Cut to the site's own limits first, then the oldest entries go until it fits: the site refuses a part that is too big and would show nothing.
   const capped = wireSafe(capAutoLog(v));

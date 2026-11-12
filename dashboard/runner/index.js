@@ -53,7 +53,7 @@ import { groupCards, laneFor } from '../lib/snapshot.js';
 import { FINISH_LINES, FINISH_LINE_INFO, finishLineReached } from '../lib/finish.js';
 import { NUDGE_IDS, nudgesFor } from '../lib/nudges.js';
 import { buildThread, pageThread } from '../lib/thread.js';
-import { DECISIONS_FILE, decisionLog, localDay, orbitCopy, writeDecisionsFile } from '../lib/decisions.js';
+import { DECISIONS_FILE, autoLines, briefNames, decisionLog, decisionRows, localDay, orbitCopy, writeDecisionsFile } from '../lib/decisions.js';
 import { typicalRuns } from '../lib/run-typical.js';
 import { proofStamp } from '../lib/proof.js';
 import { suggestLevel, changedPaths, diffSummary } from '../lib/levels.js';
@@ -1161,11 +1161,13 @@ export async function createRunner(config) {
 
     const threadPart = await threadPage(f, audit);
     const card = boardCard(f, run);
+    // What Auto decided that Copy decisions keeps, in its words, oldest first (the gate card lists it): only on a job Auto ran on.
+    const autoDecided = f.auto?.ran === true ? autoLines(decisionRows(audit, { briefs: await briefNames(f.dir) })) : null;
     return {
       ...card,
       rulesLevel, gate,
       // The card's Auto, with the tag that started it (or null).
-      auto: { ...card.auto, tag: f.auto?.tag ?? null },
+      auto: { ...card.auto, tag: f.auto?.tag ?? null, ...(autoDecided ? { decided: autoDecided } : {}) },
       // Briefs already decided: a deciding gate reply (audit 'send' lines with gateBrief), or a
       // decision from the classic page sent after the current brief was written.
       answeredBriefs: answeredBriefs(audit, f.currentBrief),
@@ -3219,7 +3221,9 @@ export async function createRunner(config) {
     async autoLog(slug) {
       const f = await jobOf(slug);
       if (f.auto?.ran !== true) return null; // Auto has never run here: no reason to read and parse the audit
-      return autoLogRecord(await state.auditFor(f.dir, Infinity), { title: f.title, record: f.auto ?? null });
+      // The job's ticket key: its status.json's, else the one it was started from, else its slug's (orbit-<n>-…).
+      const ticket = (await statusTicketKey(f.dir)) ?? f.options?.ticket?.key ?? slugTicketKey(f.slug);
+      return autoLogRecord(await state.auditFor(f.dir, Infinity), { title: f.title, record: f.auto ?? null, ticket });
     },
     async docs(slug) {
       // The Docs tab's list: every document of the job, grouped, with versions and times (lib/docs.js).

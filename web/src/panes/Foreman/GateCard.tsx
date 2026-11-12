@@ -61,7 +61,7 @@ export interface GateNotice {
 }
 
 /** Why Go waits while the send back box holds words (deep review D, I2). */
-export const CHANGES_TYPED = 'You wrote what should change. Send the changes or cancel them first.';
+export const CHANGES_TYPED = 'You wrote what should change. Send it back or cancel it first.';
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
 
@@ -290,6 +290,9 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   const [decidedRaw, setDecidedRaw] = useStored('fw.gate.decided');
   const decidedOpen = decidedRaw === 'open';
   const setDecidedOpen = (on: boolean) => setDecidedRaw(on ? 'open' : 'closed');
+  // What Auto decided on this job, in Copy decisions' words (only on a job Auto ran on; none from an older Starbase).
+  const autoDecided = Array.isArray(detail.auto?.decided) ? detail.auto.decided.filter((l): l is string => typeof l === 'string' && l !== '') : [];
+  const [autoOpen, setAutoOpen] = useState(false);
 
   // The ⋯ menu: closes on Escape (focus back on ⋯) or a click elsewhere.
   useEffect(() => {
@@ -469,6 +472,41 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   const putExtras = (node: ReactNode, key: string) => (extrasTo ? createPortal(node, extrasTo, key) : node);
   return (
     <section className={`perm-card question-card gate-card${stale ? ' is-stale' : ''}`} data-ask="question" aria-labelledby={headId} aria-busy={busy}>
+      {/* The Send back or Reply box, when open: first, directly under the page's bar. */}
+      {(mode === 'changes' || mode === 'message') && (
+        <div className="gate-note">
+          <label className="field">
+            <span>{mode === 'changes' ? 'What should change? The Foreman stays at this step and revises; nothing is approved.' : 'Your answers or a note for the Foreman. Nothing is approved.'}</span>
+            <textarea
+              ref={noteBox}
+              className="text-area"
+              rows={3}
+              value={note}
+              placeholder={mode === 'changes' ? 'Say what should change…' : 'Write your answers or a note…'}
+              onChange={(e) => setNote(e.target.value)}
+              disabled={busy}
+              title={mode === 'changes'
+                ? 'Say what the Foreman should change. It goes in your reply with your answers; the Foreman revises and briefs you again.'
+                : 'A question or a note for the Foreman. It goes with your answers so far; nothing is approved and this card stays open.'}
+            />
+          </label>
+          <div className="perm-actions">
+            <Button kind="quiet" disabled={busy} onClick={() => setMode(null)} title="Close this without sending. What you wrote is kept until the card goes.">Cancel</Button>
+            <Button
+              kind="primary"
+              busy={spins(mode)}
+              busyLabel="Sending…"
+              disabled={busy || !canSendNote}
+              onClick={() => void act(mode, { note })}
+              title={!canSendNote ? (mode === 'changes' ? 'Write something first.' : 'Pick an answer or write a note first.')
+                : mode === 'changes' ? 'Send your answers and the changes you want. The Foreman stays at this step and revises.' : 'Send your answers and this note. The Foreman replies; the gate stays open.'}
+            >
+              {mode === 'changes' ? 'Send back' : 'Send the reply'}
+            </Button>
+          </div>
+        </div>
+      )}
+
       <header className="gate-head">
         <p className="perm-who gate-meta">
           <span className="ask-label" title={gate.stage ? `The Foreman finished ${stage} and waits for you before going on.` : 'The Foreman waits for you.'}>
@@ -497,18 +535,6 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
       </header>
 
       {lock && <LockCard lock={lock} now={now} />}
-      {/* Screens and Try it run on the laptop: the hosted site (packet 2B) leaves them out. */}
-      {gate.stage === 'wireframe' && !api.hosted?.() && <ScreensRow slug={slug} hasPage={Boolean(job.wireframes)} />}
-      {/* While Auto decides, the hand test is skipped; once Auto has stopped and asks him (I5), Try it is back. */}
-      {['implement', 'test', 'review'].includes(gate.stage ?? '') && !api.hosted?.() && autoDecides && (
-        <p className="muted gate-try">Auto skips your hand test on this job. The recorded evidence still runs.</p>
-      )}
-      {['implement', 'test', 'review'].includes(gate.stage ?? '') && !api.hosted?.() && !autoDecides && (
-        <p className="gate-try">
-          <Button kind="quiet" size="sm" icon="terminal" onClick={() => tryUi.openTry(slug)} title="Open the Try it tab: start this job’s app on your computer and click around before you decide.">Try it on your computer</Button>
-        </p>
-      )}
-      {EVIDENCE_STAGES.includes(gate.stage ?? '') && <EvidenceStrip slug={slug} tested={gate.proof?.tested ?? null} refresh={detail} />}
 
       {gate.questions.map((q, i) => {
         const group = `${uid}-q${i}`;
@@ -522,6 +548,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
                 <span className="answer-label">
                   {o.id}) <InlineText text={o.label} />
                   {o.id === q.recommendation && <> <span className="chip gate-rec">Recommended</span></>}
+                  {c.choices[q.id] === o.id && <> <span className="chip gate-picked" aria-hidden="true">Picked</span></>}
                   {o.consequence && <span className="muted answer-consequence" title="What changes if you pick this answer."><InlineText text={o.consequence} /></span>}
                 </span>
               </label>
@@ -530,60 +557,29 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
               {q.options.length > 0 && (
                 <label className="answer-other-pick" title="Answer in your own words instead.">
                   <Choice type="radio" name={group} value={OTHER} checked={c.choices[q.id] === OTHER} onChange={() => setChoice(q.id, OTHER)} />
-                  <span className="answer-label">Other…</span>
+                  <span className="answer-label">
+                    Your own answer
+                    {c.choices[q.id] === OTHER && <> <span className="chip gate-picked" aria-hidden="true">Picked</span></>}
+                  </span>
                 </label>
               )}
-              <input
-                id={otherId}
-                className="text-input"
-                aria-label={q.options.length > 0 ? `Your own answer to question ${i + 1}` : `Your answer to question ${i + 1}`}
-                placeholder={q.options.length > 0 ? 'Your own answer' : 'Your answer'}
-                value={c.others[q.id] ?? ''}
-                onChange={(e) => setOther(q.id, e.target.value, q.options.length > 0)}
-                title="Your answer in your own words. Typing here picks “Other…”."
-              />
+              {/* The last choice opens its box; a question with no options is answered in the box alone. */}
+              {(q.options.length === 0 || c.choices[q.id] === OTHER) && (
+                <input
+                  id={otherId}
+                  className="text-input"
+                  aria-label={q.options.length > 0 ? `Your own answer to question ${i + 1}` : `Your answer to question ${i + 1}`}
+                  placeholder={q.options.length > 0 ? 'Your own answer' : 'Your answer'}
+                  value={c.others[q.id] ?? ''}
+                  onChange={(e) => setOther(q.id, e.target.value, q.options.length > 0)}
+                  autoFocus={q.options.length > 0}
+                  title="Your answer in your own words."
+                />
+              )}
             </div>
           </fieldset>
         );
       })}
-
-      {decided.length > 0 && (
-        <details className="gate-decided" open={decidedOpen}>
-          <summary className="gate-fold" onClick={(e) => { e.preventDefault(); setDecidedOpen(!decidedOpen); }} title="The decisions the Foreman made for you with this brief. Open them to read each one and override any of them; approving confirms the rest.">
-            {decided.length === 1 ? '1 decision' : `${decided.length} decisions`} made for you · review <Kbd id="gate-decided" />
-          </summary>
-          <section className="gate-decided-body" aria-label="Decided on your behalf">
-            <ul className="gate-decided-list">
-              {decided.map((d) => {
-                const key = decidedKey(d);
-                const over = key in c.overrides;
-                return (
-                  <li key={key} className={`gate-decision${over ? ' is-changed' : ''}`}>
-                    <p className="gate-decision-text">
-                      {over && <><span className="chip gate-changed">Changed</span> </>}
-                      <strong><InlineText text={d.decision} /></strong>
-                      {d.reason && <span className="muted"> — <InlineText text={d.reason} /></span>}
-                      {d.where && <span className="muted"> (<InlineText text={d.where} />)</span>}
-                    </p>
-                    {over ? (
-                      <div className="gate-override">
-                        <label className="field">
-                          <span>What should it be instead?</span>
-                          <textarea className="text-area" rows={2} value={c.overrides[key]} onChange={(e) => setOverride(key, e.target.value)} disabled={busy} title="Your decision instead. It goes in your reply as “changed”." />
-                        </label>
-                        <button type="button" className="link-button" onClick={() => undoOverride(key)} disabled={busy} title="Keep the Foreman’s decision after all: approving confirms it.">Undo override</button>
-                      </div>
-                    ) : (
-                      <button type="button" className="link-button" onClick={() => override(key)} disabled={busy} title="Change this decision: say what it should be instead. Your reply then lists it as changed, not confirmed.">Override</button>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-            <p className="muted gate-decided-note">Approving confirms the ones you don’t override.</p>
-          </section>
-        </details>
-      )}
 
       {approveOff && (
         <div className="gate-off" role="status" aria-labelledby={`${uid}-off`}>
@@ -644,39 +640,6 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
         </div>
       </div>
 
-      {(mode === 'changes' || mode === 'message') && (
-        <div className="gate-note">
-          <label className="field">
-            <span>{mode === 'changes' ? 'What should change? The Foreman stays in this stage and revises; nothing is approved.' : 'Your answers or a note for the Foreman. Nothing is approved.'}</span>
-            <textarea
-              ref={noteBox}
-              className="text-area"
-              rows={3}
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              disabled={busy}
-              title={mode === 'changes'
-                ? 'Say what the Foreman should change. It goes in your reply with your answers; the Foreman revises and briefs you again.'
-                : 'A question or a note for the Foreman. It goes with your answers so far; nothing is approved and this card stays open.'}
-            />
-          </label>
-          <div className="perm-actions">
-            <Button
-              kind="primary"
-              busy={spins(mode)}
-              busyLabel="Sending…"
-              disabled={busy || !canSendNote}
-              onClick={() => void act(mode, { note })}
-              title={!canSendNote ? (mode === 'changes' ? 'Write something first.' : 'Pick an answer or write a note first.')
-                : mode === 'changes' ? 'Send your answers and the changes you want. The Foreman revises before moving on.' : 'Send your answers and this note. The Foreman replies; the gate stays open.'}
-            >
-              {mode === 'changes' ? 'Send the changes' : 'Send the reply'}
-            </Button>
-            <Button kind="quiet" disabled={busy} onClick={() => setMode(null)} title="Close this without sending. What you wrote is kept until the card goes.">Cancel</Button>
-          </div>
-        </div>
-      )}
-
       {mode === 'stop' && (
         <div className="gate-stop" role="group" aria-labelledby={`${uid}-stop`}>
           <p className="perm-warn" id={`${uid}-stop`}>
@@ -725,6 +688,74 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
         </div>
       )}
 
+      {askTerminal && (
+        <label className="check" title="Claude Code is open in this repository in a terminal. Two Foremen on one job would trip over each other.">
+          <Choice type="checkbox" checked={noTerminal} onChange={(e) => setNoTerminal(e.target.checked)} /> None of the open terminals is this job’s Foreman
+        </label>
+      )}
+      {error && <p className="field-problem" role="alert">{error}</p>}
+
+      {/* Screens and Try it run on the laptop: the hosted site (packet 2B) leaves them out. */}
+      {gate.stage === 'wireframe' && !api.hosted?.() && <ScreensRow slug={slug} hasPage={Boolean(job.wireframes)} />}
+      {/* While Auto decides, the hand test is skipped; once Auto has stopped and asks him (I5), Try it is back. */}
+      {['implement', 'test', 'review'].includes(gate.stage ?? '') && !api.hosted?.() && autoDecides && (
+        <p className="muted gate-try">Auto skips your hand test on this job. The recorded evidence still runs.</p>
+      )}
+      {['implement', 'test', 'review'].includes(gate.stage ?? '') && !api.hosted?.() && !autoDecides && (
+        <p className="gate-try">
+          <Button kind="quiet" size="sm" icon="terminal" onClick={() => tryUi.openTry(slug)} title="Open the Try it tab: start this job’s app on your computer and click around before you decide.">Try it on your computer</Button>
+        </p>
+      )}
+      {EVIDENCE_STAGES.includes(gate.stage ?? '') && <EvidenceStrip slug={slug} tested={gate.proof?.tested ?? null} refresh={detail} fold />}
+      {decided.length > 0 && (
+        <details className="gate-decided" open={decidedOpen}>
+          <summary className="gate-fold" onClick={(e) => { e.preventDefault(); setDecidedOpen(!decidedOpen); }} title="The decisions the Foreman made for you with this brief. Open them to read each one and override any of them; going ahead confirms the rest.">
+            {decided.length === 1 ? '1 decision' : `${decided.length} decisions`} made for you <span className="gate-fold-word">{decidedOpen ? 'Hide' : 'Review'}</span> <Kbd id="gate-decided" />
+          </summary>
+          <section className="gate-decided-body" aria-label="Decided on your behalf">
+            <ul className="gate-decided-list">
+              {decided.map((d) => {
+                const key = decidedKey(d);
+                const over = key in c.overrides;
+                return (
+                  <li key={key} className={`gate-decision${over ? ' is-changed' : ''}`}>
+                    <p className="gate-decision-text">
+                      {over && <><span className="chip gate-changed">Changed</span> </>}
+                      <strong><InlineText text={d.decision} /></strong>
+                      {d.reason && <span className="muted"> — <InlineText text={d.reason} /></span>}
+                      {d.where && <span className="muted"> (<InlineText text={d.where} />)</span>}
+                    </p>
+                    {over ? (
+                      <div className="gate-override">
+                        <label className="field">
+                          <span>What should it be instead?</span>
+                          <textarea className="text-area" rows={2} value={c.overrides[key]} onChange={(e) => setOverride(key, e.target.value)} disabled={busy} title="Your decision instead. It goes in your reply as “changed”." />
+                        </label>
+                        <button type="button" className="link-button" onClick={() => undoOverride(key)} disabled={busy} title="Keep the Foreman’s decision after all: approving confirms it.">Undo override</button>
+                      </div>
+                    ) : (
+                      <button type="button" className="link-button" onClick={() => override(key)} disabled={busy} title="Change this decision: say what it should be instead. Your reply then lists it as changed, not confirmed.">Override</button>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+            <p className="muted gate-decided-note">Going ahead confirms the ones you don’t override.</p>
+          </section>
+        </details>
+      )}
+
+      {autoDecided.length > 0 && (
+        <details className="gate-auto-decided" open={autoOpen}>
+          <summary className="gate-fold" onClick={(e) => { e.preventDefault(); setAutoOpen(!autoOpen); }} title="What Auto decided on this job so far, in the words Copy decisions uses. Its go-aheads are in What Auto decided.">
+            {autoDecided.length === 1 ? '1 decision' : `${autoDecided.length} decisions`} made by Auto on this job so far <span className="gate-fold-word">{autoOpen ? 'Hide' : 'Review'}</span>
+          </summary>
+          <ul className="gate-auto-list" aria-label="Decided by Auto on this job">
+            {autoDecided.map((l, i) => <li key={`${i}:${l}`}>{l} (Auto)</li>)}
+          </ul>
+        </details>
+      )}
+
       {putExtras(
       <details className="gate-adjust" open={adjustOpen}>
         <summary className="gate-fold" onClick={(e) => { e.preventDefault(); setAdjustOpen(!adjustOpen); }} title="Change only the next step (or the level from the next step on): skip it, lighter, heavier, a Fable second look, do it yourself, L↑ or L↓. Each adds one line to your reply.">
@@ -765,13 +796,6 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
         )}
       </details>
       , 'adjust')}
-
-      {askTerminal && (
-        <label className="check" title="Claude Code is open in this repository in a terminal. Two Foremen on one job would trip over each other.">
-          <Choice type="checkbox" checked={noTerminal} onChange={(e) => setNoTerminal(e.target.checked)} /> None of the open terminals is this job’s Foreman
-        </label>
-      )}
-      {error && <p className="field-problem" role="alert">{error}</p>}
 
       {putExtras(
       <HowThisWorks id="gate-card" defaultOpen={false}>
