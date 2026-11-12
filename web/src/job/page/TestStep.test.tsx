@@ -134,10 +134,10 @@ function stubFrames(answers: ('frame' | 404)[]) {
       : { ok: true, status: 200, blob: async () => new Blob(['jpeg'], { type: 'image/jpeg' }) };
   });
   vi.stubGlobal('fetch', fetch);
-  let urls = 0;
-  Object.assign(URL, { createObjectURL: vi.fn(() => `blob:frame-${++urls}`), revokeObjectURL: vi.fn() });
   return fetch;
 }
+/** The stub's picture as Watch shows it: a data: address (the page policy refuses blob: pictures). */
+const FRAME_SRC = `data:image/jpeg;base64,${btoa('jpeg')}`;
 const liveCalls = (fetch: ReturnType<typeof vi.fn>) => fetch.mock.calls.filter(([u]) => String(u).startsWith(`/api/job/${SLUG}/evidence/live?`));
 
 function narrow(on: boolean) {
@@ -305,7 +305,7 @@ describe('TestStep', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(500); });
     expect(liveCalls(fetch)).toHaveLength(2);
     const img = within(row).getByRole('img', { name: 'The hidden browser, live' });
-    expect(img).toHaveAttribute('src', 'blob:frame-1');
+    expect(img).toHaveAttribute('src', FRAME_SRC);
     expect(row).toHaveTextContent('Line 4 of 19: Office staff pause a weekly service for 3 weeks. The picture updates about twice a second.');
 
     // About twice a second: 4 asks in the first 2 seconds, each a new address.
@@ -367,8 +367,6 @@ describe('TestStep', () => {
       ? { ok: true, status: 200, blob: async () => new Blob(['jpeg'], { type: 'image/jpeg' }) }
       : { ok: false, status: 404, blob: async () => new Blob([]) }));
     vi.stubGlobal('fetch', fetch);
-    let urls = 0;
-    Object.assign(URL, { createObjectURL: vi.fn(() => `blob:frame-${++urls}`), revokeObjectURL: vi.fn() });
     const p = progress();
     const view = render(<WatchPicture slug={SLUG} progress={p} />);
     await act(async () => {});
