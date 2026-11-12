@@ -47,6 +47,7 @@ export interface JobAuto {
   /** The board card's view only: whether the job's level allows Auto, and the sentence when it doesn't. */
   allowed?: boolean;
   why?: string | null;
+  yours?: boolean; // the board card's only: he wrote while its step waited, so the step is his, not Auto's
 }
 
 /** GET /api/job/:slug/auto: the three lines and every decision Auto made on the job. */

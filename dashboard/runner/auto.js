@@ -22,7 +22,7 @@
 // Everything Auto writes is an audit line { action: 'auto', what, stage, asked, chose, why, ... } and
 // nothing reaches the Foreman but through decide.gate with by: 'auto'.
 
-import { autoAllowed, AUTO_CARDS_PER_REPLY, AUTO_MARK } from '../lib/auto.js';
+import { autoAllowed, AUTO_CARDS_PER_REPLY, AUTO_MARK, OWN_SENDS, YOURS_NOW, wroteWhileWaiting } from '../lib/auto.js';
 import { AUTO_STOP_REASONS, autoVerdict, fixedStop } from '../lib/auto-rules.js';
 import { APPROVER_BUDGET_USD, approverCut, approverPaths, approverRoots, callPreview, checkAnswer } from '../lib/approver.js';
 import { DECIDING_KINDS } from '../lib/gate.js';
@@ -49,14 +49,7 @@ const TIMED_OUT = /^It took longer/;
  * from the gate card's own box, approves nothing; nor do Starbase's own sends (resume, nudge, a stack's message).
  */
 const DECIDES = new Set(DECIDING_KINDS);
-/**
- * Sends that are Starbase's own, not the person's words: a nudge, a resume (after a restart, or the carry-on after a usage
- * limit), a status fix, PR feedback, a review round, a stack's start and its own news (ready, merged, stuck, checks failed).
- * A stack's messages that carry the person's own note or go (stack-plan, -plan-change, -push, -push-no, -sendback) are theirs.
- */
-const OWN_SENDS = new Set(['nudge', 'resume', 'resume-after-restart', 'status-fix', 'pr-feedback', 'review-round', 'stack-section', 'stack-ready', 'stack-merged', 'stack-stuck', 'stack-checks-failed']);
-/** Auto's stop when the person wrote to a job while its step waited (I5). */
-const YOURS_NOW = 'you wrote to this job while this step waited, so it is yours to decide.';
+// OWN_SENDS (Starbase's own sends) and YOURS_NOW (Auto's stop when the person wrote to a job while its step waited, I5) are lib/auto.js's.
 /** An Approver answer that would act (go, allow) but calls its own risk high is a stop, not an action. */
 const HIGH_RISK = 'the Approver called this high risk, so it needs you.';
 const tooRisky = (answer) => answer?.risk === 'high' && (answer.decision === 'go' || answer.decision === 'allow');
@@ -245,6 +238,13 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     }
     const route = fixedStop({ kind: 'gate', stage: job.stage, nextStage: gate.nextStage });
     if (route) { await stop(job, route); return null; }
+    // The person wrote to this job while this step waited: the step is theirs, and the stop is written here, in the pass's first
+    // round, before any job's Approver is asked (attend checks again, for a message sent while the Approver thinks).
+    if (await youWroteWhileWaiting(job)) {
+      held.delete(job.dir); refused.delete(job.dir);
+      await stop(job, { rule: 'blocked', reason: YOURS_NOW });
+      return null;
+    }
     return gate;
   }
 
@@ -281,14 +281,10 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
   /**
    * Did the person send a message of their own (not Auto's, not one of Starbase's own sends; or steer one in) to this job after its
    * current brief was raised (the brief file's time) and after Auto was last switched on or carried on (`since`)?
-   * All of the job's lines are read: the Foreman's reply to that message can write many.
+   * All of the job's lines are read: the Foreman's reply to that message can write many. The rule is lib/auto.js wroteWhileWaiting.
    */
   async function youWroteWhileWaiting(job) {
-    const times = [Date.parse(job.briefAt ?? ''), Date.parse(job.auto?.since ?? '')].filter(Number.isFinite);
-    const from = times.length ? Math.max(...times) : -Infinity;
-    const lines = await state.auditFor(job.dir, Infinity);
-    // A message they steered into a running reply counts as one they sent (only their steer command writes that line).
-    return lines.some((l) => l.by !== 'auto' && ((l.action === 'send' && !OWN_SENDS.has(l.kind)) || l.action === 'steer') && Date.parse(l.at) > from);
+    return wroteWhileWaiting(await state.auditFor(job.dir, Infinity), { briefAt: job.briefAt, since: job.auto?.since });
   }
   /**
    * An answer that was dropped cost money. While Auto is still on (stopped, or the card or gate has gone)
