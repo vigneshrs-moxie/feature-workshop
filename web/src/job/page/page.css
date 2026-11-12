@@ -49,6 +49,9 @@
    Auto line, the plan's steps, the commits with their files, the reviewers and the pull requests. */
 .sb-step-body { display: flex; flex-direction: column; gap: var(--space-5); min-width: 0; }
 .sb-step-body:empty { display: none; }
+/* A step body's own lines (a note, the commits' "Couldn’t read the branch: …") wrap a long word or
+   path inside the step; on a phone one ran 77 px past the screen. */
+.sb-step-body > p { overflow-wrap: anywhere; }
 .sb-block { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
 .sb-block .eyebrow { margin: 0; }
 .sb-step-note { margin: 0; font-size: var(--text-sm); color: var(--text-2); }
@@ -205,7 +208,10 @@ a.sb-top-ticket:hover { border-color: var(--border-3); }
 .sb-who-status.is-done { color: var(--status-ok); background: var(--status-ok-bg); }
 .sb-who-term { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
 .sb-who-term .btn { display: inline-flex; }
-.sb-who-term-note { font-size: var(--text-xs); }
+.sb-who-term-note { font-size: var(--text-xs); overflow-wrap: anywhere; }
+/* The terminal column has a width of its own, so a long note (why it can't open now) wraps there
+   instead of squeezing the name and what it is doing (at 1024 px they had 36 px). */
+.sb-who-term { max-width: 16rem; }
 
 .sb-feed { display: flex; flex-direction: column; gap: var(--space-2); }
 .sb-feed-empty { margin: 0; font-size: var(--text-sm); }
@@ -224,7 +230,7 @@ a.sb-top-ticket:hover { border-color: var(--border-3); }
 @media (max-width: 760px) {
   .sb-who-row { grid-template-columns: minmax(0, 1fr) auto; }
   .sb-who-initials, .sb-who-time { display: none; }
-  .sb-who-term { grid-column: 1 / -1; }
+  .sb-who-term { grid-column: 1 / -1; max-width: none; }
   .sb-who-term .btn, .sb-who-head .btn { width: 100%; justify-content: center; }
 }
 @media (prefers-reduced-motion: reduce) {
