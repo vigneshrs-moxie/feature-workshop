@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type ApiClient } from '../../api/client';
 import type { EvidenceView, Gate, JobDetail } from '../../api/types';
@@ -365,5 +365,43 @@ describe('a strip given the page’s evidence view', () => {
     expect(screen.queryByText(/Recording the evidence now/)).toBeNull();
     expect(rows()).toHaveLength(3);
     expect(get).not.toHaveBeenCalled();
+  });
+});
+
+// On the website (the hosted client): Record and Copy link only work on the laptop, and a video plays
+// only once the laptop has put it on the site (the evidence answer's onSite list).
+describe('the strip on the website', () => {
+  function hosted(view: EvidenceView, post = vi.fn()) {
+    const store: Store = createStore();
+    const api = { get: vi.fn(async () => view), post, hosted: () => true } as unknown as ApiClient;
+    render(<WorkshopContext.Provider value={{ store, api }}><EvidenceStrip slug="alpha" /></WorkshopContext.Provider>);
+    return { post };
+  }
+  // As hosted/site/routes-files.js answers it: no folder, and the files on the site.
+  const SITE = { ...VIEW, folder: null, folderUrl: null, hosted: true, watch: false, onSite: ['abc1234def5/AC-1/01.png', 'abc1234def5/AC-1/video.webm'] } as unknown as EvidenceView;
+
+  it('offers no Copy link and no Record again', async () => {
+    hosted({ ...SITE, commit: 'fed9876cba1', problem: { commit: 'fed9876cba1', message: 'The app stopped before the recording finished.', fix: null, at: '2026-10-28T12:00:00.000Z' } });
+    await screen.findByRole('region', { name: /^Evidence/ });
+    expect(screen.getByText('From an earlier commit (abc1234)')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Copy link' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Record/ })).toBeNull();
+    cleanup();
+    hosted({ ...SITE, evidence: null });
+    await screen.findByRole('region', { name: /^Evidence/ });
+    expect(screen.queryByRole('button', { name: /Record/ })).toBeNull();
+  });
+
+  it('offers Play video only for a video the site has', async () => {
+    hosted(SITE);
+    await screen.findByRole('region', { name: /^Evidence/ });
+    const [one, two] = rows();
+    expect(within(one).getByRole('button', { name: 'Play video' })).toBeTruthy();
+    expect(within(two).queryByRole('button', { name: 'Play video' }), 'not uploaded yet').toBeNull();
+    cleanup();
+    // An answer with no list: nothing is known to be on the site.
+    hosted({ ...SITE, onSite: undefined } as EvidenceView);
+    await screen.findByRole('region', { name: /^Evidence/ });
+    expect(screen.queryByRole('button', { name: 'Play video' })).toBeNull();
   });
 });

@@ -1636,6 +1636,8 @@ export interface EvidenceView {
   progress?: EvidenceProgress | null;
   /** Watch: true on the laptop while a recording runs (GET /api/job/:slug/evidence/live); false on the website; missing from dashboards from before. */
   watch?: boolean;
+  /** The website only: the evidence files already on the site (a video plays there only once it is). */
+  onSite?: string[];
 }
 
 /** A recording by line (dashboard/lib/evidence.js): line is the running line's place, else the last finished one's. */

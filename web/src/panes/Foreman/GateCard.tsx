@@ -21,6 +21,7 @@ import { loadJobDoc, stopRun } from '../../app/jobActions';
 import { useKeyScope } from '../../app/keyRegistry';
 import { navigate } from '../../app/router';
 import { useUi } from '../../app/ui';
+import { ON_LAPTOP_LINE } from '../Preview/ScreensTab';
 import { reviewable, screensFromJson, screenWord, useFrameMounted, useWireframes, type WireframeScreen } from '../Preview/wireframes';
 import { HowThisWorks } from '../../components/HowThisWorks';
 import { InlineText } from '../../components/InlineText';
@@ -744,11 +745,15 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
 
       {!boxOpen && sendProblems}
 
-      {/* Screens and Try it run on the laptop: the hosted site (packet 2B) leaves them out. */}
+      {/* Screens and Try it run on the laptop: the hosted site (packet 2B) says so in one sentence each. */}
       {gate.stage === 'wireframe' && !api.hosted?.() && <ScreensRow slug={slug} hasPage={Boolean(job.wireframes)} />}
+      {gate.stage === 'wireframe' && api.hosted?.() && Boolean(job.wireframes) && <p className="muted gate-screens">{ON_LAPTOP_LINE}</p>}
       {/* While Auto decides, the hand test is skipped; once Auto has stopped and asks him (I5), Try it is back. */}
-      {['implement', 'test', 'review'].includes(gate.stage ?? '') && !api.hosted?.() && autoDecides && (
+      {['implement', 'test', 'review'].includes(gate.stage ?? '') && autoDecides && (
         <p className="muted gate-try">Auto skips your hand test on this job. The recorded evidence still runs.</p>
+      )}
+      {['implement', 'test', 'review'].includes(gate.stage ?? '') && api.hosted?.() && !autoDecides && (
+        <p className="muted gate-try">Try it runs on your laptop. Open the job there to use it.</p>
       )}
       {['implement', 'test', 'review'].includes(gate.stage ?? '') && !api.hosted?.() && !autoDecides && (
         <p className="gate-try">

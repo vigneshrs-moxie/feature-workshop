@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { installKeyListener } from '../../app/keyRegistry';
 import { UiProvider } from '../../app/ui';
 import { ApiError, type ApiClient } from '../../api/client';
+import { ON_LAPTOP_LINE } from '../Preview/ScreensTab';
 import { clearWireframes, mountFrame, receive } from '../Preview/wireframes';
 import type { Gate, GateResult, Job, JobDetail, Run } from '../../api/types';
 import { gateDraftKey } from '../../lib/gateCard';
@@ -42,13 +43,13 @@ const oneQ = (gate: Partial<Gate> = {}, extra: Partial<JobDetail> = {}) => detai
 const SENT: GateResult = { ok: true, sent: true, text: 'sent text' };
 const MODELS = [{ id: 'claude-opus-5-5', label: 'Opus 5.5' }];
 
-function setup({ det = detail(), post = vi.fn(async (): Promise<unknown> => SENT), get = vi.fn(), jobExtra = {}, composer = false, limited = false, run = null }: {
-  det?: JobDetail; post?: ReturnType<typeof vi.fn>; get?: ReturnType<typeof vi.fn>; jobExtra?: Partial<Job>; composer?: boolean; limited?: boolean; run?: Run | null;
+function setup({ det = detail(), post = vi.fn(async (): Promise<unknown> => SENT), get = vi.fn(), jobExtra = {}, composer = false, limited = false, run = null, hosted = false }: {
+  det?: JobDetail; post?: ReturnType<typeof vi.fn>; get?: ReturnType<typeof vi.fn>; jobExtra?: Partial<Job>; composer?: boolean; limited?: boolean; run?: Run | null; /** The website's client. */ hosted?: boolean;
 } = {}) {
   const store: Store = createStore();
   const usage = { limited, blocking: limited, label: limited ? 'five-hour limit' : null, resetsAt: limited ? '2026-10-16T15:42:00.000Z' : null };
   store.dispatch({ type: 'snapshot', snapshot: snapshot({ meta: { token: 't', levels: LEVELS, models: MODELS, jobOptions: { reviewers: REVIEWERS } }, jobs: [job('alpha', 'needs-you', { level: 1, ...jobExtra })], usage }) });
-  const api = { get, post } as unknown as ApiClient;
+  const api = { get, post, ...(hosted ? { hosted: () => true } : {}) } as unknown as ApiClient;
   const reload = vi.fn();
   const view = (d: JobDetail) => (
     <WorkshopContext.Provider value={{ store, api }}>
@@ -925,6 +926,38 @@ describe('the hand test under Auto', () => {
   });
 });
 
+// On the website Try it and the Screens page are on the laptop: the card says so in one sentence.
+describe('the gate card on the website', () => {
+  const TRY_ON_LAPTOP = 'Try it runs on your laptop. Open the job there to use it.';
+  const HAND_TEST_LINE = 'Auto skips your hand test on this job. The recorded evidence still runs.';
+
+  it('at a test gate it says Try it is on the laptop, with no Try it button', () => {
+    setup({ det: detail({ stage: 'test' }), hosted: true });
+    expect(screen.getByText(TRY_ON_LAPTOP)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Try it on your computer' })).toBeNull();
+  });
+
+  it('an Auto job there keeps the hand test line, and says nothing about Try it', () => {
+    setup({ det: detail({ stage: 'test' }), hosted: true, jobExtra: { auto: { on: true, ran: true } } });
+    expect(screen.getByText(HAND_TEST_LINE)).toBeInTheDocument();
+    expect(screen.queryByText(TRY_ON_LAPTOP)).toBeNull();
+  });
+
+  it('at the screens gate it says the Screens page opens on the laptop, with no screens row', () => {
+    const get = vi.fn(async () => { throw new Error('not asked'); });
+    setup({ det: detail({ stage: 'wireframe', nextStage: 'investigate', questions: [QUESTIONS[0]] }), hosted: true, get, jobExtra: { wireframes: { version: '1' } } });
+    expect(screen.getByText(ON_LAPTOP_LINE)).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'The screens' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Review the screens' })).toBeNull();
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  it('a screens gate with no page yet says nothing about the Screens page', () => {
+    setup({ det: detail({ stage: 'wireframe', nextStage: 'investigate', questions: [QUESTIONS[0]] }), hosted: true, get: vi.fn(async () => { throw new Error('not asked'); }) });
+    expect(screen.queryByText(ON_LAPTOP_LINE)).toBeNull();
+  });
+});
+
 // ---------- Task 8 (design 3.3): questions first, the evidence in one line ----------
 
 describe('GateCard: questions first, the evidence in one line', () => {
@@ -1059,9 +1092,10 @@ describe('GateCard: questions first, the evidence in one line', () => {
       </WorkshopContext.Provider>,
     );
     await screen.findByRole('region', { name: /^Evidence: 1 passed, 0 failed$/ });
-    // Try it is the laptop's: the rest is in the same order.
-    inOrder(card()!, PARTS.filter((p) => p !== '.gate-try'));
-    expect(card()!.querySelector('.gate-try')).toBeNull();
+    // Try it is the laptop's: in its place one sentence says so, and the rest is in the same order.
+    inOrder(card()!, PARTS);
+    expect(card()!.querySelector('.gate-try')).toHaveTextContent('Try it runs on your laptop. Open the job there to use it.');
+    expect(within(card()!).queryByRole('button', { name: 'Try it on your computer' })).toBeNull();
     expect(within(screen.getByRole('group', { name: '1. Keep the old column?' })).getByRole('radio', { name: 'Your own answer' })).toBeInTheDocument();
     expect(card()!.querySelector('.gate-decided summary')).toHaveTextContent('2 decisions made for you');
     expect(card()!.querySelector('.sb-gate-auto-decided summary')).toHaveTextContent('2 decisions made by Auto on this job so far');

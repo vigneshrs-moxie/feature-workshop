@@ -7,6 +7,9 @@
 //
 // Everything here is a button or a link, so it is reached with Tab; it has no keys of its own.
 //
+// On the website the folder and Record are on the laptop: no Copy link and no Record, and Play video
+// only for a video the laptop has put on the site (the answer's onSite list).
+//
 // Folded (the gate card, design 3.3): one line until it is opened, "Evidence: 17 passed, 2 failed"
 // with when and for which commit it was recorded, "Evidence: recording, line 4 of 19" while it
 // records, "Evidence: not recorded yet" with none; Show opens the rows, Copy link and Record again.
@@ -43,7 +46,7 @@ function reasonOf(c: EvidenceCriterion): string | null {
   return c.reason;
 }
 
-function Row({ slug, c }: { slug: string; c: EvidenceCriterion }) {
+function Row({ slug, c, canPlay }: { slug: string; c: EvidenceCriterion; /** False on the website for a video not on the site yet. */ canPlay: boolean }) {
   const uid = useId();
   const [shotsOpen, setShotsOpen] = useState(false);
   const [videoOpen, setVideoOpen] = useState(false);
@@ -51,6 +54,7 @@ function Row({ slug, c }: { slug: string; c: EvidenceCriterion }) {
   const reason = reasonOf(c);
   const first = c.screenshots[0] ?? null;
   const many = c.screenshots.length;
+  const video = canPlay ? c.video : null;
   return (
     <li className="evidence-row" data-status={c.status}>
       <p className="evidence-line">
@@ -59,7 +63,7 @@ function Row({ slug, c }: { slug: string; c: EvidenceCriterion }) {
         <span className={`chip evidence-result is-${c.status}`}><span aria-hidden="true">{icon} </span>{word}</span>
       </p>
       {reason && <p className="muted evidence-reason">{reason}</p>}
-      {(first || c.video) && (
+      {(first || video) && (
         <div className="evidence-media">
           {first && (
             <button
@@ -71,7 +75,7 @@ function Row({ slug, c }: { slug: string; c: EvidenceCriterion }) {
               <span className="evidence-thumb-label">{shotsOpen ? 'Fold the pictures' : many === 1 ? 'Open the picture' : `Open all ${many} pictures`}</span>
             </button>
           )}
-          {c.video && (
+          {video && (
             <button type="button" className="link-button evidence-play" aria-expanded={videoOpen} aria-controls={`${uid}-video`} onClick={() => setVideoOpen(!videoOpen)} title={`Watch the recording of ${c.id} in the card.`}>
               {videoOpen ? 'Hide video' : 'Play video'}
             </button>
@@ -92,8 +96,8 @@ function Row({ slug, c }: { slug: string; c: EvidenceCriterion }) {
           ))}
         </ol>
       )}
-      {videoOpen && c.video && (
-        <video className="evidence-video" id={`${uid}-video`} src={fileUrl(slug, c.video)} controls autoPlay muted width={640} aria-label={`The recording of ${c.id}: ${c.title}`} />
+      {videoOpen && video && (
+        <video className="evidence-video" id={`${uid}-video`} src={fileUrl(slug, video)} controls autoPlay muted width={640} aria-label={`The recording of ${c.id}: ${c.title}`} />
       )}
     </li>
   );
@@ -118,6 +122,7 @@ export function foldLine(view: Pick<EvidenceView, 'evidence' | 'recording' | 'pr
  */
 export function EvidenceStrip({ slug, tested = null, refresh = null, fold = false, view: given }: { slug: string; tested?: string | null; refresh?: unknown; fold?: boolean; view?: EvidenceView | null }) {
   const { api } = useWorkshop();
+  const hosted = Boolean(api.hosted?.());
   const headId = useId();
   const shared = given !== undefined;
   // Folded: null until he opens or folds it himself, so it follows what the evidence says (open when something is wrong).
@@ -154,7 +159,9 @@ export function EvidenceStrip({ slug, tested = null, refresh = null, fold = fals
 
   const against = tested ?? view.commit;
   const earlier = Boolean(ev && against && !sameCommit(ev.commit, against));
-  const canRecord = view.wanted && !view.recording && (!ev || earlier || Boolean(view.problem));
+  const canRecord = !hosted && view.wanted && !view.recording && (!ev || earlier || Boolean(view.problem));
+  const onSite = new Set(Array.isArray(view.onSite) ? view.onSite : []);
+  const canPlay = (c: EvidenceCriterion) => !hosted || (c.video !== null && onSite.has(c.video));
 
   async function copyLink() {
     if (!view) return;
@@ -230,11 +237,11 @@ export function EvidenceStrip({ slug, tested = null, refresh = null, fold = fals
         )}
         {ev && ev.criteria.length > 0 && (
           <ul className="evidence-list" aria-label="Each acceptance line">
-            {ev.criteria.map((c) => <Row key={c.id} slug={slug} c={c} />)}
+            {ev.criteria.map((c) => <Row key={c.id} slug={slug} c={c} canPlay={canPlay(c)} />)}
           </ul>
         )}
         <p className="gate-evidence-actions">
-          {ev && (
+          {ev && !hosted && (
             <button type="button" className="link-button" onClick={copyLink} title="Copy the evidence folder’s address, to paste on the ticket.">Copy link</button>
           )}
           {canRecord && (
