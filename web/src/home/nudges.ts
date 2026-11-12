@@ -11,7 +11,7 @@ import type { Job, Nudge } from '../api/types';
 import { GROUP_LABELS } from '../panes/Jobs/jobStatus';
 import { stageLabel } from '../panes/Jobs/stages';
 import { formatCost } from '../panes/Foreman/thread';
-import { type DeskItem, oneKeyApprove } from './homeModel';
+import { type DeskItem, oneKeyApprove, ownBranchOf } from './homeModel';
 
 export interface NudgeItem {
   kind: 'nudge';
@@ -65,7 +65,8 @@ export function jobFacts(job: Job): string[] {
   if (job.kind) out.push(job.kind === 'bug' ? 'Bug fix' : job.kind === 'feature' ? 'Feature' : job.kind);
   if (typeof job.level === 'number') out.push(`L${job.level}`);
   if (job.repo?.name) out.push(job.repo.name);
-  if (job.repo?.branch) out.push(job.repo.branch);
+  const branch = ownBranchOf(job);
+  if (branch) out.push(branch);
   const cost = job.cost?.totalUsd ?? 0;
   if (job.cost?.source !== 'none' && cost > 0.1) out.push(formatCost(cost));
   return out;
@@ -80,7 +81,7 @@ export function whereLine(job: Job): string {
   if (f?.reached && f.by === 'pr1-open') return 'PR #1 open from your fork';
   if (f?.reached && f.by === 'marked') return 'Marked done';
   const stage = job.stage ? stageLabel(job.stage) : '';
-  const branch = job.repo?.branch ?? null;
+  const branch = ownBranchOf(job);
   if (branch && stage) return `${branch} · ${stage}`;
   return branch || stage || 'No branch yet';
 }

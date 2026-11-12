@@ -61,6 +61,16 @@ describe('the job’s facts and where its work is', () => {
     expect(whereLine(job('a', 'running', { stage: 'plan' }))).toBe('Plan');
     expect(whereLine(job('a', 'idle'))).toBe('No branch yet');
   });
+
+  it('a branch Starbase only guessed is never shown as the job’s: the Desk’s facts and where the work is leave it out; a recorded one shows', () => {
+    const guessed = { name: 'portal', branch: 'feature/other-thing', branchGuessed: true };
+    const recorded = { name: 'portal', branch: 'feature/other-thing' };
+    expect(jobFacts(job('a', 'running', { kind: 'feature', level: 2, repo: guessed }))).toEqual(['Running', 'Feature', 'L2', 'portal']);
+    expect(jobFacts(job('a', 'running', { kind: 'feature', level: 2, repo: recorded }))).toEqual(['Running', 'Feature', 'L2', 'portal', 'feature/other-thing']);
+    expect(whereLine(job('a', 'running', { stage: 'plan', repo: guessed }))).toBe('Plan');
+    expect(whereLine(job('a', 'running', { repo: guessed }))).toBe('No branch yet');
+    expect(whereLine(job('a', 'running', { stage: 'plan', repo: recorded }))).toBe('feature/other-thing · Plan');
+  });
 });
 
 describe('Decided today', () => {

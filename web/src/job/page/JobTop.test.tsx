@@ -18,7 +18,7 @@ function detailOf(extra: Partial<JobDetail> = {}): JobDetail {
   return { slug: 'alpha', thread: [], threadMore: false, ...extra } as JobDetail;
 }
 
-function setup({ j = job('alpha', 'idle', { title: 'Technician notes', stage: 'plan', level: 1 }), detail = detailOf() as JobDetail | null, run = null as Run | null, sent = null as { kind: 'approve' | 'changes' | 'message' | null } | null, hosted = false, permissions = [] as Permission[], post = vi.fn(async (): Promise<unknown> => ({ ok: true })), reload = undefined as (() => void) | undefined } = {}) {
+function setup({ j = job('alpha', 'idle', { title: 'Technician notes', stage: 'plan', level: 1 }), detail = detailOf() as JobDetail | null, run = null as Run | null, sent = null as { kind: 'approve' | 'changes' | 'message' | null } | null, hosted = false, permissions = [] as Permission[], post = vi.fn(async (): Promise<unknown> => ({ ok: true })), reload = vi.fn() as () => void } = {}) {
   const store: Store = createStore();
   store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [j], permissions, meta: { token: 't', models: MODELS } as never }) });
   const get = vi.fn(async (path: string): Promise<unknown> => {
@@ -225,7 +225,8 @@ describe('JobTop', () => {
   // ---- A branch Starbase only guessed (dashboard/lib/locate.js branchGuessed): BranchGuess in the header ----
 
   const GUESSED = 'feature/orbit-470-talent-hide-before-hire';
-  const guessJob = () => job('alpha', 'idle', { stage: 'plan', level: 1, repo: { name: 'moxie-portal', branch: GUESSED } as never });
+  // The job card's repo, as the laptop sends it: branchGuessed on a guess.
+  const guessJob = (branchGuessed = true) => job('alpha', 'idle', { stage: 'plan', level: 1, repo: { name: 'moxie-portal', branch: GUESSED, ...(branchGuessed ? { branchGuessed: true } : {}) } });
   const guessDetail = (branchGuessed: boolean) => detailOf({ repoPath: '/Users/me/Projects/moxie-portal', branch: GUESSED, locate: { path: '/Users/me/Projects/moxie-portal', branch: GUESSED, branchSource: branchGuessed ? 'workflow-status.md' : 'status.json', branchGuessed } });
   // The button's words, written out: a changed label must fail here.
   const CONFIRM = 'This is the job\'s branch';
@@ -246,9 +247,19 @@ describe('JobTop', () => {
     expect(head.querySelector('.sb-top-where')).toHaveTextContent(/^Plan$/);
     unmount();
     // Recorded: no guess, no button; where the work is names the branch as before.
-    setup({ j: guessJob(), detail: guessDetail(false) });
+    setup({ j: guessJob(false), detail: guessDetail(false) });
     expect(within(top()).queryByText('Branch (a guess):')).toBeNull();
     expect(within(top()).queryByRole('button', { name: CONFIRM })).toBeNull();
+    expect(top().querySelector('.sb-top-where')).toHaveTextContent(`${GUESSED} · Plan`);
+  });
+
+  it('before the job’s details load, the header never shows a guessed branch as fact', () => {
+    const { unmount } = setup({ j: guessJob(), detail: null });
+    expect(top().querySelector('.sb-top-where')).toHaveTextContent(/^Plan$/);
+    expect(within(top()).queryByText(new RegExp(GUESSED.replace(/[/.]/g, '\\$&')))).toBeNull();
+    unmount();
+    // A recorded branch shows from the first paint.
+    setup({ j: guessJob(false), detail: null });
     expect(top().querySelector('.sb-top-where')).toHaveTextContent(`${GUESSED} · Plan`);
   });
 

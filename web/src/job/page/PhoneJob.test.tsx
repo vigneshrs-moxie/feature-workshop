@@ -333,6 +333,17 @@ describe('the phone’s job screen', () => {
     expect(screen.queryByText('Branch (a guess):')).toBeNull();
     expect(screen.queryByRole('button', { name: 'This is the job\'s branch' })).toBeNull();
   });
+
+  it('on the website’s phone a guessed branch is shown as a guess without the button (choosing it is the laptop’s)', async () => {
+    const branch = 'feature/orbit-470-talent-hide-before-hire';
+    setup({ hosted: true, jobs: [job('alpha', 'idle', { stage: 'plan', ticket: 'ORBIT-470' })], detailMore: { repoPath: '/Users/me/Projects/moxie-portal', branch, locate: { path: '/Users/me/Projects/moxie-portal', branch, branchSource: 'workflow-status.md', branchGuessed: true } } });
+    const main = screen.getByRole('main', { name: 'Job' });
+    const group = await within(main).findByRole('group', { name: 'The job’s branch' });
+    expect(within(group).getByText('Branch (a guess):')).toBeInTheDocument();
+    expect(within(group).getByText(branch)).toBeInTheDocument();
+    expect(within(group).queryByRole('button')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'This is the job\'s branch' })).toBeNull();
+  });
 });
 
 describe('the job menu’s requests on the phone', () => {

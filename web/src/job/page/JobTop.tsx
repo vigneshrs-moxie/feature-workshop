@@ -7,7 +7,7 @@
 // switch (its own line: Auto is on, Auto stopped: why), What Auto decided, which opens as a drawer.
 // Under the facts, a branch Starbase only guessed (BranchGuess: "Branch (a guess)" and This is the
 // job's branch, which records it and reloads the job); where the work is then says the step alone,
-// never the guess as the job's branch.
+// never the guess as the job's branch (whereLine leaves out a card's guessed branch, from the first paint).
 // On the website the gear is not there (everything in it is done on the laptop): its place says so
 // in one sentence, and the model lock's title names the laptop. BranchGuess shows its line there
 // without the button (choosing the branch is the laptop's). The switch queues its change for
@@ -89,13 +89,8 @@ export function JobStateChip({ job, sent }: { job: Job; sent: { kind: GateKind |
 const KIND_WORDS: Record<string, string> = { feature: 'Feature', bug: 'Bug fix' };
 const isWebAddress = (v: unknown): v is string => typeof v === 'string' && /^https?:\/\/\S+$/i.test(v.trim());
 
-/** Where the job's work is (whereLine), without a branch Starbase only guessed: the step alone then. */
-function whereWords(job: Job, detail: JobDetail | null): string {
-  return detail?.locate?.branchGuessed === true && job.repo ? whereLine({ ...job, repo: { ...job.repo, branch: null } }) : whereLine(job);
-}
-
-/** reload: reads the job again (the conversation's thread.reload), once This is the job's branch is recorded. */
-export function JobTop({ job, detail, run, sent, reload }: { job: Job; detail: JobDetail | null; run: Run | null; sent: { kind: GateKind | null } | null; reload?(): void }) {
+/** reload: reads the job again (the conversation's thread.reload), once This is the job's branch is recorded. Required, so no page leaves it out. */
+export function JobTop({ job, detail, run, sent, reload }: { job: Job; detail: JobDetail | null; run: Run | null; sent: { kind: GateKind | null } | null; reload(): void }) {
   const state = useWorkshopState();
   const { api } = useWorkshop();
   const hosted = Boolean(api.hosted?.());
@@ -121,7 +116,7 @@ export function JobTop({ job, detail, run, sent, reload }: { job: Job; detail: J
           {kind && <span className="sb-top-fact">{kind}</span>}
           <LevelChip job={job} ready={Boolean(detail)} />
           {job.repo?.name && <span className="sb-top-fact">{job.repo.name}</span>}
-          <span className="sb-top-fact sb-top-where" title="Where the job’s work is, from the finish line and its PRs.">{whereWords(job, detail)}</span>
+          <span className="sb-top-fact sb-top-where" title="Where the job’s work is, from the finish line and its PRs.">{whereLine(job)}</span>
           <PartOfStack slug={job.slug} index={stacks} />
           {model && <span className="sb-top-model" title={hosted ? MODEL_LOCK_HOSTED : MODEL_LOCK}><Icon name="lock" size={13} />Foreman model: {model}</span>}
         </div>
