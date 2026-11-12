@@ -698,6 +698,82 @@ describe('the page’s keys and requests', () => {
     expect(await within(loose).findByText('notes.md body')).toBeInTheDocument();
   });
 
+  // Final review A6 (page Minor 9): a document two steps own opens under the open step when it is one of them.
+  it('a document that two steps own opens under the open step when it is one of them', async () => {
+    function Link() { const ui = useUi(); return <button type="button" onClick={() => ui.openDocs('implementation-plan.md')}>the plan</button>; }
+    for (const hosted of [false, true]) {
+      setup({ jobs: [working('implement')], extra: <Link />, hosted, more: { page: { docs: { plan: [DOCS[0]], build: [DOCS[0]], none: [] } } } });
+      await screen.findByText('Overview');
+      expect(openStop()).toBe('build');
+      fireEvent.click(screen.getByRole('button', { name: 'the plan' }));
+      expect(openStop()).toBe('build');
+      expect(await within(screen.getByRole('tabpanel', { name: 'Build' })).findByRole('article', { name: 'Implementation plan' })).toBeInTheDocument();
+      // From another step it opens under the first that owns it.
+      pick('spec');
+      fireEvent.click(screen.getByRole('button', { name: 'the plan' }));
+      expect(openStop()).toBe('plan');
+      cleanup();
+      localStorage.clear();
+      window.location.hash = '';
+    }
+  });
+
+  // Final review A6 (page Minor 10): ⌘K Open docs with no file is not a pick.
+  it('Open docs with no file opens the open step’s documents without picking it', async () => {
+    function Opener() { const ui = useUi(); return <button type="button" onClick={() => ui.openDocs()}>open docs</button>; }
+    for (const hosted of [false, true]) {
+      const { move } = setup({ jobs: [working('plan')], extra: <Opener />, hosted, stageOf: (slug, stop) => ({ ...stageView(slug, stop), docs: stop === 'plan' ? DOCS : [] }) });
+      const panel = screen.getByRole('tabpanel', { name: 'Plan' });
+      await within(panel).findByRole('button', { name: /^Implementation plan/ });
+      fireEvent.click(screen.getByRole('button', { name: 'open docs' }));
+      await waitFor(() => expect(within(panel).getByRole('button', { name: /^Implementation plan/ })).toHaveFocus());
+      expect(window.location.hash).toBe('');
+      expect(localStorage.getItem('sb.job.step.alpha')).toBeNull();
+      // The page still follows the job.
+      move([working('implement')]);
+      expect(openStop()).toBe('build');
+      cleanup();
+      localStorage.clear();
+    }
+  });
+
+  // Final review A6 (page Minor 11): [ and ] never drop the focus to the page.
+  it('after [ or ] with the focus inside the open step, the focus goes to the new step’s tab', async () => {
+    setup({ jobs: [working('plan')], stageOf: (slug, stop) => ({ ...stageView(slug, stop), docs: DOCS }) });
+    const doc = await within(screen.getByRole('tabpanel', { name: 'Plan' })).findByRole('button', { name: /^Implementation plan/ });
+    doc.focus();
+    fireEvent.keyDown(doc, { key: ']' });
+    expect(openStop()).toBe('build');
+    await waitFor(() => expect(tabOf('build')).toHaveFocus());
+    // Focus outside the panel stays where it is.
+    const box = messageBox();
+    fireEvent.click(screen.getByRole('button', { name: 'Widen' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Back to the job' }));
+    const widen = screen.getByRole('button', { name: 'Widen' });
+    widen.focus();
+    fireEvent.keyDown(widen, { key: '[' });
+    expect(openStop()).toBe('plan');
+    await act(async () => {});
+    expect(widen).toHaveFocus();
+    expect(box).not.toHaveFocus();
+  });
+
+  // Final review A6 (page Minor 8): the address and the conversation never drift apart.
+  it('leaving the conversation’s address for the job’s closes the full-screen conversation', async () => {
+    for (const hosted of [false, true]) {
+      windowWidth(1024);
+      window.location.hash = '#/job/alpha/conversation';
+      setup({ jobs: [working('plan')], routed: true, hosted });
+      expect(page()).toHaveClass('is-full');
+      act(() => { window.location.hash = '#/job/alpha'; });
+      await waitFor(() => expect(page()).not.toHaveClass('is-full'));
+      expect(page()).not.toHaveClass('is-talk');
+      expect(shown(steps())).toBe(true);
+      cleanup();
+      window.location.hash = '';
+    }
+  });
+
   it('a request for a step while the conversation has the page gives the page back to the job', async () => {
     setup({ jobs: [working('plan')], view: 'conversation' });
     expect(shown(steps())).toBe(false);

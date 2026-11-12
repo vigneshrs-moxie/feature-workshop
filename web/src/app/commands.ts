@@ -142,7 +142,7 @@ function jobCommands(ctx: CommandContext, h: CommandHandlers, job: Job): Command
   });
   out.push({
     id: 'open-docs', label: 'Open docs', section: 'This job', keywords: 'documents spec plan findings review brief read files',
-    hint: `Show every document the crew wrote for ${title} (spec, plans, briefs, reviews, notes) as a clean page, in the Preview pane’s Docs tab.`,
+    hint: 'Open the documents of the open step',
     run: h.openDocs,
   });
   return out;

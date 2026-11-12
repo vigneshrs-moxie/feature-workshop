@@ -30,7 +30,6 @@ import type { Job, JobDetail, StageAgent, StopId } from '../../api/types';
 import { BRAND } from '../../app/brand';
 import { useKeyScope } from '../../app/keyRegistry';
 import { isJobView, jobHref, replaceHash, stageHref, type JobView } from '../../app/router';
-import { useUi } from '../../app/ui';
 import { Button } from '../../components/Button';
 import { Chip } from '../../components/Chip';
 import { Page, useMinWidth, useNarrow } from '../../components/page/Page';
@@ -47,18 +46,17 @@ import { isRoundCard } from '../../views/Review/useReview';
 import { StackSuggestion, useStackIndex } from '../../views/Stack/StackRows';
 import { NextStep, useSentShown } from '../NextStep';
 import { ConversationPanel, newCount, seenKey } from './ConversationPanel';
-import { docOwner as ownerOf } from './docOwner';
 import { JobTop } from './JobTop';
 import { lastStepKey, pickOpenStep } from './openStep';
 import { OverviewCard } from './OverviewCard';
 import { PhoneJob } from './PhoneJob';
 import { StepBody } from './StepBody';
-import { STEP_PANEL_ID, StepPanel } from './StepPanel';
+import { STEP_PANEL_ID, StepPanel, stepTabId } from './StepPanel';
 import { StepsRow } from './StepsRow';
 import { statesOf } from './stepWords';
 import { recorderAgent } from './TestStep';
 import { useJobEvidence } from './useJobEvidence';
-import { useJobMenuRequests } from './useJobMenuRequests';
+import { useDocRequests, useJobMenuRequests, type DocAsk } from './useJobMenuRequests';
 import { useStage } from './useStage';
 import './page.css';
 
@@ -114,7 +112,6 @@ function LaptopJob({ job, conversation, now, step, view, sent }: {
   job: Job; conversation: Conversation; now: Date; step: StopId | undefined; view: JobView | undefined; sent: ReturnType<typeof useSentShown>;
 }) {
   const slug = job.slug;
-  const ui = useUi();
   const state = useWorkshopState();
   const { thread, run } = conversation;
   const detail = thread.detail ?? null;
@@ -125,8 +122,11 @@ function LaptopJob({ job, conversation, now, step, view, sent }: {
   const [talk, setTalk] = useState(view === 'conversation');
   const [seenView, setSeenView] = useState(view);
   if (seenView !== view) {
-    setSeenView(view);
+    // The address and the full screen never drift apart: leaving the conversation's address (a
+    // link, Back) gives the page back to the job.
     if (view === 'conversation') setTalk(true);
+    else if (seenView === 'conversation') setTalk(false);
+    setSeenView(view);
   }
   // The overview's address opens the overview (its fold remembers it, as a click would).
   useEffect(() => { if (view === 'overview') writeStored(OVERVIEW_FOLD, 'open'); }, [view]);
@@ -180,8 +180,6 @@ function LaptopJob({ job, conversation, now, step, view, sent }: {
     writeStored(lastStepKey(slug), stop);
     replaceHash(stageHref(slug, stop));
   }, [slug]);
-  const openNow = useRef(open);
-  openNow.current = open;
   /**
    * Reading inside the open step (a click or a key press in its panel: a document, a commit's
    * change, a fold) is a pick of that step, once, while nothing is picked, as a click on its tab
@@ -198,10 +196,24 @@ function LaptopJob({ job, conversation, now, step, view, sent }: {
   }, [talk, leaveTalk, choose]);
 
   // [ and ]: the step before and after, as a click picks it. They rest while the steps are hidden.
+  // With the focus inside the open step (its body changes under it), the focus goes to the new
+  // step's tab, never to the page.
   const at = STOPS.findIndex((s) => s.id === open);
+  const tabFocus = useRef<StopId | null>(null);
+  const stepTo = (stop: StopId) => {
+    const inPanel = document.activeElement instanceof Element && document.activeElement.closest(`#${STEP_PANEL_ID}`) !== null;
+    tabFocus.current = inPanel ? stop : null;
+    choose(stop);
+  };
+  useEffect(() => {
+    const stop = tabFocus.current;
+    if (!stop) return;
+    tabFocus.current = null;
+    document.getElementById(stepTabId(stop))?.focus();
+  });
   useKeyScope('stage', {
-    'stage-prev': () => { const prev = STOPS[at - 1]; if (!prev) return false; choose(prev.id); },
-    'stage-next': () => { const next = STOPS[at + 1]; if (!next) return false; choose(next.id); },
+    'stage-prev': () => { const prev = STOPS[at - 1]; if (!prev) return false; stepTo(prev.id); },
+    'stage-next': () => { const next = STOPS[at + 1]; if (!next) return false; stepTo(next.id); },
   }, !talk);
 
   // ---- The evidence: asked once here for the bar's gate card, the Test step and its strip ----
@@ -211,19 +223,16 @@ function LaptopJob({ job, conversation, now, step, view, sent }: {
 
   // The job menu's "Try it on your computer" (the Test step, with Try it open) and "Review the screens".
   useJobMenuRequests(slug, () => { toStep('test'); setTryOpen(true); });
-  // A link to one of the job's documents (or ⌘K Open docs): the step that owns the file opens with
-  // it; a file no step owns, or no file, opens under the open step. Each request is handed down
-  // only while its step is open, and StepPanel acts on it once.
-  const [docAsk, setDocAsk] = useState<{ n: number; file: string | null; stop: StopId } | null>(null);
-  const handledDocs = useRef(ui.docsRequest);
-  const pageDocs = detail?.page?.docs;
-  useEffect(() => {
-    if (ui.docsRequest === handledDocs.current) return;
-    handledDocs.current = ui.docsRequest;
-    const stop = ownerOf(pageDocs, ui.docsFile) ?? openNow.current;
-    setDocAsk({ n: ui.docsRequest, file: ui.docsFile, stop });
-    toStep(stop);
-  }, [ui.docsRequest, ui.docsFile, pageDocs, toStep]);
+  // A link to one of the job's documents (or ⌘K Open docs): it opens under the step useDocRequests
+  // names (the open step, when it is one of the file's owners or nothing owns it). A link picks that
+  // step; ⌘K Open docs with no file is the open step's list and no pick: the page keeps following
+  // the job. Each request is handed down only while its step is open, and StepPanel acts on it once.
+  const [docAsk, setDocAsk] = useState<DocAsk | null>(null);
+  useDocRequests(detail?.page?.docs, open, stopOf(job.stage), (ask) => {
+    setDocAsk(ask);
+    if (ask.file) toStep(ask.stop);
+    else if (talk) leaveTalk();
+  });
   const docRequest = useMemo(() => (docAsk && docAsk.stop === open ? { n: docAsk.n, file: docAsk.file } : undefined), [docAsk, open]);
 
   // ---- The open step's view: never another step's facts under this step's name ----

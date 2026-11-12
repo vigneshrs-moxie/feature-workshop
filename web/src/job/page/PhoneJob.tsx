@@ -26,7 +26,6 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNod
 import type { Job, JobDetail, StageAgent, StopId } from '../../api/types';
 import { useKeyScope } from '../../app/keyRegistry';
 import { navigate, type JobView } from '../../app/router';
-import { useUi } from '../../app/ui';
 import { Button } from '../../components/Button';
 import { Chip } from '../../components/Chip';
 import { Icon } from '../../components/Icon';
@@ -44,7 +43,6 @@ import { CopyDecisions } from '../CopyDecisions';
 import { NextStep } from '../NextStep';
 import { WhatAutoDecided } from '../WhatAutoDecided';
 import { ConversationPanel, newCount, seenKey } from './ConversationPanel';
-import { docOwner } from './docOwner';
 import { AUTO_START_WHERE, jobFacts, JobStateChip, MENU_ON_LAPTOP } from './JobTop';
 import { Column, overviewNote, TheTicket, ticketFor, WhatWereBuilding } from './OverviewCard';
 import { StepBody } from './StepBody';
@@ -52,7 +50,7 @@ import { StepPanel } from './StepPanel';
 import { statesOf, stepState, stepTimeWords } from './stepWords';
 import { recorderAgent } from './TestStep';
 import { useJobEvidence, type JobEvidence } from './useJobEvidence';
-import { useJobMenuRequests } from './useJobMenuRequests';
+import { useDocRequests, useJobMenuRequests, type DocAsk } from './useJobMenuRequests';
 import { useStage } from './useStage';
 import { WhatToCheck } from './WhatToCheck';
 import './page.css';
@@ -91,7 +89,7 @@ export function PhoneJob({ job, conversation, now, step, view, sent }: { job: Jo
   const screenKey = step ? `stage/${step}` : view ?? 'job';
   const [trail, setTrail] = useState<{ now: string; before: string | null }>({ now: screenKey, before: null });
   // A document asked for (below), with the step it opens under, until you leave that step's screen.
-  const [docAsk, setDocAsk] = useState<{ n: number; file: string | null; stop: StopId } | null>(null);
+  const [docAsk, setDocAsk] = useState<DocAsk | null>(null);
   if (trail.now !== screenKey) {
     setTrail({ now: screenKey, before: trail.now });
     // Leaving the document's step: a later visit shows the step's list, not the document again.
@@ -115,22 +113,12 @@ export function PhoneJob({ job, conversation, now, step, view, sent }: { job: Jo
   useKeyScope('job', { 'write': () => write() });
 
   // A link to one of the job's documents (a Foreman message, the Tester's report, ⌘K Open docs): the
-  // step that owns the file (docOwner, the laptop's rule), else the step on screen, else the job's own
-  // step. Its screen opens (a new history entry, so Back returns) and its panel opens the document
-  // once. A request made before the page was there is not acted on.
-  const ui = useUi();
-  const handledDocs = useRef(ui.docsRequest);
-  const pageDocs = conversation.thread.detail?.page?.docs;
-  const stepNow = useRef(step);
-  stepNow.current = step;
-  const jobStep = stopOf(job.stage);
-  useEffect(() => {
-    if (ui.docsRequest === handledDocs.current) return;
-    handledDocs.current = ui.docsRequest;
-    const stop = docOwner(pageDocs, ui.docsFile) ?? stepNow.current ?? jobStep ?? STOPS[0].id;
-    setDocAsk({ n: ui.docsRequest, file: ui.docsFile, stop });
-    navigate({ name: 'stage', slug, stop });
-  }, [ui.docsRequest, ui.docsFile, pageDocs, jobStep, slug]);
+  // step useDocRequests names, the laptop's one rule (the step on screen standing for the open step).
+  // Its screen opens (a new history entry, so Back returns) and its panel opens the document once.
+  useDocRequests(conversation.thread.detail?.page?.docs, step ?? null, stopOf(job.stage), (ask) => {
+    setDocAsk(ask);
+    navigate({ name: 'stage', slug, stop: ask.stop });
+  });
   const docRequest = useMemo(() => (docAsk && docAsk.stop === step ? { n: docAsk.n, file: docAsk.file } : undefined), [docAsk, step]);
 
   const props: ScreenProps = { job, conversation, now, sent, evidence, back, write };
@@ -266,7 +254,8 @@ function StepScreen({ job, conversation, now, sent, evidence, back, write, stop,
   const stage = useStage(slug, stop);
   const view = stage.view && (!stage.view.stop || stage.view.stop === stop) ? stage.view : null;
   const state = stepState(job, stop, sent);
-  const time = stepTimeWords(job, stop, view?.time, now, view?.since, sent);
+  // The same time the steps list says for this step (its recorded span, never a fallback to the view's since).
+  const time = stepTimeWords(job, stop, detail?.page?.times?.[stop], now, null, sent);
   const waits = waitingStep(job, detail) === stop;
   const recorder = stop === 'test' ? recorderAgent(evidence.recording ? evidence.view?.progress : null) : null;
   // No tab row here: the step's panel is a region named by this screen's heading.

@@ -77,12 +77,13 @@ describe('commandsFor', () => {
     expect(ids(commandsFor({ state: stateWith([job('alpha', 'idle')]), slug: null, current: null, onSettings: false }, h))).not.toContain('job-drawer');
   });
 
-  it('offers “Open docs” for the open job only, showing the Docs tab', () => {
+  it('offers “Open docs” for the open job only, opening the open step’s documents', () => {
     const h = handlers();
     const list = commandsFor({ state: stateWith([job('alpha', 'idle')]), slug: 'alpha', current: { slug: 'alpha', run: null }, onSettings: false }, h);
     const entry = list.find((c) => c.id === 'open-docs')!;
     expect(entry.label).toBe('Open docs');
-    expect(entry.hint).toMatch(/clean page/);
+    // Final review A6 (page Minor 10): the hint says what it does on the job page.
+    expect(entry.hint).toBe('Open the documents of the open step');
     entry.run();
     expect(h.openDocs).toHaveBeenCalledTimes(1);
     expect(ids(filterCommands(list, 'docs'))).toEqual(['open-docs']);

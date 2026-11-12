@@ -429,6 +429,19 @@ describe('the phone’s step screen', () => {
     expect(screen.queryByRole('region', { name: 'The bay at this stop' })).toBeNull();
   });
 
+  // Final review A6 (page Minor 7, the phone's half): the step's screen and the list say the same time.
+  it.each([['the laptop app', false], ['the website', true]] as const)('a step with no time span shows no time on its own screen either (%s)', async (_where, hosted) => {
+    server.stageMore = { since: new Date(Date.now() - 12 * 60_000).toISOString() };
+    setup({ jobs: [working('implement')], hosted });
+    const row = await screen.findByRole('button', { name: /^Build: / });
+    expect(row).toHaveAccessibleName(/^Build: Working now$/);
+    fireEvent.click(row);
+    expect(await screen.findByRole('heading', { level: 1, name: 'Build' })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('region', { name: 'Build' }).querySelector('.sb-step-body')).not.toBeNull());
+    expect(document.querySelector('.sb-phone-facts .num')).toBeNull();
+    expect(document.querySelector('.sb-phone-facts')).not.toHaveTextContent(/so far|min/);
+  });
+
   it('a step’s body comes only once that step’s view is in', async () => {
     let release = () => {};
     server.stageHold = new Promise<void>((r) => { release = r; });
