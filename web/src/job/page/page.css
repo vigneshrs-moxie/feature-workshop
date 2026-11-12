@@ -140,6 +140,7 @@ a.sb-top-ticket:hover { border-color: var(--border-3); }
   .sb-top-acts { justify-content: flex-start; flex-wrap: wrap; }
   .sb-job-top .auto-switch.is-inline { justify-content: start; }
   .sb-job-top .auto-line { justify-content: flex-start; text-align: left; }
+}
 
 /* The steps row and the open step (job/page/StepsRow.tsx, StepPanel.tsx, StepDocs.tsx): seven large
    steps that always fit the work column side by side (no sideways scroll from 761 px), the open one
@@ -304,3 +305,27 @@ p.sb-test-note { margin: 0; }
 @media (min-width: 1100px) {
   .sb-job-cols { grid-template-columns: minmax(0, 1fr) 400px; }
 }
+
+/* ---------- The job page's layouts (NewJobPage.tsx, Task 15b) ----------
+   Each layout only hides, shows or moves parts: the bar and the conversation never move in the tree.
+   - The work column's parts (sb-job-part) add no box of their own, so the column's gap still applies.
+   - Widened (is-wide, from 1100 px): one column; the bar while the job waits for you, then the
+     conversation, which fills the rest (its messages 760 px at most, ConversationPanel's rule).
+   - Under 1100 px: the conversation is one button at the page's foot (sb-job-talkbar); open, the bar
+     and the conversation take the whole screen (is-full), with Back to the job above them.
+   The z-index keeps the full screen under the app's sheets and drawers (50 and up). */
+.sb-job-part { display: contents; }
+.sb-job-loading { margin: 0; font-size: var(--text-sm); }
+.sb-job-problem { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
+.sb-job-problem .thread-error { margin: 0; }
+
+.sb-job-page.is-talk .sb-job-cols { display: flex; flex-direction: column; }
+.sb-job-page.is-talk .sb-job-work { flex: 0 1 auto; max-height: 50%; padding-bottom: 0; gap: var(--space-3); }
+.sb-job-page.is-talk .sb-job-talk { flex: 1 1 auto; padding: var(--space-3) var(--page-gutter) var(--space-5); }
+
+.sb-job-talkbar { flex: none; padding: var(--space-3) var(--page-gutter); border-top: 1px solid var(--border-1); background: var(--bg-1); }
+.sb-job-talkbutton { width: 100%; max-width: 760px; margin: 0 auto; display: flex; justify-content: center; gap: var(--space-2); }
+
+.sb-job-page.is-full .sb-job-cols { position: fixed; inset: 0; z-index: 45; background: var(--bg-0); }
+.sb-job-page.is-full .sb-job-work { padding-top: var(--space-3); }
+.sb-job-back { display: flex; }
