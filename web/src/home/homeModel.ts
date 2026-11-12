@@ -342,11 +342,17 @@ export interface TableRow {
   inReview: boolean;
 }
 
+/** The job's branch, or null when it is only a guess (the card's repo.branchGuessed): never shown as the job's. */
+export function ownBranchOf(job: Pick<Job, 'repo'>): string | null {
+  return job.repo?.branchGuessed ? null : job.repo?.branch ?? null;
+}
+
 export function tableRows(jobs: readonly Job[], flow: FlowView | null, now: Date = new Date()): TableRow[] {
   const lanes = new Map<string, { lane: FlowLane; repo: FlowRepo }>();
   for (const repo of flow?.repos ?? []) for (const lane of repo.lanes) lanes.set(lane.slug, { lane, repo });
   return jobs.map((j) => {
-    const hit = lanes.get(j.slug);
+    // A branch only guessed (ownBranchOf): no branch, and not a lane the map may still have for it.
+    const hit = j.repo?.branchGuessed ? undefined : lanes.get(j.slug);
     const st = jobStatus(j, now);
     const pr1 = hit?.lane.pr1 ?? null;
     const pr2 = hit?.lane.pr2 ?? null;
@@ -354,7 +360,7 @@ export function tableRows(jobs: readonly Job[], flow: FlowView | null, now: Date
     return {
       slug: j.slug, title: j.title || j.slug,
       repo: hit?.repo.name ?? (j.project as { name?: string } | undefined)?.name ?? '',
-      branch: hit?.lane.branch ?? (j.repo as { branch?: string } | null | undefined)?.branch ?? '',
+      branch: hit?.lane.branch ?? ownBranchOf(j) ?? '',
       level: typeof j.level === 'number' ? j.level : null,
       stage: j.stage ? stageLabel(j.stage) : '', stageId: j.stage ?? '',
       group: j.group, status: st.label, statusHint: st.hint,

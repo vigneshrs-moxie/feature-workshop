@@ -3748,7 +3748,8 @@ test('the level rules never read a guessed branch\'s changed files: the job page
     await w.writeStatus(status(1, { base_sha: base }));
     await new Promise((r) => setTimeout(r, 1600));
     const job = await w.runner.read.job(w.slug);
-    assert.deepEqual({ worktree: job.worktree, guessed: job.locate.branchGuessed }, { worktree: wt, guessed: true }, 'the guess is still shown');
+    // The guess is still shown (locate); the job's details name no worktree found only through it (job-page-server.test.js).
+    assert.deepEqual({ located: job.locate.worktree, worktree: job.worktree ?? null, guessed: job.locate.branchGuessed }, { located: wt, worktree: null, guessed: true }, 'the guess is still shown');
     assert.equal(job.rulesLevel.fromDiff, false, 'not from the guessed branch\'s files');
     assert.equal(job.rulesLevel.changedFiles, null);
     // "Choose the level for me" does not raise the level from the guessed branch's diff either.
@@ -3777,7 +3778,7 @@ async function guessedOther(w, { push = false } = {}) {
   await mentionBranch(w, 'feature/other-thing');
   await new Promise((r) => setTimeout(r, 1600));
   const job = await w.runner.read.job(w.slug);
-  assert.deepEqual({ worktree: job.worktree, guessed: job.locate.branchGuessed }, { worktree: wt, guessed: true });
+  assert.deepEqual({ located: job.locate.worktree, worktree: job.worktree ?? null, guessed: job.locate.branchGuessed }, { located: wt, worktree: null, guessed: true });
   return wt;
 }
 

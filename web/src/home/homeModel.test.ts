@@ -185,6 +185,18 @@ describe('homeModel', () => {
     expect(sortRows(rows, 'level', 'asc').map((r) => r.slug)).toEqual(['a', 'd', 'b', 'c']); // no level sorts last
   });
 
+  it('the table shows no branch for a job whose branch is only a guess, nor a lane the map still has for it; a recorded branch shows', () => {
+    const jobs: Job[] = [
+      { ...job('g', 'running'), title: 'Guessed', stage: 'plan', repo: { name: 'app', branch: 'feature/other-thing', branchGuessed: true } },
+      { ...job('r', 'running'), title: 'Recorded', stage: 'plan', repo: { name: 'app', branch: 'feature/r' } },
+    ];
+    // The map may still have the guessed job's lane from before (the other job's PR #1).
+    const rows = tableRows(jobs, flow([lane('g', { position: 'fork', reached: 1, pr1: pr(5, 'open') })]));
+    expect(rows.find((r) => r.slug === 'g')).toMatchObject({ branch: '', where: '', pr1: null, inReview: false });
+    expect(rows.find((r) => r.slug === 'r')).toMatchObject({ branch: 'feature/r' });
+    expect(tableRows([jobs[0]], null)[0].branch).toBe('');
+  });
+
   it('queues every decision for the Desk, oldest first, and never one-key-approves a hard line or a question', () => {
     const jobs: Job[] = [
       { ...job('gate', 'needs-you'), waitingFor: 'approval', stage: 'plan', waitingSince: '2026-10-21T09:00:00Z' },

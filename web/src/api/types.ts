@@ -94,7 +94,8 @@ export interface Job {
   updatedAt?: string | null;
   limitPaused?: string | null;
   project?: { name: string; path?: string };
-  repo?: { name: string; branch?: string | null } | null;
+  /** branchGuessed: the branch is only a guess (dashboard/lib/locate.js): no page shows it as the job's (home/homeModel.ts ownBranchOf). */
+  repo?: { name: string; branch?: string | null; branchGuessed?: boolean } | null;
   cost?: { totalUsd: number; source?: string } | null;
   /** Marked done or dropped (POST /api/job/:slug/close), and nothing has happened since. */
   closed?: Closed | null;

@@ -8,7 +8,7 @@ import { parseSessionLog, usageByModel, activityState, quietHint, spendSince } f
 import { agentInfo } from './stages.js';
 import { readOptions, skippedFor } from './options.js';
 import { estimateCost, calibrationFactors } from './cost.js';
-import { locateJob } from './locate.js';
+import { locateJob, ownBranch } from './locate.js';
 import { suggestLevel } from './levels.js';
 import { versionsFrom } from './gate.js';
 import { walkthroughInfo, wireframesInfo } from './docs.js';
@@ -459,8 +459,8 @@ export async function loadFeatures({ featuresDir, sessionIndex, now = Date.now()
     f.branch = f.locate.branch ?? f.branch;
     f.worktree = f.locate.worktree ?? f.worktree;
     // The review walkthrough page for the job's branch (the review-walkthrough skill), if one was built.
-    // None for a branch only guessed (branchGuessed): the page built for it may be another job's.
-    f.walkthrough = f.locate.branchGuessed ? null : await walkthroughInfo(f);
+    // None for a branch only guessed (ownBranch): the page built for it may be another job's.
+    f.walkthrough = await walkthroughInfo({ ...f, branch: ownBranch(f) });
     f.project = projectFor(f.repoPath ?? s[0]?.parsed.cwd ?? null);
   }
   // Features waiting on you first (longest wait first), then working, then the rest by last update.
