@@ -1324,6 +1324,68 @@ describe('the go / no go bar', () => {
     await waitFor(() => expect(go).toBeEnabled());
   });
 
+  // Final review A3: Send back never closes its own box, and change words never go with an approval.
+  it('Send back pressed twice keeps the box open and its words', async () => {
+    const { post } = setup({ jobs: waiting(), gate: GATE });
+    const back = await screen.findByRole('button', { name: /^No go: send back/ });
+    await waitFor(() => expect(back).toBeEnabled());
+    fireEvent.click(back);
+    const box = await screen.findByRole('textbox', { name: /What should change\?/ });
+    fireEvent.change(box, { target: { value: 'Use the small table.' } });
+    back.focus();
+    fireEvent.click(back);
+    await act(async () => {});
+    expect(screen.getByRole('textbox', { name: /What should change\?/ })).toBe(box);
+    expect(box).toHaveValue('Use the small table.');
+    expect(box).toHaveFocus();
+    expect(screen.getByRole('button', { name: /^Go: approve/ })).toBeDisabled();
+    expect(post.mock.calls.filter(([p]) => p === '/api/job/alpha/gate')).toHaveLength(0);
+  });
+
+  it('the r key on an open box keeps it', async () => {
+    setup({ jobs: waiting(), gate: GATE });
+    await waitFor(() => expect(screen.getByRole('button', { name: /^No go: send back/ })).toBeEnabled());
+    fireEvent.keyDown(document.body, { key: 'r' });
+    const box = await screen.findByRole('textbox', { name: /What should change\?/ });
+    fireEvent.change(box, { target: { value: 'Use the small table.' } });
+    box.blur();
+    fireEvent.keyDown(document.body, { key: 'r' });
+    await act(async () => {});
+    expect(screen.getByRole('textbox', { name: /What should change\?/ })).toBe(box);
+    expect(box).toHaveValue('Use the small table.');
+    expect(box).toHaveFocus();
+    // The o key on an open Reply box keeps it too.
+    fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
+    const reply = await screen.findByRole('textbox', { name: /Your answers or a note/ });
+    reply.blur();
+    fireEvent.keyDown(document.body, { key: 'o' });
+    await act(async () => {});
+    expect(screen.getByRole('textbox', { name: /Your answers or a note/ })).toHaveFocus();
+  });
+
+  it('changes typed, then Reply, then Go: no approval carries those words', async () => {
+    const { post } = setup({ jobs: waiting(), gate: GATE });
+    const back = await screen.findByRole('button', { name: /^No go: send back/ });
+    await waitFor(() => expect(back).toBeEnabled());
+    fireEvent.click(back);
+    fireEvent.change(await screen.findByRole('textbox', { name: /What should change\?/ }), { target: { value: 'Use the small table.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
+    // The Reply box has its own words: none yet.
+    const reply = await screen.findByRole('textbox', { name: /Your answers or a note/ });
+    expect(reply).toHaveValue('');
+    // Back to Send back: its words are still its own.
+    fireEvent.click(back);
+    expect(await screen.findByRole('textbox', { name: /What should change\?/ })).toHaveValue('Use the small table.');
+    fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
+    const go = screen.getByRole('button', { name: /^Go: approve/ });
+    await waitFor(() => expect(go).toBeEnabled());
+    fireEvent.click(go);
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/api/job/alpha/gate', expect.objectContaining({ kind: 'approve' })));
+    for (const [, b] of post.mock.calls.filter(([p]) => p === '/api/job/alpha/gate')) {
+      expect(JSON.stringify(b)).not.toContain('Use the small table.');
+    }
+  });
+
   it('with Play off the calls are the gate’s own words', async () => {
     setup({ jobs: waiting(), gate: GATE, play: 'off' });
     expect(await screen.findByRole('button', { name: /^Approve/ })).toBeInTheDocument();

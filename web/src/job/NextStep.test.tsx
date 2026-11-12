@@ -540,6 +540,69 @@ describe('the boxes under the bar', () => {
   });
 });
 
+// The parked web review's Minor 3: the send row scrolls once each time a different box opens.
+describe('the open box’s send row', () => {
+  function watchScroll() {
+    const seen = vi.fn();
+    const had = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView');
+    Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, writable: true, value: seen });
+    const rowScrolls = () => seen.mock.contexts.filter((c) => (c as Element).classList?.contains('perm-actions')).length;
+    const restore = () => {
+      if (had) Object.defineProperty(Element.prototype, 'scrollIntoView', had);
+      else delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    };
+    return { seen, rowScrolls, restore };
+  }
+
+  it('switching from Reply to What should change? brings that box’s send button into view', async () => {
+    const { seen, rowScrolls, restore } = watchScroll();
+    try {
+      for (const hosted of [false, true]) {
+        setup({ jobs: waiting(), gate: GATE, post: sentPost(), hosted, foldHere: true });
+        await gateShown();
+        const reply = within(bar()).getByRole('button', { name: 'Reply' });
+        await waitFor(() => expect(reply).toBeEnabled());
+        fireEvent.click(reply);
+        await screen.findByRole('textbox', { name: /Your answers or a note/ });
+        await waitFor(() => expect(rowScrolls()).toBe(1));
+        seen.mockClear();
+        fireEvent.click(within(bar()).getByRole('button', { name: /^No go: send back/ }));
+        await screen.findByRole('textbox', { name: /What should change\?/ });
+        await waitFor(() => expect(rowScrolls()).toBe(1));
+        expect(within(seen.mock.contexts[seen.mock.contexts.length - 1] as HTMLElement).getByRole('button', { name: 'Send back' })).toBeInTheDocument();
+        // And back again.
+        seen.mockClear();
+        fireEvent.click(within(bar()).getByRole('button', { name: 'Reply' }));
+        await screen.findByRole('textbox', { name: /Your answers or a note/ });
+        await waitFor(() => expect(rowScrolls()).toBe(1));
+        cleanup();
+        localStorage.clear();
+      }
+    } finally { restore(); }
+  });
+
+  it('typing in an open box does not scroll again', async () => {
+    const { seen, rowScrolls, restore } = watchScroll();
+    try {
+      for (const hosted of [false, true]) {
+        setup({ jobs: waiting(), gate: GATE, post: sentPost(), hosted, foldHere: true });
+        await gateShown();
+        const back = within(bar()).getByRole('button', { name: /^No go: send back/ });
+        await waitFor(() => expect(back).toBeEnabled());
+        fireEvent.click(back);
+        const box = await screen.findByRole('textbox', { name: /What should change\?/ });
+        await waitFor(() => expect(rowScrolls()).toBe(1));
+        seen.mockClear();
+        for (const words of ['U', 'Us', 'Use the small table.']) fireEvent.change(box, { target: { value: words } });
+        await act(async () => {});
+        expect(rowScrolls()).toBe(0);
+        cleanup();
+        localStorage.clear();
+      }
+    } finally { restore(); }
+  });
+});
+
 // Task 7 fix round 1.
 describe('the bar: Auto’s go, the Foreman among the crew, and the small words', () => {
   const autoGo: ThreadItem = { id: 'you-auto', kind: 'you', at: NOW, text: 'Approved.', sendKind: 'approve', gateBrief: 2, by: 'auto' } as ThreadItem;

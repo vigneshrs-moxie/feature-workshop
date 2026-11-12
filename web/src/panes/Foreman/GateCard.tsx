@@ -212,6 +212,8 @@ export function GateSlot({ job, detail, now, reload, callsOutside = false, extra
 }
 
 type Mode = null | 'changes' | 'message' | 'stop';
+/** The words typed in each of the card's two boxes. */
+interface Notes { changes: string; message: string }
 
 function GateCard({ job, detail, gate, now, reload, report, running, callsOutside = false, extrasTo = null, onOpenBox, evidence, keysOff = false }: {
   job: Job; detail: JobDetail; gate: Gate; now: Date; reload(): void; report(n: GateNotice): void; callsOutside?: boolean; extrasTo?: HTMLElement | null; onOpenBox?(): void;
@@ -226,7 +228,10 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   const headId = `${uid}-head`;
   const [c, setC] = useState<GateChoices>(() => initialChoices(gate));
   const [mode, setMode] = useState<Mode>(null);
-  const [note, setNote] = useState('');
+  // Each box keeps its own words (final review A3): what was typed as a change is never a Reply's note.
+  const [notes, setNotes] = useState<Notes>({ changes: '', message: '' });
+  const note = mode === 'changes' || mode === 'message' ? notes[mode] : '';
+  const setNote = (words: string) => { if (mode === 'changes' || mode === 'message') setNotes((n) => ({ ...n, [mode]: words })); };
   const [stopName, setStopName] = useState('');
   const [stopNote, setStopNote] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
@@ -377,7 +382,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
             : 'Your reply went to the Foreman.';
       report({ tone: 'ok', text: `${what}${dropped}`, lines, focus: 'notice' });
       // m3: a reply that was taken leaves its box: cleared and closed, so a second press can't send it again.
-      if (kind === 'message') { setNote(''); setMode(null); }
+      if (kind === 'message') { setNotes((n) => ({ ...n, message: '' })); setMode(null); }
     } else if (r.held) {
       report({ tone: 'ok', text: `${r.message ?? 'Held until Claude’s usage limit resets.'}${dropped}`, lines, focus: 'notice' });
     } else {
@@ -405,7 +410,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   /** Approve; a note typed in the open reply box goes with it (I2), and words for a send back stop it. */
   function approveNow(extra: Partial<GateRequest> = {}, button: NonNullable<typeof pressed> = 'approve') {
     if (changesTyped) return;
-    void act('approve', { ...(mode === 'message' && note.trim() ? { note } : {}), ...extra }, button);
+    void act('approve', { ...(mode === 'message' && notes.message.trim() ? { note: notes.message } : {}), ...extra }, button);
   }
 
   async function act(kind: GateKind, extra: Partial<GateRequest> = {}, button: NonNullable<typeof pressed> = kind === 'stop' ? 'stop' : kind) {
@@ -456,14 +461,22 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
     await act('stop', { note: stopNote });
   }
 
+  /**
+   * Open a box (What should change?, Reply, Stop). Never a toggle (final review A3): pressed again
+   * while it is open, the cursor goes back in it; only the box's own Cancel closes it.
+   */
   function openMode(m: Mode) {
     setError(null);
     setMenuOpen(false);
-    if (mode !== m && (m === 'changes' || m === 'message')) {
+    if (mode === m) {
+      (m === 'stop' ? stopBox : noteBox).current?.focus();
+      return;
+    }
+    if (m === 'changes' || m === 'message') {
       const at = document.activeElement;
       opener.current = at instanceof HTMLElement && at !== document.body ? at : null;
     }
-    setMode((now) => (now === m ? null : m));
+    setMode(m);
   }
 
   /** Cancel the open box: focus goes back to what opened it, when it is still there to take it. */
@@ -516,7 +529,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
     <section className={`perm-card question-card gate-card${stale ? ' is-stale' : ''}`} data-ask="question" aria-labelledby={headId} aria-busy={busy}>
       {/* The Send back or Reply box, when open: first, directly under the page's bar. */}
       {(mode === 'changes' || mode === 'message') && (
-        <div className="gate-note">
+        <div className="gate-note" data-box={mode}>
           <label className="field">
             <span>{mode === 'changes' ? 'What should change? The Foreman stays at this step and revises; nothing is approved.' : 'Your answers or a note for the Foreman. Nothing is approved.'}</span>
             <textarea

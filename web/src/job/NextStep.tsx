@@ -298,7 +298,7 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, foldHere = fa
   const setCardShown = foldHere ? setShownHere : setStageShown;
   const folds = foldCard || foldHere;
   const body = useRef<HTMLDivElement>(null);
-  const [go, setGo] = useState({ words: '', off: true, asks: false, backOff: false, replyOff: true, why: '', boxOpen: false, holds: false });
+  const [go, setGo] = useState({ words: '', off: true, asks: false, backOff: false, replyOff: true, why: '', boxOpen: false, box: '', holds: false });
   // Over the job page's conversation (foldHere) a box open in the card (What should change?, Reply)
   // keeps it open, so typed words are never out of sight, and its row is off meanwhile. On the
   // phone's screens (foldCard) the row folds the brief, box and all, as he asks.
@@ -319,21 +319,22 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, foldHere = fa
       // Off whenever the card's button can't be pressed: disabled, aria-disabled, or busy.
       const reply = el.querySelector<HTMLButtonElement>('[data-gate="guidance"]');
       // The card's own reason when Go must wait for something on it (words typed for a send back).
-      const next = { words: wordsOf(b), off: !isPressable(b), asks: Boolean(el.querySelector('.gate-question')), backOff: !isPressable(back), replyOff: !isPressable(reply), why: b?.dataset.offWhy ?? '', boxOpen: Boolean(el.querySelector('.gate-note')), holds: Boolean(el.querySelector('[data-gate-holds]')) };
-      setGo((was) => (was.words === next.words && was.off === next.off && was.asks === next.asks && was.backOff === next.backOff && was.replyOff === next.replyOff && was.why === next.why && was.boxOpen === next.boxOpen && was.holds === next.holds ? was : next));
+      const next = { words: wordsOf(b), off: !isPressable(b), asks: Boolean(el.querySelector('.gate-question')), backOff: !isPressable(back), replyOff: !isPressable(reply), why: b?.dataset.offWhy ?? '', boxOpen: Boolean(el.querySelector('.gate-note')), box: el.querySelector<HTMLElement>('.gate-note')?.dataset.box ?? '', holds: Boolean(el.querySelector('[data-gate-holds]')) };
+      setGo((was) => (was.words === next.words && was.off === next.off && was.asks === next.asks && was.backOff === next.backOff && was.replyOff === next.replyOff && was.why === next.why && was.boxOpen === next.boxOpen && was.box === next.box && was.holds === next.holds ? was : next));
     };
     read();
     const watch = new MutationObserver(read);
     watch.observe(el, { subtree: true, childList: true, attributes: true, characterData: true });
     return () => watch.disconnect();
   }, [detail]);
-  // With the conversation taking the screen the bar's area is capped and scrolls (page.css): as a
-  // box opens, the row with its send button comes into view inside it. (jsdom may lack the call.)
+  // With the conversation taking the screen the bar's area is capped and scrolls (page.css): each
+  // time a box becomes the open one (Reply straight to What should change? too), the row with its
+  // send button comes into view inside it; never on a keystroke. (jsdom may lack the call.)
   useEffect(() => {
-    if (!foldHere || !go.boxOpen) return;
+    if (!foldHere || !go.box) return;
     const row = body.current?.querySelector<HTMLElement>('.gate-note .perm-actions');
     if (typeof row?.scrollIntoView === 'function') row.scrollIntoView({ block: 'nearest' });
-  }, [foldHere, go.boxOpen]);
+  }, [foldHere, go.box]);
   const press = (what: 'approve' | 'revise') => { const b = body.current?.querySelector(`[data-gate="${what}"]`); if (isPressable(b)) b.click(); };
   // Send back and Reply open a box in the card: a folded brief opens first so the box is seen.
   const reply = () => { if (folded) setCardShown(true); pressReply(body.current); };
