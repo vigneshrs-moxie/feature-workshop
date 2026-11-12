@@ -1,0 +1,105 @@
+// The new job page's pinned header (Part 3, as drawn). Row one: the title and the state in a word
+// (Sent once his decision is out, Needs you in the needs-you lane, else the lane's word); at the
+// right the Auto switch with On or Off beside it, the gear (Job menu, the laptop only) and How it
+// works. Row two: the ticket (a link to Orbit when the page knows a web address), Copy decisions,
+// "Started by Auto · tag x" on a job a tag started, the kind, the level chip, the repository and
+// where the work is, and the locked Foreman model once the job has started; at the right, under the
+// switch (its own line: Auto is on, Auto stopped: why), What Auto decided, which opens as a drawer.
+// On the website the gear is not there (everything in it is done on the laptop) and the switch
+// queues its change for the laptop, as AutoSwitch does. Nothing here touches the bar's three calls.
+import type { Job, JobDetail, Permission, Run } from '../../api/types';
+import { Button } from '../../components/Button';
+import { Chip, type ChipTone } from '../../components/Chip';
+import { Icon, type IconName } from '../../components/Icon';
+import { Guide, useGuide, type GuideSpec } from '../../components/page/Page';
+import { chipTone, laneOf, LANE_INFO, stateChip } from '../../home/JobsPage';
+import { whereLine } from '../../home/nudges';
+import type { GateKind } from '../../lib/compose';
+import { JobMenu } from '../../panes/Foreman/JobHeader';
+import { LevelChip } from '../../panes/Foreman/LevelChip';
+import { useWorkshopState } from '../../state/store';
+import { PartOfStack, useStackIndex } from '../../views/Stack/StackRows';
+import { AutoSwitch } from '../AutoSwitch';
+import { CopyDecisions } from '../CopyDecisions';
+import { ticketOf } from '../NextStep';
+import { WhatAutoDecided } from '../WhatAutoDecided';
+import { foremanModel } from './foremanModel';
+import './page.css';
+
+/** The new job page's guide (How it works); its own id, so it opens once by itself on the new page. */
+export const NEW_JOB_GUIDE: GuideSpec = {
+  id: 'job-page-2',
+  title: 'How the job page works',
+  done: 'Got it',
+  cards: [
+    { icons: ['hand'], title: 'Your next move is at the top', say: 'The bar says what the job waits for. Send back, Reply and Go are there whenever it waits for you.' },
+    { icons: ['file', 'clipboard', 'hammer', 'rocket'], title: 'Seven steps, each opens in place', say: 'Click a step to see who worked on it, what they are doing now and what it produced.' },
+    { icons: ['message'], title: 'The conversation stays beside you', say: 'The whole history with the Foreman, newest at the bottom. Widen it when you want to read.' },
+  ],
+};
+
+export const MODEL_LOCK = 'Fixed once the job starts. Change model… in the gear menu starts it again.';
+export const AUTO_START_WHERE = 'Settings, Workflow, Auto start';
+
+/**
+ * The header's state in a word: Sent while the bar shows his decision on its way (whatever he sent);
+ * Needs you in the needs-you lane (which counts a step that is his because he wrote to an Auto job);
+ * else the word the Jobs card uses.
+ */
+export function headerState(job: Job, permissions: readonly Permission[] | undefined, sent: { kind: GateKind | null } | null): { word: string; tone: ChipTone; icon: IconName } {
+  if (sent) return { word: 'Sent', tone: 'info', icon: 'loader' };
+  const lane = laneOf(job);
+  if (lane === 'needs-you') return { word: LANE_INFO['needs-you'].word, tone: 'needs-you', icon: LANE_INFO['needs-you'].icon };
+  const chip = stateChip(job, permissions);
+  return { word: chip.word, tone: chipTone(lane, chip.word), icon: chip.icon };
+}
+
+const KIND_WORDS: Record<string, string> = { feature: 'Feature', bug: 'Bug fix' };
+const isWebAddress = (v: unknown): v is string => typeof v === 'string' && /^https?:\/\/\S+$/i.test(v.trim());
+
+export function JobTop({ job, detail, run, sent }: { job: Job; detail: JobDetail | null; run: Run | null; sent: { kind: GateKind | null } | null }) {
+  const state = useWorkshopState();
+  const stacks = useStackIndex();
+  const [guideOpen, setGuideOpen] = useGuide(NEW_JOB_GUIDE.id);
+  const lane = laneOf(job);
+  const chip = headerState(job, state.permissions, sent);
+  const ticket = ticketOf(job) ?? (typeof detail?.page?.ticket?.key === 'string' ? detail.page.ticket.key : null);
+  const ticketUrl = detail?.page?.ticket?.url;
+  // One source: the job's record says a tag started Auto; the tag's name comes with the job's detail.
+  const byTag = job.auto?.by === 'tag';
+  const tag = typeof detail?.auto?.tag === 'string' && detail.auto.tag.trim() ? detail.auto.tag.trim() : null;
+  const kind = job.kind ? KIND_WORDS[job.kind] ?? job.kind : null;
+  const model = foremanModel(detail, state.meta?.models);
+  return (
+    <header className="sb-job-top">
+      <div className="sb-top-main">
+        <div className="sb-top-title">
+          <h2 className="page-title">{job.title || job.slug}</h2>
+          <Chip tone={chip.tone} icon={chip.icon} className={`state-chip is-${lane}`} title={sent ? undefined : LANE_INFO[lane].hint}>{chip.word}</Chip>
+        </div>
+        <div className="sb-top-facts">
+          {ticket && (isWebAddress(ticketUrl)
+            ? <a className="chip chip-outline num sb-top-ticket" href={ticketUrl.trim()} target="_blank" rel="noreferrer" title="Open the ticket in Orbit.">{ticket}<Icon name="external" size={12} /></a>
+            : <Chip tone="outline" className="num sb-top-ticket">{ticket}</Chip>)}
+          <CopyDecisions slug={job.slug} />
+          {byTag && <Chip tone="accent" className="sb-top-auto" title={AUTO_START_WHERE}>{tag ? `Started by Auto · tag ${tag}` : 'Started by Auto'}</Chip>}
+          {kind && <span className="sb-top-fact">{kind}</span>}
+          <LevelChip job={job} ready={Boolean(detail)} />
+          {job.repo?.name && <span className="sb-top-fact">{job.repo.name}</span>}
+          <span className="sb-top-fact sb-top-where" title="Where the job’s work is, from the finish line and its PRs.">{whereLine(job)}</span>
+          <PartOfStack slug={job.slug} index={stacks} />
+          {model && <span className="sb-top-model" title={MODEL_LOCK}><Icon name="lock" size={13} />Foreman model: {model}</span>}
+        </div>
+      </div>
+      <div className="sb-top-side">
+        <div className="sb-top-acts">
+          <AutoSwitch job={job} word tagLine={false} />
+          <JobMenu job={job} dir={detail?.dir} policyOverride={detail?.policyOverride} run={run} worktree={detail?.worktree} started={Boolean(detail?.drive?.sessionId)} gear />
+          <Button kind="quiet" icon="help" className="page-how" onClick={() => setGuideOpen(true)} title="The three things to know about this page.">How it works</Button>
+        </div>
+        <WhatAutoDecided slug={job.slug} auto={job.auto} drawer />
+      </div>
+      {guideOpen && <Guide spec={NEW_JOB_GUIDE} onClose={() => setGuideOpen(false)} />}
+    </header>
+  );
+}

@@ -22,6 +22,18 @@ describe('DecisionsTab', () => {
     expect(screen.getAllByRole('listitem').map((li) => li.dataset.kind)).toEqual(['changes', 'approve']);
     expect(get).toHaveBeenCalledWith('/api/job/alpha/decisions');
   });
+  it('copy={false} leaves out its Copy decisions button', async () => {
+    const get = vi.fn(async () => ({ decisions: [{ at: '2026-10-26T10:00:00Z', kind: 'approve', text: 'Approved brief 2' }] }));
+    const api = { get, post: vi.fn() } as unknown as ApiClient;
+    const { unmount } = render(<WorkshopContext.Provider value={{ store: createStore(), api }}><DecisionsTab slug="alpha" active copy={false} /></WorkshopContext.Provider>);
+    expect(await screen.findByText('Approved brief 2')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Copy decisions' })).toBeNull();
+    unmount();
+    // By default it keeps its own button, as today.
+    render(<WorkshopContext.Provider value={{ store: createStore(), api }}><DecisionsTab slug="alpha" active /></WorkshopContext.Provider>);
+    expect(await screen.findByText('Approved brief 2')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Copy decisions' })).toBeInTheDocument();
+  });
   it('says when there are none', async () => {
     setup([]);
     expect(await screen.findByText(/No decisions yet/)).toBeInTheDocument();

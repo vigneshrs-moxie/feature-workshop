@@ -1,7 +1,8 @@
 // The Decisions tab: every choice you made on this job, newest first (GET /api/job/:slug/decisions,
 // dashboard/lib/decisions.js). Approvals, send-backs with their note, permissions, level changes,
 // closing and reopening. Read again whenever the job's thread moves on. Above it, "Copy decisions"
-// (job/CopyDecisions.tsx) gives the list to paste into Orbit.
+// (job/CopyDecisions.tsx) gives the list to paste into Orbit; copy={false} leaves it out (Copy
+// decisions' own panel holds this list in a fold, so no second button opens a second sheet).
 import { useEffect, useState } from 'react';
 import type { Decision } from '../../api/types';
 import { fullTime, relativeTime, useNow } from '../../lib/time';
@@ -10,7 +11,7 @@ import { CopyDecisions } from '../../job/CopyDecisions';
 
 const GLYPH: Record<string, string> = { approve: '✓', changes: '↺', stop: '■', allow: '›', deny: '⊘', level: '⇅', options: '⚙', policy: '⚙', close: '✕', reopen: '↻', nudge: '›' };
 
-export function DecisionsTab({ slug, active }: { slug: string; active: boolean }) {
+export function DecisionsTab({ slug, active, copy = true }: { slug: string; active: boolean; copy?: boolean }) {
   const { api } = useWorkshop();
   const state = useWorkshopState();
   const now = useNow();
@@ -28,7 +29,7 @@ export function DecisionsTab({ slug, active }: { slug: string; active: boolean }
   }, [api, slug, version, active]);
 
   const decisions = log?.slug === slug ? log.decisions : null;
-  return <><div className="doc-actions"><CopyDecisions slug={slug} /></div>{logOf(decisions, error, now)}</>;
+  return <>{copy && <div className="doc-actions"><CopyDecisions slug={slug} /></div>}{logOf(decisions, error, now)}</>;
 }
 
 function logOf(decisions: Decision[] | null, error: string | null, now: ReturnType<typeof useNow>) {
