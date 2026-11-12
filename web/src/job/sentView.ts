@@ -114,8 +114,17 @@ export function autoAnswered(detail: JobDetail | null | undefined, decision: Pic
 /** The lines a place shows instead of its ask and its calls. */
 export interface SentLines { words: string; more: string | null }
 
-/** From the send's own state: sent (until the job moves) or stuck. */
-export function stateLines(decision: Pick<GateSent, 'state' | 'kind' | 'accepted'>, job: SentJob, working = false): SentLines | null {
+/**
+ * The run his send started is at work (fix round 1, M1): an active run with the id the server gave
+ * for the send; where that id is not known, any active run.
+ */
+export function sentRunWorks(run: Run | null | undefined, runId: string | null | undefined): boolean {
+  return isActiveRun(run ?? null) && (!runId || run!.id === runId);
+}
+
+/** From the send's own state: sent (until the job moves) or stuck. `run`: the job's run now. */
+export function stateLines(decision: Pick<GateSent, 'state' | 'kind' | 'accepted'>, job: SentJob, run: Run | null = null): SentLines | null {
+  const working = sentRunWorks(run, decision.accepted?.runId);
   if (decision.state === 'sent') return { words: working ? AT_WORK_WORDS : SENT_WORDS, more: decision.kind ? moreFor(decision.kind, decision.accepted, job) : null };
   if (decision.state === 'stuck') return { words: STUCK_WORDS, more: null };
   return null;
@@ -141,7 +150,7 @@ export function sentView(job: SentJob, detail: JobDetail | null | undefined, run
   const kept = a && (thisGate || replying) ? a : null;
   const kind = kept?.kind ?? answeredKind(detail, decision);
   const auto = !kept && autoAnswered(detail, decision);
-  const working = isActiveRun(run);
+  const working = sentRunWorks(run, kept?.runId);
   return { words: auto ? (working ? AUTO_AT_WORK_WORDS : AUTO_SENT_WORDS) : working ? AT_WORK_WORDS : SENT_WORDS, more: kind ? moreFor(kind, kept, job) : null };
 }
 
@@ -222,7 +231,7 @@ export function useSentView(job: Job, detail: JobDetail | null | undefined, run:
 /** What a place shows after a send: its own state first, then what the job says. */
 export function useWaitingLines(job: Job, detail: JobDetail | null | undefined, run: Run | null, decision: GateSent, reload?: () => void): SentShown | null {
   const shown = useSentView(job, detail, run, decision, reload);
-  const own = stateLines(decision, job, isActiveRun(run));
+  const own = stateLines(decision, job, run);
   return own ? { ...own, canRetry: false } : shown;
 }
 

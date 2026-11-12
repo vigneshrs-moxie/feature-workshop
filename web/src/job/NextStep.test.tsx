@@ -323,6 +323,29 @@ describe('what the bar says after a send', () => {
     expect(live()).toHaveTextContent(`${SENT_WORDS} Your go and your two answers reached the Foreman. Build starts next.`);
   });
 
+  // Fix round 1, M1: "at work" only for the run his send started, where its id is known.
+  it('an active run with another id keeps "Waiting for the Foreman to start."', async () => {
+    for (const hosted of [false, true]) {
+      const { store } = setup({ jobs: waiting(), gate: GATE, post: sentPost({ runEvent: false }), hosted });
+      await gateShown();
+      const go = within(bar()).getByRole('button', { name: /^Go: / });
+      await waitFor(() => expect(go).toBeEnabled());
+      fireEvent.click(go);
+      await within(bar()).findByText(SENT_WORDS);
+      act(() => { store.dispatch({ type: 'event', event: ev(60, 'run', 'alpha', { id: 'r_other', slug: 'alpha', status: 'running' }) }); });
+      await act(async () => {});
+      expect(within(bar()).getByText(SENT_WORDS)).toBeInTheDocument();
+      expect(within(bar()).queryByText(AT_WORK_WORDS)).toBeNull();
+      // The run the send started: at work.
+      act(() => { store.dispatch({ type: 'event', event: ev(61, 'run', 'alpha', { id: 'r_sent_1', slug: 'alpha', status: 'running' }) }); });
+      await within(bar()).findByText(AT_WORK_WORDS);
+      cleanup();
+      clearAllSent();
+      clearGateSent();
+      localStorage.clear();
+    }
+  });
+
   it('after Go on an Auto job the second line says Auto carries on', async () => {
     setup({ jobs: waiting({ auto: { on: true, by: 'you', ran: true } }), gate: { ...GATE, stage: 'test', nextStage: 'review', nextProposed: 'Review' }, post: sentPost({ runEvent: false }) });
     await gateShown();
