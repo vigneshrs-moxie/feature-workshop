@@ -141,6 +141,7 @@ export class AutoStarter {
     this.memory = null; // null until read; { unreadable: true } when the file can't be trusted
     this.current = null;
     this.again = false;
+    this.hadJobs = null; // the ticket keys that have or had a job (closed ones too), as the last pass saw them; null before it
   }
 
   async #load() {
@@ -165,6 +166,12 @@ export class AutoStarter {
 
   /** Every ticket Auto started, { key }, so the queue's Next up leaves them out (empty until the memory is read). */
   startedList() { return Array.isArray(this.memory?.started) ? this.memory.started.map((e) => ({ key: e.key })) : []; }
+
+  /** The ticket keys that have or had a job, closed ones too, as the last pass saw them; null before the first pass. */
+  hadJobList() { return this.hadJobs ? [...this.hadJobs] : null; }
+
+  /** Read the memory file now (once), so the queue knows what was started or failed before the first pass. */
+  async load() { await this.#load(); }
 
   /** Start on the row works as usual and clears a failed ticket. */
   async clearFailed(key) {
@@ -197,6 +204,7 @@ export class AutoStarter {
     const setting = await this.setting();
     const view = this.inbox();
     const { ticketsWithJobs, working, unfinished } = await this.jobs(memory);
+    this.hadJobs = new Set(ticketsWithJobs);
     // A crash mid-start left an entry with no slug and no job: show it as a failed start (never started again).
     const lost = memory.started.filter((e) => !e.slug && !ticketsWithJobs.has(e.key));
     if (lost.length) {

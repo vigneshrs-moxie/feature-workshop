@@ -368,3 +368,14 @@ test('startedList: the tickets Auto started, for the queue\'s next up', async ()
   await r.starter.run();
   assert.deepEqual(r.starter.startedList(), [{ key: 'ORBIT-1' }]);
 });
+
+test('hadJobList: null before the first pass, then every ticket with a job (closed ones too) the pass saw; load reads the memory early', async () => {
+  const r = await rig({ items: [item(1)], tickets: new Set(['ORBIT-7']), setting: { on: false, tag: 'auto' } });
+  assert.equal(r.starter.hadJobList(), null);
+  await fs.writeFile(r.file, JSON.stringify({ started: [{ key: 'ORBIT-3', at: 'x', slug: 's', tag: 'auto' }], failed: [{ key: 'ORBIT-4', at: 'x', reason: 'No.' }] }));
+  await r.starter.load();
+  assert.deepEqual(r.starter.startedList(), [{ key: 'ORBIT-3' }]);
+  assert.deepEqual(r.starter.failedList(), [{ key: 'ORBIT-4', reason: 'No.' }]);
+  await r.starter.run();
+  assert.deepEqual(r.starter.hadJobList(), ['ORBIT-7']);
+});

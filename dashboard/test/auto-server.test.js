@@ -3976,3 +3976,27 @@ test('his answer on a PR feedback card is a ship step: the job leaves Ready', { 
     await actedOn(w);
   } finally { await w.stop(); }
 });
+
+test('a review panel action he takes is a ship step: the job leaves Ready; a refused one leaves it there', { timeout: 30_000 }, async () => {
+  const w = await world({ auto: finishedRecord(), jobStatus: status(1, { stage: 'pr1', stage_state: 'working', waiting_for: null, prs: PR1_OPEN }) });
+  try {
+    assert.equal(await groupOf(w), 'ready');
+    // Refused: the job has no review round, so nothing was done.
+    await assert.rejects(w.runner.local.review.act(w.slug, 'leave', {}));
+    assert.equal((await w.record()).acted ?? null, null, 'a refused action is not acting on it');
+    // A panel action that goes through (one standing in for any of them: the wrapper is the same for all).
+    w.hooks.reviewRounds.actions['test-done'] = async () => ({ ok: true });
+    assert.deepEqual(await w.runner.local.review.act(w.slug, 'test-done', {}), { ok: true });
+    await actedOn(w);
+  } finally { await w.stop(); }
+});
+
+test('closing a Ready job is acting on it: reopened, it does not come back to Ready', { timeout: 30_000 }, async () => {
+  const w = await world({ auto: finishedRecord(), jobStatus: status(1, { stage: 'pr1', stage_state: 'working', waiting_for: null, prs: PR1_OPEN }) });
+  try {
+    assert.equal(await groupOf(w), 'ready');
+    await w.runner.handle({ type: 'close', slug: w.slug, as: 'done' }, { from: 'local' });
+    await w.runner.handle({ type: 'reopen', slug: w.slug }, { from: 'local' });
+    await actedOn(w);
+  } finally { await w.stop(); }
+});

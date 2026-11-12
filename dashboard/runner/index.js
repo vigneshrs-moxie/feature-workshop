@@ -1675,6 +1675,7 @@ export async function createRunner(config) {
     problem: (err) => console.error('review rounds:', err.message),
   });
   driver.roundAnswer = (a) => reviewRounds.answerCard(a);
+  if (testHooks && typeof testHooks === 'object') testHooks.reviewRounds = reviewRounds; // tests only, as the driver above
   roundStateOf = (slug) => reviewRounds.stateOf(slug);
   // While a job waits on a reviewer, its checks or the follow-up PR #1, GitHub is read every minute
   // (Settings → Workflow: 1, 5, 10 or 30) instead of every ten (lib/flow.js everyMs).
@@ -2187,8 +2188,8 @@ export async function createRunner(config) {
   }
 
   /** Inbox rows with "you are already on this": the open job on the same ticket, if any. */
-  async function withJobs(items) {
-    const onTicket = await jobsByTicket(await features());
+  async function withJobs(items, list = null) {
+    const onTicket = await jobsByTicket(list ?? await features());
     return items.map((i) => ({ ...i, job: onTicket.get(i.key) ?? null, autoStartFailed: autoStarter.failedReason(i.key) }));
   }
 
@@ -2248,6 +2249,8 @@ export async function createRunner(config) {
     const meters = planUsage.view();
     return pausedFor({ orbitError: orbitInbox.view().error, limited: limits.isLimited(), warnings: activeWarnings(meters).length, reading: { enabled: meters.enabled, error: meters.error, checkedAt: meters.checkedAt } });
   };
+  /** The places, { working, unfinished }: every open job's Auto record, whether the tag or he switched it on (countAuto). The starter and the snapshot both count with this. */
+  function autoPlaces(list) { return countAuto(list.filter((f) => !f.closed).map((f) => f.auto)); }
   const autoStarter = new AutoStarter({
     file: path.join(state.dir, AUTO_START_FILE),
     setting: async () => autoStartSetting,
@@ -2260,8 +2263,7 @@ export async function createRunner(config) {
         const key = (f.dir ? await statusTicketKey(f.dir) : null) ?? slugTicketKey(f.slug);
         if (key) ticketsWithJobs.add(key);
       }
-      // Every open job's Auto record counts, whether the tag or the person switched it on (lib/auto-start.js countAuto).
-      return { ticketsWithJobs, ...countAuto(list.filter((f) => !f.closed).map((f) => f.auto)) };
+      return { ticketsWithJobs, ...autoPlaces(list) };
     },
     start: async (item, tag) => {
       const out = await HANDLERS.start({
@@ -2273,14 +2275,25 @@ export async function createRunner(config) {
     },
     notify: (n) => tell(n),
   });
+  autoStarter.load().catch(() => {}); // the memory early: the queue knows what was started or failed before the first pass
   function runAutoStart() {
     testHooks?.autoStartAsked?.(); // tests only: a place may be free
-    if (!autoStartSetting.on) return;
-    autoStarter.run().catch((err) => console.error('auto start:', err.message));
+    if (!autoStartSetting.on) { autoQueueMoved(); return; }
+    autoStarter.run().catch((err) => console.error('auto start:', err.message)).finally(autoQueueMoved);
   }
   orbitInbox.on('change', runAutoStart);
   /** What the Inbox shows of it: the setting, and why it is paused (null when it is not). */
   const autoStartView = () => ({ ...autoStartSetting, paused: autoStartSetting.on ? autoPaused() ?? (autoStarter.memoryUnreadable() ? 'memory' : null) : null });
+  // The Auto queue's inputs that no job's move announces: the Inbox's list, the setting, the paused reason and the starter's
+  // memory. After each Inbox change and each starter pass, a change event (queue: true) when they differ from the last
+  // look, so the pages read the snapshot's autoQueue again; none when nothing differs.
+  let autoQueueSeen = null;
+  function autoQueueMoved() {
+    const now = JSON.stringify([orbitInbox.view().items, autoStartView(), autoStarter.failedList(), autoStarter.startedList(), autoStarter.hadJobList()]);
+    if (now === autoQueueSeen) return;
+    autoQueueSeen = now;
+    events.emit('change', null, { at: Date.now(), queue: true });
+  }
 
   /** Reads the saved address and starts the poller when there is a token. At start and after a save. */
   async function startOrbit() {
@@ -2663,6 +2676,7 @@ export async function createRunner(config) {
       }
       const closed = { as, note, at: new Date().toISOString(), worktreeRemoved: worktree?.ok ? f.worktree : null };
       await state.setSession(f.dir, { closed });
+      await markActed(f.dir); // closing is acting on it: reopened, it does not come back to Ready for you to try
       await state.audit({ action: 'close', featureDir: f.dir, slug: f.slug, as, note: note ?? undefined, worktreeRemoved: closed.worktreeRemoved ?? undefined });
       invalidate();
       return { ok: true, closed };
@@ -3244,8 +3258,9 @@ export async function createRunner(config) {
       const jobs = groupCards(await boardCards(list));
       // The Auto queue (lib/auto-queue.js): the places and the Inbox's Auto groups. testing: the test place's holder (auto.testHolder, once there is one).
       const autoQueue = autoQueueView({
-        setting: autoStartSetting, paused: autoStartView().paused, cards: jobs, items: await withJobs(orbitInbox.view().items ?? []),
-        failed: autoStarter.failedList(), started: autoStarter.startedList(), testing: auto.testHolder?.() ?? null,
+        setting: autoStartSetting, paused: autoStartView().paused, cards: jobs, items: await withJobs(orbitInbox.view().items ?? [], list),
+        failed: autoStarter.failedList(), started: autoStarter.startedList(), hadJobs: autoStarter.hadJobList(), places: autoPlaces(list),
+        testing: auto.testHolder?.() ?? null,
       });
       return {
         meta: await meta(pageMeta), jobs,
@@ -3572,7 +3587,7 @@ export async function createRunner(config) {
     review: {
       list: () => reviewRounds.list(), view: (slug) => reviewRounds.view(slug),
       // A review round's action is a ship step: done, the job leaves Ready for you to try.
-      act: async (slug, action, body) => { const out = await reviewRounds.act(slug, action, body); await markActed((await featureBySlug(slug))?.dir); return out; },
+      act: async (slug, action, body) => { const out = await reviewRounds.act(slug, action, body); await featureBySlug(slug).then((f) => markActed(f?.dir), () => {}); return out; },
       setSettings: (body) => reviewRounds.setSettings(body),
       github: () => flow.view().github ?? null,
       httpError: (err) => (err instanceof ReviewRefused ? new HttpError(err.status, err.message, err.code ? { code: err.code } : undefined) : err),

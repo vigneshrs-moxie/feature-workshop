@@ -224,3 +224,82 @@ test('removing the tag holds back only a ticket not started', { timeout: 90_000 
     assert.equal(rec?.on, true, `still in Auto: ${JSON.stringify(rec)}`);
   });
 });
+
+// ---------- Auto queue: the snapshot's autoQueue from a real Inbox, and the page hears it change ----------
+
+/** The change events that carry the queue (queue: true), from the ring of v2 events. */
+function queueChanges(base, epoch, ms = 300) {
+  return new Promise((resolve) => {
+    const seen = [];
+    const req = http.get(`${base}/api/events?v=2&since=0&epoch=${epoch}`, (res) => {
+      let buf = '';
+      res.on('data', (chunk) => {
+        buf += chunk;
+        let i;
+        while ((i = buf.indexOf('\n\n')) >= 0) {
+          const data = buf.slice(0, i).split('\n').find((l) => l.startsWith('data: '));
+          buf = buf.slice(i + 2);
+          if (data) seen.push(JSON.parse(data.slice(6)));
+        }
+      });
+    });
+    req.on('error', () => {});
+    setTimeout(() => { req.destroy(); resolve(seen.filter((e) => e.type === 'change' && e.data?.queue === true).length); }, ms);
+  });
+}
+
+test('the snapshot\'s autoQueue lists the Inbox\'s Auto tickets: couldn\'t start, working by its job, next up; untagged ones not at all', { timeout: 90_000 }, async () => {
+  let rows = [row(1, ['auto']), row(2, []), row(5, ['auto'])];
+  await withDashboard(() => rows, async ({ d, dirs, write, inbox, until }) => {
+    await writeHandJob(dirs, 'orbit-5-hand');
+    await until(async () => (await inbox()).items?.length === 3, 'the list');
+    await until(async () => (await fetch(`${d.base}/api/job/orbit-5-hand`)).status === 200, 'the job');
+    assert.equal((await write('POST', '/api/job/orbit-5-hand/auto', { on: true })).status, 200);
+    // Two places, one taken by his job: ORBIT-1 is tried and fails (no repository registered).
+    assert.equal((await write('POST', '/api/settings', { workflow: { autoStart: { on: true, tag: 'auto', max: 2 } } })).status, 200);
+    await until(async () => (await memoryOf(dirs))?.failed?.length === 1, 'the failed start');
+    // One place now, taken: a new tagged ticket waits.
+    assert.equal((await write('POST', '/api/settings', { workflow: { autoStart: { on: true, tag: 'auto', max: 1 } } })).status, 200);
+    rows = [...rows, row(6, ['auto'])];
+    await until(async () => (await (await fetch(`${d.base}/api/orbit/inbox?refresh=1`)).json()).items?.length === 4, 'the new ticket');
+    const q = await until(async () => {
+      const s = (await (await fetch(`${d.base}/api/snapshot`)).json()).autoQueue;
+      return s?.tickets?.some((t) => t.key === 'ORBIT-6') ? s : null;
+    }, 'the queue with ORBIT-6');
+    const byKey = Object.fromEntries(q.tickets.map((t) => [t.key, t]));
+    assert.deepEqual(Object.keys(byKey).sort(), ['ORBIT-1', 'ORBIT-5', 'ORBIT-6']);
+    assert.equal(byKey['ORBIT-1'].group, 'failed');
+    assert.match(byKey['ORBIT-1'].reason, /repository/);
+    assert.deepEqual(byKey['ORBIT-5'], { key: 'ORBIT-5', title: 'Problem 5', group: 'working', slug: 'orbit-5-hand', reason: null });
+    assert.deepEqual(byKey['ORBIT-6'], { key: 'ORBIT-6', title: 'Problem 6', group: 'next', slug: null, reason: null });
+    assert.deepEqual({ on: q.on, tag: q.tag, max: q.max, working: q.working, unfinished: q.unfinished, paused: q.paused }, { on: true, tag: 'auto', max: 1, working: 1, unfinished: 1, paused: null });
+  });
+});
+
+test('the page hears the queue: a pass that marks a ticket failed sends one change, the Inbox list changing one, a look that changes nothing none', { timeout: 90_000 }, async () => {
+  let rows = [row(1, [])];
+  await withDashboard(() => rows, async ({ d, dirs, write, inbox, until }) => {
+    const settle = () => new Promise((r) => setTimeout(r, 800));
+    const count = async () => queueChanges(d.base, (await (await fetch(`${d.base}/api/snapshot`)).json()).epoch);
+    await until(async () => (await inbox()).items?.length === 1, 'the list');
+    assert.equal((await write('POST', '/api/settings', { workflow: { autoStart: { on: true, tag: 'auto' } } })).status, 200);
+    await settle();
+    const n0 = await count();
+    assert.ok(n0 >= 1, 'the setting itself is a queue change');
+    // The Inbox read again with nothing changed: the starter's pass changes nothing, no change is sent.
+    await fetch(`${d.base}/api/orbit/inbox?refresh=1`);
+    await settle();
+    assert.equal(await count(), n0, 'nothing differs: no change');
+    // The tag goes on: the pass tries it and it fails (no repository). One change for the look.
+    rows = [row(1, ['auto'])];
+    await fetch(`${d.base}/api/orbit/inbox?refresh=1`);
+    await until(async () => (await memoryOf(dirs))?.failed?.length === 1, 'the failed start');
+    await settle();
+    assert.equal(await count(), n0 + 1, 'the failed start');
+    // A new untagged ticket: the Inbox list changed, the starter changes nothing. One change.
+    rows = [row(1, ['auto']), row(2, [])];
+    await fetch(`${d.base}/api/orbit/inbox?refresh=1`);
+    await settle();
+    assert.equal(await count(), n0 + 2, 'the Inbox list changed');
+  });
+});

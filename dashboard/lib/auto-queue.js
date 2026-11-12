@@ -21,10 +21,11 @@ const PAUSED = new Set(['limit', 'limit-reading', 'orbit', 'memory']);
  * One Inbox item's place in the Auto queue, or null when it is not listed. A ticket with a job is
  * listed by its job, whatever its tags now (a started job stays an Auto job): too-big when the job is
  * set aside, working when its Auto group is working or needs-you (a stopped job), else not listed
- * (ready, or in Yours). A ticket with no job: failed when its start failed, next when it would start
- * by itself.
+ * (ready, or in Yours). A ticket with no job: failed when its start failed and it is still his, open
+ * and tagged (removing the tag or the assignment takes it off the list); next when it would start by
+ * itself and never had a job (hadJobs; while that is not known yet, nothing is next).
  */
-function ticketOf(item, { s, bySlug, failedBy, memory }) {
+function ticketOf(item, { s, bySlug, failedBy, memory, hadJobs }) {
   const base = { key: item.key, title: item.title ?? item.key };
   if (item.job) {
     const auto = bySlug.get(item.job.slug)?.auto;
@@ -33,8 +34,12 @@ function ticketOf(item, { s, bySlug, failedBy, memory }) {
     if (auto.group === 'working' || auto.group === 'needs-you') return { ...base, group: 'working', slug: item.job.slug, reason: null };
     return null;
   }
-  if (failedBy.has(item.key)) return { ...base, group: 'failed', slug: null, reason: failedBy.get(item.key) };
-  if (startsByItself(item, s, memory)) return { ...base, group: 'next', slug: null, reason: null };
+  if (failedBy.has(item.key)) {
+    // The starter's own rule with Auto start taken as on and nothing tried: assigned, open, tagged.
+    const stillTagged = startsByItself(item, { ...s, on: true }, { started: [], failed: [] });
+    return stillTagged ? { ...base, group: 'failed', slug: null, reason: failedBy.get(item.key) } : null;
+  }
+  if (hadJobs && !hadJobs.has(item.key) && startsByItself(item, s, memory)) return { ...base, group: 'next', slug: null, reason: null };
   return null;
 }
 
@@ -46,20 +51,26 @@ function ticketOf(item, { s, bySlug, failedBy, memory }) {
  *   items    the Inbox's items with their open job (the runner's withJobs: job { slug, title } or null)
  *   failed   the starter's failed starts, [{ key, reason }]
  *   started  the tickets the starter started, [{ key }]: never next again
+ *   hadJobs  the ticket keys that have or had a job, closed ones too (the starter's last pass), or null
+ *            while the starter has not looked yet: then nothing is next
+ *   places   { working, unfinished } as the starter counts them (the runner's autoPlaces); when not
+ *            given, counted from the cards
  *   testing  the slug holding the test place, else null
  */
-export function autoQueueView({ setting, paused = null, cards = [], items = [], failed = [], started = [], testing = null } = {}) {
+export function autoQueueView({ setting, paused = null, cards = [], items = [], failed = [], started = [], hadJobs = [], places = null, testing = null } = {}) {
   const s = normalizeAutoStart(setting);
   const open = (cards ?? []).filter((c) => c && !c.closed);
-  const { working, unfinished } = countAuto(open.map((c) => c.auto));
+  const { working, unfinished } = places && Number.isInteger(places.working) && Number.isInteger(places.unfinished)
+    ? places : countAuto(open.map((c) => c.auto));
   const bySlug = new Map((cards ?? []).filter((c) => c?.slug).map((c) => [c.slug, c]));
   const fails = (failed ?? []).filter((e) => e && typeof e.key === 'string');
   const failedBy = new Map(fails.map((e) => [e.key, typeof e.reason === 'string' ? e.reason : null]));
   const memory = { started: (started ?? []).filter((e) => e && typeof e.key === 'string'), failed: fails };
+  const had = Array.isArray(hadJobs) ? new Set(hadJobs) : null;
   const tickets = [];
   for (const item of items ?? []) {
     if (!item || typeof item.key !== 'string') continue;
-    const t = ticketOf(item, { s, bySlug, failedBy, memory });
+    const t = ticketOf(item, { s, bySlug, failedBy, memory, hadJobs: had });
     if (t) tickets.push(t);
   }
   return {

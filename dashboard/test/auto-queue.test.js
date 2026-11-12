@@ -84,3 +84,24 @@ test('next up is the starter\'s own rule: not tried, assigned, open, no job, the
   const q = view({ items: [item(1), item(2)], started: memory.started });
   assert.deepEqual(q.tickets.map((t) => [t.key, t.group]), [['ORBIT-2', 'next']]);
 });
+
+test('a couldn\'t start ticket leaves the list when its tag is removed, it is no longer his, or it is closed', () => {
+  const failed = [1, 2, 3, 4].map((n) => ({ key: `ORBIT-${n}`, reason: 'Orbit said no.' }));
+  const q = view({ items: [item(1), item(2, { tags: [] }), item(3, { why: ['watching'] }), item(4, { status: 'closed' })], failed });
+  assert.deepEqual(q.tickets.map((t) => [t.key, t.group]), [['ORBIT-1', 'failed']]);
+});
+
+test('next up leaves out a ticket that had a job, closed ones too; before the starter has looked, nothing is next', () => {
+  const items = [item(1), item(2)];
+  assert.deepEqual(view({ items, hadJobs: ['ORBIT-1'] }).tickets.map((t) => t.key), ['ORBIT-2'], 'ORBIT-1 had a job he started by hand, closed since');
+  assert.deepEqual(view({ items, hadJobs: null }).tickets, [], 'not known yet');
+  const failed = [{ key: 'ORBIT-2', reason: 'Orbit said no.' }];
+  assert.deepEqual(view({ items, hadJobs: null, failed }).tickets.map((t) => [t.key, t.group]), [['ORBIT-2', 'failed']], 'a failed start is known from the memory alone');
+});
+
+test('places given by the runner win over the cards', () => {
+  const q = view({ cards: [card('a', on()), card('b', on())], places: { working: 1, unfinished: 3 } });
+  assert.deepEqual({ working: q.working, unfinished: q.unfinished }, { working: 1, unfinished: 3 });
+  const counted = view({ cards: [card('a', on()), card('b', on())] });
+  assert.deepEqual({ working: counted.working, unfinished: counted.unfinished }, { working: 2, unfinished: 2 });
+});
