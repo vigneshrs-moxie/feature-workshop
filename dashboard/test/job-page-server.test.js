@@ -84,7 +84,7 @@ before(async () => {
 
 after(async () => {
   await dashboard?.stop();
-  await (await guessed?.catch(() => null))?.d.stop();
+  await guessedDashboard?.stop();
   if (orbit) await new Promise((resolve) => { orbit.close(resolve); orbit.closeAllConnections?.(); });
   if (root) await fs.rm(root, { recursive: true, force: true });
 });
@@ -407,14 +407,18 @@ test('a job closed as done has every plan step done; one closed as dropped keeps
 // ---------- A branch Starbase only guessed (lib/locate.js branchGuessed): the page reads nothing from it ----------
 
 /**
- * Its own demo dashboard, so the flow map's timing is this test's own. A job at PR #1 that waits for
- * you, whose status.json names its branch: the demo's map gives it a lane with PR #1 open, and the
- * branch, checked out in its own worktree, carries a commit tagged [S1]. Then status.json loses the
- * branch and the job's workflow-status.md only mentions it, so the branch is a guess (another job's,
- * as far as Starbase knows). The map still has the lane it read before (it recounts at most every
- * 15 seconds after a change), as a lane can be. A review walkthrough was built for that branch.
+ * Its own demo dashboard, so the flow map's timing is this test's own. Two jobs, each with its branch
+ * checked out in its own worktree and carrying a commit tagged [S1], each named by its status.json:
+ *   visit-audit at PR #1, waiting for you: the demo's map gives it a lane with PR #1 open. A review
+ *     walkthrough was built for its branch, and its Tester checked the base commit.
+ *   visit-export at PR #2: the demo's map gives it PR #1 merged, so its plan is all done by the lane.
+ * Then each status.json loses the branch and the job's workflow-status.md only mentions it, so the
+ * branch is a guess (another job's, as far as Starbase knows). The map may still have the lane it read
+ * before (it recounts at most every 15 seconds after a change, else at its minute timer), as a lane
+ * can. The pure rule (lib/locate.js ownLane) is tested with a lane given in foreman.test.js.
  */
 let guessed = null;
+let guessedDashboard = null; // stopped in after(), even when the world's setup failed part way
 function guessedWorld() {
   guessed ??= (async () => {
     const own = path.join(root, 'guessed');
@@ -422,29 +426,34 @@ function guessedWorld() {
     for (const d of Object.values(dirs)) await fs.mkdir(d, { recursive: true });
     const gitEnv = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
     const gRepo = path.join(own, 'repo');
-    const wt = path.join(own, 'other-thing');
     await fs.mkdir(gRepo, { recursive: true });
     const sh = (cwd, ...args) => execFileSync('git', ['-c', 'commit.gpgsign=false', ...args], { cwd, stdio: ['ignore', 'pipe', 'ignore'], env: gitEnv }).toString().trim();
     sh(gRepo, 'init', '-q', '-b', 'main');
     sh(gRepo, 'commit', '-q', '--allow-empty', '-m', 'base');
     const baseSha = sh(gRepo, 'rev-parse', 'HEAD');
-    sh(gRepo, 'worktree', 'add', '-q', '-b', 'feature/other-thing', wt);
-    sh(wt, 'commit', '-q', '--allow-empty', '-m', '[S1] the form');
-    const s1 = sh(wt, 'rev-parse', 'HEAD');
-    const slug = 'visit-audit';
-    const dir = path.join(dirs.features, slug);
-    await fs.mkdir(path.join(dir, 'briefs'), { recursive: true });
-    const writeStatus = (extra = {}) => fs.writeFile(path.join(dir, 'status.json'), JSON.stringify({
-      schema_version: 1, slug, title: 'Visit audit', route: 'small', stage: 'pr1', stage_state: 'waiting_for_you',
-      repo: { path: gRepo, base_branch: 'main' }, updated_at: OLD, ...extra,
-    }, null, 2));
-    await writeStatus({ branch: 'feature/other-thing' });
-    await fs.writeFile(path.join(dir, 'options.json'), JSON.stringify({ schema_version: 2, level: 2, flow: 'small', title: 'Visit audit' }, null, 2));
-    await fs.writeFile(path.join(dir, 'briefs', '001-pr1.md'), '**PR #1 is ready** (demo)\n');
-    await fs.writeFile(path.join(dir, 'implementation-plan.md'), '# Plan\n\n### S1: The form\n### S2: The list\n');
+    /** A job whose branch, in its own worktree, has a [S1] commit; its status.json names the branch until writeStatus() is called bare. */
+    async function makeJob({ slug, title, branch, folder, stage, stageState, commit }) {
+      const wt = path.join(own, folder);
+      sh(gRepo, 'worktree', 'add', '-q', '-b', branch, wt);
+      sh(wt, 'commit', '-q', '--allow-empty', '-m', commit);
+      const s1 = sh(wt, 'rev-parse', 'HEAD');
+      const dir = path.join(dirs.features, slug);
+      await fs.mkdir(path.join(dir, 'briefs'), { recursive: true });
+      const writeStatus = (extra = {}) => fs.writeFile(path.join(dir, 'status.json'), JSON.stringify({
+        schema_version: 1, slug, title, route: 'small', stage, stage_state: stageState,
+        repo: { path: gRepo, base_branch: 'main' }, updated_at: OLD, ...extra,
+      }, null, 2));
+      await writeStatus({ branch });
+      await fs.writeFile(path.join(dir, 'options.json'), JSON.stringify({ schema_version: 2, level: 2, flow: 'small', title }, null, 2));
+      await fs.writeFile(path.join(dir, 'briefs', `001-${stage}.md`), `**${title}: ${stage}** (demo)\n`);
+      await fs.writeFile(path.join(dir, 'implementation-plan.md'), '# Plan\n\n### S1: The form\n### S2: The list\n');
+      await fs.writeFile(path.join(dir, 'workflow-status.md'), `# ${title}\n\nStacked on the parent branch \`${branch}\` for now.\n`);
+      return { slug, dir, wt, s1, branch, writeStatus };
+    }
+    const main = await makeJob({ slug: 'visit-audit', title: 'Visit audit', branch: 'feature/other-thing', folder: 'other-thing', stage: 'pr1', stageState: 'waiting_for_you', commit: '[S1] the form' });
+    const merged = await makeJob({ slug: 'visit-export', title: 'Visit export', branch: 'feature/export-thing', folder: 'export-thing', stage: 'pr2', stageState: 'working', commit: '[S1] the export' });
     // The Tester checked the base commit: the guessed branch has moved on since.
-    await fs.writeFile(path.join(dir, 'test-report.md'), `# Test report\n\n- Commit under test: ${baseSha}\n\n## Results\n- AC-1 PASS\n`);
-    await fs.writeFile(path.join(dir, 'workflow-status.md'), '# Visit audit\n\nStacked on the parent branch `feature/other-thing` for now.\n');
+    await fs.writeFile(path.join(main.dir, 'test-report.md'), `# Test report\n\n- Commit under test: ${baseSha}\n\n## Results\n- AC-1 PASS\n`);
     // The review-walkthrough skill's page for that branch, run in its worktree.
     await fs.mkdir(path.join(dirs.walk, 'other-thing'), { recursive: true });
     await fs.writeFile(path.join(dirs.walk, 'other-thing', 'feature-other-thing.html'), '<!doctype html><title>Walkthrough</title><p>Another job’s changes.</p>\n');
@@ -458,30 +467,43 @@ function guessedWorld() {
       },
       output: [],
     });
+    guessedDashboard = d;
     const get = async (p) => {
       const res = await fetch(`${d.base}${p}`);
       assert.equal(res.status, 200, `GET ${p}`);
       return res.json();
     };
+    const found = async (slug) => ((await fetch(`${d.base}/api/job/${slug}`)).status === 200 ? get(`/api/job/${slug}`) : null);
     const refresh = () => fetch(`${d.base}/api/flow/refresh`, { method: 'POST', headers: { 'X-Starbase-Token': d.token } });
     // A change in the folder first, so the map's recount after a change has just run (it runs at most every 15 seconds).
-    await fs.writeFile(path.join(dir, 'notes.md'), 'Seen.\n');
+    await fs.writeFile(path.join(main.dir, 'notes.md'), 'Seen.\n');
     await sleep(1500);
-    // The branch is the job's own: PR #1 open on the map, and [S1] built by its commits.
+    // The branches are the jobs' own: PR #1 open and [S1] built for one, PR #1 merged for the other.
     let job = null;
+    let exp = null;
     for (const end = Date.now() + 20_000; Date.now() < end; await sleep(250)) {
-      job = (await fetch(`${d.base}/api/job/${slug}`)).status === 200 ? await get(`/api/job/${slug}`) : null;
-      if (job?.page?.prs?.[0]?.state === 'open') break;
+      job = await found(main.slug);
+      exp = await found(merged.slug);
+      if (job?.page?.prs?.[0]?.state === 'open' && exp?.page?.prs?.[0]?.state === 'merged') break;
       await refresh();
     }
     assert.equal(job?.page?.prs?.[0]?.state, 'open', 'the map shows PR #1 open while the branch is recorded');
     assert.deepEqual(job.page.plan.steps.map((s) => s.state), ['done', 'next'], 'its commits built [S1] while the branch is recorded');
     assert.deepEqual({ reached: job.finish?.reached, by: job.finish?.by }, { reached: true, by: 'pr1-open' }, 'the header says PR #1 is open while the branch is recorded');
-    // Now the branch is only a guess.
-    await writeStatus();
-    for (const end = Date.now() + 10_000; Date.now() < end && !job.locate?.branchGuessed; await sleep(100)) job = await get(`/api/job/${slug}`);
-    assert.deepEqual({ branch: job.branch, guessed: job.locate?.branchGuessed, worktree: job.worktree }, { branch: 'feature/other-thing', guessed: true, worktree: wt });
-    return { d, get, slug, repo: gRepo, wt, baseSha, s1 };
+    assert.deepEqual(job.repo, { name: 'repo', branch: 'feature/other-thing' }, 'a recorded branch carries no guess flag');
+    assert.equal(job.worktree, main.wt, 'a recorded branch\'s worktree is the job\'s');
+    assert.equal(exp?.page?.prs?.[0]?.state, 'merged', 'the map shows the other job\'s PR #1 merged while its branch is recorded');
+    assert.deepEqual(exp.page.plan.steps.map((s) => s.state), ['done', 'done'], 'PR #1 merged: every step done while the branch is recorded');
+    // Now both branches are only a guess.
+    await main.writeStatus();
+    await merged.writeStatus();
+    for (const end = Date.now() + 10_000; Date.now() < end && !(job.locate?.branchGuessed && exp.locate?.branchGuessed); await sleep(100)) {
+      job = await get(`/api/job/${main.slug}`);
+      exp = await get(`/api/job/${merged.slug}`);
+    }
+    assert.deepEqual({ branch: job.branch, guessed: job.locate?.branchGuessed, located: job.locate?.worktree }, { branch: 'feature/other-thing', guessed: true, located: main.wt });
+    assert.equal(exp.locate?.branchGuessed, true);
+    return { d, get, slug: main.slug, repo: gRepo, wt: main.wt, baseSha, s1: main.s1, merged };
   })();
   return guessed;
 }
@@ -533,4 +555,61 @@ test('the header\'s place of the work never comes from a guessed branch\'s pull 
   const w = await guessedWorld();
   const job = await w.get(`/api/job/${w.slug}`);
   assert.equal(job.finish?.reached, false, 'not "PR #1 open from your fork" by the guessed branch\'s PR #1');
+});
+
+test('the plan is all done by a merged PR #1 only while the branch is recorded, never by a guessed branch\'s lane', { timeout: 60_000 }, async () => {
+  const w = await guessedWorld();
+  const job = await w.get(`/api/job/${w.merged.slug}`);
+  assert.deepEqual(job.page.plan.steps.map((s) => s.state), ['next', 'next'], 'not "all done" by the guessed branch\'s merged PR #1, nor built by its [S1]');
+  assert.equal(job.page.prs[0].state, 'not-started');
+});
+
+test('the job\'s details name no worktree found only through a guessed branch, so Mark done offers none', { timeout: 60_000 }, async () => {
+  const w = await guessedWorld();
+  const job = await w.get(`/api/job/${w.slug}`);
+  assert.equal(job.worktree ?? null, null);
+  assert.equal(job.locate.worktree, w.wt, 'where the guess was found is still told (BranchGuess reads locate)');
+});
+
+test('the job\'s card says its branch is a guess', { timeout: 60_000 }, async () => {
+  const w = await guessedWorld();
+  assert.deepEqual((await w.get(`/api/job/${w.slug}`)).repo, { name: 'repo', branch: 'feature/other-thing', branchGuessed: true });
+  const card = (await w.get('/api/snapshot')).jobs.find((j) => j.slug === w.slug);
+  assert.deepEqual(card.repo, { name: 'repo', branch: 'feature/other-thing', branchGuessed: true }, 'the board\'s card too');
+});
+
+// Last of the guessed world's tests: it confirms the guess.
+test('This is the job\'s branch tells every open page the job changed, and the job gets its lane back at once', { timeout: 60_000 }, async () => {
+  const w = await guessedWorld();
+  const { seq, epoch } = await w.get('/api/snapshot');
+  const seen = [];
+  const req = http.get(`${w.d.base}/api/events?v=2&since=${seq}&epoch=${epoch}`, (res) => {
+    let buf = '';
+    res.on('data', (chunk) => {
+      buf += chunk;
+      let i;
+      while ((i = buf.indexOf('\n\n')) >= 0) {
+        const data = buf.slice(0, i).split('\n').find((l) => l.startsWith('data: '));
+        buf = buf.slice(i + 2);
+        if (data) seen.push(JSON.parse(data.slice(6)));
+      }
+    });
+  });
+  req.on('error', () => {});
+  try {
+    await sleep(300);
+    const res = await fetch(`${w.d.base}/api/job/${w.slug}/repo`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Starbase-Token': w.d.token }, body: JSON.stringify({ repoPath: w.repo, branch: 'feature/other-thing' }) });
+    assert.equal(res.status, 200, await res.text());
+    for (let n = 0; n < 60 && !seen.some((e) => e.type === 'change'); n++) await sleep(50);
+    assert.ok(seen.some((e) => e.type === 'change'), `a change is broadcast: ${JSON.stringify(seen.map((e) => e.type))}`);
+    // The map recounts now, not at its minute timer: PR #1 open again, from the job's own branch.
+    let job = null;
+    for (const end = Date.now() + 5_000; Date.now() < end; await sleep(100)) {
+      job = await w.get(`/api/job/${w.slug}`);
+      if (job.page.prs[0].state === 'open') break;
+    }
+    assert.deepEqual({ guessed: job.locate.branchGuessed, source: job.locate.branchSource, pr1: job.page.prs[0].state }, { guessed: false, source: 'your choice', pr1: 'open' });
+  } finally {
+    req.destroy();
+  }
 });

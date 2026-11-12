@@ -74,7 +74,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { GIT_SETTING_CHANGE, goAheadCovers, ORG_REMOTES, setApiPort, setStateDir } from '../lib/hard-lines.js';
 import { jobRepo, verifiedJobContext } from '../lib/auto-context.js';
-import { guessedWorktree, guessWords } from '../lib/locate.js';
+import { guessedWorktree, guessWords, jobTerminals, ownBranch, ownCodeDir, ownLane, ownWorktree } from '../lib/locate.js';
 import { autoGitFacts, gitIsAncestor, gitRemoteDefault, gitWorktrees } from '../lib/auto-git.js';
 import { readStack } from '../lib/stack.js';
 import { fillPattern, stackNames, stackRules, tryItRules } from '../lib/profile.js';
@@ -633,25 +633,36 @@ export async function createRunner(config) {
       return null;
     }
   }
+  // The job's own branch's commits (base..branch, at most 500), for the plan's steps and the Hex
+  // Sommelier: one `git rev-parse` each time, and one `git log` only when the branch's head moved. Never
+  // a branch Starbase only guessed, nor in the worktree found through it (lib/locate.js ownBranch,
+  // ownCodeDir): null, as with no folder, branch or base. A git that fails throws.
+  const BRANCH_COMMITS_KEPT = 50; // the most branches whose commits are kept, the oldest out first
+  const branchCommitsCache = new Map(); // codeDir|branch|base -> { head, commits }
+  async function branchCommitsOf(f) {
+    const base = f.baseSha ?? f.baseBranch;
+    const branch = ownBranch(f);
+    const codeDir = ownCodeDir(f);
+    if (!codeDir || !branch || !base) return null;
+    const head = await git.headOf(codeDir, branch);
+    if (!head) return null;
+    const key = `${codeDir}|${branch}|${base}`;
+    const hit = branchCommitsCache.get(key);
+    if (hit && hit.head === head) return hit.commits;
+    const commits = await git.commits(codeDir, { base, head: branch, limit: 500 });
+    keepLatest(branchCommitsCache, key, { head, commits }, BRANCH_COMMITS_KEPT);
+    return commits;
+  }
+
   // The Hex Sommelier commit on a job's branch (hexCommit). Looked for only on a full job read (at most
   // every JOBS_EVERY_MS), one job at a time, and not at all once the secret is found; a branch's
   // commits are read again only when its head moved. Only the job's own commits count (base..branch,
   // never the history it started from): with no base known, it isn't looked at.
-  const hexCache = new Map(); // codeDir|branch|base -> { head, value }
   const hexKnown = new Map(); // job folder -> what the last full read found (the quick reads reuse it)
   async function hexCommitOf(f) {
-    const base = f.baseSha ?? f.baseBranch;
-    const codeDir = f.worktree && fs.existsSync(f.worktree) ? f.worktree : f.repoPath;
-    if (!codeDir || !f.branch || !base) return null;
-    const key = `${codeDir}|${f.branch}|${base}`;
-    const head = await git.headOf(codeDir, f.branch);
-    if (!head) return null;
-    const hit = hexCache.get(key);
-    if (hit && hit.head === head) return hit.value;
-    let value = null;
-    try { value = hexCommit(await git.commits(codeDir, { base, head: f.branch, limit: 500 })); } catch { value = null; }
-    hexCache.set(key, { head, value });
-    return value;
+    let commits = null;
+    try { commits = await branchCommitsOf(f); } catch { commits = null; }
+    return commits ? hexCommit(commits) : null;
   }
   async function lookForHex(list) {
     if (playbook.ledger?.secrets?.['hex-sommelier']) return;
@@ -668,25 +679,10 @@ export async function createRunner(config) {
   // from status.json and the flow map's lane. A part that fails is null, so an older job still has
   // a whole page.
   // A branch Starbase only guessed (lib/locate.js branchGuessed) may be another job's: the page's facts
-  // read nothing from it, its worktree or its pull requests, as for a job with no branch.
-  const ownBranch = (f) => (f.locate?.branchGuessed ? null : f.branch ?? null);
-  const ownLane = (f) => (f.locate?.branchGuessed ? null : flowLanes.get(f.slug) ?? null);
-  const codeDirOf = (f) => (f.worktree && !guessedWorktree(f) && fs.existsSync(f.worktree) ? f.worktree : f.repoPath);
-  const PLAN_COMMITS_KEPT = 50; // the most branches whose commits are kept, the oldest out first
-  const planCommitsCache = new Map(); // codeDir|branch|base -> { head, commits: [{ step }] }
+  // read nothing from it, its worktree or its pull requests, as for a job with no branch (lib/locate.js
+  // ownBranch, ownCodeDir, ownLane).
   async function planCommitsOf(f) {
-    const base = f.baseSha ?? f.baseBranch;
-    const branch = ownBranch(f);
-    const codeDir = codeDirOf(f);
-    if (!codeDir || !branch || !base) return [];
-    const head = await git.headOf(codeDir, branch);
-    if (!head) return [];
-    const key = `${codeDir}|${branch}|${base}`;
-    const hit = planCommitsCache.get(key);
-    if (hit && hit.head === head) return hit.commits;
-    const commits = (await git.commits(codeDir, { base, head: branch, limit: 500 })).map((c) => ({ step: c.step }));
-    keepLatest(planCommitsCache, key, { head, commits }, PLAN_COMMITS_KEPT);
-    return commits;
+    return ((await branchCommitsOf(f)) ?? []).map((c) => ({ step: c.step }));
   }
   const factPart = (read) => read().catch(() => null);
   function planFacts(f) {
@@ -697,7 +693,7 @@ export async function createRunner(config) {
         return planView({
           text, version: docVersion(f.dir, file, f.recordedArtifacts), stage: f.stage,
           building: stopOf(f.stage) === 'build' && f.stageState === 'working' && !closedOff(f),
-          finished: planDone({ closed: closedOff(f) ? f.closed : null, prs: f.prs, lane: ownLane(f) }),
+          finished: planDone({ closed: closedOff(f) ? f.closed : null, prs: f.prs, lane: ownLane(f, flowLanes) }),
           readCommits: () => planCommitsOf(f),
         });
       }
@@ -851,7 +847,8 @@ export async function createRunner(config) {
   // Claude Code terminals open in this job's repository or worktree right now.
   async function terminalsFor(f) {
     const open = DEMO ? [] : await liveTerminals();
-    return open.filter((t) => t.cwd && ((f.repoPath && isInside(t.cwd, f.repoPath)) || (f.worktree && isInside(t.cwd, f.worktree))));
+    // Never one in a worktree found only through a guessed branch (lib/locate.js jobTerminals).
+    return jobTerminals(f, open);
   }
 
   // Terminal sessions seen through the optional live link that worked on this job.
@@ -956,7 +953,7 @@ export async function createRunner(config) {
     const off = Boolean(f.closed) && !active && !workedSinceMark && !(f.updatedAt && f.updatedAt > f.closed.at);
     // The finish line (lib/finish.js): crossed or not, by what, and where the work has landed.
     // Not a lane the map still has from before the branch was only a guess (ownLane).
-    const lane = ownLane(f);
+    const lane = ownLane(f, flowLanes);
     // An Auto job's finish line is PR #1 open, whatever Settings says (lib/auto.js: ran stays true).
     const finish = finishLineReached({ prs: f.prs, closed: off ? f.closed : null }, lane, f.auto?.ran === true ? 'pr1-open' : finishLineNow);
     return {
@@ -973,7 +970,8 @@ export async function createRunner(config) {
       prototype: f.prototype ?? null,
       // The review walkthrough built for its branch (lib/docs.js walkthroughInfo): the Preview pane's Walkthrough tab.
       walkthrough: f.walkthrough ?? null,
-      repo: f.repoPath ? { name: path.basename(f.repoPath), branch: f.branch } : null,
+      // branchGuessed: the branch is only a guess (lib/locate.js): the web shows no branch for it.
+      repo: f.repoPath ? { name: path.basename(f.repoPath), branch: f.branch, ...(f.locate?.branchGuessed ? { branchGuessed: true } : {}) } : null,
       cost: { totalUsd: Math.max(f.cost.totalUsd, active?.costUsd ?? 0), source: f.cost.source },
       progress: { done: f.stageState === 'done' ? ids.length : Math.max(0, at), total: ids.length },
       updatedAt: f.updatedAt, sources: f.sources, permissions: pendingList.length, limitPaused, limitAuto: limits.autoResume,
@@ -1235,7 +1233,8 @@ export async function createRunner(config) {
       // Briefs already decided: a deciding gate reply (audit 'send' lines with gateBrief), or a
       // decision from the classic page sent after the current brief was written.
       answeredBriefs: answeredBriefs(audit, f.currentBrief),
-      dir: f.dir, repoPath: f.repoPath, branch: f.branch, worktree: f.worktree, baseSha: f.baseSha, prs: f.prs,
+      // No worktree found only through a guessed branch (ownWorktree): Mark done never offers to remove it.
+      dir: f.dir, repoPath: f.repoPath, branch: f.branch, worktree: ownWorktree(f), baseSha: f.baseSha, prs: f.prs,
       options: f.options, optionsSummary: f.options ? describeOptions(f.options) : null,
       spec: f.spec, specFile: specFile(f), currentText: f.currentText, questionsFull: f.questions, decidedOnYourBehalf: f.decidedOnYourBehalf,
       latestBrief, briefs: f.briefs, approvals: f.approvals, history: f.history, artifacts: f.artifacts, recordedArtifacts: f.recordedArtifacts,
@@ -1248,7 +1247,7 @@ export async function createRunner(config) {
         ...(await testFacts(f)),
         plan: await planFacts(f),
         review: await reviewFacts(f),
-        prs: prRows(f.prs, ownLane(f)),
+        prs: prRows(f.prs, ownLane(f, flowLanes)),
       },
       // policy: the setting in force for this job; policyOverride: the job's own (null: it follows yours).
       // While Auto is on, 'auto' (lib/state.js policyFor), the job's own setting kept as it was.
@@ -1470,7 +1469,9 @@ export async function createRunner(config) {
     cards.sort((a, b) => rank(a) - rank(b) || (a.needsYou ? String(a.waitingSince ?? '').localeCompare(String(b.waitingSince ?? '')) : 0));
     // Each card's lane on Jobs and the reason in words (lib/snapshot.js laneFor, packet M).
     const pending = driver.pendingPermissions();
-    return cards.map((c) => ({ ...c, ...laneFor(c, { lane: flowLanes.get(c.slug) ?? null, pending: pending.filter((p) => p.slug === c.slug), handled: (id) => auto.handlingCard(id) }) }));
+    // Never the lane of a branch only guessed (ownLane); a job just starting has no record yet.
+    const bySlug = new Map(list.map((f) => [f.slug, f]));
+    return cards.map((c) => ({ ...c, ...laneFor(c, { lane: ownLane(bySlug.get(c.slug) ?? c, flowLanes), pending: pending.filter((p) => p.slug === c.slug), handled: (id) => auto.handlingCard(id) }) }));
   }
 
 
@@ -1633,7 +1634,7 @@ export async function createRunner(config) {
   const reviewRounds = createReviewRounds({
     gh: feedbackGh, driver, write: ghWrites,
     // A branch Starbase only guessed (lib/locate.js): no round, every action refused in `guess`'s words, and no worktree to push from.
-    jobs: async () => (await featuresShared()).map((f) => ({ dir: f.dir, slug: f.slug, title: f.title, branch: f.branch ?? null, worktree: guessedWorktree(f) ? null : f.worktree ?? null, repoPath: f.repoPath ?? null, closed: f.closed ?? null, ticket: slugTicketKey(f.slug) ?? null, guess: f.locate?.branchGuessed ? guessWords(f) : null })),
+    jobs: async () => (await featuresShared()).map((f) => ({ dir: f.dir, slug: f.slug, title: f.title, branch: f.branch ?? null, worktree: ownWorktree(f), repoPath: f.repoPath ?? null, closed: f.closed ?? null, ticket: slugTicketKey(f.slug) ?? null, guess: f.locate?.branchGuessed ? guessWords(f) : null })),
     profileFor: async (repo) => { const hit = await local.registry?.profileFor(repo).catch(() => null); return hit?.ok ? hit.profile : null; },
     // Settings → Workflow's "Who reviews and merges each pull request": every registered repository's route.
     routes: async () => {
@@ -1843,7 +1844,7 @@ export async function createRunner(config) {
         statusCard: driver.pendingPermissions().some((p) => p.featureDir === f.dir && p.statusCard === true),
         // PR #1 open by status.json or by the flow map: the same sources the ordinary Done notice reads (flowNotices).
         // With a branch Starbase only guessed (lib/locate.js), the map's lane may be another job's: status.json alone (ownLane).
-        prOpen: finishLineReached({ prs: f.prs, closed: null }, ownLane(f), 'pr1-open').reached,
+        prOpen: finishLineReached({ prs: f.prs, closed: null }, ownLane(f, flowLanes), 'pr1-open').reached,
         gate: g ? { ...g, briefNumber: cb?.number ?? null, headline: cb?.headline ?? null } : null,
         // All of the job's lines: a long reply after the person's own answer must not push it out of view.
         answered: answeredBriefs(await state.auditFor(f.dir, Infinity), cb),
@@ -2026,7 +2027,7 @@ export async function createRunner(config) {
   state.on('audit', (e) => {
     if (e.action !== 'close' || e.as !== 'done' || !e.slug) return;
     featureBySlug(e.slug).then((f) => {
-      const finish = finishLineReached({ prs: f?.prs ?? null, closed: { as: 'done', at: e.at } }, flowLanes.get(e.slug) ?? null, finishLineNow);
+      const finish = finishLineReached({ prs: f?.prs ?? null, closed: { as: 'done', at: e.at } }, ownLane(f ?? { slug: e.slug }, flowLanes), finishLineNow);
       const was = finishBefore.get(e.slug);
       if (was === undefined) finishBefore.set(e.slug, { reached: false, landed: finish.landed }); // never seen: still news
       noteFinish({ slug: e.slug, title: f?.title ?? e.slug, finish, repoName: f?.repoPath ? path.basename(f.repoPath) : null });
@@ -2585,8 +2586,8 @@ export async function createRunner(config) {
 
     async 'fetch-diff'(body) {
       const f = await jobOf(body.slug);
-      // Never in a worktree found only through a guessed branch (codeDirOf): the repository instead.
-      const codeDir = codeDirOf(f);
+      // Never in a worktree found only through a guessed branch (ownCodeDir): the repository instead.
+      const codeDir = ownCodeDir(f);
       if (!codeDir) throw new HttpError(404, 'No repository for this job.');
       return { dir: codeDir, ...(await git.show(codeDir, body.commit)) };
     },
@@ -2710,7 +2711,7 @@ export async function createRunner(config) {
         const job = {
           slug: f.slug, dir: f.dir, title: f.options?.title ?? f.title, kind: f.kind === 'bug' ? 'bug' : 'feature', ticket: f.options?.ticket ?? null,
           // A branch Starbase only guessed, and the worktree it found through it, may be another job's: never moved or renamed (lib/locate.js).
-          repoPath: repo.path, branch: f.locate?.branchGuessed ? null : f.branch ?? null, baseBranch: f.baseBranch ?? null, worktree: guessedWorktree(f) ? null : f.worktree ?? null, prs: f.prs, running: false,
+          repoPath: repo.path, branch: ownBranch(f), baseBranch: f.baseBranch ?? null, worktree: ownWorktree(f), prs: f.prs, running: false,
           terminalOpen: drive.mode === 'terminal-open' || (drive.mode === 'terminal' && drive.terminals.length > 0),
           lastRunInTerminal: drive.mode === 'terminal' && drive.terminals.length === 0,
           options: f.options, archiveRoot: path.join(FEATURES_DIR, '.restarted'),
@@ -3110,7 +3111,7 @@ export async function createRunner(config) {
         return { ok: true, dismissed };
       }
       if (listOf('sentNudges').includes(id)) throw new HttpError(409, 'That was already sent to the Foreman. Nothing was sent again.', { code: 'nudge-sent' });
-      const nudge = nudgesFor({ stage: f.stage, prs: f.prs, closed: f.closed }, flowLanes.get(f.slug) ?? null, { finishLine: finishLineNow }).find((n) => n.id === id);
+      const nudge = nudgesFor({ stage: f.stage, prs: f.prs, closed: f.closed }, ownLane(f, flowLanes), { finishLine: finishLineNow }).find((n) => n.id === id);
       if (!nudge) throw new HttpError(409, 'That nudge no longer applies: the PRs have moved on. Nothing was sent.', { code: 'stale-nudge' });
       if (!nudge.action) throw new HttpError(400, 'That nudge is a link to GitHub; there is nothing to send.');
       const drive = await driveState(f);
@@ -3134,7 +3135,11 @@ export async function createRunner(config) {
       if (branch && !/^(?!-)[\w./-]{1,200}$/.test(branch)) throw new HttpError(400, 'That doesn’t look like a branch name.');
       await state.setSession(f.dir, { repoPath: repo.path, branch });
       await state.audit({ action: 'repo-set', featureDir: f.dir, slug: f.slug, repo: repo.path, branch });
+      // Every open page reads the job again, and the flow map recounts now (not at its next timer), so a
+      // branch confirmed from a guess (This is the job's branch) gets its lane back at once.
       invalidate();
+      notifyChange();
+      flow.refresh({ network: false }).catch(() => {});
       return { ok: true, repoPath: repo.path };
     },
 
@@ -3353,8 +3358,8 @@ export async function createRunner(config) {
     localView: async (slug, { fresh = false } = {}) => local.view(await jobOf(slug), { fresh }),
     async commits(slug) {
       const f = await jobOf(slug);
-      // A branch Starbase only guessed is read as no branch (ownBranch).
-      const codeDir = codeDirOf(f);
+      // A branch Starbase only guessed is read as no branch (ownBranch, ownCodeDir).
+      const codeDir = ownCodeDir(f);
       const branch = ownBranch(f);
       if (!codeDir || !branch || !(await git.isGitRepo(codeDir))) return { dir: codeDir, commits: [], note: 'No feature branch yet. Commits show up here once building starts.' };
       try {

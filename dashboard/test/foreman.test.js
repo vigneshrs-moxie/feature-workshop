@@ -6,7 +6,8 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 import { classify, splitCommand } from '../lib/policy.js';
-import { locateJob, pathsIn, branchesIn } from '../lib/locate.js';
+import { locateJob, pathsIn, branchesIn, jobTerminals, ownBranch, ownCodeDir, ownLane, ownWorktree } from '../lib/locate.js';
+import { planDone, prRows } from '../lib/job-page.js';
 import { parseBrief, overviewFromRecord, buildOverview } from '../lib/overview.js';
 import { parseEvents, summariseSessions } from '../lib/hook-events.js';
 import { parsePs } from '../lib/live.js';
@@ -351,4 +352,49 @@ test('now-doing names the model', async () => {
     await dashboard.stop();
     await fs.rm(root, { recursive: true, force: true });
   }
+});
+
+// ---------- The job's own branch, worktree, code folder, lane and terminals (lib/locate.js): never a guess ----------
+// Pure: the lane is given, so these hold whatever the flow map's timer does.
+
+const ownOf = (branchGuessed, extra = {}) => ({
+  slug: 'visit-audit', branch: 'feature/other-thing', worktree: '/w/other-thing', repoPath: '/w/repo', statusWorktree: null,
+  locate: { path: '/w/repo', branch: 'feature/other-thing', branchGuessed, worktree: '/w/other-thing' }, ...extra,
+});
+
+test('ownBranch and ownWorktree: a guessed branch and the worktree found through it are none; recorded ones are the job\'s', () => {
+  assert.equal(ownBranch(ownOf(true)), null);
+  assert.equal(ownWorktree(ownOf(true)), null);
+  assert.equal(ownBranch(ownOf(false)), 'feature/other-thing');
+  assert.equal(ownWorktree(ownOf(false)), '/w/other-thing');
+  // A guessed branch with the worktree status.json names: the worktree is the job's own.
+  assert.equal(ownWorktree(ownOf(true, { worktree: '/w/own', statusWorktree: '/w/own', locate: { branch: 'feature/other-thing', branchGuessed: true, worktree: '/w/own' } })), '/w/own');
+  assert.equal(ownBranch({ slug: 'x' }), null);
+  assert.equal(ownWorktree(null), null);
+});
+
+test('ownCodeDir: the job\'s own worktree when it is there, else its repository; never a guessed worktree', () => {
+  const there = () => true;
+  assert.equal(ownCodeDir(ownOf(false), there), '/w/other-thing');
+  assert.equal(ownCodeDir(ownOf(true), there), '/w/repo');
+  assert.equal(ownCodeDir(ownOf(false), () => false), '/w/repo', 'a worktree that is gone: the repository');
+  assert.equal(ownCodeDir({ slug: 'x' }, there), null);
+});
+
+test('ownLane: a guessed job reads no lane, even while the map still has one, so the page\'s plan and pull requests are not another job\'s', () => {
+  const lanes = new Map([['visit-audit', { slug: 'visit-audit', pr1: { number: 165, state: 'merged', url: 'https://github.com/acme/repo/pull/165' } }]]);
+  assert.equal(ownLane(ownOf(true), lanes), null);
+  assert.equal(ownLane(ownOf(false), lanes), lanes.get('visit-audit'));
+  assert.equal(ownLane(ownOf(false), null), null);
+  // What the page builds from it (lib/job-page.js): all done and PR #1 merged only with the job's own lane.
+  assert.equal(planDone({ prs: null, lane: ownLane(ownOf(false), lanes) }), true);
+  assert.equal(planDone({ prs: null, lane: ownLane(ownOf(true), lanes) }), false);
+  assert.equal(prRows(null, ownLane(ownOf(true), lanes))[0].state, 'not-started');
+  assert.equal(prRows(null, ownLane(ownOf(false), lanes))[0].number, 165);
+});
+
+test('jobTerminals: a terminal open in a guessed worktree is not the job\'s; one in its repository or its own worktree is', () => {
+  const open = [{ pid: 1, cwd: '/w/other-thing' }, { pid: 2, cwd: '/w/repo/app' }, { pid: 3, cwd: '/elsewhere' }, { pid: 4, cwd: null }];
+  assert.deepEqual(jobTerminals(ownOf(true), open).map((t) => t.pid), [2]);
+  assert.deepEqual(jobTerminals(ownOf(false), open).map((t) => t.pid), [1, 2]);
 });

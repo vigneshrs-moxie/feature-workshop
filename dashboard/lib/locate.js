@@ -4,6 +4,7 @@
 // Read-only: only runs `git` commands that inspect.
 
 import fs from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 
@@ -96,6 +97,43 @@ const BRANCH_TYPES = ['feature', 'fix', 'bug', 'hotfix', 'chore'];
 export function guessedWorktree(f) {
   const loc = f?.locate;
   return loc?.branchGuessed === true && loc.worktree && loc.worktree !== f.statusWorktree ? loc.worktree : null;
+}
+
+// The job's own facts, never a guess (one rule for the runner, the job list and the page): a branch
+// locateJob only guessed may be another job's, so it reads as no branch, the worktree found through
+// it as no worktree, and the flow map's lane (found by that branch) as no lane. Pure.
+
+/** The job's branch, or null when it is only a guess (branchGuessed). */
+export function ownBranch(f) {
+  return f?.locate?.branchGuessed === true ? null : f?.branch ?? null;
+}
+
+/** The job's worktree, or null when it was found only through a guessed branch (guessedWorktree). */
+export function ownWorktree(f) {
+  return guessedWorktree(f) ? null : f?.worktree ?? null;
+}
+
+/** Where the job's code is read: its own worktree while it is there (exists), else its repository, or null. */
+export function ownCodeDir(f, exists = existsSync) {
+  const w = ownWorktree(f);
+  return w && exists(w) ? w : f?.repoPath ?? null;
+}
+
+/** The job's lane on the flow map (lanes: Map of slug to lane), or null when its branch is only a guess. */
+export function ownLane(f, lanes) {
+  return f?.locate?.branchGuessed === true ? null : lanes?.get?.(f?.slug) ?? null;
+}
+
+const inside = (p, dir) => {
+  if (!p || !dir) return false;
+  const rel = path.relative(path.resolve(dir), path.resolve(p));
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+};
+
+/** The Claude Code terminals (open: [{ cwd }]) in the job's repository or its own worktree; never one in a guessed worktree. */
+export function jobTerminals(f, open) {
+  const worktree = ownWorktree(f);
+  return (open ?? []).filter((t) => t?.cwd && (inside(t.cwd, f?.repoPath) || inside(t.cwd, worktree)));
 }
 
 /** What a refusal caused by a guessed branch says, with what to do (the job page's "This is the job's branch"). */
