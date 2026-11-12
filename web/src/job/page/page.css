@@ -128,12 +128,12 @@ a.sb-top-ticket:hover { border-color: var(--border-3); }
 .sb-auto-switch-word.is-on { color: var(--accent-strong); }
 /* On the website, in the gear's place: one muted sentence. */
 .sb-top-laptop { align-self: center; font-size: var(--text-xs); color: var(--text-2); }
-/* The checkbox as a switch: the native input stays underneath, for the keyboard and screen readers.
-   The raw numbers are the drawn switch's own size (a 30 by 18 track, a 14 px knob inset 2 px); no token fits them. */
-.sb-job-top .auto-switch-row > .choice { width: 30px; height: 18px; padding: 2px; border-color: transparent; border-radius: 9px; background-color: var(--bg-4); place-content: center start; }
-.sb-job-top .auto-switch-row > .choice::before { content: ''; width: 14px; height: 14px; border-radius: 50%; background: var(--surface-1); box-shadow: var(--elev-xs); }
-.sb-job-top .auto-switch-row > .choice:checked { border-color: transparent; background-color: var(--btn-primary-bg); place-content: center end; }
-.sb-job-top .auto-switch-row > .choice:checked::before { width: 14px; height: 14px; border: 0; transform: none; background: var(--surface-1); }
+/* The checkbox as a switch (here and in the phone's Auto row, PhoneJob.tsx): the native input stays
+   underneath, for the keyboard and screen readers. The raw numbers are the drawn switch's own size (a 30 by 18 track, a 14 px knob inset 2 px); no token fits them. */
+.sb-job-top .auto-switch-row > .choice, .sb-phone-auto .auto-switch-row > .choice { width: 30px; height: 18px; padding: 2px; border-color: transparent; border-radius: 9px; background-color: var(--bg-4); place-content: center start; }
+.sb-job-top .auto-switch-row > .choice::before, .sb-phone-auto .auto-switch-row > .choice::before { content: ''; width: 14px; height: 14px; border-radius: 50%; background: var(--surface-1); box-shadow: var(--elev-xs); }
+.sb-job-top .auto-switch-row > .choice:checked, .sb-phone-auto .auto-switch-row > .choice:checked { border-color: transparent; background-color: var(--btn-primary-bg); place-content: center end; }
+.sb-job-top .auto-switch-row > .choice:checked::before, .sb-phone-auto .auto-switch-row > .choice:checked::before { width: 14px; height: 14px; border: 0; transform: none; background: var(--surface-1); }
 @media (max-width: 760px) {
   .sb-job-top { flex-direction: column; gap: var(--space-2); }
   .sb-top-side { max-width: 100%; align-items: flex-start; }
@@ -380,15 +380,14 @@ p.sb-test-note { margin: 0; }
 .sb-phone-tool { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; min-height: 56px; padding: var(--space-2) var(--page-gutter); border-bottom: 1px solid var(--border-1); background: var(--surface-1); }
 .sb-phone-tool-note { padding-left: var(--space-3); font-size: var(--text-xs); color: var(--text-2); }
 .sb-phone-auto { padding: var(--space-3) var(--page-gutter); border-bottom: 1px solid var(--border-1); background: var(--surface-1); }
-/* The Auto switch as a row: its words at the left, On or Off and the switch at the right. The
-   checkbox is drawn as the header's switch (sb-switch's look); the native input stays underneath. */
+/* The Auto switch as a row, as drawn: its words at the left, On or Off and the switch at the right.
+   The switch's look is the header's (above). AutoSwitch puts the checkbox first in the row (it is
+   the label's input), so `order` moves it to the end on screen only; focus and reading order keep it
+   first, as everywhere else the switch is. */
 .sb-phone-auto .auto-switch-row { width: 100%; align-items: center; gap: var(--space-2); font-size: var(--text-sm); }
 .sb-phone-auto .auto-switch-row .option-body { flex: 1; min-width: 0; order: 1; }
 .sb-phone-auto .auto-switch-row .sb-auto-switch-word { order: 2; }
-.sb-phone-auto .auto-switch-row > .choice { order: 3; width: 30px; height: 18px; margin-top: 0; padding: 2px; border-color: transparent; border-radius: 9px; background-color: var(--bg-4); place-content: center start; }
-.sb-phone-auto .auto-switch-row > .choice::before { content: ''; width: 14px; height: 14px; border-radius: 50%; background: var(--surface-1); box-shadow: var(--elev-xs); }
-.sb-phone-auto .auto-switch-row > .choice:checked { border-color: transparent; background-color: var(--btn-primary-bg); place-content: center end; }
-.sb-phone-auto .auto-switch-row > .choice:checked::before { width: 14px; height: 14px; border: 0; transform: none; background: var(--surface-1); }
+.sb-phone-auto .auto-switch-row > .choice { order: 3; margin-top: 0; }
 
 /* Conversation, fixed at the bottom of the job screen; its screen gives the panel the rest. */
 .sb-phone-foot { flex: none; padding: var(--space-3) var(--page-gutter) var(--space-4); border-top: 1px solid var(--border-1); background: var(--bg-1); }

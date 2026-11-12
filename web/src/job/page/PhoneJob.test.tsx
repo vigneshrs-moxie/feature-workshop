@@ -10,7 +10,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../../api/client';
-import type { EvidenceView, Gate, Job, JobDetail, StageView, StopId, ThreadItem } from '../../api/types';
+import type { EvidenceView, Gate, Job, JobDetail, Permission, StageView, StopId, ThreadItem } from '../../api/types';
 import { installKeyListener } from '../../app/keyRegistry';
 import { useRoute, type JobView } from '../../app/router';
 import { UiProvider } from '../../app/ui';
@@ -20,7 +20,7 @@ import { useJobConversation } from '../../panes/Foreman/ForemanPane';
 import { clearGateSent } from '../../panes/Foreman/gateSent';
 import { jobBySlug } from '../../state/reducer';
 import { createStore, useWorkshopState, WorkshopContext, type Store } from '../../state/store';
-import { ev, job, snapshot } from '../../state/test-fixtures';
+import { ev, job, permission, snapshot } from '../../state/test-fixtures';
 import { AUTO_LABEL } from '../AutoSwitch';
 import { useSentShown } from '../NextStep';
 import { seenKey } from './ConversationPanel';
@@ -53,7 +53,8 @@ const stageView = (slug: string, stop: StopId): StageView => ({
 });
 
 /** What the test's server knows. */
-const server = { store: null as Store | null, answered: [] as number[], stageHangs: false };
+/** `stageHold`: while set, every step's view waits for it (a held request, resolved by the test). */
+const server = { store: null as Store | null, answered: [] as number[], stageHold: null as Promise<void> | null };
 
 /** The window's width for useMinWidth and useNarrow (jsdom lays nothing out): a phone. */
 function windowWidth(px: number) {
@@ -78,16 +79,19 @@ function Routed({ slug }: { slug: string }) {
   return <Screens job={j} step={route.name === 'stage' ? route.stop : undefined} view={route.name === 'job' ? route.view : undefined} />;
 }
 
-function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], gate = null as Gate | null, auto = null as JobDetail['auto'] | null, page = undefined as JobDetail['page'], thread = [] as ThreadItem[], hosted = false, at = '#/job/alpha', post = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({ ok: true })) } = {}) {
+function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions = [] as Permission[], gate = null as Gate | null, auto = null as JobDetail['auto'] | null, page = undefined as JobDetail['page'], thread = [] as ThreadItem[], hosted = false, at = '#/job/alpha', post = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({ ok: true })) } = {}) {
   window.location.hash = at;
   const store: Store = createStore();
   server.store = store;
   server.answered = [];
-  store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs, meta: { token: 't', settings: { play: { mode: 'subtle' } }, models: [{ id: 'claude-opus-5-5', label: 'Opus 5.5' }] } as never }) });
+  store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs, permissions, meta: { token: 't', settings: { play: { mode: 'subtle' } }, models: [{ id: 'claude-opus-5-5', label: 'Opus 5.5' }] } as never }) });
   const detail = (s: string): JobDetail => ({ slug: s, thread, threadMore: false, gate, answeredBriefs: [...server.answered], heldReply: null, options: { level: 1 }, auto, page } as JobDetail);
   const get = vi.fn(async (p: string): Promise<unknown> => {
     const stage = /^\/api\/job\/([^/]+)\/stage\/([a-z]+)$/.exec(p);
-    if (stage) return server.stageHangs ? new Promise(() => {}) : stageView(decodeURIComponent(stage[1]), stage[2] as StopId);
+    if (stage) {
+      const v = stageView(decodeURIComponent(stage[1]), stage[2] as StopId);
+      return server.stageHold ? server.stageHold.then(() => v) : v;
+    }
     if (p.endsWith('/evidence')) return EVIDENCE;
     if (p.endsWith('/docs')) return { docs: [] };
     if (p.endsWith('/commits')) return { commits: [] };
@@ -101,14 +105,14 @@ function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], gate = null a
   const api = { get, post, ...(hosted ? { hosted: () => true } : {}) } as unknown as ApiClient;
   const utils = render(<WorkshopContext.Provider value={{ store, api }}><UiProvider><Routed slug="alpha" /></UiProvider></WorkshopContext.Provider>);
   /** The job as the next snapshot has it. */
-  const move = (next: Job[]) => act(() => {
-    store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: next, meta: { token: 't', settings: { play: { mode: 'subtle' } } } as never }) });
+  const move = (next: Job[], perms: Permission[] = permissions) => act(() => {
+    store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: next, permissions: perms, meta: { token: 't', settings: { play: { mode: 'subtle' } } } as never }) });
   });
   return { ...utils, get, post, store, move };
 }
 
 let off = () => {};
-beforeEach(() => { off = installKeyListener(); windowWidth(390); server.stageHangs = false; });
+beforeEach(() => { off = installKeyListener(); windowWidth(390); server.stageHold = null; });
 afterEach(() => { off(); cleanup(); clearAllSent(); clearGateSent(); localStorage.clear(); window.location.hash = ''; vi.unstubAllGlobals(); });
 
 const bar = () => screen.getByRole('region', { name: 'Next step' });
@@ -177,6 +181,11 @@ describe('the phone’s job screen', () => {
     const rule = (sel: string) => new RegExp(`${sel.replace(/[.()*+?[\]\\^$|{}]/g, '\\$&')}\\s*\\{([^}]*)\\}`).exec(css)?.[1] ?? '';
     expect(rule('.sb-phone .job-go .next-actions')).toMatch(/display:\s*grid[^}]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/);
     expect(rule('.sb-phone .job-go .next-actions > .btn-primary, .sb-phone .job-go .next-actions > :only-child')).toMatch(/grid-column:\s*1 \/ -1/);
+    // And those rules reach the buttons drawn: Go spans both columns, Send back and Reply share the first row.
+    expect(within(bar()).getByRole('button', { name: /^Go: approve/ }).matches('.sb-phone .job-go .next-actions > .btn-primary')).toBe(true);
+    for (const b of [within(bar()).getByRole('button', { name: /^No go: send back/ }), within(bar()).getByRole('button', { name: 'Reply' })]) {
+      expect(b.matches('.sb-phone .job-go .next-actions > :not(.btn-primary)')).toBe(true);
+    }
   });
 
   it('a step row opens that step’s own screen, and Back returns to the job', async () => {
@@ -196,9 +205,25 @@ describe('the phone’s job screen', () => {
     // The screen's own back row, named by the job's title, returns too.
     fireEvent.click(screen.getByRole('button', { name: /^Build: / }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Build' })).toBeInTheDocument();
+    const deep = window.history.length;
     fireEvent.click(screen.getByRole('button', { name: 'Job alpha' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Job alpha' })).toBeInTheDocument();
     expect(window.location.hash).toBe('#/job/alpha');
+    // The back row went back: the history did not grow, and the browser's Back now leaves the job, never to Build.
+    expect(window.history.length).toBe(deep);
+    act(() => { window.history.back(); });
+    await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
+    expect(window.location.hash).not.toBe('#/job/alpha/stage/build');
+  });
+
+  it('a step opened from a link has a back row that still goes to the job', async () => {
+    setup({ jobs: [working('plan')], at: '#/job/alpha/stage/review' });
+    expect(await screen.findByRole('heading', { level: 1, name: 'Review' })).toBeInTheDocument();
+    const before = window.history.length;
+    fireEvent.click(screen.getByRole('button', { name: 'Job alpha' }));
+    expect(window.location.hash).toBe('#/job/alpha');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Job alpha' })).toBeInTheDocument();
+    expect(window.history.length).toBe(before + 1);
   });
 
   it('Conversation is fixed at the bottom, says how many are new, and opens full screen', async () => {
@@ -224,7 +249,8 @@ describe('the phone’s job screen', () => {
     const panel = await waitFor(() => { const p = document.querySelector<HTMLElement>('.sb-convo.is-full'); expect(p).not.toBeNull(); return p!; });
     expect(within(panel).getByRole('heading', { name: 'Conversation' })).toBeInTheDocument();
     expect(within(panel).getByText(/· 2 new/)).toBeInTheDocument();
-    expect(within(panel).getByRole('textbox', { name: /Your message to the Foreman/ })).toBeInTheDocument();
+    // A plain tap opens it without raising the keyboard: the box is not focused.
+    expect(within(panel).getByRole('textbox', { name: /Your message to the Foreman/ })).not.toHaveFocus();
     expect(screen.queryByRole('button', { name: /^Conversation/ })).toBeNull();
     // Back to the job by its title.
     fireEvent.click(screen.getByRole('button', { name: 'Job alpha' }));
@@ -295,7 +321,8 @@ describe('the phone’s step screen', () => {
   });
 
   it('a step’s body comes only once that step’s view is in', async () => {
-    server.stageHangs = true;
+    let release = () => {};
+    server.stageHold = new Promise<void>((r) => { release = r; });
     setup({ jobs: [working('implement')], at: '#/job/alpha/stage/build' });
     const panel = await screen.findByRole('tabpanel', { name: 'Build' });
     expect(within(panel).getByText('Loading who worked on it…')).toBeInTheDocument();
@@ -303,12 +330,10 @@ describe('the phone’s step screen', () => {
     // The head says the step's state all the same.
     expect(screen.getByRole('heading', { level: 1, name: 'Build' })).toBeInTheDocument();
     expect(screen.getByText('Working now', { selector: '.sb-phone-facts .chip' })).toBeInTheDocument();
-    // Once the view is in, the body comes.
-    server.stageHangs = false;
-    cleanup();
-    setup({ jobs: [working('implement')], at: '#/job/alpha/stage/build' });
-    const ready = await screen.findByRole('tabpanel', { name: 'Build' });
-    await waitFor(() => expect(ready.querySelector('.sb-step-body')).not.toBeNull());
+    // The held answer comes in: the body comes, in the same panel.
+    await act(async () => { release(); });
+    await waitFor(() => expect(panel.querySelector('.sb-step-body')).not.toBeNull());
+    expect(screen.getByRole('tabpanel', { name: 'Build' })).toBe(panel);
   });
 
   it('after Go the chip reads Sent and the step’s row and screen read Approved', async () => {
@@ -346,13 +371,63 @@ describe('the phone page on the website', () => {
     expect(screen.queryByRole('button', { name: /Open Try it/ })).toBeNull();
   });
 
-  it('on the website the phone page has Send back, Reply and Go on a waiting Auto job', async () => {
-    setup({ jobs: [AUTO_STATES[1][1]], gate: GATE, auto: { on: true, tag: null } as JobDetail['auto'], hosted: true });
+  it.each(AUTO_STATES)('on the website the phone page has Send back, Reply and Go on a waiting Auto job (%s)', async (_name, j) => {
+    setup({ jobs: [j], gate: GATE, auto: { on: true, tag: null } as JobDetail['auto'], hosted: true });
     await threeCallsOn();
     expect(screen.getByRole('main', { name: 'Job' }).querySelector('.state-chip')).not.toBeNull();
     // And on the screen of the step that waits.
     fireEvent.click(screen.getByRole('button', { name: /^Plan: / }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Plan' })).toBeInTheDocument();
+    await threeCallsOn();
+  });
+
+  it('on the website the overview and the conversation open as on the laptop app', async () => {
+    setup({ jobs: [working('plan')], page: PAGE, hosted: true, at: '#/job/alpha/overview' });
+    const main = screen.getByRole('main', { name: 'Job' });
+    expect(within(main).getByRole('heading', { level: 1, name: 'Overview' })).toBeInTheDocument();
+    expect(await within(main).findByText('ORBIT-900 · filed by Dana Whitfield on Nov 3')).toBeInTheDocument();
+    for (const name of ['The ticket', 'What we’re building', 'What to check']) expect(within(main).getByRole('heading', { level: 2, name })).toBeInTheDocument();
+    go('#/job/alpha/conversation');
+    const panel = await waitFor(() => { const p = document.querySelector<HTMLElement>('.sb-convo.is-full'); expect(p).not.toBeNull(); return p!; });
+    expect(within(panel).getByRole('heading', { name: 'Conversation' })).toBeInTheDocument();
+    expect(within(panel).getByRole('textbox', { name: /Your message to the Foreman/ })).toBeInTheDocument();
+  });
+});
+
+// The owner's requirement where no gate waits: the Foreman asked something (Reply only), and a
+// permission (its alert in the bar's place; the three calls back once it is answered).
+describe('the phone’s bar when no gate waits', () => {
+  const ASKED = job('alpha', 'needs-you', { stage: 'plan', lane: 'needs-you', level: 1, headline: 'Which table should the notes use?' });
+  const reply = () => within(bar()).getByRole('button', { name: /^Reply/ });
+  const box = () => screen.getByRole('textbox', { name: /Your message to the Foreman/ });
+
+  it.each([['the laptop app', false], ['the website', true]] as const)('Reply is there with no gate and lands on the conversation with the box focused, on the job screen and the waiting step’s screen (%s)', async (_where, hosted) => {
+    setup({ jobs: [ASKED], hosted });
+    await within(bar()).findByText('The Foreman asked you something');
+    expect(reply()).toBeEnabled();
+    fireEvent.click(reply());
+    expect(window.location.hash).toBe('#/job/alpha/conversation');
+    await waitFor(() => expect(box()).toHaveFocus());
+    // The waiting step's screen: the same Reply, the same landing.
+    go('#/job/alpha/stage/plan');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Plan' })).toBeInTheDocument();
+    await within(bar()).findByText('The Foreman asked you something');
+    expect(reply()).toBeEnabled();
+    fireEvent.click(reply());
+    expect(window.location.hash).toBe('#/job/alpha/conversation');
+    await waitFor(() => expect(box()).toHaveFocus());
+  });
+
+  it('a permission waiting on the phone takes the bar’s place, and once it is answered the three calls are back', async () => {
+    const ask: Permission = { ...permission('p1', 'alpha'), createdAt: '2026-10-21T10:00:00Z', input: { command: 'npm test' } };
+    const jobs = [AUTO_OFF[1]];
+    const { move, post } = setup({ jobs, permissions: [ask], gate: GATE });
+    const alert = await screen.findByRole('region', { name: 'Permission: Run a command' });
+    expect(screen.queryByRole('region', { name: 'Next step' })).toBeNull();
+    fireEvent.click(within(alert).getByRole('button', { name: /^Allow once/ }));
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/api/permissions/p1', expect.objectContaining({ decision: 'allow' })));
+    move(jobs, []);
+    expect(screen.queryByRole('region', { name: 'Permission: Run a command' })).toBeNull();
     await threeCallsOn();
   });
 });

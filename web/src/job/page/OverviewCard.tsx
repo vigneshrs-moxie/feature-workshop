@@ -14,13 +14,13 @@ import './page.css';
 export const NO_TICKET = 'This job did not start from an Orbit ticket.';
 export const BUILDING_NOT_WRITTEN = 'Not written yet. The Foreman writes this with its first brief.';
 
-type Ticket = NonNullable<JobPageFacts['ticket']>;
+export type Ticket = NonNullable<JobPageFacts['ticket']>;
 type Building = JobPageFacts['building'];
 
 const text = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v : null);
 
 /** The ticket from the page facts, else the job's own ticket number (an older Starbase): null when none. */
-function ticketFor(job: Job, page: JobPageFacts | undefined): Ticket | null {
+export function ticketFor(job: Job, page: JobPageFacts | undefined): Ticket | null {
   const t = page?.ticket;
   if (t && text(t.key)) return t;
   const key = ticketOf(job);
@@ -46,17 +46,19 @@ function filedLine(t: Ticket): string {
 const paragraphs = (description: string | null | undefined) =>
   (description ?? '').split(/\n[ \t]*\n/).map((p) => p.replace(/^\n+|\n+$/g, '')).filter((p) => p.trim());
 
-function Column({ title, children }: { title: string; children: ReactNode }) {
+/** One of the three parts under its heading: h3 in the card, h2 on the phone's overview screen (under its h1). */
+export function Column({ title, level = 3, children }: { title: string; level?: 2 | 3; children: ReactNode }) {
   const id = useId();
+  const Heading = level === 2 ? 'h2' : 'h3';
   return (
     <section className="sb-ov-col" aria-labelledby={id}>
-      <h3 className="eyebrow" id={id}>{title}</h3>
+      <Heading className="eyebrow" id={id}>{title}</Heading>
       {children}
     </section>
   );
 }
 
-function TheTicket({ ticket }: { ticket: Ticket | null }) {
+export function TheTicket({ ticket }: { ticket: Ticket | null }) {
   if (!ticket) return <p className="sb-ov-empty">{NO_TICKET}</p>;
   const title = text(ticket.title);
   const url = text(ticket.url);
@@ -74,7 +76,7 @@ function TheTicket({ ticket }: { ticket: Ticket | null }) {
   );
 }
 
-function WhatWereBuilding({ building }: { building: Building }) {
+export function WhatWereBuilding({ building }: { building: Building }) {
   const outcome = building?.outcome ?? [];
   const risks = building?.risks ?? [];
   if (!building || (!outcome.length && !risks.length)) return <p className="sb-ov-empty">{BUILDING_NOT_WRITTEN}</p>;
@@ -98,10 +100,13 @@ function WhatWereBuilding({ building }: { building: Building }) {
   );
 }
 
+/** The overview's note: what it holds, with the ticket's number when there is one. */
+export const overviewNote = (ticket: Ticket | null) => (ticket ? `${ticket.key} as written, what we’re building, what to check` : 'What we’re building, what to check');
+
 export function OverviewCard({ job, detail }: { job: Job; detail: JobDetail | null }) {
   const page = detail?.page;
   const ticket = ticketFor(job, page);
-  const note = ticket ? `${ticket.key} as written, what we’re building, what to check` : 'What we’re building, what to check';
+  const note = overviewNote(ticket);
   return (
     <Fold icon="clipboard" name="Overview" note={note} id="job-overview">
       <div className="sb-overview">

@@ -61,7 +61,7 @@ const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
  * button goes to the Job page. While a permission card has the bar's place the gate card stays
  * mounted, only hidden, so a box opened in it and the words typed there are still there after.
  */
-export function NextStep({ job, conversation, now, onShip, onWatch, foldCard = false, evidence }: { job: Job; conversation: Conversation; now: Date; onShip?: () => void; /** Shows the evidence being recorded (laptop only). */ onWatch?: () => void; /** A stop's page: the brief under the bar folds to one row (the Job page has it in full). */ foldCard?: boolean; /** The page's own evidence view for the gate card's strip (left out: the strip asks for itself). */ evidence?: EvidenceView | null }) {
+export function NextStep({ job, conversation, now, onShip, onWatch, onWrite, foldCard = false, evidence }: { job: Job; conversation: Conversation; now: Date; onShip?: () => void; /** Shows the evidence being recorded (laptop only). */ onWatch?: () => void; /** Reply while no gate waits (left out: it puts the focus in the page's message box; the phone's goes to its conversation screen). */ onWrite?: () => void; /** A stop's page: the brief under the bar folds to one row (the Job page has it in full). */ foldCard?: boolean; /** The page's own evidence view for the gate card's strip (left out: the strip asks for itself). */ evidence?: EvidenceView | null }) {
   const state = useWorkshopState();
   const play = usePlay();
   const review = useReview(job.slug);
@@ -82,7 +82,7 @@ export function NextStep({ job, conversation, now, onShip, onWatch, foldCard = f
   // Neither: the review round's bar, else what is happening in words.
   const bar: ReactNode = alert || gate ? null
     : review.view ? <ReviewBar view={review.view} act={review.act} problem={review.problem} />
-    : <StateBar job={job} now={now} checks={thread.detail?.page?.checks ?? null} onShip={onShip} onWatch={onWatch} hosted={Boolean(api.hosted?.())} after={after} />;
+    : <StateBar job={job} now={now} checks={thread.detail?.page?.checks ?? null} onShip={onShip} onWatch={onWatch} onWrite={onWrite} hosted={Boolean(api.hosted?.())} after={after} />;
   return <>{alert}{gate}{bar}{live}{problem}</>;
 }
 
@@ -378,7 +378,7 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, after, sent, 
  * crew works: who, on what, on which model and for how long, with no button. While evidence
  * records: the line it is on, with Watch on the laptop.
  */
-function StateBar({ job, now, checks, onShip, onWatch, hosted, after }: { job: Job; now: Date; checks: TestChecks | null; onShip?: () => void; onWatch?: () => void; hosted: boolean; after: AfterSend }) {
+function StateBar({ job, now, checks, onShip, onWatch, onWrite, hosted, after }: { job: Job; now: Date; checks: TestChecks | null; onShip?: () => void; onWatch?: () => void; onWrite?: () => void; hosted: boolean; after: AfterSend }) {
   const lane = laneOf(job);
   let tone: NextTone = 'quiet';
   let icon: IconName = 'clock';
@@ -388,7 +388,7 @@ function StateBar({ job, now, checks, onShip, onWatch, hosted, after }: { job: J
   const prs = onShip
     ? <Button kind="primary" size="lg" onClick={onShip} title="The pull requests and what waits on them.">See the pull requests</Button>
     : <Button kind="primary" size="lg" href={jobHref(job.slug)} title="The job’s page: its Ship tab has the pull requests.">See the pull requests</Button>;
-  const write = <Button kind="primary" size="lg" keyId="write" keyShown onClick={() => document.querySelector<HTMLTextAreaElement>('[data-composer-input]')?.focus()} title="Write to the Foreman (key: c).">Reply</Button>;
+  const write = <Button kind="primary" size="lg" keyId="write" keyShown onClick={onWrite ?? (() => document.querySelector<HTMLTextAreaElement>('[data-composer-input]')?.focus())} title="Write to the Foreman (key: c).">Reply</Button>;
   const testing = text(job.testing);
   const working = workingWords(job, now);
   /** The Foreman waits for him: its question (or what the card says), and Reply. */

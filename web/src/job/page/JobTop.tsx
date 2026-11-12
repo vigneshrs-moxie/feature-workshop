@@ -60,6 +60,27 @@ export function headerState(job: Job, permissions: readonly Permission[] | undef
   return { word: chip.word, tone: chipTone(lane, chip.word), icon: chip.icon };
 }
 
+/**
+ * The facts the header works out (the phone's job screen shows them too): the ticket's number (the
+ * job's own, else the one in the job's page facts), and, on a job a tag started, "Started by Auto"
+ * with the tag's name when the job's detail has it. The job's record says a tag started Auto; the
+ * tag's name comes with the job's detail.
+ */
+export function jobFacts(job: Job, detail: JobDetail | null): { ticket: string | null; startedByAuto: string | null } {
+  const ticket = ticketOf(job) ?? (typeof detail?.page?.ticket?.key === 'string' ? detail.page.ticket.key : null);
+  const tag = typeof detail?.auto?.tag === 'string' && detail.auto.tag.trim() ? detail.auto.tag.trim() : null;
+  const startedByAuto = job.auto?.by === 'tag' ? (tag ? `Started by Auto · tag ${tag}` : 'Started by Auto') : null;
+  return { ticket, startedByAuto };
+}
+
+/** The state in a word as a chip (headerState), with the lane's hint unless it says Sent. */
+export function JobStateChip({ job, sent }: { job: Job; sent: { kind: GateKind | null } | null }) {
+  const state = useWorkshopState();
+  const lane = laneOf(job);
+  const chip = headerState(job, state.permissions, sent);
+  return <Chip tone={chip.tone} icon={chip.icon} className={`state-chip is-${lane}`} title={sent ? undefined : LANE_INFO[lane].hint}>{chip.word}</Chip>;
+}
+
 const KIND_WORDS: Record<string, string> = { feature: 'Feature', bug: 'Bug fix' };
 const isWebAddress = (v: unknown): v is string => typeof v === 'string' && /^https?:\/\/\S+$/i.test(v.trim());
 
@@ -69,13 +90,8 @@ export function JobTop({ job, detail, run, sent }: { job: Job; detail: JobDetail
   const hosted = Boolean(api.hosted?.());
   const stacks = useStackIndex();
   const [guideOpen, setGuideOpen] = useGuide(NEW_JOB_GUIDE.id);
-  const lane = laneOf(job);
-  const chip = headerState(job, state.permissions, sent);
-  const ticket = ticketOf(job) ?? (typeof detail?.page?.ticket?.key === 'string' ? detail.page.ticket.key : null);
+  const { ticket, startedByAuto } = jobFacts(job, detail);
   const ticketUrl = detail?.page?.ticket?.url;
-  // One source: the job's record says a tag started Auto; the tag's name comes with the job's detail.
-  const byTag = job.auto?.by === 'tag';
-  const tag = typeof detail?.auto?.tag === 'string' && detail.auto.tag.trim() ? detail.auto.tag.trim() : null;
   const kind = job.kind ? KIND_WORDS[job.kind] ?? job.kind : null;
   const model = foremanModel(detail, state.meta?.models);
   return (
@@ -83,14 +99,14 @@ export function JobTop({ job, detail, run, sent }: { job: Job; detail: JobDetail
       <div className="sb-top-main">
         <div className="sb-top-title">
           <h1 className="page-title">{job.title || job.slug}</h1>
-          <Chip tone={chip.tone} icon={chip.icon} className={`state-chip is-${lane}`} title={sent ? undefined : LANE_INFO[lane].hint}>{chip.word}</Chip>
+          <JobStateChip job={job} sent={sent} />
         </div>
         <div className="sb-top-facts">
           {ticket && (isWebAddress(ticketUrl)
             ? <a className="chip chip-outline num sb-top-ticket" href={ticketUrl.trim()} target="_blank" rel="noreferrer" title="Open the ticket in Orbit.">{ticket}<Icon name="external" size={12} /></a>
             : <Chip tone="outline" className="num sb-top-ticket">{ticket}</Chip>)}
           <CopyDecisions slug={job.slug} all={<DecisionsTab slug={job.slug} active copy={false} />} />
-          {byTag && <Chip tone="accent" icon="bot" className="sb-top-auto" title={AUTO_START_WHERE}>{tag ? `Started by Auto · tag ${tag}` : 'Started by Auto'}</Chip>}
+          {startedByAuto && <Chip tone="accent" icon="bot" className="sb-top-auto" title={AUTO_START_WHERE}>{startedByAuto}</Chip>}
           {kind && <span className="sb-top-fact">{kind}</span>}
           <LevelChip job={job} ready={Boolean(detail)} />
           {job.repo?.name && <span className="sb-top-fact">{job.repo.name}</span>}

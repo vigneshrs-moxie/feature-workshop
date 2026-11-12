@@ -9,36 +9,37 @@
 //     carries the bar and its three calls first, the card folded to one row (the owner's requirement).
 //   The conversation (#/job/<slug>/conversation): the conversation panel, full screen.
 //   The overview (#/job/<slug>/overview): the ticket, what we're building and what to check, open.
-// Each row goes by `navigate` (a new history entry), so Back returns to the job. The head scrolls
-// with the screen.
+// Each row goes by `navigate` (a new history entry), so Back returns to the job. A screen's back row
+// goes back in the history when the screen before was this job's (the history does not grow), else
+// to the job's screen. The bar's Reply while no gate waits opens the conversation's screen with the
+// message box focused. The head scrolls with the screen.
 //
 // The bar's three calls are NextStep's own buttons, placed by page.css (Send back and Reply side by
 // side, Go under them). The caller gives the one conversation and the one sent line (useSentShown),
 // so the state chip, every step row and the step's panel say the same; the evidence is asked once
 // here (useJobEvidence) for the bar's card and the Test step. On the website there is no gear: one
 // sentence says the menu is on the laptop.
-import { useEffect, useId, useRef, type ReactNode } from 'react';
-import type { Job, JobDetail, JobPageFacts, StageAgent, StopId } from '../../api/types';
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import type { Job, JobDetail, StageAgent, StopId } from '../../api/types';
 import { navigate, type JobView } from '../../app/router';
 import { useUi } from '../../app/ui';
 import { Button } from '../../components/Button';
 import { Chip } from '../../components/Chip';
 import { Icon } from '../../components/Icon';
 import { STOPS, stopOf } from '../../components/stops/stops';
-import { LANE_INFO, laneOf } from '../../home/JobsPage';
 import type { GateKind } from '../../lib/compose';
 import { readStored } from '../../lib/stored';
 import { JobMenu } from '../../panes/Foreman/JobHeader';
 import type { useJobConversation } from '../../panes/Foreman/ForemanPane';
 import { DecisionsTab } from '../../panes/Preview/DecisionsTab';
-import { useWorkshop, useWorkshopState } from '../../state/store';
+import { useWorkshop } from '../../state/store';
 import { AutoSwitch } from '../AutoSwitch';
 import { CopyDecisions } from '../CopyDecisions';
-import { NextStep, ticketOf } from '../NextStep';
+import { NextStep } from '../NextStep';
 import { WhatAutoDecided } from '../WhatAutoDecided';
 import { ConversationPanel, newCount, seenKey } from './ConversationPanel';
-import { AUTO_START_WHERE, headerState, MENU_ON_LAPTOP } from './JobTop';
-import { BUILDING_NOT_WRITTEN, NO_TICKET } from './OverviewCard';
+import { AUTO_START_WHERE, jobFacts, JobStateChip, MENU_ON_LAPTOP } from './JobTop';
+import { Column, overviewNote, TheTicket, ticketFor, WhatWereBuilding } from './OverviewCard';
 import { StepBody } from './StepBody';
 import { StepPanel } from './StepPanel';
 import { statesOf, stepState, stepTimeWords } from './stepWords';
@@ -51,7 +52,13 @@ import './page.css';
 type Conversation = ReturnType<typeof useJobConversation>;
 type Sent = { kind: GateKind | null } | null;
 
-interface ScreenProps { job: Job; conversation: Conversation; now: Date; sent: Sent; evidence: JobEvidence }
+interface ScreenProps {
+  job: Job; conversation: Conversation; now: Date; sent: Sent; evidence: JobEvidence;
+  /** Back to the job's screen (the back row). */
+  back(): void;
+  /** Reply while no gate waits: the conversation's screen, with the message box focused. */
+  write(): void;
+}
 
 /**
  * The step that waits for you: the gate's step while a gate waits (so an Auto job that is deciding has
@@ -84,13 +91,31 @@ export function PhoneJob({ job, conversation, now, step, view, sent }: { job: Jo
     if (ui.screensSlug === slug) navigate({ name: 'screens', slug });
   }, [ui.screensRequest, ui.screensSlug, slug]);
 
-  const props: ScreenProps = { job, conversation, now, sent, evidence };
+  // The screen shown before this one: the back row goes back in the history when that was this
+  // job's screen (so the history does not grow), else to the job's screen (a step opened from a link).
+  const screenKey = step ? `stage/${step}` : view ?? 'job';
+  const [trail, setTrail] = useState<{ now: string; before: string | null }>({ now: screenKey, before: null });
+  if (trail.now !== screenKey) setTrail({ now: screenKey, before: trail.now });
+  const fromJob = trail.before === 'job';
+  const back = useCallback(() => {
+    if (fromJob) window.history.back();
+    else navigate({ name: 'job', slug });
+  }, [fromJob, slug]);
+  // Reply while no gate waits: the conversation's screen, its message box focused once (a plain tap
+  // on Conversation leaves the keyboard down).
+  const focusBox = useRef(false);
+  const write = useCallback(() => {
+    focusBox.current = true;
+    navigate({ name: 'job', slug, view: 'conversation' });
+  }, [slug]);
+
+  const props: ScreenProps = { job, conversation, now, sent, evidence, back, write };
   const which = step ? 'step' : view ?? 'job';
   return (
     <main className={`page sb-phone is-${which}`} aria-label="Job">
       {step ? <StepScreen {...props} stop={step} />
-        : view === 'conversation' ? <ConversationScreen {...props} />
-        : view === 'overview' ? <OverviewScreen job={job} detail={conversation.thread.detail ?? null} />
+        : view === 'conversation' ? <ConversationScreen {...props} focusBox={focusBox} />
+        : view === 'overview' ? <OverviewScreen job={job} detail={conversation.thread.detail ?? null} back={back} />
         : <JobScreen {...props} />}
     </main>
   );
@@ -106,26 +131,17 @@ function Back({ to, children }: { to: () => void; children: ReactNode }) {
   );
 }
 
-const toJob = (slug: string) => () => navigate({ name: 'job', slug });
-
 // ---------- The job ----------
 
-function JobScreen({ job, conversation, now, sent, evidence }: ScreenProps) {
+function JobScreen({ job, conversation, now, sent, evidence, write }: ScreenProps) {
   const slug = job.slug;
-  const state = useWorkshopState();
   const { api } = useWorkshop();
   const hosted = Boolean(api.hosted?.());
   const { thread, run } = conversation;
   const detail = thread.detail ?? null;
-  const lane = laneOf(job);
-  const chip = headerState(job, state.permissions, sent);
-  const ticket = ticketOf(job) ?? (typeof detail?.page?.ticket?.key === 'string' ? detail.page.ticket.key : null);
-  // As the laptop's header: the job's record says a tag started Auto; the tag's name comes with the job's detail.
-  const tag = typeof detail?.auto?.tag === 'string' && detail.auto.tag.trim() ? detail.auto.tag.trim() : null;
-  const byTag = job.auto?.by === 'tag';
+  const { ticket, startedByAuto } = jobFacts(job, detail);
   const times = detail?.page?.times;
   const fresh = newCount(thread.items, readStored(seenKey(slug)));
-  const overviewTicket = ticketFor(job, detail?.page);
   const stepsId = useId();
   return (
     <>
@@ -140,10 +156,10 @@ function JobScreen({ job, conversation, now, sent, evidence }: ScreenProps) {
           </div>
           <h1 className="sb-phone-title">{job.title || slug}</h1>
           <div className="sb-phone-facts">
-            <Chip tone={chip.tone} icon={chip.icon} className={`state-chip is-${lane}`} title={sent ? undefined : LANE_INFO[lane].hint}>{chip.word}</Chip>
+            <JobStateChip job={job} sent={sent} />
             {ticket && <span className="num">{ticket}</span>}
           </div>
-          {byTag && <p className="sb-phone-by" title={AUTO_START_WHERE}><Icon name="bot" size={13} />{tag ? `Started by Auto · tag ${tag}` : 'Started by Auto'}</p>}
+          {startedByAuto && <p className="sb-phone-by" title={AUTO_START_WHERE}><Icon name="bot" size={13} />{startedByAuto}</p>}
         </header>
         <div className="sb-phone-body">
           <NextStep
@@ -152,6 +168,7 @@ function JobScreen({ job, conversation, now, sent, evidence }: ScreenProps) {
             now={now}
             onShip={() => navigate({ name: 'stage', slug, stop: 'ship' })}
             onWatch={() => { navigate({ name: 'stage', slug, stop: 'test' }); evidence.setWatching(true); }}
+            onWrite={write}
             evidence={evidence.view}
           />
         </div>
@@ -186,7 +203,7 @@ function JobScreen({ job, conversation, now, sent, evidence }: ScreenProps) {
             <span className="sb-phone-row-icon" aria-hidden="true"><Icon name="file" size={16} /></span>
             <span className="sb-phone-row-words">
               <span className="sb-phone-row-name">Overview</span>
-              <span className="sb-phone-row-note">{overviewNote(overviewTicket)}</span>
+              <span className="sb-phone-row-note">{overviewNote(ticketFor(job, detail?.page))}</span>
             </span>
             <Icon name="chevron-right" size={18} className="sb-phone-row-go" />
           </button>
@@ -216,7 +233,7 @@ function JobScreen({ job, conversation, now, sent, evidence }: ScreenProps) {
 
 // ---------- A step ----------
 
-function StepScreen({ job, conversation, now, sent, evidence, stop }: ScreenProps & { stop: StopId }) {
+function StepScreen({ job, conversation, now, sent, evidence, back, write, stop }: ScreenProps & { stop: StopId }) {
   const slug = job.slug;
   const detail = conversation.thread.detail ?? null;
   const here = STOPS.find((s) => s.id === stop) ?? STOPS[0];
@@ -230,7 +247,7 @@ function StepScreen({ job, conversation, now, sent, evidence, stop }: ScreenProp
   return (
     <div className="sb-phone-scroll">
       <header className="sb-phone-head">
-        <div className="sb-phone-nav"><Back to={toJob(slug)}>{job.title || slug}</Back></div>
+        <div className="sb-phone-nav"><Back to={back}>{job.title || slug}</Back></div>
         <h1 className="sb-phone-title"><Icon name={here.icon} size={20} />{here.label}</h1>
         <div className="sb-phone-facts">
           <span className={`chip sb-step-chip ${state.cls}`.trim()}>{state.words}</span>
@@ -245,6 +262,7 @@ function StepScreen({ job, conversation, now, sent, evidence, stop }: ScreenProp
             now={now}
             onShip={() => navigate({ name: 'stage', slug, stop: 'ship' })}
             onWatch={() => { navigate({ name: 'stage', slug, stop: 'test' }); evidence.setWatching(true); }}
+            onWrite={write}
             foldCard
             evidence={evidence.view}
           />
@@ -275,11 +293,17 @@ function StepScreen({ job, conversation, now, sent, evidence, stop }: ScreenProp
 
 // ---------- The conversation ----------
 
-function ConversationScreen({ job, conversation, now }: ScreenProps) {
+function ConversationScreen({ job, conversation, now, back, focusBox }: ScreenProps & { focusBox: { current: boolean } }) {
+  // Opened by Reply: the message box takes the focus, once.
+  useEffect(() => {
+    if (!focusBox.current) return;
+    focusBox.current = false;
+    document.querySelector<HTMLTextAreaElement>('.sb-phone-convo [data-composer-input]')?.focus();
+  }, [focusBox]);
   return (
     <>
       <div className="sb-phone-head is-bar">
-        <div className="sb-phone-nav"><Back to={toJob(job.slug)}>{job.title || job.slug}</Back></div>
+        <div className="sb-phone-nav"><Back to={back}>{job.title || job.slug}</Back></div>
       </div>
       <div className="sb-phone-convo">
         <ConversationPanel job={job} conversation={conversation} now={now} wide={false} onWide={() => {}} full />
@@ -289,100 +313,21 @@ function ConversationScreen({ job, conversation, now }: ScreenProps) {
 }
 
 // ---------- The overview ----------
-// The overview card's three parts (OverviewCard.tsx), open and one under another under their own
-// headings, as drawn. The card draws them inside its fold and does not export them, so the ticket
-// and what we're building are drawn here the same way, with the card's own sentences and classes.
+// The overview card's three parts (OverviewCard.tsx), open and one under another, each under its own
+// heading (h2, under the screen's h1), as drawn. Not the card's fold: its remembered state stays the laptop's.
 
-type Ticket = NonNullable<JobPageFacts['ticket']>;
-const text = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v : null);
-
-/** The ticket from the page facts, else the job's own ticket number (an older laptop): null when none. */
-function ticketFor(job: Job, page: JobPageFacts | undefined): Ticket | null {
-  const t = page?.ticket;
-  if (t && text(t.key)) return t;
-  const key = ticketOf(job);
-  return key && text(key) ? { key } : null;
-}
-
-/** The overview row's note: the overview card's own. */
-const overviewNote = (ticket: Ticket | null) => (ticket ? `${ticket.key} as written, what we’re building, what to check` : 'What we’re building, what to check');
-
-/** "Nov 3", or null when the time can't be read. */
-function day(iso: string | null | undefined): string | null {
-  if (!iso) return null;
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
-
-/** "ORBIT-900 · filed by Dana Whitfield on Nov 3", with what is not known left out. */
-function filedLine(t: Ticket): string {
-  const by = text(t.filedBy);
-  const on = day(t.filedAt);
-  if (!by && !on) return t.key ?? '';
-  return `${t.key} · filed${by ? ` by ${by}` : ''}${on ? ` on ${on}` : ''}`;
-}
-
-/** The description as plain paragraphs (a blank line between them); always text, never HTML. */
-const paragraphs = (description: string | null | undefined) =>
-  (description ?? '').split(/\n[ \t]*\n/).map((p) => p.replace(/^\n+|\n+$/g, '')).filter((p) => p.trim());
-
-function Part({ title, children }: { title: string; children: ReactNode }) {
-  const id = useId();
-  return (
-    <section className="sb-ov-col" aria-labelledby={id}>
-      <h2 className="eyebrow" id={id}>{title}</h2>
-      {children}
-    </section>
-  );
-}
-
-function OverviewScreen({ job, detail }: { job: Job; detail: JobDetail | null }) {
+function OverviewScreen({ job, detail, back }: { job: Job; detail: JobDetail | null; back(): void }) {
   const page = detail?.page;
-  const ticket = ticketFor(job, page);
-  const building = page?.building;
-  const outcome = building?.outcome ?? [];
-  const risks = building?.risks ?? [];
-  const version = text(building?.version);
-  const title = text(ticket?.title);
-  const url = text(ticket?.url);
   return (
     <div className="sb-phone-scroll">
       <header className="sb-phone-head">
-        <div className="sb-phone-nav"><Back to={toJob(job.slug)}>{job.title || job.slug}</Back></div>
+        <div className="sb-phone-nav"><Back to={back}>{job.title || job.slug}</Back></div>
         <h1 className="sb-phone-title">Overview</h1>
       </header>
       <div className="sb-phone-ov">
-        <Part title="The ticket">
-          {!ticket ? <p className="sb-ov-empty">{NO_TICKET}</p> : (
-            <>
-              {title && <b className="sb-ov-title">{title}</b>}
-              <span className="sb-ov-meta">{filedLine(ticket)}</span>
-              {paragraphs(ticket.description).map((p, i) => <p key={i} className="sb-ov-desc">{p}</p>)}
-              {url && (
-                <a className="sb-ov-link" href={url} target="_blank" rel="noopener noreferrer" title="Opens the ticket in Orbit in a new tab.">
-                  Open {ticket.key} in Orbit<Icon name="external" size={13} />
-                </a>
-              )}
-            </>
-          )}
-        </Part>
-        <Part title="What we’re building">
-          {!building || (!outcome.length && !risks.length) ? <p className="sb-ov-empty">{BUILDING_NOT_WRITTEN}</p> : (
-            <>
-              <span className="sb-ov-meta">{building.from === 'brief' ? 'From the first brief' : version ? `From spec v${version}` : 'From the spec'}</span>
-              {outcome.map((line, i) => <p key={i} className="sb-ov-desc">{line}</p>)}
-              {risks.length > 0 && (
-                <>
-                  <b className="sb-ov-label">Risks</b>
-                  <ul className="sb-ov-list">
-                    {risks.map((line, i) => <li key={i}><Icon name="warn" size={14} className="sb-ov-mark is-warn" /><span>{line}</span></li>)}
-                  </ul>
-                </>
-              )}
-            </>
-          )}
-        </Part>
-        <Part title="What to check"><WhatToCheck check={page?.check} /></Part>
+        <Column title="The ticket" level={2}><TheTicket ticket={ticketFor(job, page)} /></Column>
+        <Column title="What we’re building" level={2}><WhatWereBuilding building={page?.building} /></Column>
+        <Column title="What to check" level={2}><WhatToCheck check={page?.check} /></Column>
       </div>
     </div>
   );
