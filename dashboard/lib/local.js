@@ -46,7 +46,7 @@ const PG_DIRS = {
 const exists = (p) => fs.existsSync(p);
 const readJson = async (file) => { try { return JSON.parse(await fsp.readFile(file, 'utf8')); } catch { return null; } };
 const sh = (file, args, opts = {}) => new Promise((resolve) => {
-  execFile(file, args, { timeout: 120_000, maxBuffer: 8 * 1024 * 1024, ...opts }, (err, stdout, stderr) => resolve({ ok: !err, code: err ? err.code ?? 1 : 0, stdout: String(stdout), stderr: String(stderr) }));
+  execFile(file, args, { timeout: 120_000, maxBuffer: 8 * 1024 * 1024, ...opts }, (err, stdout, stderr) => resolve({ ok: !err, code: err ? err.code ?? 1 : 0, killed: Boolean(err?.killed), stdout: String(stdout), stderr: String(stderr) }));
 });
 
 // ---------- Settings files ----------
@@ -246,19 +246,32 @@ export function autoDbEnv(db, settingsText, base = process.env) {
 }
 
 const AUTO_DB_WAIT_MS = 120_000; // how long Auto waits for another database switch to end
+const AUTO_STEP_MS = 600_000; // how long one of Auto's database steps may run before it is stopped
+const PSQL_MS = 30_000; // how long a psql read may run (Try it's and Auto's)
 const lastLines = (text, n) => String(text).replace(/\s+$/, '').split('\n').slice(-n).join('\n');
+/** A time limit in words: "10 minutes", "30 seconds", "1 second", "200 milliseconds". */
+const spanWords = (ms) => {
+  const [n, unit] = ms >= 60_000 ? [Math.round(ms / 60_000), 'minute'] : ms >= 1000 ? [Math.round(ms / 1000), 'second'] : [ms, 'millisecond'];
+  return `${n} ${unit}${n === 1 ? '' : 's'}`;
+};
 
 // A fixed program with fixed arguments (no shell), its output kept, not streamed: Auto's database steps.
 // exactEnv: the whole environment, as given (autoDbEnv's); else Starbase's own with env added.
-function capture(file, args, { env, cwd, exactEnv = null } = {}) {
+// timeoutMs: past it, the program and everything it started are killed and the result is
+// { ok: false, code: 'timeout', timedOut: true } at once, so a hung step never holds the lock.
+function capture(file, args, { env, cwd, exactEnv = null, timeoutMs = 0 } = {}) {
   return new Promise((resolve) => {
     let output = '';
+    let timer = null;
     const add = (b) => { output = clip(output + String(b).replace(ANSI, '')); };
-    const child = spawn(file, args, { cwd, env: exactEnv ?? childEnv(env), stdio: ['ignore', 'pipe', 'pipe'] });
+    const end = (r) => { clearTimeout(timer); resolve({ ...r, output }); };
+    // Its own process group (macOS, Linux), so killTree reaches what it started (npm's shell, the script).
+    const child = spawn(file, args, { cwd, env: exactEnv ?? childEnv(env), stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32' });
     child.stdout.on('data', add);
     child.stderr.on('data', add);
-    child.on('error', (err) => { add(`${err.message}\n`); resolve({ ok: false, code: err.code, output }); });
-    child.on('close', (code) => resolve({ ok: code === 0, code, output }));
+    child.on('error', (err) => { add(`${err.message}\n`); end({ ok: false, code: err.code }); });
+    child.on('close', (code) => end({ ok: code === 0, code }));
+    if (timeoutMs > 0) timer = setTimeout(() => { killTree(child, 'SIGKILL'); end({ ok: false, code: 'timeout', timedOut: true }); }, timeoutMs);
   });
 }
 
@@ -274,15 +287,19 @@ async function diskMigrations(appDir) {
 
 export class LocalRunner extends EventEmitter {
   #pgTool;
-  #fileCopy = null; // a promise: whether this Postgres has createdb's file copy (read once)
+  #autoStepMs;
+  #fileCopy = new Map(); // server and createdb -> a promise: whether createdb's file copy can be used (read once)
 
   /**
    * state: State (settings key "local"). demo: nothing real runs. registry: lib/repos.js's (the state
    * folder's by default). pgTool: where a Postgres tool is, by name (tests point it at fakes).
+   * autoStepMs: how long each program autoDatabase starts may run before it is stopped (Try it's
+   * own switch has no such limit: a copy of his database is never killed half way).
    */
-  constructor({ state, demo = false, registry = null, pgTool: findPgTool = pgTool }) {
+  constructor({ state, demo = false, registry = null, pgTool: findPgTool = pgTool, autoStepMs = AUTO_STEP_MS }) {
     super();
     this.#pgTool = findPgTool;
+    this.#autoStepMs = autoStepMs;
     this.state = state;
     this.demo = demo;
     this.jobs = new Map(); // slug -> { server, cmd }
@@ -661,16 +678,27 @@ export class LocalRunner extends EventEmitter {
     return `${await read(w.mainRoot && path.join(w.mainRoot, rule.from))}\n${await read(w.root && path.join(w.root, rule.to))}`;
   }
 
-  /** Whether createdb can use the file copy here (Postgres 15 or later): asked once per runner. */
-  #canFileCopy(db) {
-    this.#fileCopy ??= this.#psql({ ...db, dbName: 'postgres' }, 'show server_version_num')
-      .then((v) => Number(v) >= 150000)
-      .catch((err) => { this.#fileCopy = null; throw err; });
-    return this.#fileCopy;
+  /**
+   * Whether createdb can use the file copy here: the server (db's host and port) and the createdb
+   * program both Postgres 15 or later. Asked once per server and program; a failed read of the
+   * server is asked again next time, and a createdb that can't say its version means no.
+   */
+  #canFileCopy(db, createdb) {
+    const key = `${db.env.PGHOST}:${db.env.PGPORT} ${createdb}`;
+    if (!this.#fileCopy.has(key)) {
+      const client = sh(createdb, ['--version'], { timeout: PSQL_MS }).then((r) => (r.ok ? Number(/(\d+)\.\d+/.exec(r.stdout)?.[1] ?? 0) : 0)); // "createdb (PostgreSQL) 17.11"
+      const server = this.#psql({ ...db, dbName: 'postgres' }, 'show server_version_num').then(Number);
+      this.#fileCopy.set(key, Promise.all([server, client])
+        .then(([s, c]) => s >= 150000 && c >= 15)
+        .catch((err) => { this.#fileCopy.delete(key); throw err; }));
+    }
+    return this.#fileCopy.get(key);
   }
 
-  async #psql(db, sql) {
-    const r = await sh(await this.#pgTool('psql'), ['-X', '-A', '-t', '-q', '-v', 'ON_ERROR_STOP=1', '-d', db.dbName ?? db.name, '-c', sql], { env: childEnv(db.env), timeout: 30_000 });
+  // timeout: Auto's reads pass the lower of this and its step limit. A read stopped by it throws with timedOut.
+  async #psql(db, sql, { timeout = PSQL_MS } = {}) {
+    const r = await sh(await this.#pgTool('psql'), ['-X', '-A', '-t', '-q', '-v', 'ON_ERROR_STOP=1', '-d', db.dbName ?? db.name, '-c', sql], { env: childEnv(db.env), timeout });
+    if (r.killed) throw Object.assign(new Error(`psql took longer than ${spanWords(timeout)} and was stopped.`), { timedOut: true });
     if (!r.ok) throw new Error(r.stderr.trim().split('\n')[0] || 'psql failed');
     return r.stdout.trim();
   }
@@ -786,7 +814,7 @@ export class LocalRunner extends EventEmitter {
       await this.#needQuietDb(f.slug, db);
       let facts = await this.#dbFacts(db);
       const admin = { ...db, dbName: 'postgres' };
-      const fileCopy = await this.#canFileCopy(db);
+      const fileCopy = await this.#canFileCopy(db, createdb).catch(() => false); // not known: the default copy, slower but never wrong
       // Build a copy under a temporary name, then swap it in: a failed copy never costs a database.
       const swapIn = async (from, to) => {
         await step(dropdb, ['--if-exists', db.incoming]);
@@ -861,6 +889,7 @@ export class LocalRunner extends EventEmitter {
     }
     this.dbBusy = true; // held from the same moment it was seen free
     this.dbCache.clear();
+    this.#changed(f.slug); // Try it's panel shows the switch as busy
     try {
       const w = await this.where(f);
       const db = w.app ? await this.#database(w) : { reason: w.reason };
@@ -869,11 +898,14 @@ export class LocalRunner extends EventEmitter {
       const secrets = (() => { const p = new URL(db.url).password; try { return [p, decodeURIComponent(p)]; } catch { return [p]; } })();
       const fail = (code, message, extra = {}) => new AutoDbError(code, blankAddresses(message, secrets), { ...extra, ...(extra.tail ? { tail: blankAddresses(extra.tail, secrets) } : {}) });
       const admin = { ...db, dbName: 'postgres' };
-      const ask = (on, sql) => this.#psql(on, sql).catch((err) => { throw fail('copy', `Couldn’t read the local database: ${err.message}`); });
+      // Every program started here has a time limit (autoStepMs; psql's reads keep their lower one).
+      const limit = spanWords(this.#autoStepMs);
+      const ask = (on, sql) => this.#psql(on, sql, { timeout: Math.min(PSQL_MS, this.#autoStepMs) }).catch((err) => { throw fail('copy', `Couldn’t read the local database: ${err.message}`); });
       const [createdb, dropdb] = [await this.#pgTool('createdb'), await this.#pgTool('dropdb')];
-      const fileCopy = await this.#canFileCopy(db).catch((err) => { throw fail('copy', `Couldn’t read the local database: ${err.message}`); });
+      const fileCopy = await this.#canFileCopy(db, createdb).catch((err) => { throw fail('copy', `Couldn’t read the local database: ${err.message}`); });
       const step = async (file, args) => {
-        const r = await capture(file, args, { env: db.env });
+        const r = await capture(file, args, { env: db.env, timeoutMs: this.#autoStepMs });
+        if (r.timedOut) throw fail('copy', `Making Auto’s database ${db.auto} took longer than ${limit}, so ${path.basename(file)} was stopped. Your database and the saved original weren’t changed.`);
         if (!r.ok) throw fail('copy', `Making Auto’s database ${db.auto} failed: ${path.basename(file)} ended with exit ${r.code} (${lastLines(r.output, 1)}). Your database and the saved original weren’t changed.`);
       };
 
@@ -884,7 +916,9 @@ export class LocalRunner extends EventEmitter {
         const tryItRuns = [...this.jobs.values()].some((s) => s.server && ['starting', 'running'].includes(s.server.status));
         const waiting = `There’s no saved original of ${db.name} yet. Auto saves one when nothing is connected to ${db.name} and no Try it app is running.`;
         if (connections || tryItRuns) throw fail('no-original', waiting);
-        const r = await capture(createdb, createdbArgs(db.name, db.original, { fileCopy }), { env: db.env });
+        // While Postgres copies it (about 11 s), a new connection to his database waits; nothing is ended or changed.
+        const r = await capture(createdb, createdbArgs(db.name, db.original, { fileCopy }), { env: db.env, timeoutMs: this.#autoStepMs });
+        if (r.timedOut) throw fail('copy', `Saving ${db.name} as the original took longer than ${limit}, so createdb was stopped. Your database wasn’t changed.`);
         if (!r.ok) throw fail('no-original', `${waiting} Saving it didn’t work this time (${lastLines(r.output, 1)}).`);
         const dbs = (await this.#settings()).db ?? {};
         const saved = dbs[db.name] ?? {};
@@ -894,6 +928,10 @@ export class LocalRunner extends EventEmitter {
       await step(dropdb, ['--if-exists', '--force', db.auto]);
       await step(createdb, createdbArgs(db.original, db.auto, { fileCopy }));
       const onAuto = { ...db, dbName: db.auto };
+      // No ledger in the original: which changes it has can't be told (Try it's panel refuses it too).
+      if ((await ask(onAuto, "select to_regclass('public.applied_migrations') is not null")) !== 't') {
+        throw fail('no-database', `The saved original of ${db.name} has no applied_migrations table, so ${PRODUCT} can’t tell which changes Auto’s copy needs.`);
+      }
       // __auto's ledger, read from __auto only.
       const ledgerNow = async () => {
         const hasLedger = (await ask(onAuto, "select to_regclass('public.applied_migrations') is not null")) === 't';
@@ -905,7 +943,8 @@ export class LocalRunner extends EventEmitter {
       const env = autoDbEnv(db, await this.#settingsText(w), childEnv(db.env));
       const added = [];
       for (const name of toAdd) {
-        const r = await capture('npm', ['run', 'db:migrate', '--', name], { exactEnv: env, cwd: w.app.dir });
+        const r = await capture('npm', ['run', 'db:migrate', '--', name], { exactEnv: env, cwd: w.app.dir, timeoutMs: this.#autoStepMs });
+        if (r.timedOut) throw fail('migration', `Adding ${name} to Auto’s database took longer than ${limit}, so it was stopped.`, { migration: name, tail: lastLines(r.output, 20) || null });
         if (!r.ok) throw fail('migration', `Adding ${name} to Auto’s database failed (exit ${r.code}).`, { migration: name, tail: lastLines(r.output, 20) });
         // Ended well but not in __auto's ledger: the script went somewhere else. Nothing more is applied.
         if (!(await ledgerNow()).includes(name)) throw fail('not-landed', `${name} did not land on Auto's copy of the database, so nothing more was applied.`, { migration: name });
@@ -915,11 +954,13 @@ export class LocalRunner extends EventEmitter {
     } finally {
       this.dbBusy = false;
       this.dbCache.clear();
+      this.#changed(f.slug);
     }
   }
 
   /** How many connections Auto's database has, not counting the one asking. */
   async autoConnections(f) {
+    if (this.demo) throw new Error('Demo mode: nothing real runs.');
     const w = await this.where(f);
     const db = w.app ? await this.#database(w) : { reason: w.reason };
     if (!db.url) throw new Error(db.reason ?? `This job’s app has no database ${PRODUCT} can copy for Auto.`);

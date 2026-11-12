@@ -3,6 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -27,7 +28,8 @@ const autoLines = [];
 
 // fixture: the job's app is fixtures/auto-db-app (it reads its .env.local, appSettings, as Next.js does).
 // settings: his settings file in the main checkout. profile: the repository's profile.
-async function setup({ version = 170000, original = true, connections = 0, fixture = false, profile = null, settings = null, appSettings = 'DATABASE_URL=postgres://localhost/app\n' } = {}) {
+// autoStepMs: the runner's time limit on each of Auto's database steps.
+async function setup({ version = 170000, original = true, connections = 0, fixture = false, profile = null, settings = null, appSettings = 'DATABASE_URL=postgres://localhost/app\n', autoStepMs = undefined } = {}) {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'starbase-local-db-')));
   const repo = path.join(root, 'main');
   const wt = path.join(root, 'wt');
@@ -50,25 +52,53 @@ async function setup({ version = 170000, original = true, connections = 0, fixtu
   await fs.writeFile(logFile, '');
   process.env.FAKE_PG_STATE = stateFile;
   process.env.FAKE_PG_LOG = logFile;
-  delete process.env.FAKE_PG_FAIL;
+  for (const k of ['FAKE_PG_FAIL', 'FAKE_PG_HANG', 'FAKE_PG_SLOW']) delete process.env[k];
   profile ??= fixture ? APP_PROFILE : PROFILE;
   const registry = { profileFor: async () => ({ ok: true, profile, file: path.join(repo, 'starbase.md'), source: 'repo' }) };
-  const local = new LocalRunner({ state: new State(path.join(root, 'state')), registry, pgTool: async (name) => path.join(FAKES, name) });
+  const local = new LocalRunner({ state: new State(path.join(root, 'state')), registry, pgTool: async (name) => path.join(FAKES, name), ...(autoStepMs ? { autoStepMs } : {}) });
   const f = { slug: 'x', title: 'X', worktree: wt, repoPath: repo, branch: 'feature/x' };
-  const log = async () => (await fs.readFile(logFile, 'utf8')).split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  const parse = (text) => text.split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  const log = async () => parse(await fs.readFile(logFile, 'utf8'));
+  const logNow = () => parse(readFileSync(logFile, 'utf8'));
   const pg = async () => JSON.parse(await fs.readFile(stateFile, 'utf8')).databases;
   const done = () => fs.rm(root, { recursive: true, force: true });
-  return { root, local, f, log, pg, done };
+  return { root, local, f, log, logNow, pg, done };
 }
 
-// Runs autoDatabase and keeps the commands it ran (from `from` on) for the last test.
-async function runAuto(ctx, from = null) {
+// Runs autoDatabase, checks the commands it ran (from `from` on) and keeps them for the safety test.
+async function runAuto(ctx, from = null, opts = undefined) {
   const start = from ?? (await ctx.log()).length;
-  try { return await ctx.local.autoDatabase(ctx.f); } finally { autoLines.push(...(await ctx.log()).slice(start)); }
+  try { return await ctx.local.autoDatabase(ctx.f, opts); } finally { keepAuto((await ctx.log()).slice(start)); }
 }
 
 const line = (e) => [e.tool, ...e.args].join(' ');
 const dbOfUrl = (url) => (url ? decodeURIComponent(new URL(url).pathname.slice(1)) : null);
+
+let autoSaves = 0; // times Auto saved a missing original, over the file
+/**
+ * Review Focus 2, for each command Auto ran: his database and the original are only ever a copy's
+ * source, and his only to save a missing original. Then kept for the total in the safety test.
+ */
+function keepAuto(entries) {
+  for (const e of entries) {
+    const where = line(e);
+    if (e.tool === 'createdb') {
+      const to = e.args.at(-1);
+      const from = e.args[e.args.indexOf('-T') + 1];
+      // The one exception: saving the original when there is none (createdb refuses an existing name).
+      if (from === 'app' && to === 'app__original') { autoSaves++; continue; }
+      assert.notEqual(from, 'app', `his database is copied only to save the original: ${where}`);
+      assert.ok(!HIS.includes(to), where);
+    }
+    if (e.tool === 'dropdb') assert.ok(!HIS.includes(e.args.at(-1)), where);
+    if (e.tool === 'migrate') assert.ok(!HIS.includes(dbOfUrl(e.url)), where);
+    if (e.tool === 'psql') {
+      assert.ok(!HIS.includes(e.args[e.args.indexOf('-d') + 1]), `Auto never connects to them: ${where}`);
+      assert.ok(!/\b(alter|drop|create)\b/i.test(e.args.at(-1)), `Auto changes nothing through psql: ${where}`);
+    }
+  }
+  autoLines.push(...entries);
+}
 const changes = (entries) => entries.filter((e) => e.tool !== 'psql').map(line);
 
 test('createdbArgs uses the file copy only when asked', () => {
@@ -211,12 +241,12 @@ test('while Try it switches, Auto waits; while Auto copies, Try it\'s switch say
     while (!ctx.local.dbBusy) await new Promise((r) => setTimeout(r, 2));
     let autoDone = false;
     const auto = ctx.local.autoDatabase(ctx.f).finally(() => { autoDone = true; });
-    await tryIt;
+    // Where the log stands the moment Try it ends: read in the same tick, before Auto's next poll.
+    const mark = await tryIt.then(() => ctx.logNow().length);
     assert.equal(autoDone, false, 'Auto is still waiting when Try it finishes');
-    const mark = (await ctx.log()).length;
     assert.ok(!(await ctx.log()).some((e) => e.args.at(-1) === 'app__auto'), 'Auto ran nothing while Try it switched');
     await auto;
-    autoLines.push(...(await ctx.log()).slice(mark));
+    keepAuto((await ctx.log()).slice(mark));
     assert.ok((await ctx.pg()).app__auto, 'Auto made its copy after');
 
     // A switch that never ends: Auto gives up as busy, and changes nothing.
@@ -244,31 +274,15 @@ test('autoConnections counts what is connected to __auto', async () => {
     await fs.writeFile(process.env.FAKE_PG_STATE, JSON.stringify(state));
     const start = (await ctx.log()).length;
     assert.equal(await ctx.local.autoConnections(ctx.f), 3);
-    autoLines.push(...(await ctx.log()).slice(start));
+    keepAuto((await ctx.log()).slice(start));
   } finally { await ctx.done(); }
 });
 
-// Review Focus 2. Declared last so it reads the commands from every test above.
+// Review Focus 2. Each test checks its own commands (keepAuto); this is the total over the tests above,
+// so it says something only when the whole file runs.
 test('no command ever targets his database or the original', () => {
   assert.ok(autoLines.length > 10, 'the tests above ran Auto');
-  const saves = [];
-  for (const e of autoLines) {
-    const where = line(e);
-    if (e.tool === 'createdb') {
-      const to = e.args.at(-1);
-      const from = e.args[e.args.indexOf('-T') + 1];
-      // The one exception: saving the original when there is none (createdb refuses an existing name).
-      if (from === 'app' && to === 'app__original') { saves.push(where); continue; }
-      assert.ok(!HIS.includes(to), where);
-    }
-    if (e.tool === 'dropdb') assert.ok(!HIS.includes(e.args.at(-1)), where);
-    if (e.tool === 'migrate') assert.ok(!HIS.includes(dbOfUrl(e.url)), where);
-    if (e.tool === 'psql') {
-      assert.ok(!HIS.includes(e.args[e.args.indexOf('-d') + 1]), `Auto never connects to them: ${where}`);
-      assert.ok(!/\b(alter|drop|create)\b/i.test(e.args.at(-1)), `Auto changes nothing through psql: ${where}`);
-    }
-  }
-  assert.equal(saves.length, 1, 'the original is saved only in the test that has none and nothing connected');
+  assert.equal(autoSaves, 1, 'the original is saved only in the test that has none and nothing connected');
 });
 
 // ---------- Task 9: the job's app and its migrate script on Auto's database ----------
@@ -438,4 +452,161 @@ test('his database switch leaves an app on Auto\'s database running', async () =
     assert.equal(ctx.local.jobs.get(ctx.f.slug).server.status, 'running');
     assert.deepEqual((await ctx.pg()).app.ledger, ['0001_a', '0002_b'], 'his switch went ahead');
   } finally { await stopApp(ctx); await ctx.done(); }
+});
+
+// ---------- Task 8 fix round 1: time limits, the lock's re-check, and the review's Minors ----------
+
+const sleep = (ms) => new Promise((r) => { setTimeout(r, ms); });
+async function patchState(change) {
+  const s = JSON.parse(await fs.readFile(process.env.FAKE_PG_STATE, 'utf8'));
+  change(s);
+  await fs.writeFile(process.env.FAKE_PG_STATE, JSON.stringify(s));
+}
+/** Whether the process is gone within 3 seconds. */
+async function goneSoon(pid) {
+  for (let i = 0; i < 100; i++) {
+    try { process.kill(pid, 0); } catch { return true; }
+    await sleep(30);
+  }
+  return false;
+}
+const lastPid = async (ctx, tool) => (await ctx.log()).findLast((e) => e.tool === tool).pid;
+
+test('a Postgres tool that runs past the time limit is stopped, the turn ends as copy, and the switch is free', async () => {
+  const ctx = await setup({ autoStepMs: 1000 });
+  try {
+    for (const hang of ['dropdb:app__auto', 'createdb:app__auto', 'psql:app__auto']) {
+      process.env.FAKE_PG_HANG = hang;
+      await assert.rejects(runAuto(ctx), (err) => {
+        assert.ok(err instanceof AutoDbError, hang);
+        assert.equal(err.code, 'copy', hang);
+        assert.match(err.message, /took longer than 1 second.* was stopped\./, hang);
+        return true;
+      });
+      assert.equal(ctx.local.dbBusy, false, `${hang}: the switch is free`);
+      assert.ok(await goneSoon(await lastPid(ctx, hang.split(':')[0])), `${hang}: the program is gone`);
+    }
+    delete process.env.FAKE_PG_HANG;
+    assert.deepEqual((await runAuto(ctx)).added, ['0002_b'], 'the next turn runs');
+    await ctx.local.database(ctx.f, 'match');
+    assert.deepEqual((await ctx.pg()).app.ledger, ['0001_a', '0002_b'], 'his switch runs');
+  } finally { delete process.env.FAKE_PG_HANG; await ctx.done(); }
+});
+
+test('a migrate script that runs past the time limit is stopped with what it started, the turn ends as migration, and the switch is free', async () => {
+  const ctx = await setup({ autoStepMs: 2000 });
+  try {
+    process.env.FAKE_PG_HANG = 'migrate:0002_b';
+    await assert.rejects(runAuto(ctx), (err) => {
+      assert.ok(err instanceof AutoDbError);
+      assert.equal(err.code, 'migration');
+      assert.equal(err.migration, '0002_b');
+      assert.equal(err.message, 'Adding 0002_b to Auto’s database took longer than 2 seconds, so it was stopped.');
+      return true;
+    });
+    assert.equal(ctx.local.dbBusy, false);
+    // The script runs under npm and a shell: the whole group is stopped, the script with it.
+    assert.ok(await goneSoon(await lastPid(ctx, 'migrate')), 'the migrate script is gone');
+    delete process.env.FAKE_PG_HANG;
+    assert.deepEqual((await runAuto(ctx)).added, ['0002_b'], 'the next turn runs');
+    await ctx.local.database(ctx.f, 'match');
+    assert.deepEqual((await ctx.pg()).app.ledger, ['0001_a', '0002_b'], 'his switch runs');
+  } finally { delete process.env.FAKE_PG_HANG; await ctx.done(); }
+});
+
+test('Try it\'s own switch has no time limit', async () => {
+  const ctx = await setup({ autoStepMs: 200 });
+  try {
+    process.env.FAKE_PG_SLOW = 'createdb:app__incoming'; // 1 s, past Auto's limit
+    await ctx.local.database(ctx.f, 'match');
+    assert.deepEqual((await ctx.pg()).app.ledger, ['0001_a', '0002_b']);
+  } finally { delete process.env.FAKE_PG_SLOW; await ctx.done(); }
+});
+
+test('a Try it switch asked for just before Auto\'s turn is refused once Auto holds the switch, and runs nothing', async () => {
+  const ctx = await setup();
+  try {
+    const tryIt = ctx.local.database(ctx.f, 'match'); // passes its first check, then reads the job's folders
+    const auto = runAuto(ctx, 0); // in the same tick: Auto takes the switch while Try it reads
+    await assert.rejects(tryIt, (err) => err.message === 'The database is already being switched. Wait for it to finish.');
+    await auto;
+    const tryItRan = (await ctx.log()).filter((e) => e.args.includes('app__incoming') || (e.tool === 'psql' && e.args[e.args.indexOf('-d') + 1] === 'app'));
+    assert.deepEqual(tryItRan, [], 'Try it made no Postgres call');
+    assert.equal(ctx.local.dbBusy, false);
+    await ctx.local.database(ctx.f, 'match');
+    assert.deepEqual((await ctx.pg()).app.ledger, ['0001_a', '0002_b'], 'after Auto\'s copy, his switch works');
+  } finally { await ctx.done(); }
+});
+
+test('the file copy is decided for each server', async () => {
+  const ctx = await setup();
+  try {
+    await patchState((s) => { s.versionByPort = { 5433: 140011 }; });
+    const older = path.join(ctx.root, 'main-older');
+    await fs.mkdir(path.join(older, 'app'), { recursive: true });
+    await fs.writeFile(path.join(older, 'app', '.env.local'), 'DATABASE_URL=postgres://u:p@localhost:5433/app\n');
+    await runAuto(ctx);
+    const start = (await ctx.log()).length;
+    await runAuto({ ...ctx, f: { ...ctx.f, slug: 'y', repoPath: older } }, start);
+    assert.deepEqual((await ctx.log()).filter((e) => e.tool === 'createdb').map(line), [
+      'createdb -T app__original --strategy=file_copy app__auto', // Postgres 17 on 5432
+      'createdb -T app__original app__auto', // Postgres 14 on 5433
+    ]);
+  } finally { await ctx.done(); }
+});
+
+test('the file copy needs createdb 15 or later too', async () => {
+  const ctx = await setup();
+  try {
+    await patchState((s) => { s.clientVersion = '14.9'; });
+    await runAuto(ctx);
+    await ctx.local.database(ctx.f, 'match');
+    const made = (await ctx.log()).filter((e) => e.tool === 'createdb').map(line);
+    assert.deepEqual(made, ['createdb -T app__original app__auto', 'createdb -T app__original app__incoming']);
+  } finally { await ctx.done(); }
+});
+
+test('when the server\'s version can\'t be read, Try it switches with the default copy and Auto stops as copy', async () => {
+  const ctx = await setup({ version: 'fail' });
+  try {
+    await ctx.local.database(ctx.f, 'match');
+    assert.deepEqual((await ctx.log()).filter((e) => e.tool === 'createdb').map(line), ['createdb -T app__original app__incoming']);
+    assert.deepEqual((await ctx.pg()).app.ledger, ['0001_a', '0002_b']);
+    await assert.rejects(runAuto(ctx), (err) => err instanceof AutoDbError && err.code === 'copy');
+  } finally { await ctx.done(); }
+});
+
+test('an original with no applied_migrations table is no-database, and no migration runs', async () => {
+  const ctx = await setup();
+  try {
+    await patchState((s) => { s.databases.app__original.ledger = null; });
+    await assert.rejects(runAuto(ctx), (err) => {
+      assert.ok(err instanceof AutoDbError);
+      assert.equal(err.code, 'no-database');
+      assert.equal(err.message, 'The saved original of app has no applied_migrations table, so Starbase can’t tell which changes Auto’s copy needs.');
+      return true;
+    });
+    assert.ok(!(await ctx.log()).some((e) => e.tool === 'migrate'));
+    assert.equal(ctx.local.dbBusy, false);
+  } finally { await ctx.done(); }
+});
+
+test('autoConnections in demo mode runs nothing', async () => {
+  const ctx = await setup();
+  try {
+    const demo = new LocalRunner({ state: new State(path.join(ctx.root, 'demo-state')), demo: true, pgTool: async (name) => path.join(FAKES, name) });
+    await assert.rejects(demo.autoConnections(ctx.f), /Demo mode/);
+    assert.deepEqual(await ctx.log(), []);
+  } finally { await ctx.done(); }
+});
+
+test('Try it\'s panel hears when Auto takes the switch and when it frees it', async () => {
+  const ctx = await setup();
+  try {
+    const seen = [];
+    ctx.local.on('changed', (e) => { if (e.slug === ctx.f.slug) seen.push(ctx.local.dbBusy); });
+    await runAuto(ctx);
+    assert.equal(seen[0], true, 'when Auto takes it');
+    assert.equal(seen.at(-1), false, 'when Auto frees it');
+  } finally { await ctx.done(); }
 });
