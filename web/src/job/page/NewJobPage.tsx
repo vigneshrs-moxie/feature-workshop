@@ -28,11 +28,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Job, JobDetail, JobPageFacts, StageAgent, StopId } from '../../api/types';
 import { BRAND } from '../../app/brand';
 import { useKeyScope } from '../../app/keyRegistry';
-import { isJobView, jobHref, navigate, replaceHash, stageHref, type JobView } from '../../app/router';
+import { isJobView, jobHref, replaceHash, stageHref, type JobView } from '../../app/router';
 import { useUi } from '../../app/ui';
 import { Button } from '../../components/Button';
 import { Chip } from '../../components/Chip';
-import { Page, useMinWidth } from '../../components/page/Page';
+import { Page, useMinWidth, useNarrow } from '../../components/page/Page';
 import { isStopId, STOPS, stopOf } from '../../components/stops/stops';
 import { laneOf } from '../../home/JobsPage';
 import { readStored, useStored, writeStored } from '../../lib/stored';
@@ -47,12 +47,14 @@ import { ConversationPanel, newCount, seenKey } from './ConversationPanel';
 import { JobTop } from './JobTop';
 import { lastStepKey, pickOpenStep } from './openStep';
 import { OverviewCard } from './OverviewCard';
+import { PhoneJob } from './PhoneJob';
 import { StepBody } from './StepBody';
 import { StepPanel } from './StepPanel';
 import { StepsRow } from './StepsRow';
 import { statesOf } from './stepWords';
 import { recorderAgent } from './TestStep';
 import { useJobEvidence } from './useJobEvidence';
+import { useJobMenuRequests } from './useJobMenuRequests';
 import { useStage } from './useStage';
 import './page.css';
 
@@ -79,12 +81,15 @@ export function NewJobPage({ slug, step, view }: { slug: string; step?: StopId; 
   return <JobScreen key={slug} job={job} step={isStopId(step) ? step : undefined} view={isJobView(view) ? view : undefined} />;
 }
 
-/** What every layout of the page needs; the layout itself is the laptop's (the phone's goes beside it). */
+/** What every layout of the page needs; then the phone's layout in a narrow window, else the laptop's. */
 function JobScreen({ job, step, view }: { job: Job; step: StopId | undefined; view: JobView | undefined }) {
   const now = useNow();
   const conversation = useJobConversation(job);
   useCurrentJob(job, conversation);
   const sent = useSentShown(job, conversation);
+  // A phone (760 px and under): its own simple screens, and nothing only the laptop uses runs.
+  const narrow = useNarrow();
+  if (narrow) return <PhoneJob job={job} conversation={conversation} now={now} step={step} view={view} sent={sent} />;
   return <LaptopJob job={job} conversation={conversation} now={now} step={step} view={view} sent={sent} />;
 }
 
@@ -170,20 +175,8 @@ function LaptopJob({ job, conversation, now, step, view, sent }: {
   const { recording, watching, setWatching, tryOpen, setTryOpen } = evidence;
   const reloadEvidence = evidence.reload;
 
-  // The job menu's "Try it on your computer": the Test step, with Try it open.
-  const handledTry = useRef(ui.tryRequest);
-  useEffect(() => {
-    if (ui.tryRequest === handledTry.current) return;
-    handledTry.current = ui.tryRequest;
-    if (ui.trySlug === slug) { toStep('test'); setTryOpen(true); }
-  }, [ui.tryRequest, ui.trySlug, slug, toStep, setTryOpen]);
-  // "Review the screens": the full-width Screens page, which takes the request as it mounts.
-  const handledScreens = useRef(ui.screensRequest);
-  useEffect(() => {
-    if (ui.screensRequest === handledScreens.current) return;
-    handledScreens.current = ui.screensRequest;
-    if (ui.screensSlug === slug) navigate({ name: 'screens', slug });
-  }, [ui.screensRequest, ui.screensSlug, slug]);
+  // The job menu's "Try it on your computer" (the Test step, with Try it open) and "Review the screens".
+  useJobMenuRequests(slug, () => { toStep('test'); setTryOpen(true); });
   // A link to one of the job's documents (or ⌘K Open docs): the step that owns the file opens with
   // it; a file no step owns, or no file, opens under the open step. Each request is handed down
   // only while its step is open, and StepPanel acts on it once.

@@ -9,6 +9,7 @@
 //     carries the bar and its three calls first, the card folded to one row (the owner's requirement).
 //   The conversation (#/job/<slug>/conversation): the conversation panel, full screen.
 //   The overview (#/job/<slug>/overview): the ticket, what we're building and what to check, open.
+// NewJobPage draws it in a narrow window (760 px and under), in place of the laptop's layout.
 // Each row goes by `navigate` (a new history entry), so Back returns to the job. A screen's back row
 // goes back in the history when the screen before was this job's (the history does not grow), else
 // to the job's screen. The bar's Reply while no gate waits opens the conversation's screen with the
@@ -22,7 +23,6 @@
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import type { Job, JobDetail, StageAgent, StopId } from '../../api/types';
 import { navigate, type JobView } from '../../app/router';
-import { useUi } from '../../app/ui';
 import { Button } from '../../components/Button';
 import { Chip } from '../../components/Chip';
 import { Icon } from '../../components/Icon';
@@ -45,6 +45,7 @@ import { StepPanel } from './StepPanel';
 import { statesOf, stepState, stepTimeWords } from './stepWords';
 import { recorderAgent } from './TestStep';
 import { useJobEvidence, type JobEvidence } from './useJobEvidence';
+import { useJobMenuRequests } from './useJobMenuRequests';
 import { useStage } from './useStage';
 import { WhatToCheck } from './WhatToCheck';
 import './page.css';
@@ -73,23 +74,10 @@ function waitingStep(job: Job, detail: JobDetail | null): StopId | null {
 
 export function PhoneJob({ job, conversation, now, step, view, sent }: { job: Job; conversation: Conversation; now: Date; step?: StopId; view?: JobView; sent: Sent }) {
   const slug = job.slug;
-  const ui = useUi();
   const evidence = useJobEvidence(job);
   const { setTryOpen } = evidence;
-  // The job menu's "Try it on your computer": the Test step's screen, with Try it open.
-  const handledTry = useRef(ui.tryRequest);
-  useEffect(() => {
-    if (ui.tryRequest === handledTry.current) return;
-    handledTry.current = ui.tryRequest;
-    if (ui.trySlug === slug) { navigate({ name: 'stage', slug, stop: 'test' }); setTryOpen(true); }
-  }, [ui.tryRequest, ui.trySlug, slug, setTryOpen]);
-  // "Review the screens": the full-width Screens page.
-  const handledScreens = useRef(ui.screensRequest);
-  useEffect(() => {
-    if (ui.screensRequest === handledScreens.current) return;
-    handledScreens.current = ui.screensRequest;
-    if (ui.screensSlug === slug) navigate({ name: 'screens', slug });
-  }, [ui.screensRequest, ui.screensSlug, slug]);
+  // The job menu's "Try it on your computer" (the Test step's screen, with Try it open) and "Review the screens".
+  useJobMenuRequests(slug, () => { navigate({ name: 'stage', slug, stop: 'test' }); setTryOpen(true); });
 
   // The screen shown before this one: the back row goes back in the history when that was this
   // job's screen (so the history does not grow), else to the job's screen (a step opened from a link).

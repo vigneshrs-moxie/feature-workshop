@@ -1772,3 +1772,50 @@ describe('the permission alert', () => {
     expect(step).toHaveTextContent('5 lines');
   });
 });
+
+// A narrow window (760 px and under, useNarrow) shows the phone's own layout (PhoneJob), and nothing
+// only the laptop uses runs there: one ask for the evidence, one for the step, one handler per request.
+describe('a narrow window', () => {
+  const PHONE = 390;
+  const evidenceAsks = (get: ReturnType<typeof vi.fn>) => get.mock.calls.filter(([p]) => p === '/api/job/alpha/evidence').length;
+
+  it('a narrow window shows the phone layout', () => {
+    windowWidth(PHONE);
+    setup({ jobs: [working('plan')] });
+    expect(page()).toHaveClass('sb-phone');
+    expect(page().querySelector('.sb-job-top')).toBeNull();
+    expect(screen.queryByRole('tablist')).toBeNull();
+    expect(screen.getByRole('heading', { level: 1, name: 'Job alpha' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Steps' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Conversation/ })).toBeInTheDocument();
+  });
+
+  it('in a narrow window the evidence is asked for once, the step once, and Review the screens adds one history entry', async () => {
+    windowWidth(PHONE);
+    function Screens() { const ui = useUi(); return <button type="button" onClick={() => ui.openScreens('alpha')}>review the screens</button>; }
+    window.location.hash = '#/job/alpha/stage/plan';
+    const { get } = setup({ jobs: [working('plan')], routed: true, extra: <Screens /> });
+    expect(await screen.findByRole('heading', { level: 1, name: 'Plan' })).toBeInTheDocument();
+    expect(await screen.findByText('Documents from this step')).toBeInTheDocument();
+    await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
+    expect(evidenceAsks(get)).toBe(1);
+    expect(stageCalls(get, 'plan')).toBe(1);
+    expect(get.mock.calls.filter(([p]) => /\/stage\//.test(p as string))).toHaveLength(1);
+    const before = window.history.length;
+    fireEvent.click(screen.getByRole('button', { name: 'review the screens' }));
+    expect(window.location.hash).toBe('#/job/alpha/screens');
+    expect(window.history.length).toBe(before + 1);
+  });
+
+  it.each([['the laptop app', false], ['the website', true]] as const)('in a narrow window a waiting Auto job has No go: send back, Reply and Go, enabled (%s)', async (_where, hosted) => {
+    windowWidth(PHONE);
+    const deciding = job('alpha', 'running', { stage: 'plan', lane: 'working', level: 1, waitingFor: 'approval', laneReason: 'Auto is deciding: the plan', auto: { on: true, by: 'you', ran: true } });
+    setup({ jobs: [deciding], gate: GATE, auto: { on: true, tag: null }, hosted });
+    expect(page()).toHaveClass('sb-phone');
+    await waitFor(() => {
+      const calls = within(bar()).getAllByRole('button').map((b) => b.textContent?.replace(/\s+/g, ' ').trim());
+      expect(calls).toEqual([expect.stringMatching(/^No go: send back/), 'Reply', expect.stringMatching(/^Go: approve/)]);
+      for (const b of within(bar()).getAllByRole('button')) expect(b).toBeEnabled();
+    });
+  });
+});

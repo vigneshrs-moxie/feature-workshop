@@ -7,13 +7,14 @@
 // picks the screen. Invented jobs only; no model calls, no browser, no network.
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
+import type { ReactNode } from 'react';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../../api/client';
 import type { EvidenceView, Gate, Job, JobDetail, Permission, StageView, StopId, ThreadItem } from '../../api/types';
 import { installKeyListener } from '../../app/keyRegistry';
 import { useRoute, type JobView } from '../../app/router';
-import { UiProvider } from '../../app/ui';
+import { UiProvider, useUi } from '../../app/ui';
 import { STOPS } from '../../components/stops/stops';
 import { clearAllSent } from '../../lib/sentState';
 import { useJobConversation } from '../../panes/Foreman/ForemanPane';
@@ -79,7 +80,7 @@ function Routed({ slug }: { slug: string }) {
   return <Screens job={j} step={route.name === 'stage' ? route.stop : undefined} view={route.name === 'job' ? route.view : undefined} />;
 }
 
-function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions = [] as Permission[], gate = null as Gate | null, auto = null as JobDetail['auto'] | null, page = undefined as JobDetail['page'], thread = [] as ThreadItem[], hosted = false, at = '#/job/alpha', post = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({ ok: true })) } = {}) {
+function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions = [] as Permission[], gate = null as Gate | null, auto = null as JobDetail['auto'] | null, page = undefined as JobDetail['page'], thread = [] as ThreadItem[], hosted = false, at = '#/job/alpha', extra = null as ReactNode, post = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({ ok: true })) } = {}) {
   window.location.hash = at;
   const store: Store = createStore();
   server.store = store;
@@ -103,7 +104,7 @@ function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions =
     return detail(p.split('/')[3]);
   });
   const api = { get, post, ...(hosted ? { hosted: () => true } : {}) } as unknown as ApiClient;
-  const utils = render(<WorkshopContext.Provider value={{ store, api }}><UiProvider><Routed slug="alpha" /></UiProvider></WorkshopContext.Provider>);
+  const utils = render(<WorkshopContext.Provider value={{ store, api }}><UiProvider>{extra}<Routed slug="alpha" /></UiProvider></WorkshopContext.Provider>);
   /** The job as the next snapshot has it. */
   const move = (next: Job[], perms: Permission[] = permissions) => act(() => {
     store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: next, permissions: perms, meta: { token: 't', settings: { play: { mode: 'subtle' } } } as never }) });
@@ -299,6 +300,29 @@ describe('the phone’s job screen', () => {
     expect(follows(row, screen.getByRole('checkbox', { name: AUTO_LABEL }))).toBe(true);
     fireEvent.click(row);
     expect(await screen.findByRole('dialog', { name: 'What Auto decided' })).toBeInTheDocument();
+  });
+});
+
+describe('the job menu’s requests on the phone', () => {
+  function Asks() {
+    const ui = useUi();
+    return <><button type="button" onClick={() => ui.openTry('alpha')}>try it</button><button type="button" onClick={() => ui.openScreens('alpha')}>review the screens</button></>;
+  }
+
+  it('Try it on your computer lands on the Test step’s screen with Try it open', async () => {
+    setup({ jobs: [working('build')], extra: <Asks /> });
+    fireEvent.click(screen.getByRole('button', { name: 'try it' }));
+    expect(window.location.hash).toBe('#/job/alpha/stage/test');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Test' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Close Try it' })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('Review the screens goes to the Screens page, one new history entry', () => {
+    setup({ jobs: [working('spec')], extra: <Asks /> });
+    const before = window.history.length;
+    fireEvent.click(screen.getByRole('button', { name: 'review the screens' }));
+    expect(window.location.hash).toBe('#/job/alpha/screens');
+    expect(window.history.length).toBe(before + 1);
   });
 });
 
