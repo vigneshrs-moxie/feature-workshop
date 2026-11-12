@@ -554,6 +554,9 @@ describe('the bar: Auto’s go, the Foreman among the crew, and the small words'
     const again = setup({ jobs: waiting({ auto }), gate: GATE, answered: [2], thread: [autoGo, hisGo] });
     act(() => { again.store.dispatch({ type: 'event', event: ev(20, 'run', 'alpha', { id: 'r_his', slug: 'alpha', status: 'running' }) }); });
     await waitFor(() => expect(bar().querySelector('.next-sub')).toHaveTextContent(/^Your go reached the Foreman\. Auto carries on from the next step\.$/));
+    // Both lines: his go is the last answer, so the first line is his own sent line, not Auto's.
+    expect(bar().querySelector('.next-head')).toHaveTextContent(/^Sent\. Waiting for the Foreman to start\.$/);
+    expect(bar()).not.toHaveTextContent('Sent by Auto');
     expect(shownKind()).toBe('approve');
   });
 

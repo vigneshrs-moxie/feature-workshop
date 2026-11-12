@@ -5,8 +5,12 @@
 //             the answers and the next step for a Go, the step a send back stays at)
 //   stuck     "Nothing has moved yet." (Try again, where the place has one)
 //   answered  the brief is answered (the job's detail says so, or the server took a deciding answer
-//             to this brief) or the run his reply started is at work: the sent lines, no calls
+//             to this brief) or the run his reply started is at work: the sent lines, no calls. A
+//             brief Auto answered (the thread says Auto sent it, and nothing went from this page)
+//             says "Sent by Auto. Waiting for the Foreman to start." instead, so it never reads as his
 //   held      the deciding answer waits for Claude's usage limit to reset: the app's held words
+//   paused    answered, no run at work, and the job paused by the usage limit or a restart: "Paused"
+//             with the reason (pausedLines), never Try again
 //   stalled   answered, no run at work, and 30 s gone since the later of the server taking it and the
 //             last run ending: "Nothing has moved yet.", with Try again when there is a decision to
 //             send again, else a line saying to write to the Foreman
