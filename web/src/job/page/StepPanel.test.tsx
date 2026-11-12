@@ -319,6 +319,18 @@ describe('StepPanel', () => {
     expect(api.post).not.toHaveBeenCalled();
   });
 
+  it('Starbase’s recorder row has no terminal button', () => {
+    const recorder = agent('starbase-recorder', { role: 'Starbase', model: 'recorder', ref: 'recorder', doing: 'Recording evidence: line 4 of 19', terminal: { kind: 'watch', ready: false, why: 'Starbase records this itself.' } });
+    show(BUILD, { extraAgents: [recorder] });
+    const all = rows();
+    const sb = all[all.length - 1];
+    expect(sb.querySelector('.sb-who-role')).toHaveTextContent('Starbase');
+    expect(within(sb).queryByRole('button')).toBeNull();
+    expect(sb).not.toHaveTextContent('Starbase records this itself.');
+    // Every other row keeps its own.
+    expect(within(all[1]).getByRole('button', { name: /Watch in terminal/ })).toBeInTheDocument();
+  });
+
   it('a stage view with no time, no documents and no feed still draws the panel', () => {
     const bare: StageView = {
       slug: SLUG, stop: 'build', label: 'Build', state: 'now', stateWords: 'Working now', since: null, stages: ['implement'],

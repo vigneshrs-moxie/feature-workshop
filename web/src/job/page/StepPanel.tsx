@@ -200,7 +200,8 @@ function WhoRow({ a, status, now, hosted, busy, off, onOpen }: { a: StageAgent; 
       </div>
       <span className="muted sb-who-time num">{time && <><Icon name="clock" size={14} /> {time}</>}</span>
       <span className={`chip sb-who-status ${status.cls}`}>{status.words}</span>
-      {!hosted && (
+      {/* The evidence recorder runs no session and writes no log to follow: no terminal button. */}
+      {!hosted && a.ref !== 'recorder' && (
         <div className="sb-who-term">
           <Button
             kind={cont ? 'secondary' : 'quiet'}

@@ -129,3 +129,64 @@
 @media (prefers-reduced-motion: reduce) {
   .sb-step { transition: none; }
 }
+
+/* The Test step's body (job/page/TestStep.tsx, WatchPicture.tsx): three kinds of test, each a card
+   with its name, who runs it and a state chip, then Where and When side by side; under them what
+   each one adds (the command's output, Watch and the lines, Try it with What to check at its right).
+   On a phone everything stacks, What to check under Try it. */
+.sb-test { display: flex; flex-direction: column; gap: var(--space-3); }
+.sb-test-rows { display: flex; flex-direction: column; gap: var(--space-3); }
+.sb-test-row { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; padding: var(--space-3) var(--space-4); border: 1px solid var(--border-1); border-radius: var(--radius-md); background: var(--bg-0); }
+.sb-test-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
+.sb-test-name { margin: 0; font-size: var(--text-sm); font-weight: var(--weight-bold); }
+.sb-test-by { font-size: var(--text-sm); }
+.sb-test-chip { margin-left: auto; white-space: nowrap; }
+.sb-test-chip.is-ok { color: var(--status-ok); background: var(--status-ok-bg); }
+.sb-test-chip.is-err { color: var(--status-error); background: var(--status-error-bg); }
+.sb-test-chip.is-now { color: var(--lane-working-fg); background: var(--lane-working-bg); }
+.sb-test-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2) var(--space-4); margin: 0; }
+.sb-test-facts > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sb-test-facts dt { font-size: var(--text-xs); color: var(--text-3); }
+.sb-test-facts dd { margin: 0; font-size: var(--text-sm); overflow-wrap: anywhere; }
+.sb-test-note { font-size: var(--text-sm); }
+p.sb-test-note { margin: 0; }
+.sb-test-link { align-self: flex-start; font-size: var(--text-sm); }
+.sb-test-action { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
+.sb-test-out { position: relative; margin: 0; max-height: 220px; overflow: auto; padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); background: var(--bg-2); font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.sb-test-problem { display: flex; flex-direction: column; gap: var(--space-2); }
+.sb-test-problem-text { margin: 0; overflow-wrap: anywhere; }
+
+.sb-test-lines { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--space-1); }
+.sb-test-line { display: grid; grid-template-columns: 2em auto minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); font-size: var(--text-sm); }
+.sb-test-line-n { text-align: right; font-size: var(--text-xs); }
+.sb-test-line-title { min-width: 0; overflow-wrap: anywhere; }
+.sb-test-line.is-waiting .sb-test-line-title { color: var(--text-2); }
+.sb-test-line-state { white-space: nowrap; }
+.sb-test-line-state.is-passed { color: var(--status-ok); background: var(--status-ok-bg); }
+.sb-test-line-state.is-failed { color: var(--status-error); background: var(--status-error-bg); }
+.sb-test-line-state.is-running { color: var(--lane-working-fg); background: var(--lane-working-bg); }
+.sb-test-play { white-space: nowrap; }
+.sb-test-video { grid-column: 1 / -1; width: 100%; max-width: 640px; border-radius: var(--radius-sm); background: var(--bg-2); }
+.sb-test-more { padding-left: calc(2em + var(--space-2)); font-size: var(--text-sm); }
+
+.sb-watch { display: flex; flex-direction: column; gap: var(--space-1); margin: 0; }
+.sb-watch-frame { display: grid; place-items: center; aspect-ratio: 16 / 10; max-width: 640px; overflow: hidden; border: 1px solid var(--border-2); border-radius: var(--radius-sm); background: var(--bg-2); }
+.sb-watch-img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.sb-watch-none { margin: 0; padding: var(--space-4); font-size: var(--text-sm); text-align: center; }
+.sb-watch-caption { font-size: var(--text-xs); }
+
+.sb-test-try { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 300px); gap: var(--space-4); align-items: start; }
+.sb-test-try-app { min-width: 0; }
+.sb-test-check { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--border-1); border-radius: var(--radius-md); background: var(--surface-1); }
+.sb-test-check h4 { margin: 0; font-size: var(--text-sm); }
+.sb-test-strip { min-width: 0; }
+
+@media (max-width: 760px) {
+  .sb-test-row { padding: var(--space-3); }
+  .sb-test-facts { grid-template-columns: minmax(0, 1fr); }
+  .sb-test-line { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .sb-test-line-n { display: none; }
+  .sb-test-more { padding-left: 0; }
+  .sb-test-try { grid-template-columns: minmax(0, 1fr); }
+  .sb-test-action .btn { width: 100%; justify-content: center; }
+}
