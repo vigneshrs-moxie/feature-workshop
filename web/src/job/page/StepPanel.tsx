@@ -158,22 +158,30 @@ export function StepPanel({ job, stop, view, error, onRetry, now, extraAgents, s
  * scroll back, so the steps row and the bar drop. A pick (another stop) whose view is not in yet
  * measures the panel as it still stands on the page (the draw for the pick is not on the page yet)
  * and holds that. Nothing is held on the first draw, on a load of the same step (Try again), or
- * when `on` is false (the phone's step screen is its own screen).
+ * when `on` is false (the phone's step screen is its own screen). A pick made while another loads
+ * measures the panel with the first pick's minimum still on it, so it keeps that height.
+ *
+ * The panel is measured during render, on purpose (React's rule is not to read a ref in render).
+ * The minimum must land in the same commit as the pick. A measure after the commit (a layout
+ * effect) comes too late: the shrunk panel is already committed, and any other layout read in that
+ * commit forces layout, so the browser clamps `.sb-job-work`'s scroll before the minimum arrives,
+ * and a later minimum does not give the scroll back. Revisit this if the hooks lint's refs rule or
+ * the React Compiler is turned on.
  */
 function useHeldHeight(box: RefObject<HTMLElement | null>, stop: StopId, loading: boolean, on: boolean): number | null {
-  const [held, setHeld] = useState<{ stop: StopId; px: number } | null>(null);
+  const [held, setHeld] = useState<number | null>(null);
   const [seenStop, setSeenStop] = useState(stop);
   let hold = held;
   if (seenStop !== stop) {
     setSeenStop(stop);
     const px = on && loading ? box.current?.getBoundingClientRect().height ?? 0 : 0;
-    hold = px > 0 ? { stop, px } : null;
+    hold = px > 0 ? px : null;
     setHeld(hold);
-  } else if (hold && !loading) {
+  } else if (hold !== null && !loading) {
     hold = null;
     setHeld(null);
   }
-  return hold && on ? hold.px : null;
+  return hold !== null && on ? hold : null;
 }
 
 function Who({ job, stop, view, error, onRetry, now, rows, reached, notYet }: { job: Job; stop: StopId; view: StageView | null; error: string | null; onRetry(): void; now: Date; rows: StageAgent[]; reached: boolean; /** The not-yet line, when it sits in the list's place (else drawn above the body). */ notYet: ReactNode }) {

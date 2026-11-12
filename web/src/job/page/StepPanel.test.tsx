@@ -541,6 +541,34 @@ describe('StepPanel', () => {
     }
   });
 
+  it('a pick made while another pick is loading keeps the first pick’s height as the minimum', () => {
+    // jsdom lays nothing out. As a browser would: a panel with a minimum is at least that tall; else
+    // a step that shows measures 640 px and a step still loading only its loading line, 120 px.
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const min = parseFloat(this.style.minHeight) || 0;
+      const own = this.classList.contains('sb-panel') ? (this.querySelector('.sb-who-row') ? 640 : 120) : 0;
+      return { height: Math.max(min, own), width: 0, top: 0, left: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON() {} } as DOMRect;
+    });
+    try {
+      const specView: StageView = { ...BUILD, stop: 'spec', label: 'Spec', agents: [], finished: [], docs: [] };
+      const { wrap } = stores(BUILDING);
+      const panelOf = (stop: StopId, view: StageView | null) => wrap(<StepPanel job={BUILDING} stop={stop} view={view} error={null} onRetry={() => {}} now={NOW} />);
+      const panel = () => document.querySelector<HTMLElement>('.sb-panel')!;
+      const view = render(panelOf('build', BUILD));
+      // Build shows; Plan is picked and loads: Build's height is held.
+      view.rerender(panelOf('plan', null));
+      expect(panel().style.minHeight).toBe('640px');
+      // Spec is picked while Plan still loads: still Build's height, never the loading line's.
+      view.rerender(panelOf('spec', null));
+      expect(panel().style.minHeight).toBe('640px');
+      // Spec shows: the minimum goes.
+      view.rerender(panelOf('spec', specView));
+      expect(panel().style.minHeight).toBe('');
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
   it('an older good answer that lands after a newer failure is kept', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'] });
     const asks: { ok(v: StageView): void; fail(e: Error): void }[] = [];
