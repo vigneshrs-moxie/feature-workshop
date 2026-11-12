@@ -759,6 +759,25 @@ describe('the page’s keys and requests', () => {
     expect(box).not.toHaveFocus();
   });
 
+  // Fix round 1, item 13 (browser fault 4): from a focused step tab, the focus goes with the open step.
+  it('after ] the focused tab is the open step’s tab', async () => {
+    setup({ jobs: [working('plan')] });
+    tabOf('plan').focus();
+    fireEvent.keyDown(tabOf('plan'), { key: ']' });
+    expect(openStop()).toBe('build');
+    await waitFor(() => expect(tabOf('build')).toHaveFocus());
+    fireEvent.keyDown(tabOf('build'), { key: ']' });
+    fireEvent.keyDown(document.activeElement!, { key: '[' });
+    expect(openStop()).toBe('build');
+    await waitFor(() => expect(tabOf('build')).toHaveFocus());
+    // From the page body the focus stays where it was.
+    (document.activeElement as HTMLElement).blur();
+    fireEvent.keyDown(document.body, { key: ']' });
+    expect(openStop()).toBe('test');
+    await act(async () => {});
+    expect(document.activeElement).toBe(document.body);
+  });
+
   // Final review A6 (page Minor 8): the address and the conversation never drift apart.
   it('leaving the conversation’s address for the job’s closes the full-screen conversation', async () => {
     for (const hosted of [false, true]) {
