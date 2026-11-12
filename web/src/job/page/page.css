@@ -278,6 +278,8 @@ p.sb-test-note { margin: 0; }
 
 .sb-test-try { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 300px); gap: var(--space-4); align-items: start; }
 .sb-test-try-app { min-width: 0; }
+/* Try it's Folder and Branch lines: a long path wraps inside the column (it ran past it at 1280 px). */
+.sb-test-try-app .try-where > * { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 .sb-test-check { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--border-1); border-radius: var(--radius-md); background: var(--surface-1); }
 .sb-test-check h4 { margin: 0; font-size: var(--text-sm); }
 .sb-test-strip { min-width: 0; }
