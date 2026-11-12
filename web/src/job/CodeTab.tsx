@@ -1,16 +1,16 @@
 // The Job page's Code tab: the job's commits on its branch, newest first (GET /api/job/:slug/commits),
-// and one commit's change when you pick it (GET /api/job/:slug/commit/:sha): its files with the
-// lines added (+) and removed (−). Nothing here changes a file.
+// and one commit's change when you pick it (CommitChanges, job/page/CommitChanges.tsx). Nothing here
+// changes a file.
 import { useEffect, useState } from 'react';
 import { Icon } from '../components/Icon';
 import { relativeTime, useNow } from '../lib/time';
 import { useWorkshop } from '../state/store';
 import { Button } from '../components/Button';
 import { BRAND } from '../app/brand';
+import { CommitChanges } from './page/CommitChanges';
 
 interface Commit { sha: string; short: string; author: string; date: string; subject: string; step: string | null }
 interface Commits { commits: Commit[]; note?: string }
-interface Shown { sha: string; message: string; files: { path: string; added: number | null; removed: number | null }[]; patchFiles: { path: string; lines: string[] }[]; truncated: boolean }
 
 type Load<T> = { state: 'loading' } | { state: 'error'; message: string } | { state: 'ready'; value: T };
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
@@ -21,7 +21,6 @@ export function CodeTab({ slug, changedAt }: { slug: string; changedAt?: string 
   const [load, setLoad] = useState<Load<Commits>>({ state: 'loading' });
   const [tries, setTries] = useState(0);
   const [open, setOpen] = useState<string | null>(null);
-  const [shown, setShown] = useState<Load<Shown> | null>(null);
   useEffect(() => {
     let off = false;
     api.get<Commits>(`/api/job/${encodeURIComponent(slug)}/commits`).then(
@@ -30,16 +29,6 @@ export function CodeTab({ slug, changedAt }: { slug: string; changedAt?: string 
     );
     return () => { off = true; };
   }, [api, slug, tries, changedAt]);
-  useEffect(() => {
-    if (!open) { setShown(null); return; }
-    let off = false;
-    setShown({ state: 'loading' });
-    api.get<Shown>(`/api/job/${encodeURIComponent(slug)}/commit/${open}`).then(
-      (value) => { if (!off) setShown({ state: 'ready', value }); },
-      (err) => { if (!off) setShown({ state: 'error', message: message(err) }); },
-    );
-    return () => { off = true; };
-  }, [api, slug, open]);
 
   if (load.state === 'loading') return <p className="muted" role="status">Reading the job’s commits…</p>;
   if (load.state === 'error') {
@@ -66,33 +55,10 @@ export function CodeTab({ slug, changedAt }: { slug: string; changedAt?: string 
               <span className="code-subject">{c.subject}</span>
               <span className="muted">{relativeTime(c.date, now)}</span>
             </button>
-            {open === c.sha && shown && (
-              shown.state === 'loading' ? <p className="muted" role="status">Reading the change…</p>
-                : shown.state === 'error' ? <p className="thread-error" role="alert">Couldn’t read the change: {shown.message}</p>
-                  : <Change value={shown.value} />
-            )}
+            {open === c.sha && <CommitChanges slug={slug} sha={c.sha} />}
           </li>
         ))}
       </ul>
-    </div>
-  );
-}
-
-function Change({ value }: { value: Shown }) {
-  const files = Array.isArray(value.patchFiles) ? value.patchFiles : [];
-  return (
-    <div className="code-change">
-      {files.length === 0 && <p className="muted">No file changes in this commit.</p>}
-      {files.map((f) => {
-        const stat = value.files?.find((x) => x.path === f.path);
-        return (
-          <details key={f.path} className="code-file" open={files.length <= 3}>
-            <summary><code>{f.path}</code>{stat && <span className="muted"> · {stat.added ?? '?'} added, {stat.removed ?? '?'} removed</span>}</summary>
-            <pre className="code-lines">{f.lines.map((l, i) => <span key={i} className={l.startsWith('+') ? 'is-add' : l.startsWith('-') ? 'is-del' : l.startsWith('@@') ? 'is-hunk' : undefined}>{l}{'\n'}</span>)}</pre>
-          </details>
-        );
-      })}
-      {value.truncated && <p className="muted">Only the start of a very large change is shown.</p>}
     </div>
   );
 }
