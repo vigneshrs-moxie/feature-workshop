@@ -1,0 +1,337 @@
+// The open step on the job page (design 3.2): its head, who worked on it with a model and a status
+// in words, the live feed, the step's own body and its documents; the loader that asks again while
+// the step works. Invented jobs, agents and documents only; no model calls, nothing opens.
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import type { ReactNode } from 'react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { ApiClient } from '../../api/client';
+import type { Job, JobDocEntry, StageAgent, StageView, StopId } from '../../api/types';
+import { UiProvider } from '../../app/ui';
+import { pickOption } from '../../components/Select.testing';
+import { jobBySlug } from '../../state/reducer';
+import { createStore, useWorkshopState, WorkshopContext } from '../../state/store';
+import { job, snapshot } from '../../state/test-fixtures';
+import { StepDocs } from './StepDocs';
+import { StepPanel } from './StepPanel';
+import { useStage } from './useStage';
+
+const NOW = new Date('2026-11-10T12:00:00Z');
+const ago = (min: number) => new Date(NOW.getTime() - min * 60_000).toISOString();
+const SLUG = 'pause-a-service';
+
+const agent = (who: string, extra: Partial<StageAgent> = {}): StageAgent => ({
+  who, role: 'ignored', model: 'Opus 5.5', doing: null, since: ago(12), lastAt: ago(1), status: 'working',
+  terminal: { kind: who === 'conductor' ? 'continue' : 'watch', ready: true, why: null }, ref: who === 'conductor' ? 'foreman' : 'c1.aaaaaaaa', ...extra,
+});
+
+const PLAN_DOC: JobDocEntry = { file: 'implementation-plan.md', name: 'Implementation plan', group: 'plan', version: '2', updatedAt: ago(30), size: 1200, type: 'md' };
+const TEST_PLAN: JobDocEntry = { file: 'test-plan.md', name: 'Test plan', group: 'plan', version: null, updatedAt: ago(90), size: 800, type: 'md' };
+
+const BUILD: StageView = {
+  slug: SLUG, stop: 'build', label: 'Build', state: 'now', stateWords: 'Working now', since: ago(40), stages: ['implement'],
+  agents: [
+    agent('conductor', { doing: 'Checking each commit against step 3', since: ago(40), feed: [{ text: 'Read the plan', at: ago(38) }, { text: 'Started the Builder on step 3', at: ago(12) }] }),
+    agent('feature-implementer', { doing: 'Writing step 3 of 6', ref: 'c2.bbbbbbbb', feed: [{ text: 'Wrote PauseDialog.tsx', at: ago(4) }, { text: 'Ran the unit tests', at: ago(0.2) }] }),
+  ],
+  finished: [agent('feature-planner', { status: 'done', doing: null, ref: 'c0.dddddddd', model: 'Fable 5.2', since: ago(200), lastAt: ago(130), feed: [{ text: 'Wrote the plan', at: ago(131) }] })],
+  terminalApp: 'iTerm', terminalApps: ['iTerm', 'Terminal'],
+  time: { startedAt: ago(32), endedAt: null },
+  docs: [PLAN_DOC, TEST_PLAN],
+};
+
+const BUILDING: Job = job(SLUG, 'running', { stage: 'implement', lane: 'working', working: true, updatedAt: ago(1) });
+
+function stores(j: Job, { hosted = false, get, post }: { hosted?: boolean; get?: (path: string) => Promise<unknown>; post?: (path: string) => Promise<unknown> } = {}) {
+  const store = createStore();
+  store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [j], meta: { token: 't' } as never }) });
+  const api = {
+    get: vi.fn(get ?? (async (path: string): Promise<unknown> => {
+      if (/\/doc\?file=implementation-plan\.md$/.test(path)) return { file: 'implementation-plan.md', name: 'Implementation plan', html: '<p>Step 1: the pause dialog.</p>', summary: null };
+      throw new Error(`not in this test: ${path}`);
+    })),
+    post: vi.fn(post ?? (async (): Promise<unknown> => ({ ok: true }))),
+    ...(hosted ? { hosted: () => true } : {}),
+  } as unknown as ApiClient & { get: ReturnType<typeof vi.fn>; post: ReturnType<typeof vi.fn> };
+  const wrap = (n: ReactNode) => <WorkshopContext.Provider value={{ store, api }}><UiProvider>{n}</UiProvider></WorkshopContext.Provider>;
+  return { store, api, wrap };
+}
+
+/** The panel drawn with a view in hand. */
+function show(view: StageView | null, { j = BUILDING, stop = view?.stop ?? 'build', hosted = false, error = null as string | null, extraAgents = undefined as StageAgent[] | undefined } = {}) {
+  const s = stores(j, { hosted });
+  const onRetry = vi.fn();
+  render(s.wrap(<StepPanel job={j} stop={stop} view={view} error={error} onRetry={onRetry} now={NOW} extraAgents={extraAgents}><p>The step’s own body</p></StepPanel>));
+  return { ...s, onRetry };
+}
+
+/** The panel with its loader, as the page will mount it. */
+function Live({ stop }: { stop: StopId }) {
+  const j = jobBySlug(useWorkshopState(), SLUG)!;
+  const { view, error, reload } = useStage(SLUG, stop);
+  return <StepPanel job={j} stop={stop} view={view} error={error} onRetry={reload} now={NOW}><p>The step’s own body</p></StepPanel>;
+}
+
+const who = (name = 'Who worked on it') => screen.getByRole('region', { name });
+const rows = () => [...who().querySelectorAll<HTMLElement>('.sb-who-row')];
+const stageCalls = (get: ReturnType<typeof vi.fn>, stop: StopId = 'build') => get.mock.calls.filter(([p]) => p === `/api/job/${SLUG}/stage/${stop}`).length;
+
+afterEach(() => { cleanup(); vi.useRealTimers(); localStorage.clear(); });
+
+describe('StepPanel', () => {
+  it('who worked on it, each with a model and a status in words', async () => {
+    const { api } = show(BUILD);
+    const panel = screen.getByRole('tabpanel', { name: 'Build' });
+    const head = panel.querySelector('.sb-panel-head')!;
+    expect(head).toHaveTextContent('Build');
+    expect(within(head as HTMLElement).getByText('Working now')).toHaveClass('chip');
+    expect(head).toHaveTextContent('32 min so far');
+    expect(head).toHaveTextContent('Step 4 of 7');
+
+    expect(rows().map((r) => r.querySelector('.sb-who-role')?.textContent)).toEqual(['Foreman', 'Builder', 'Planner']);
+    const [foreman, builder, planner] = rows();
+    expect(foreman.querySelector('.sb-who-initials')).toHaveTextContent('F');
+    expect(within(builder).getByText('Opus 5.5')).toHaveClass('chip');
+    expect(within(planner).getByText('Fable 5.2')).toHaveClass('chip');
+    expect(builder).toHaveTextContent('Writing step 3 of 6');
+    expect(builder).toHaveTextContent('12 min');
+    expect(within(builder).getByText('Working')).toHaveClass('chip');
+    expect(within(planner).getByText('Done')).toHaveClass('chip');
+    expect(planner).toHaveTextContent('Finished its part');
+    expect(planner).toHaveTextContent('1 h 10 min');
+
+    // The terminals, as on the step page today.
+    expect(within(foreman).getByRole('button', { name: /Open in terminal/ })).toBeEnabled();
+    fireEvent.click(within(builder).getByRole('button', { name: /Watch in terminal/ }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith(`/api/job/${SLUG}/stage/build/terminal`, { ref: 'c2.bbbbbbbb' }));
+    expect(await screen.findByText(/Following the Builder’s log in iTerm/)).toBeInTheDocument();
+    fireEvent.click(within(who()).getByRole('button', { name: /Open the job’s folder in a terminal/ }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith(`/api/job/${SLUG}/local`, { action: 'open', what: 'terminal' }));
+    pickOption(within(who()).getByRole('combobox', { name: 'Terminal app' }), 'Terminal');
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith(`/api/job/${SLUG}/local`, { action: 'terminal-app', name: 'Terminal' }));
+    cleanup();
+
+    // Waiting for you, and one that never started.
+    show({ ...BUILD, agents: [agent('feature-implementer', { status: 'waiting', doing: 'Waiting for you to allow a command' })], finished: [agent('feature-tester', { status: 'stopped', since: null, lastAt: null, ref: 'c3.cccccccc' })] });
+    const [waiting, never] = rows();
+    expect(within(waiting).getByText('Waiting for you')).toHaveClass('chip');
+    expect(within(never).getByText('Not started')).toHaveClass('chip');
+    cleanup();
+
+    // A row the step's body adds (extraAgents), after the rest.
+    show(BUILD, { extraAgents: [agent('recorder-like', { role: 'Starbase', model: 'recorder', ref: 'extra' })] });
+    expect(rows().map((r) => r.querySelector('.sb-who-role')?.textContent)).toEqual(['Foreman', 'Builder', 'Planner', 'Starbase']);
+  });
+
+  it('the Foreman’s row says who it waits for while a crew member works', () => {
+    const foremanStatus = () => rows()[0].querySelector('.sb-who-status')?.textContent;
+    show(BUILD);
+    expect(foremanStatus()).toBe('Waiting for the Builder');
+    cleanup();
+    // Starbase records the evidence.
+    const recording = job(SLUG, 'running', { stage: 'test', lane: 'working', testing: 'Recording evidence: line 4 of 19' });
+    show({ ...BUILD, stop: 'test', label: 'Test', agents: [agent('conductor')], finished: [] }, { j: recording });
+    expect(foremanStatus()).toBe('Waiting for the evidence');
+    cleanup();
+    // A pull request open at Ship.
+    const shipping = job(SLUG, 'shipping', { stage: 'pr1', lane: 'in-review', laneReason: 'PR #1 is open, waiting on a review' });
+    show({ ...BUILD, stop: 'ship', label: 'Ship', agents: [agent('conductor', { status: 'stopped', doing: 'Not working right now' })], finished: [] }, { j: shipping });
+    expect(foremanStatus()).toBe('Waiting on the review');
+    cleanup();
+    // Waiting for you stays its own words; alone it is Working.
+    show({ ...BUILD, agents: [agent('conductor', { status: 'waiting' }), agent('feature-implementer')] });
+    expect(foremanStatus()).toBe('Waiting for you');
+    cleanup();
+    show({ ...BUILD, agents: [agent('conductor')], finished: [] });
+    expect(foremanStatus()).toBe('Working');
+  });
+
+  it('the feed lists each working crew member’s last actions, and says What they did last when nobody works', () => {
+    show(BUILD);
+    const feed = screen.getByRole('region', { name: 'Live: what they’re doing' });
+    const blocks = [...feed.querySelectorAll<HTMLElement>('.sb-feed-block')];
+    expect(blocks.map((b) => b.querySelector('.sb-feed-who')?.textContent)).toEqual(['Foreman', 'Builder']);
+    const builder = blocks[1];
+    expect(builder).toHaveTextContent('Opus 5.5');
+    expect(within(builder).getByText('Live')).toBeInTheDocument();
+    expect([...builder.querySelectorAll('li')].map((li) => li.textContent)).toEqual(['4 min agoWrote PauseDialog.tsx', 'nowRan the unit tests']);
+    expect(feed).not.toHaveTextContent('Wrote the plan');
+    cleanup();
+
+    const done = { ...BUILD, state: 'done' as const, agents: [], finished: [agent('conductor', { status: 'done', feed: [{ text: 'Raised the brief', at: ago(65) }] }), BUILD.finished[0]] };
+    show(done);
+    expect(screen.queryByRole('region', { name: 'Live: what they’re doing' })).toBeNull();
+    const last = screen.getByRole('region', { name: 'What they did last' });
+    const lastBlocks = [...last.querySelectorAll<HTMLElement>('.sb-feed-block')];
+    expect(lastBlocks.map((b) => b.querySelector('.sb-feed-who')?.textContent)).toEqual(['Foreman', 'Planner']);
+    expect(within(lastBlocks[1]).getByText('Finished')).toBeInTheDocument();
+    expect(lastBlocks[1]).toHaveTextContent('2 h 11 min agoWrote the plan');
+  });
+
+  it('the feed asks again every 5 seconds while the step works', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: false, toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'] });
+    let answer: StageView = BUILD;
+    const { api, wrap } = stores(BUILDING, { get: async () => answer });
+    const view = render(wrap(<Live stop="build" />));
+    await act(async () => {});
+    expect(stageCalls(api.get)).toBe(1);
+    expect(screen.getByText('Ran the unit tests')).toBeInTheDocument();
+    answer = { ...BUILD, agents: [BUILD.agents[0], { ...BUILD.agents[1], feed: [{ text: 'Committed step 3', at: ago(0) }] }] };
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(stageCalls(api.get)).toBe(2);
+    expect(screen.getByText('Committed step 3')).toBeInTheDocument();
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(stageCalls(api.get)).toBe(3);
+
+    // Nobody works any more: every 30 seconds.
+    answer = { ...BUILD, state: 'done', agents: [], finished: BUILD.agents.map((a) => ({ ...a, status: 'done' as const })) };
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(stageCalls(api.get)).toBe(4);
+    await act(async () => { await vi.advanceTimersByTimeAsync(25_000); });
+    expect(stageCalls(api.get)).toBe(4);
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(stageCalls(api.get)).toBe(5);
+
+    // Gone from the page: it stops asking.
+    view.unmount();
+    await act(async () => { await vi.advanceTimersByTimeAsync(120_000); });
+    expect(stageCalls(api.get)).toBe(5);
+  });
+
+  it('the step asks again when the job changes', async () => {
+    let slow: (v: StageView) => void = () => {};
+    const { api, store, wrap } = stores(BUILDING, {
+      get: async (path: string) => {
+        if (path.endsWith('/stage/plan')) return new Promise((r) => { slow = r as (v: StageView) => void; });
+        return path.endsWith('/stage/test') ? { ...BUILD, stop: 'test', label: 'Test', state: 'next', agents: [], finished: [] } : BUILD;
+      },
+    });
+    const view = render(wrap(<Live stop="build" />));
+    await screen.findByText('Writing step 3 of 6');
+    expect(stageCalls(api.get)).toBe(1);
+    // Another snapshot with the job unchanged: no new ask.
+    act(() => { store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [{ ...BUILDING }], meta: { token: 't' } as never }) }); });
+    expect(stageCalls(api.get)).toBe(1);
+    act(() => { store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [{ ...BUILDING, updatedAt: ago(0) }], meta: { token: 't' } as never }) }); });
+    await waitFor(() => expect(stageCalls(api.get)).toBe(2));
+
+    // Another step: its own answer, never the old step's drawn into it.
+    view.rerender(wrap(<Live stop="plan" />));
+    expect(stageCalls(api.get, 'plan')).toBe(1);
+    expect(screen.getByText('Loading who worked on it…')).toBeInTheDocument();
+    expect(screen.queryByText('Writing step 3 of 6')).toBeNull();
+    view.rerender(wrap(<Live stop="test" />));
+    await screen.findByText('Not yet. The Tester starts when the build is done. These three run then:');
+    await act(async () => { slow({ ...BUILD, stop: 'plan', label: 'Plan' }); });
+    expect(screen.queryByText('Writing step 3 of 6')).toBeNull();
+    expect(screen.getByRole('tabpanel', { name: 'Test' })).toBeInTheDocument();
+
+    // Back on a step seen before: the last answer at once.
+    view.rerender(wrap(<Live stop="build" />));
+    expect(screen.getByText('Writing step 3 of 6')).toBeInTheDocument();
+  });
+
+  it('a document opens in place and Back returns to the list', async () => {
+    const { api } = show(BUILD);
+    const docs = screen.getByRole('region', { name: 'Documents from this step' });
+    const items = within(docs).getAllByRole('button');
+    expect(items.map((b) => b.querySelector('.doc-name')?.textContent)).toEqual(['Implementation plan', 'Test plan']);
+    expect(items[0]).toHaveTextContent('v2');
+    expect(items[0].querySelector('time')).toHaveAttribute('dateTime', PLAN_DOC.updatedAt);
+    fireEvent.click(items[0]);
+    expect(await within(docs).findByText('Step 1: the pause dialog.')).toBeInTheDocument();
+    expect(api.get).toHaveBeenCalledWith(`/api/job/${SLUG}/doc?file=implementation-plan.md`);
+    expect(screen.getByText('The step’s own body')).toBeInTheDocument();
+    fireEvent.click(within(docs).getByRole('button', { name: /All documents/ }));
+    expect(within(docs).queryByText('Step 1: the pause dialog.')).toBeNull();
+    expect(within(docs).getAllByRole('button').map((b) => b.querySelector('.doc-name')?.textContent)).toEqual(['Implementation plan', 'Test plan']);
+    await waitFor(() => expect(document.activeElement).toHaveAttribute('data-file', 'implementation-plan.md'));
+  });
+
+  it('a request opens its document in the list', async () => {
+    const { wrap, api } = stores(BUILDING);
+    const view = render(wrap(<StepDocs slug={SLUG} docs={[PLAN_DOC, TEST_PLAN]} />));
+    expect(screen.getAllByRole('button')).toHaveLength(2);
+    view.rerender(wrap(<StepDocs slug={SLUG} docs={[PLAN_DOC, TEST_PLAN]} request={{ n: 1, file: 'implementation-plan.md' }} />));
+    expect(await screen.findByText('Step 1: the pause dialog.')).toBeInTheDocument();
+    expect(api.get).toHaveBeenCalledTimes(1);
+    // The same request again does nothing new; a request with no file goes back to the list.
+    view.rerender(wrap(<StepDocs slug={SLUG} docs={[PLAN_DOC, TEST_PLAN]} request={{ n: 1, file: 'implementation-plan.md' }} />));
+    expect(api.get).toHaveBeenCalledTimes(1);
+    view.rerender(wrap(<StepDocs slug={SLUG} docs={[PLAN_DOC, TEST_PLAN]} request={{ n: 2, file: null }} />));
+    expect(screen.queryByText('Step 1: the pause dialog.')).toBeNull();
+    expect(screen.getAllByRole('button')).toHaveLength(2);
+    cleanup();
+    render(stores(BUILDING).wrap(<StepDocs slug={SLUG} docs={[]} />));
+    expect(screen.getByText('No documents from this step yet.')).toBeInTheDocument();
+  });
+
+  it('a step not reached says so', () => {
+    const notYet = (stop: StopId, label: string) => ({ ...BUILD, stop, label, state: 'next' as const, stateWords: 'Not yet', since: null, agents: [], finished: [], docs: [] });
+    show(notYet('test', 'Test'));
+    expect(screen.getByRole('tabpanel', { name: 'Test' })).toHaveTextContent('Step 5 of 7');
+    expect(within(who('Who will work on it')).getByText('Not yet. The Tester starts when the build is done. These three run then:')).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Who worked on it' })).toBeNull();
+    expect(screen.queryByRole('region', { name: /What they did last|Live: what they’re doing/ })).toBeNull();
+    expect(screen.getByText('The step’s own body')).toBeInTheDocument();
+    cleanup();
+    show(notYet('review', 'Review'));
+    expect(who('Who will work on it')).toHaveTextContent('Not yet. Four reviewers look at the change after the tests: spec, errors, tests and screens.');
+    cleanup();
+    show(notYet('ship', 'Ship'));
+    expect(who('Who will work on it')).toHaveTextContent('Not yet. PR #1 opens after the review, with its own go-ahead. PR #2 and PR #3 follow, each with yours.');
+    cleanup();
+    const planning = job(SLUG, 'needs-you', { stage: 'plan', lane: 'needs-you', needsYou: true });
+    show(notYet('build', 'Build'), { j: planning });
+    expect(within(who('Who will work on it')).getByText('Not yet.')).toBeInTheDocument();
+    cleanup();
+    // Before its answer: the job already says it is not reached.
+    show(null, { j: planning, stop: 'build' });
+    expect(within(who('Who will work on it')).getByText('Not yet.')).toBeInTheDocument();
+    expect(screen.queryByText('Loading who worked on it…')).toBeNull();
+  });
+
+  it('a step that can’t load says why and offers Try again, and the rest of the panel stays', async () => {
+    let fail = true;
+    const { api, wrap } = stores(BUILDING, { get: async () => { if (fail) throw new Error('Starbase isn’t answering'); return BUILD; } });
+    render(wrap(<Live stop="build" />));
+    // First visit: loading in the list's place.
+    expect(within(who()).getByText('Loading who worked on it…')).toBeInTheDocument();
+    expect(await within(who()).findByRole('alert')).toHaveTextContent('Couldn’t load this step: Starbase isn’t answering');
+    const panel = screen.getByRole('tabpanel', { name: 'Build' });
+    expect(panel).toHaveTextContent('Step 4 of 7');
+    expect(within(panel).getByText('The step’s own body')).toBeInTheDocument();
+    expect(within(panel).getByRole('region', { name: 'Documents from this step' })).toBeInTheDocument();
+    fail = false;
+    fireEvent.click(within(who()).getByRole('button', { name: 'Try again' }));
+    expect(await within(who()).findByText('Writing step 3 of 6')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(stageCalls(api.get)).toBe(2);
+  });
+
+  it('on the website there is no terminal button', () => {
+    const { api } = show(BUILD, { hosted: true });
+    expect(rows()).toHaveLength(3);
+    expect(screen.queryByRole('button', { name: /terminal/i })).toBeNull();
+    expect(screen.queryByRole('combobox', { name: 'Terminal app' })).toBeNull();
+    expect(who()).toHaveTextContent('The terminal buttons are on your laptop.');
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(api.get).not.toHaveBeenCalled();
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it('a stage view with no time, no documents and no feed still draws the panel', () => {
+    const bare: StageView = {
+      slug: SLUG, stop: 'build', label: 'Build', state: 'now', stateWords: 'Working now', since: null, stages: ['implement'],
+      agents: [agent('conductor', { since: null, lastAt: null })], finished: [], terminalApp: null, terminalApps: [],
+    };
+    show(bare);
+    const panel = screen.getByRole('tabpanel', { name: 'Build' });
+    expect(panel.querySelector('.sb-panel-head')).toHaveTextContent(/^BuildWorking nowStep 4 of 7$/);
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0]).toHaveTextContent('Getting started');
+    expect(screen.getByRole('region', { name: 'Live: what they’re doing' })).toHaveTextContent('No actions to show yet.');
+    expect(screen.getByText('The step’s own body')).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Documents from this step' })).getByText('No documents from this step yet.')).toBeInTheDocument();
+    expect(panel).not.toHaveTextContent(/NaN|undefined|null/);
+  });
+});
