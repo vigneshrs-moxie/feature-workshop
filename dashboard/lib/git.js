@@ -174,3 +174,37 @@ export async function failedLog(repo, runId, { lines = 80, gh = defaultGh } = {}
 export async function ghLogin({ gh = defaultGh } = {}) {
   try { return readJson(await ghGet(gh, 'user'), 'gh api user')?.login ?? null; } catch { return null; }
 }
+
+// ---------- A job's commits with their files (Part 3, Task 4) ----------
+
+const LOG_LIMIT_MAX = 1000;
+
+/**
+ * Commits in base..head, newest first, as commits() gives them, each with the files it changed:
+ * files: [{ path, added, removed, isNew }] (added and removed null for a binary file). One read-only
+ * `git log --numstat --summary`, at most `limit` commits; renames read as a new file and a removed one.
+ * Throws as commits() does (a bad name, no repository, a ref that isn't there).
+ */
+export async function commitsWithFiles(dir, { base, head = 'HEAD', limit = 100 } = {}) {
+  if (!REF.test(head) || (base && !REF.test(base))) throw new Error('Unexpected branch or commit name');
+  const max = Number.isInteger(limit) && limit > 0 ? Math.min(limit, LOG_LIMIT_MAX) : 100;
+  const range = base ? `${base}..${head}` : head;
+  const out = await git(dir, ['-c', 'core.quotePath=false', 'log', '--no-color', '--no-renames', '--numstat', '--summary', `--max-count=${max}`, '--format=%x1e%H%x1f%h%x1f%an%x1f%aI%x1f%s', range, '--']);
+  return parseLogWithFiles(out);
+}
+
+/** commitsWithFiles' output: each record starts with \x1e, its header line, then numstat and summary lines. */
+export function parseLogWithFiles(out) {
+  return String(out ?? '').split('\x1e').slice(1).map((record) => {
+    const [header, ...lines] = record.split('\n');
+    const [commit] = parseLog(`${header}\x1e`);
+    const created = new Set();
+    const stat = [];
+    for (const l of lines) {
+      const m = /^ create mode \d+ (.+)$/.exec(l);
+      if (m) created.add(m[1]);
+      else if (/^(\d+|-)\t(\d+|-)\t/.test(l)) stat.push(l);
+    }
+    return { ...commit, files: parseNumstat(stat.join('\n')).map((f) => ({ ...f, isNew: created.has(f.path) })) };
+  }).filter((c) => c.sha);
+}

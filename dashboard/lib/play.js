@@ -335,6 +335,97 @@ export function reviewRound(lines, text) {
   return { round, laterRound: (round ?? 1) > 1 || /\bfixed\b/i.test(text) };
 }
 
+// ---------- The review's findings, row by row (the job page's Review step, Part 3 Task 4) ----------
+
+// A findings-table row marked as not being done: in its Status cell, or any cell but the finding's words.
+const NOT_DOING = /\b(dropped|false[ -]positives?|won[’']?t fix|will not fix|not fixing|not doing|deferred)\b/i;
+const FINDING_COL = /^(findings?|issues?|summary|description)\b/;
+const LENS_COL = /^(lens|lenses|reviewer)\b/;
+const STATUS_COL = /^(status|resolution|outcome)\b/;
+const RULE_CELL = /^:?-+:?$/;
+
+/** One table line's cells: split on pipes not escaped (\|) or inside `code`, bold marks dropped. */
+function tableCells(line, inCode = true) {
+  const t = line.trim().replace(/^\|/, '');
+  const cells = [];
+  let cur = '';
+  let code = false;
+  for (let i = 0; i < t.length; i++) {
+    const ch = t[i];
+    if (ch === '\\' && t[i + 1] === '|') { cur += '|'; i++; continue; }
+    if (ch === '`' && inCode) code = !code;
+    if (ch === '|' && !code) { cells.push(cur); cur = ''; continue; }
+    cur += ch;
+  }
+  // An unclosed backtick would swallow the rest of the row: split it again without minding code.
+  if (code) return tableCells(line, false);
+  if (cur.trim()) cells.push(cur);
+  return cells.map((c) => c.replace(/\*\*/g, '').trim());
+}
+
+/** A header row's columns (-1: none), or null when it has no Severity column (not a findings table). */
+function findingColumns(cells) {
+  const names = cells.map((c) => c.toLowerCase().replace(/[`*_:]/g, '').trim());
+  const sev = names.indexOf('severity');
+  if (sev < 0) return null;
+  const at = (re) => names.findIndex((n) => re.test(n));
+  return { sev, lens: at(LENS_COL), status: at(STATUS_COL), text: at(FINDING_COL) };
+}
+
+/** Where the finding's words are: its Finding, Issue, Summary or Description cell, else the longest other cell (-1: none). */
+function findingTextAt(cells, cols) {
+  if (cols.text >= 0) return cols.text;
+  const used = new Set([cols.sev, cols.lens, cols.status]);
+  let best = -1;
+  cells.forEach((c, i) => { if (!used.has(i) && !/^#?\d*$/.test(c) && (best < 0 || c.length > cells[best].length)) best = i; });
+  return best;
+}
+
+function findingStatus(cells, cols, textAt) {
+  const status = cols.status >= 0 ? cells[cols.status] ?? '' : '';
+  if (FIXED_STATUS.test(status)) return 'fixed';
+  if (cells.some((c, i) => (i === textAt ? TAKEN_BACK.test(c) : NOT_DOING.test(c)))) return 'not-doing';
+  return 'open';
+}
+
+/** Every row of the findings tables in these lines: { lens, severity, text, status }. */
+function findingRows(lines) {
+  const out = [];
+  let cols;
+  let header = true;
+  for (const line of lines) {
+    if (!line.trim().startsWith('|')) { header = true; continue; }
+    const cells = tableCells(line);
+    if (header) { cols = findingColumns(cells); header = false; continue; }
+    if (!cols || cells.every((c) => RULE_CELL.test(c))) continue;
+    const severity = SEVERITY(cells[cols.sev])?.replace(/s$/, '');
+    if (!severity) continue;
+    const textAt = findingTextAt(cells, cols);
+    const text = textAt >= 0 ? cells[textAt] ?? '' : '';
+    out.push({ lens: cols.lens >= 0 ? lensType(cells[cols.lens]) : null, severity, text, status: findingStatus(cells, cols, textAt) });
+  }
+  return out;
+}
+
+/**
+ * The review's findings (review.md), one row each, from the latest round's findings tables:
+ * [{ lens, severity: 'blocker' | 'major' | 'minor', text, status: 'fixed' | 'not-doing' | 'open' }].
+ * A findings table has a Severity column; the words come from its Finding, Issue, Summary or
+ * Description column, the lens through lensType (null without a Lens column). Status fixed or
+ * resolved is fixed; a row marked dropped, false positive, won't fix, not doing or deferred is
+ * not-doing; the rest open. A later round ("## Round 2") replaces the earlier ones, and one that
+ * says nothing was found has no rows. No findings table: []. Pure.
+ */
+export function reviewRows(text) {
+  if (typeof text !== 'string' || !text.trim()) return [];
+  const lines = text.split('\n');
+  for (const part of roundParts(lines)) {
+    const rows = findingRows(part);
+    if (rows.length || countFindings(part)) return rows;
+  }
+  return findingRows(lines);
+}
+
 // ---------- Building the ledger (pure) ----------
 
 const ms = (t) => {

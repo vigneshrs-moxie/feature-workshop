@@ -85,6 +85,9 @@ import { tokenStore } from '../lib/orbit-token.js';
 import { InboxSuggester, SUGGEST_MODEL, askHaiku, demoAsk, suggestPrompt } from '../lib/inbox-suggest.js';
 import { TICKET_FILE, readTicket, ticketDescription } from '../lib/ticket-file.js';
 import { readAcceptance, stepDocs, stepTimes } from '../lib/job-page.js';
+import { planView, prRows } from '../lib/job-page.js';
+import { reviewRows } from '../lib/play.js';
+import { stopOf } from '../lib/stage-view.js';
 import { writeFileAtomic } from '../lib/atomic-write.js';
 import { UsageLog, TurnMeter, turnLines, usageDir, starbaseUser, claudeAccountId } from '../lib/usage-log.js';
 import { statusTicketKey, slugTicketKey } from '../lib/orbit.js';
@@ -651,6 +654,51 @@ export async function createRunner(config) {
     if (playbook.ledger?.secrets?.['hex-sommelier']) return;
     for (const f of list) hexKnown.set(f.dir, await hexCommitOf(f).catch(() => null));
   }
+
+  // The job page's plan, review and pull requests (design 3.2, Part 3 Task 4; lib/job-page.js).
+  // The plan's steps come from implementation-plan.md (else quick-plan.md); which are built from the
+  // branch's own commits (base..branch, as hexCommitOf reads them), read only for a job at Build or
+  // later, on a full job read: one `git rev-parse` each time, and one `git log` (at most 500
+  // commits) only when the branch's head moved. No folder, branch or base, or a git that fails: no
+  // commits. The review's rows from review.md (lib/play.js reviewRows); the PRs from status.json and
+  // the flow map's lane. A part that fails is null, so an older job still has a whole page.
+  const planCommitsCache = new Map(); // codeDir|branch|base -> { head, commits: [{ step }] }
+  async function planCommitsOf(f) {
+    const base = f.baseSha ?? f.baseBranch;
+    const codeDir = f.worktree && fs.existsSync(f.worktree) ? f.worktree : f.repoPath;
+    if (!codeDir || !f.branch || !base) return [];
+    const head = await git.headOf(codeDir, f.branch);
+    if (!head) return [];
+    const key = `${codeDir}|${f.branch}|${base}`;
+    const hit = planCommitsCache.get(key);
+    if (hit && hit.head === head) return hit.commits;
+    const commits = (await git.commits(codeDir, { base, head: f.branch, limit: 500 })).map((c) => ({ step: c.step }));
+    planCommitsCache.set(key, { head, commits });
+    return commits;
+  }
+  const factPart = (read) => read().catch(() => null);
+  function planFacts(f) {
+    return factPart(async () => {
+      for (const file of ['implementation-plan.md', 'quick-plan.md']) {
+        const text = await readInside(f.dir, file, { noLink: true });
+        if (text === null) continue;
+        return planView({
+          text, version: docVersion(f.dir, file, f.recordedArtifacts), stage: f.stage,
+          building: stopOf(f.stage) === 'build' && f.stageState === 'working' && !closedOff(f),
+          readCommits: () => planCommitsOf(f),
+        });
+      }
+      return null;
+    });
+  }
+  function reviewFacts(f) {
+    return factPart(async () => {
+      const st = await fsp.stat(path.join(f.dir, 'review.md')).catch(() => null);
+      if (!st?.isFile() || st.size > DOC_MAX_BYTES) return null;
+      const text = await readInside(f.dir, 'review.md', { noLink: true });
+      return text === null ? null : { at: st.mtime.toISOString(), rows: reviewRows(text) };
+    });
+  }
   const playJobOf = async (f) => ({
     slug: f.slug, dir: f.dir, kind: f.kind, level: f.level, prs: f.prs, updatedAt: f.updatedAt,
     // When the Foreman's first session began (Speedrun), and the PRs its logs say were created, with when.
@@ -1144,7 +1192,13 @@ export async function createRunner(config) {
       costDetail: { ...f.cost, whatIf: whatIfConductor(f.cost.agents) },
       activity: f.activity.map((a) => (a.state === 'running' && !stillRunning(f, a, run && ACTIVE_RUN.has(run.status) ? run : null) ? { ...a, state: 'stopped' } : a)),
       drive, run, runs: runsOf(f), overview, thread: threadPart.items, threadMore: threadPart.more, locate: f.locate,
-      page: { ...(await pageFacts(f)), ...(await stepFacts(f, audit)) },
+      page: {
+        ...(await pageFacts(f)),
+        ...(await stepFacts(f, audit)),
+        plan: await planFacts(f),
+        review: await reviewFacts(f),
+        prs: prRows(f.prs, flowLanes.get(f.slug) ?? null),
+      },
       // policy: the setting in force for this job; policyOverride: the job's own (null: it follows yours).
       // While Auto is on, 'auto' (lib/state.js policyFor), the job's own setting kept as it was.
       policy: await state.policyFor(f.dir), policyOverride: settings.jobPolicy?.[f.dir] ?? null, globalPolicy: settings.policy, autoMode: settings.autoMode,
@@ -3227,7 +3281,7 @@ export async function createRunner(config) {
       const codeDir = f.worktree && fs.existsSync(f.worktree) ? f.worktree : f.repoPath;
       if (!codeDir || !f.branch || !(await git.isGitRepo(codeDir))) return { dir: codeDir, commits: [], note: 'No feature branch yet. Commits show up here once building starts.' };
       try {
-        return { dir: codeDir, base: f.baseSha ?? null, head: f.branch, commits: await git.commits(codeDir, { base: f.baseSha ?? null, head: f.branch }) };
+        return { dir: codeDir, base: f.baseSha ?? null, head: f.branch, commits: await git.commitsWithFiles(codeDir, { base: f.baseSha ?? null, head: f.branch }) };
       } catch (err) {
         return { dir: codeDir, commits: [], note: `Couldn’t read the branch: ${String(err.message).split('\n')[0]}` };
       }

@@ -11,6 +11,7 @@ import {
   PAGE_SECRETS, SECRET_IDS, TEAPOT, THEME_IDS, BOSS_WEIGHTS, bossHp, crewHeaders, crewType, hexCommit, buildLedger, jobKey, ledgerView, lensType, newlyDefeated, newlyDone, newlyUnlocked, parseReviewFindings, playSettings, reviewsChanged,
   themeUnlocked, unlocksOf, validatePlayPatch,
 } from '../lib/play.js';
+import { reviewRows } from '../lib/play.js';
 import { parseSessionLog } from '../lib/session-log.js';
 
 const DIR = '/tmp/fw-play/feature-work';
@@ -1068,4 +1069,64 @@ test('PlayBook: the finish line changed while a refresh is reading: that refresh
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
+});
+
+// ---------- The review's findings, row by row (Part 3, Task 4) ----------
+
+test('reviewRows gives each finding with its lens and whether it was fixed', () => {
+  const text = [
+    '# Review',
+    '',
+    '| Severity | Lens | Finding | Status |',
+    '|---|---|---|---|',
+    '| Major | errors | A failed save is silent | Fixed in 3f2a |',
+    '| Minor | Painter | The button says “Ok” | Dropped |',
+    '| Blocker | **Locksmith** | Techs can read notes via `a \\| b` | |',
+    '| Minor | db | An index is missing | Deferred to ORBIT-12 |',
+    '| Major | perf | Slow list | won’t fix |',
+    '| Minor | Stickler | A naming slip | not doing |',
+    '| Minor | tests | Flaky test | **Resolved** |',
+    '| Major | spec | Misses a case | false positive |',
+    '| Note | ui | Not a severity: left out | |',
+  ].join('\n');
+  assert.deepEqual(reviewRows(text), [
+    { lens: 'feature-review-errors', severity: 'major', text: 'A failed save is silent', status: 'fixed' },
+    { lens: 'feature-review-ui', severity: 'minor', text: 'The button says “Ok”', status: 'not-doing' },
+    { lens: 'feature-review-permissions', severity: 'blocker', text: 'Techs can read notes via `a | b`', status: 'open' },
+    { lens: 'feature-review-db', severity: 'minor', text: 'An index is missing', status: 'not-doing' },
+    { lens: 'feature-review-performance', severity: 'major', text: 'Slow list', status: 'not-doing' },
+    { lens: 'feature-review-conventions', severity: 'minor', text: 'A naming slip', status: 'not-doing' },
+    { lens: 'feature-review-tests', severity: 'minor', text: 'Flaky test', status: 'fixed' },
+    { lens: 'feature-reviewer', severity: 'major', text: 'Misses a case', status: 'not-doing' },
+  ]);
+  // Columns in another order, no Lens and no Status column, bold marks in the cells.
+  assert.deepEqual(reviewRows('| # | Issue | Severity |\n|--|--|--|\n| 1 | **Crash** on an empty list | **Blocker** |\n'), [
+    { lens: null, severity: 'blocker', text: 'Crash on an empty list', status: 'open' },
+  ]);
+  assert.deepEqual(reviewRows('| Description | Severity | Reviewer |\n|-|-|-|\n| Leaks a token | major | Fuse |\n'), [
+    { lens: 'feature-review-errors', severity: 'major', text: 'Leaks a token', status: 'open' },
+  ]);
+  // No findings table: no rows.
+  assert.deepEqual(reviewRows('# Review\n\nResult: 0 blockers, 0 majors, 0 minors.\n'), []);
+  assert.deepEqual(reviewRows('| Name | Value |\n|--|--|\n| a | b |\n'), []);
+  assert.deepEqual(reviewRows(''), []);
+  assert.deepEqual(reviewRows(null), []);
+});
+
+test('a later round replaces the first', () => {
+  const text = [
+    '# Review',
+    '## Round 1',
+    '| Severity | Lens | Finding | Status |',
+    '|---|---|---|---|',
+    '| Major | errors | A failed save is silent | |',
+    '| Minor | ui | A typo | |',
+    '## Round 2',
+    '| Severity | Lens | Summary | Status |',
+    '|---|---|---|---|',
+    '| Major | errors | A failed save is silent | Fixed |',
+  ].join('\n');
+  assert.deepEqual(reviewRows(text), [{ lens: 'feature-review-errors', severity: 'major', text: 'A failed save is silent', status: 'fixed' }]);
+  // A later round with nothing found has no rows, not the first round's.
+  assert.deepEqual(reviewRows(`${text}\n## Round 3\nResult: no findings.\n`), []);
 });

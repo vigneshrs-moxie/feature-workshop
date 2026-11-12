@@ -543,6 +543,8 @@ export interface FlowPr {
   checks: 'passing' | 'pending' | 'failing' | null;
   mergedAt: string | null;
   updatedAt: string | null;
+  /** When it was opened; missing or null: not read (an older Starbase, or before GitHub was read). */
+  createdAt?: string | null;
 }
 export interface FlowCounts { ahead: number; behind: number }
 export interface FlowLane {
@@ -1085,6 +1087,12 @@ export interface JobPageFacts {
   times?: Partial<Record<StopId, StepTime>> | null;
   /** The job's documents by step, none: the rest (dashboard/lib/job-page.js stepDocs); null: not read. */
   docs?: Partial<Record<StopId | 'none', JobDocEntry[]>> | null;
+  /** The plan's steps and which are built (dashboard/lib/job-page.js planView); null: no plan with ### S1 headings. */
+  plan?: { version?: string | null; steps?: PlanStepRow[] } | null;
+  /** The review's findings, from its latest round (dashboard/lib/play.js reviewRows); null: no review.md. */
+  review?: { at?: string | null; rows?: ReviewRow[] } | null;
+  /** The three pull requests, PR #1 to #3 (dashboard/lib/job-page.js prRows). */
+  prs?: PrRow[];
 }
 
 /**
@@ -1095,6 +1103,37 @@ export interface JobPageFacts {
 export interface StepTime {
   startedAt?: string | null;
   endedAt?: string | null;
+}
+
+/** One `### S<n>: <name>` step of the plan: done (a commit names it), now (being built) or next. */
+export interface PlanStepRow {
+  id?: string;
+  name?: string;
+  state?: 'done' | 'now' | 'next';
+}
+
+/** One finding of the review: its lens (an agent type; null: none named), severity, words and whether it was dealt with. */
+export interface ReviewRow {
+  lens?: string | null;
+  severity?: 'blocker' | 'major' | 'minor';
+  text?: string;
+  status?: 'fixed' | 'not-doing' | 'open';
+}
+
+/**
+ * One of the job's three pull requests (n 1 to 3): status.json's entry with the flow map's PR #1 and
+ * #2 over it. review: null when not open or not known; checks: null when it has none or not known.
+ */
+export interface PrRow {
+  n?: 1 | 2 | 3;
+  number?: number | null;
+  title?: string | null;
+  url?: string | null;
+  state?: 'not-started' | 'open' | 'draft' | 'merged' | 'closed';
+  review?: 'waiting' | 'approved' | 'changes' | null;
+  checks?: 'passed' | 'running' | 'failed' | null;
+  openedAt?: string | null;
+  updatedAt?: string | null;
 }
 
 /** POST /api/job/:slug/gate: a decision from the gate card (dashboard/server.js). */
@@ -1964,6 +2003,20 @@ export interface StageView {
   time?: StepTime;
   /** The step's documents (job.page.docs for this step); missing: not known. */
   docs?: JobDocEntry[];
+  /** Plan and Build: the plan's steps (job.page.plan; null: no steps); missing: not known. */
+  plan?: { version?: string | null; steps?: PlanStepRow[] } | null;
+  /** Ship: the three pull requests (job.page.prs); missing: not known. */
+  prs?: PrRow[];
+  /** Review: the findings by reviewer (job.page.review), each reviewer that ran with its rows, then Other findings; missing: not known. */
+  review?: { at?: string | null; reviewers?: StageReviewer[] };
+}
+
+/** One reviewer on the Review step: its lens (null for Other findings), name, model and findings. */
+export interface StageReviewer {
+  lens?: string | null;
+  name?: string;
+  model?: string | null;
+  rows?: ReviewRow[];
 }
 
 // ---------- Telemetry (packet P): GET /api/telemetry?window= (dashboard/lib/telemetry.js, lib/insights.js) ----------

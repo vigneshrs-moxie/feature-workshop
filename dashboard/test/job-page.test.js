@@ -3,6 +3,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readAcceptance, stepTimes, stepDocs } from '../lib/job-page.js';
+import { planSteps, stepStates, planView, prRows } from '../lib/job-page.js';
+import { parseLog } from '../lib/git.js';
 
 test('readAcceptance reads both lists and drops the FR brackets', () => {
   const text = [
@@ -153,4 +155,114 @@ test('stepTimes: a closed job’s current step ends; an open job’s does not', 
   assert.deepEqual(stepTimes({ ...args, closed: { at: H('11:20'), as: 'done' } }).ship, { startedAt: H('09:10'), endedAt: H('11:20') });
   // Closed with no time known: at its own last brief.
   assert.deepEqual(stepTimes({ ...args, closed: { as: 'dropped' } }).ship, { startedAt: H('09:10'), endedAt: H('11:00') });
+});
+
+// ---------- Plan, Build and Ship facts (Task 4, design 3.2) ----------
+
+test('planSteps reads the S headings in order', () => {
+  const text = [
+    '# Implementation plan',
+    '',
+    '## Steps',
+    '### S1: The form',
+    'Build the form.',
+    '### S2: The list: sorted by name',
+    '### Notes',
+    '```',
+    '### S99: not a heading, inside a code block',
+    '```',
+    ...Array.from({ length: 7 }, (_, i) => `### S${i + 3}: Step ${i + 3}`),
+    '### S10: After nine',
+    '## S11: a level-two heading is not a step',
+  ].join('\n');
+  const steps = planSteps(text);
+  assert.deepEqual(steps.slice(0, 2), [{ id: 'S1', name: 'The form' }, { id: 'S2', name: 'The list: sorted by name' }]);
+  assert.deepEqual(steps.map((s) => s.id), ['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10'], 'as written: S10 after S9');
+});
+
+test('a plan with no S headings has no steps', () => {
+  // A plan from before this change (Review Focus 1): numbered steps, no ### S1 headings.
+  assert.deepEqual(planSteps('# Plan\n\n## Step 1: the form\n1. Build it.\n### Testing\n'), []);
+  assert.deepEqual(planSteps(''), []);
+  assert.deepEqual(planSteps(null), []);
+});
+
+test('stepStates: a step with a commit is done, the first without one is being built, the rest are not yet', () => {
+  const steps = ['S1', 'S2', 'S3', 'S4'].map((id) => ({ id, name: `Step ${id}` }));
+  // What parseLog gives for `[S1] the form`, `S2: the list` and `Fix a typo`.
+  const commits = parseLog(['[S1] the form', 'S2: the list', 'Fix a typo'].map((s, i) => `sha${i}\x1fs${i}\x1fme\x1f2026-11-10T09:00:00Z\x1f${s}\x1e`).join('\n'));
+  assert.deepEqual(commits.map((c) => c.step), ['S1', 'S2', null]);
+  const states = (building) => stepStates(steps, commits, building).map((s) => s.state);
+  assert.deepEqual(states(true), ['done', 'done', 'now', 'next']);
+  assert.deepEqual(states(false), ['done', 'done', 'next', 'next']);
+  assert.deepEqual(stepStates(steps, commits, true)[0], { id: 'S1', name: 'Step S1', state: 'done' });
+  // Only an exact id: a commit for S10 does not finish S1.
+  assert.deepEqual(stepStates([{ id: 'S1', name: 'a' }, { id: 'S10', name: 'b' }], [{ step: 'S10' }], false).map((s) => s.state), ['next', 'done']);
+  assert.deepEqual(stepStates([], [{ step: 'S1' }], true), []);
+});
+
+test('a job at Plan has its plan’s steps, all next, and reads no commits', async () => {
+  const text = '### S1: The form\n### S2: The list\n';
+  let reads = 0;
+  const readCommits = async () => { reads++; return [{ step: 'S1' }]; };
+  assert.deepEqual(await planView({ text, version: '1', stage: 'plan', building: false, readCommits }), {
+    version: '1', steps: [{ id: 'S1', name: 'The form', state: 'next' }, { id: 'S2', name: 'The list', state: 'next' }],
+  });
+  assert.equal(reads, 0, 'before Build no commits are read');
+  // At Build the commits are read once: S1 is built, S2 is being built.
+  assert.deepEqual((await planView({ text, version: '1', stage: 'implement', building: true, readCommits })).steps.map((s) => s.state), ['done', 'now']);
+  assert.equal(reads, 1);
+  // A git read that fails gives no commits, never an error.
+  const failing = async () => { throw new Error('not a git repository'); };
+  assert.deepEqual((await planView({ text, stage: 'review', building: false, readCommits: failing })).steps.map((s) => s.state), ['next', 'next']);
+  // No steps: no plan.
+  assert.equal(await planView({ text: '# Plan\n', stage: 'implement', building: true, readCommits }), null);
+});
+
+const LANE_PR = (over = {}) => ({
+  number: 7, title: 'Hours column', url: 'https://github.com/o/r/pull/7', state: 'open', head: 'feature/x', base: 'feature/x',
+  review: null, checks: 'pending', mergedAt: null, updatedAt: '2026-11-10T10:00:00.000Z', createdAt: '2026-11-10T09:00:00.000Z', ...over,
+});
+
+test('prRows: PR #1 open and waiting for a review, the other two not started', () => {
+  const prs = [{ number: 1, label: 'fork → org branch', url: 'https://github.com/o/r/pull/7', state: 'open' }, { number: 2, url: null, state: 'not_started' }, { number: 3, url: null, state: 'not_started' }];
+  const rows = prRows(prs, { pr1: LANE_PR(), pr2: null });
+  assert.deepEqual(rows[0], {
+    n: 1, number: 7, title: 'Hours column', url: 'https://github.com/o/r/pull/7', state: 'open', review: 'waiting', checks: 'running',
+    openedAt: '2026-11-10T09:00:00.000Z', updatedAt: '2026-11-10T10:00:00.000Z',
+  });
+  const notStarted = (n) => ({ n, number: null, title: null, url: null, state: 'not-started', review: null, checks: null, openedAt: null, updatedAt: null });
+  assert.deepEqual(rows.slice(1), [notStarted(2), notStarted(3)]);
+  // An old job, or none known at all: still three rows.
+  assert.deepEqual(prRows(null, null), [notStarted(1), notStarted(2), notStarted(3)]);
+  assert.deepEqual(prRows('nonsense', 'nonsense'), [notStarted(1), notStarted(2), notStarted(3)]);
+  // status.json alone (the flow map hasn't read GitHub): its url gives the number, and nothing it can't know.
+  assert.deepEqual(prRows([{ number: 1, url: 'https://github.com/o/r/pull/12', state: 'merged' }], null)[0], {
+    n: 1, number: 12, title: null, url: 'https://github.com/o/r/pull/12', state: 'merged', review: null, checks: null, openedAt: null, updatedAt: null,
+  });
+});
+
+test('prRows maps the flow map’s review and checks words', () => {
+  const one = (over) => prRows([], { pr1: LANE_PR(over), pr2: null })[0];
+  assert.equal(one({ review: 'changes_requested' }).review, 'changes');
+  assert.equal(one({ review: 'approved' }).review, 'approved');
+  assert.equal(one({ review: 'review_required' }).review, 'waiting');
+  assert.equal(one({ review: null }).review, 'waiting');
+  assert.equal(one({ review: 'something new' }).review, null, 'an unknown word is not known');
+  assert.equal(one({ checks: 'passing' }).checks, 'passed');
+  assert.equal(one({ checks: 'pending' }).checks, 'running');
+  assert.equal(one({ checks: 'failing' }).checks, 'failed');
+  assert.equal(one({ checks: null }).checks, null);
+  assert.equal(one({ checks: 'odd' }).checks, null);
+  assert.equal(one({ review: 'constructor', checks: 'toString' }).review, null, 'not one of Object’s own names either');
+  assert.equal(prRows([{ number: 1, state: 'constructor' }], null)[0].state, 'not-started');
+  // A review word on a pull request that is not open says nothing.
+  assert.equal(one({ state: 'merged', review: 'approved' }).review, null);
+  assert.equal(one({ state: 'merged' }).state, 'merged');
+  assert.equal(one({ state: 'draft' }).state, 'draft');
+  assert.equal(one({ state: 'closed' }).state, 'closed');
+  assert.equal(one({ createdAt: undefined }).openedAt, null, 'not read by the flow map yet');
+  // PR #2 comes from the lane's pr2; PR #3 from status.json only.
+  const rows = prRows([{ number: 3, url: 'https://github.com/o/r/pull/30', state: 'open' }], { pr1: null, pr2: LANE_PR({ number: 9, url: 'https://github.com/o/r/pull/9', state: 'merged' }) });
+  assert.deepEqual(rows.map((r) => [r.n, r.number, r.state]), [[1, null, 'not-started'], [2, 9, 'merged'], [3, 30, 'open']]);
 });
