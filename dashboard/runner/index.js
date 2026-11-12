@@ -3467,6 +3467,37 @@ export async function createRunner(config) {
     },
   };
 
+  /**
+   * A migration that failed on Auto's database (runner/evidence.js onAutoDbProblem): the job's Foreman is sent
+   * autoMigrationMessage(err) as Starbase's own message (kind 'auto-migration', lib/auto.js OWN_SENDS), the way the
+   * status-fix send goes (lib/driver.js): now when no reply runs, else once that reply ends well (not after a stop, an
+   * error or a usage limit). A job with no session here to carry on gets nothing; an audit line says why.
+   */
+  async function sendAutoMigration(f, err) {
+    const { autoMigrationMessage } = await import('./evidence.js');
+    const notSent = (reason) => state.audit({ action: 'auto_migration_not_sent', featureDir: f.dir, slug: f.slug, migration: err.migration, reason: String(reason).slice(0, 300) });
+    const active = driver.activeRunFor({ featureDir: f.dir });
+    if (active) {
+      const ended = (run) => {
+        if (run.id !== active.id || ['starting', 'running', 'waiting_permission', 'stopping'].includes(run.status)) return;
+        driver.off('run', ended);
+        if (run.status === 'done') sendAutoMigration(f, err).catch((e) => console.error(`auto migration (${f.slug}):`, e.message));
+        else notSent(`The Foreman’s reply ended ${run.status} first.`).catch(() => {});
+      };
+      driver.on('run', ended);
+      return;
+    }
+    const s = await driver.feedbackSession(f.dir);
+    if (s?.refused || !s?.sessionId) { await notSent(s?.refused ?? 'No Foreman session here.'); return; }
+    try {
+      await driver.start({ featureDir: f.dir, slug: s.slug, title: s.title, cwd: s.cwd, sessionId: s.sessionId, model: s.model, text: autoMigrationMessage(err), kind: 'auto-migration', additionalDirectories: s.additionalDirectories });
+    } catch (e) {
+      // A reply began meanwhile: it goes once that one ends.
+      if (e instanceof Busy && driver.activeRunFor({ featureDir: f.dir })) return sendAutoMigration(f, err);
+      await notSent(e?.message ?? e);
+    }
+  }
+
   // ---------- Local mode only: what this computer's own page uses beyond jobs ----------
 
   const local_ = {
@@ -3490,7 +3521,7 @@ export async function createRunner(config) {
     /** Settings → Repos (site/routes-repos.js): the registry's list, add, remove and check. On a first start the list is seeded from the recent repositories. */
     // A repository added or forgotten is a settings change: the site link offers the website's Start form the new list.
     repos: ((door) => ({ ...door, add: async (x) => afterRepoChange(await door.add(x)), remove: async (p) => afterRepoChange(await door.remove(p)) }))(reposDoor(local.registry, { recent: () => repoList() })),
-    evidence: (await import('./evidence.js')).evidenceRunner({ jobs: features, local, state, events, on, demo: DEMO, env }), // evidence at the test stage: runner/evidence.js, site/routes-evidence.js
+    evidence: (await import('./evidence.js')).evidenceRunner({ jobs: features, local, state, events, on, demo: DEMO, env, onAutoDbProblem: sendAutoMigration }), // evidence at the test stage: runner/evidence.js, site/routes-evidence.js
     recordSecret,
     /**
      * An easter egg found, or something the page saw you do (a theme tried), from fixed lists only.

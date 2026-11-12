@@ -3856,3 +3856,14 @@ test('a restart whose branch is a guess but whose worktree status.json names mov
     assert.ok(!res.notes.includes('Starbase isn\'t sure which branch is this job\'s, so it left branches and folders alone.'), JSON.stringify(res.notes));
   } finally { await w.stop(); }
 });
+
+// ---------- Task 9: Starbase's message about a migration that failed on Auto's database ----------
+
+test('Starbase\'s migration message is not his: the step is still Auto\'s', { timeout: 30_000 }, async () => {
+  const { autoMigrationMessage } = await import('../runner/evidence.js');
+  const text = autoMigrationMessage({ migration: '0002_b', tail: 'error: column "x" already exists' });
+  const u = unit({ decide: () => {}, auditLines: [{ action: 'send', kind: 'auto-migration', at: new Date(Date.now() - 1000).toISOString(), text }] });
+  await u.auto.pass();
+  assert.equal(u.record().stopped, null);
+  assert.equal(u.decides.length, 1, 'Auto still decides the step');
+});

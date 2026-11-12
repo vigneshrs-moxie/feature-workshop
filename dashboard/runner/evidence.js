@@ -6,10 +6,17 @@
 // evidence/evidence.json, and the dev server stopped again if it started it. Once per commit. Each
 // recording, done or not, sends one `evidence` event and writes one audit line (action 'evidence').
 //
-//   evidenceRunner({ jobs, local, state, events, on, demo, env })
+//   evidenceRunner({ jobs, local, state, events, on, demo, env, onAutoDbProblem, autoTimes })
 //     jobs()     the runner's job records (features())
 //     local      its LocalRunner (Try it)
 //     on         its event door: a 'change' (a job folder changed) looks for jobs ready to record
+//
+// An Auto job (its record on) whose app has a database key in the profile records only on Auto's
+// own database (lib/local.js autoDatabase), made afresh inside the one-at-a-time queue, never on
+// his: the app starts with Auto's address (startServer's databaseUrl), is asked once, and must
+// connect to Auto's database within 30 s (AUTO_DB_NOT_USED). His Try it server for the job is never
+// stopped for it (AUTO_TRY_IT_RUNNING). No saved original yet: the Test step says it waits
+// (AUTO_DB_WAITING) and it looks again. A migration that fails goes to the Foreman (onAutoDbProblem).
 //   returns the door the site's routes use (site/routes-evidence.js, through runner.local.evidence):
 //     view(slug)          { evidence, commit, wanted, why, recording, problem, progress, watch, folder, folderUrl }
 //                         (progress: by line while Playwright runs, else null; each change is an
@@ -46,9 +53,24 @@ import { guessedWorktree, guessWords } from '../lib/locate.js';
 import { fillPattern } from '../lib/profile.js';
 import { killTree, shellFor } from '../lib/platform.js';
 import { PRODUCT } from '../lib/brand.js';
+import { AUTO_TRY_IT_RUNNING, AutoDbError } from '../lib/local.js';
 
 const require = createRequire(import.meta.url);
 const SERVER_WAIT_MS = 180_000;
+
+// ---------- An Auto job's recording, on Auto's own database (lib/local.js autoDatabase) ----------
+
+/** The app answered but nothing connected to Auto's database: it uses another one (plan's words). */
+export const AUTO_DB_NOT_USED = "The app didn't connect to Auto's database, so nothing was recorded.";
+/** The Test step's line while there is no saved original of his database to copy (plan's words). */
+export const AUTO_DB_WAITING = `Waiting for a copy of your database. ${PRODUCT} makes it when nothing is connected to it.`;
+/** How the recording waits for the app to connect to Auto's database, and when a waiting job is looked at again. */
+export const AUTO_DB_TIMES = Object.freeze({ connectEveryMs: 500, connectForMs: 30_000, lookAgainMs: 60_000 });
+
+/** The message to the job's Foreman for a migration that failed on Auto's database (plan's words; the skills name its first and last words). */
+export function autoMigrationMessage(err) {
+  return `${PRODUCT} couldn't apply ${err.migration} to Auto's copy of the database:\n${err.tail ?? ''}\nFix it, then raise the brief into Test again.`;
+}
 
 /** The dashboard's own Playwright: its command line and the URL its specs import. */
 function ownPlaywright() {
@@ -143,12 +165,19 @@ function runShell(command, { cwd, timeoutMs = 15_000 } = {}) {
   });
 }
 
-export function evidenceRunner({ jobs, local, state, events, on, demo = false, env = process.env }) {
+/**
+ * onAutoDbProblem(f, err): a migration failed on Auto's database while an Auto job's recording made
+ * it (AutoDbError 'migration'): the runner sends the Foreman autoMigrationMessage(err). Once per commit.
+ * autoTimes: AUTO_DB_TIMES (tests shorten them).
+ */
+export function evidenceRunner({ jobs, local, state, events, on, demo = false, env = process.env, onAutoDbProblem = () => {}, autoTimes = AUTO_DB_TIMES }) {
   const recording = new Set(); // slugs being recorded now
   const problems = new Map(); // slug -> { commit, message, fix, at }: the last recording that couldn't finish
   const progress = new Map(); // slug -> the recording's progress by line (lib/evidence.js), while Playwright runs
   const tried = new Set(); // `${slug}@${commit}` the change watcher already started once (Record tries again)
   const holding = new Map(); // slug -> the recorder's app (serverFor), from its start() to the recording's end: Try it may not stop it
+  const told = new Set(); // `${slug}@${commit}` whose failed migration the Foreman was sent
+  const lookingAgain = new Set(); // slugs waiting for Auto's database, with a look again set
   let queue = Promise.resolve(); // one recording at a time: one browser, one worker
 
   const jobOf = async (slug) => {
@@ -194,8 +223,11 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
    * Try it for the job: its port, its settings file (with the sign-in skip) and its dev server.
    * handOver(): Try it's Start while the recording holds the app makes it the owner's, so stop()
    * leaves it running (even when the start that made it is still under way here).
+   * onAutoDb: an Auto job whose app has a database: Auto's database is made afresh (autoDatabase,
+   * which throws AutoDbError), the app starts on it, and it must connect to it (usesAutoDb). His Try
+   * it server running for the job is never stopped for it: the recording is refused.
    */
-  function serverFor(f) {
+  function serverFor(f, { onAutoDb = false } = {}) {
     let startedHere = false;
     let handed = false;
     return {
@@ -212,24 +244,52 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
           if (again && again.signInSkipped === false) throw new EvidenceError(409, `The sign-in skip is off in ${again.file}, so the specs would meet the sign-in page. Turn it on with Set up in Try it, then press Record again.`);
         }
         const running = local.jobs.get(f.slug)?.server;
-        if (!(running && ['starting', 'running'].includes(running.status))) {
-          try { await local.startServer(f); } catch (err) { throw new EvidenceError(409, err.message); }
+        const runs = Boolean(running && ['starting', 'running'].includes(running.status));
+        let databaseUrl = null;
+        if (onAutoDb) {
+          if (runs) throw new EvidenceError(409, AUTO_TRY_IT_RUNNING);
+          databaseUrl = (await local.autoDatabase(f)).url; // before the app starts
+        }
+        if (onAutoDb || !runs) {
+          try { await local.startServer(f, ...(onAutoDb ? [{ databaseUrl }] : [])); } catch (err) { throw new EvidenceError(409, err.message); }
           startedHere = true;
         }
-        const until = Date.now() + SERVER_WAIT_MS;
-        for (;;) {
-          const s = local.jobs.get(f.slug)?.server;
-          if (s?.status === 'running') break;
-          if (!s || !['starting', 'running'].includes(s.status)) throw new EvidenceError(409, 'The app stopped before it was ready. Its output is in Try it.');
-          if (Date.now() > until) throw new EvidenceError(504, 'The app didn’t answer within 3 minutes, so nothing was recorded. Its output is in Try it.');
-          await new Promise((r) => setTimeout(r, 500));
+        try {
+          const until = Date.now() + SERVER_WAIT_MS;
+          for (;;) {
+            const s = local.jobs.get(f.slug)?.server;
+            if (s?.status === 'running') break;
+            if (!s || !['starting', 'running'].includes(s.status)) throw new EvidenceError(409, 'The app stopped before it was ready. Its output is in Try it.');
+            if (Date.now() > until) throw new EvidenceError(504, 'The app didn’t answer within 3 minutes, so nothing was recorded. Its output is in Try it.');
+            await new Promise((r) => setTimeout(r, 500));
+          }
+          const baseURL = fillPattern(w.tryIt.url, { port });
+          if (onAutoDb) await usesAutoDb(f, baseURL);
+          return { baseURL, startedHere, cwd: w.root };
+        } catch (err) {
+          // The app on Auto's database goes with the refusal (the recording's finally never runs for a start that failed).
+          if (onAutoDb && startedHere && !handed) await local.stopServerAndWait(f.slug).catch(() => {});
+          throw err;
         }
-        return { baseURL: fillPattern(w.tryIt.url, { port }), startedHere, cwd: w.root };
       },
       stop: async () => { if (startedHere && !handed) await local.stopServerAndWait(f.slug); },
       // A branch only guessed (lib/locate.js): Try it's where() refuses it with these words, so say them before the start.
       cannotStart: () => (f.worktree && guessedWorktree(f) ? guessWords(f) : null),
     };
+  }
+
+  /**
+   * One GET of the app's address, then Auto's database is asked what is connected to it, every
+   * connectEveryMs for up to connectForMs. Nothing: the app uses another database, and nothing is
+   * recorded (AUTO_DB_NOT_USED).
+   */
+  async function usesAutoDb(f, baseURL) {
+    await fetch(baseURL, { signal: AbortSignal.timeout(SERVER_WAIT_MS), redirect: 'manual' }).then((r) => r.arrayBuffer()).catch(() => {});
+    for (const until = Date.now() + autoTimes.connectForMs; ;) {
+      if ((await local.autoConnections(f).catch(() => 0)) > 0) return;
+      if (Date.now() >= until) throw new EvidenceError(409, AUTO_DB_NOT_USED, { code: 'auto-db-not-used' });
+      await new Promise((r) => setTimeout(r, autoTimes.connectEveryMs));
+    }
   }
 
   /**
@@ -250,9 +310,23 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
     };
   }
 
+  /**
+   * Whether this recording is an Auto job's on Auto's database: the job's Auto record says on now (as
+   * the recording starts; switched off later, it finishes as it began) and the profile names a
+   * database key for its app. Never in demo mode (nothing real runs there).
+   */
+  async function onAutoDbFor(f) {
+    if (demo) return false;
+    const now = (await jobs().catch(() => [])).find((x) => x.slug === f.slug) ?? f;
+    if (now.auto?.on !== true) return false;
+    const w = await local.where(f).catch(() => null);
+    return Boolean(w?.tryIt?.dbUrlKey);
+  }
+
   async function recordNow(f, via) {
     const pw = playwright();
-    const server = serverFor(f);
+    const onAutoDb = await onAutoDbFor(f);
+    const server = serverFor(f, { onAutoDb });
     let cwd = f.worktree ?? f.repoPath;
     const at = new Date().toISOString();
     try {
@@ -268,7 +342,8 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
         },
         // From here to the end (lib/evidence.js stops the app in its finally), the recording holds the app.
         server: { start: async () => { holding.set(f.slug, server); const s = await server.start(); cwd = s.cwd ?? cwd; return s; }, stop: server.stop, cannotStart: server.cannotStart },
-        dbCheck: await dbCheckFor(f),
+        // On Auto's database his is never looked at: making Auto's copy says whether the server is there.
+        dbCheck: onAutoDb ? null : await dbCheckFor(f),
         run: (opts) => runPlaywright(pw.script, { ...opts, cwd }),
       });
       problems.delete(f.slug);
@@ -279,14 +354,38 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
       events.emit('evidence', f.slug, { slug: f.slug, outcome: 'recorded', at: ev.at, ...summary });
       return ev;
     } catch (err) {
-      const e = err instanceof EvidenceError ? err : new EvidenceError(500, `The recording stopped: ${String(err?.message ?? err).split('\n')[0]}`);
+      // No copy of his database to make Auto's from yet, or another switch didn't end: not a failure. The
+      // Test step says it waits, the next change looks again, and so does a timer.
+      if (err instanceof AutoDbError && ['no-original', 'busy'].includes(err.code)) {
+        const message = err.code === 'no-original' ? AUTO_DB_WAITING : err.message;
+        const commit = await reportCommit(f.dir);
+        problems.set(f.slug, { commit, message, fix: null, at, waiting: true });
+        tried.delete(`${f.slug}@${commit}`);
+        if (!lookingAgain.has(f.slug)) {
+          lookingAgain.add(f.slug);
+          setTimeout(() => { lookingAgain.delete(f.slug); lookForReady().catch(() => {}); }, autoTimes.lookAgainMs).unref?.();
+        }
+        events.emit('evidence', f.slug, { slug: f.slug, outcome: 'waiting', at, reason: message });
+        throw new EvidenceError(409, message, { code: 'auto-db-waiting' });
+      }
+      // A migration that failed on Auto's database is the job's to fix: its Foreman is told, once per commit.
+      if (err instanceof AutoDbError && err.code === 'migration') {
+        const key = `${f.slug}@${await reportCommit(f.dir)}`;
+        if (!told.has(key)) {
+          told.add(key);
+          Promise.resolve().then(() => onAutoDbProblem(f, err)).catch((e2) => console.error(`evidence (${f.slug}): the migration message wasn’t sent:`, e2?.message ?? e2));
+        }
+      }
+      const e = err instanceof EvidenceError ? err
+        : err instanceof AutoDbError ? new EvidenceError(409, err.message, { code: `auto-${err.code}` })
+          : new EvidenceError(500, `The recording stopped: ${String(err?.message ?? err).split('\n')[0]}`);
       // "Already recorded" and "not for this job" are answers, not problems.
       if (!['already', 'not-wanted'].includes(e.code)) {
         problems.set(f.slug, { commit: await reportCommit(f.dir), message: e.message, fix: e.fix ?? null, at });
         await state.audit({ action: 'evidence', featureDir: f.dir, slug: f.slug, outcome: 'not-recorded', via, reason: e.message });
         events.emit('evidence', f.slug, { slug: f.slug, outcome: 'not-recorded', at, reason: e.message, fix: e.fix ?? null });
       }
-      if (!(err instanceof EvidenceError)) console.error(`evidence (${f.slug}):`, err);
+      if (!(err instanceof EvidenceError) && !(err instanceof AutoDbError)) console.error(`evidence (${f.slug}):`, err);
       throw e;
     } finally {
       holding.delete(f.slug);

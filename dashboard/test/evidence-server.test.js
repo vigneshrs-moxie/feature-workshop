@@ -782,3 +782,276 @@ test('Record on a guessed branch refuses before anything says a recording starte
   assert.deepEqual(started, [], 'no server started');
   assert.equal((await door.view(slug)).problem?.message, guessWords(f));
 });
+
+// ---------- Task 9: an Auto job records on Auto's database (Part C) ----------
+// The evidence door alone on a real Try it (lib/local.js) with the fake Postgres tools (fixtures/fake-pg),
+// the stand-in app (fixtures/auto-db-app, which reads its .env.local as Next.js does) and the fake Playwright.
+
+const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
+const FAKE_PG = path.join(TEST_DIR, 'fixtures', 'fake-pg');
+const AUTO_APP = path.join(TEST_DIR, 'fixtures', 'auto-db-app');
+const AUTO_PROFILE = {
+  name: 'App', github: null, tryIt: { app: 'app', ports: { first: 47350, last: 47399 }, url: 'http://127.0.0.1:{port}' },
+  filesToCopy: [{ from: '{app}/.env.local', to: '{app}/.env.local' }], database: { urlKey: 'DATABASE_URL' },
+};
+const HIS_ADDRESS = 'postgres://u:s3cret-pw@localhost:5432/app?schema=public';
+const dbNameOf = (url) => decodeURIComponent(new URL(url).pathname.slice(1));
+
+/**
+ * Auto's world: a main checkout with his settings file, and per job a worktree with the stand-in app
+ * (its .env.local naming his database), two migrations (his database has the first) and a job folder
+ * at the test step with a report and two specs. auto: the jobs' Auto record. override: the app reads
+ * its settings file over what it is given. migrate: 'fake' for fixtures/fake-pg's migrate. settings: his
+ * settings file. profile: the repository's.
+ */
+async function autoWorld({ slugs = ['auto-job'], auto = { on: true }, original = true, connections = 0, override = false, migrate = null, profile = AUTO_PROFILE, settings = `DATABASE_URL=${HIS_ADDRESS}\n` } = {}) {
+  const { LocalRunner } = await import('../lib/local.js');
+  const { State } = await import('../lib/state.js');
+  const { pathToFileURL } = await import('node:url');
+  const top = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'starbase-auto-db-')));
+  const repo = path.join(top, 'main');
+  await fs.mkdir(path.join(repo, 'app'), { recursive: true });
+  await fs.writeFile(path.join(repo, 'app', '.env.local'), settings);
+  const list = [];
+  for (const slug of slugs) {
+    const wt = path.join(top, `wt-${slug}`);
+    await fs.mkdir(path.join(wt, 'app'), { recursive: true });
+    for (const file of await fs.readdir(AUTO_APP)) await fs.copyFile(path.join(AUTO_APP, file), path.join(wt, 'app', file));
+    const pkg = JSON.parse(await fs.readFile(path.join(wt, 'app', 'package.json'), 'utf8'));
+    if (override) pkg.scripts.dev = 'node dev.mjs --override';
+    if (migrate === 'fake') pkg.scripts['db:migrate'] = `node ${JSON.stringify(path.join(FAKE_PG, 'migrate'))}`;
+    await fs.writeFile(path.join(wt, 'app', 'package.json'), JSON.stringify(pkg));
+    await fs.writeFile(path.join(wt, 'app', '.env.local'), `DATABASE_URL=${HIS_ADDRESS}\n`);
+    for (const m of ['0001_a', '0002_b']) await fs.mkdir(path.join(wt, 'app', 'prisma', 'migrations', m), { recursive: true });
+    const dir = path.join(top, 'jobs', slug);
+    await fs.mkdir(path.join(dir, 'evidence', 'specs'), { recursive: true });
+    for (const n of [1, 2]) await fs.writeFile(path.join(dir, 'evidence', 'specs', `AC-${n}.spec.mjs`), SPEC(n));
+    await fs.writeFile(path.join(dir, 'test-report.md'), REPORT('abc1234def5'));
+    const then = new Date(Date.now() - 60_000);
+    await fs.utimes(path.join(dir, 'test-report.md'), then, then);
+    list.push({ slug, dir, title: `Job ${slug}`, stage: 'test', options: { schema_version: 2, level: 2, flow: 'small' }, worktree: wt, repoPath: repo, branch: `feature/${slug}`, auto: auto && { ...auto } });
+  }
+  const stateFile = path.join(top, 'pg.json');
+  const logFile = path.join(top, 'pg.log');
+  const databases = { app: { ledger: ['0001_a'], connections } };
+  if (original) databases.app__original = { ledger: ['0001_a'], connections: 0 };
+  await fs.writeFile(stateFile, JSON.stringify({ version: 170000, databases }));
+  await fs.writeFile(logFile, '');
+  Object.assign(process.env, { FAKE_PG_STATE: stateFile, FAKE_PG_LOG: logFile });
+  delete process.env.FAKE_PG_FAIL;
+  // Playwright: the fake, each run counted.
+  const runsFile = path.join(top, 'playwright-runs');
+  const pw = path.join(top, 'pw.mjs');
+  await fs.writeFile(pw, `import fs from 'node:fs';\nfs.appendFileSync(${JSON.stringify(runsFile)}, 'ran\\n');\nawait import(${JSON.stringify(pathToFileURL(path.join(FIXTURE, 'fake-playwright.mjs')).href)});\n`);
+  const registry = { profileFor: async () => ({ ok: true, profile, file: path.join(repo, 'starbase.md'), source: 'repo' }) };
+  const local = new LocalRunner({ state: new State(path.join(top, 'state')), registry, pgTool: async (name) => path.join(FAKE_PG, name) });
+  // What Auto's database steps did, in order (autoDatabase begun and ended, each app stopped).
+  const steps = [];
+  const made = local.autoDatabase.bind(local);
+  local.autoDatabase = async (f, o) => { steps.push(`copy ${f.slug}`); try { return await made(f, o); } finally { steps.push(`copied ${f.slug}`); } };
+  const stopWait = local.stopServerAndWait.bind(local);
+  local.stopServerAndWait = async (slug, ms) => { const r = await stopWait(slug, ms); steps.push(`stopped ${slug}`); return r; };
+  const handlers = {};
+  const emitted = [];
+  const audits = [];
+  const sends = [];
+  const door = evidenceRunner({
+    jobs: async () => list, local, state: { audit: async (l) => { audits.push(l); } },
+    events: { emit: (_name, _slug, data) => emitted.push(data) }, on: (name, fn) => { handlers[name] = fn; },
+    env: { STARBASE_PLAYWRIGHT: pw },
+    onAutoDbProblem: (f, err) => { sends.push({ slug: f.slug, kind: 'auto-migration', err }); },
+    autoTimes: { connectEveryMs: 100, connectForMs: 1500, lookAgainMs: 400 },
+  });
+  const log = async () => (await fs.readFile(logFile, 'utf8')).split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  const pg = async () => JSON.parse(await fs.readFile(stateFile, 'utf8')).databases;
+  const runs = async () => (await fs.readFile(runsFile, 'utf8').catch(() => '')).split('\n').filter(Boolean).length;
+  const done = async () => {
+    for (const j of list) await stopWait(j.slug).catch(() => {});
+    await fs.rm(top, { recursive: true, force: true });
+  };
+  return { top, list, local, door, handlers, emitted, audits, sends, steps, log, pg, runs, done };
+}
+
+/** Every command in the log is on Auto's database, with the original only ever a copy's source (and his, only to save a missing original). */
+function onAutoOnly(entries, { savedOriginal = false } = {}) {
+  let saves = 0;
+  for (const e of entries) {
+    const where = JSON.stringify(e);
+    if (e.tool === 'psql') assert.ok(['postgres', 'app__auto'].includes(e.args[e.args.indexOf('-d') + 1]), where);
+    if (e.tool === 'dropdb') assert.equal(e.args.at(-1), 'app__auto', where);
+    if (e.tool === 'createdb') {
+      const from = e.args[e.args.indexOf('-T') + 1];
+      if (savedOriginal && from === 'app' && e.args.at(-1) === 'app__original') { saves++; continue; }
+      assert.deepEqual([from, e.args.at(-1)], ['app__original', 'app__auto'], where);
+    }
+    if (e.tool === 'migrate') assert.equal(dbNameOf(e.url), 'app__auto', where);
+  }
+  assert.equal(saves, savedOriginal ? 1 : 0);
+}
+const settle = (ms) => new Promise((r) => { setTimeout(r, ms); });
+async function untilTrue(ok, what, ms = 30_000) {
+  for (const until = Date.now() + ms; Date.now() < until;) { if (await ok()) return; await settle(100); }
+  assert.fail(what);
+}
+
+test('an Auto job\'s recording makes Auto\'s database, starts the app on it and records', { timeout: 60_000 }, async () => {
+  const w = await autoWorld();
+  try {
+    const before = await w.pg();
+    const r = await w.door.record('auto-job', { waitMs: 50_000 });
+    assert.equal(r.evidence.commit, 'abc1234def5');
+    assert.equal(await w.runs(), 1, 'Playwright ran once');
+    assert.deepEqual(w.steps, ['copy auto-job', 'copied auto-job', 'stopped auto-job'], 'the copy before the app; the app stopped at the end');
+    const server = w.local.jobs.get('auto-job').server;
+    assert.equal(server.db, 'auto');
+    assert.equal(server.status, 'stopped');
+    const after = await w.pg();
+    assert.deepEqual(after.app__auto.ledger, ['0001_a', '0002_b']);
+    assert.equal(after.app__auto.connections, 0, 'the app connected to Auto\'s database, and let go when it stopped');
+    assert.deepEqual(after.app, before.app, 'his database is as it was');
+    assert.deepEqual(after.app__original, before.app__original);
+    onAutoOnly(await w.log());
+    assert.equal((await w.door.view('auto-job')).problem, null);
+  } finally { await w.done(); }
+});
+
+test('the recording refuses an app that connects elsewhere', { timeout: 60_000 }, async () => {
+  const { AUTO_DB_NOT_USED } = await import('../runner/evidence.js');
+  const w = await autoWorld({ override: true });
+  try {
+    const before = await w.pg();
+    await assert.rejects(w.door.record('auto-job', { waitMs: 50_000 }), (err) => err.status === 409 && err.message === AUTO_DB_NOT_USED);
+    assert.equal(await w.runs(), 0, 'no Playwright run');
+    const view = await w.door.view('auto-job');
+    assert.equal(view.problem.message, AUTO_DB_NOT_USED);
+    assert.equal(view.evidence, null);
+    assert.equal(w.local.jobs.get('auto-job').server.status, 'stopped', 'the app is stopped');
+    onAutoOnly(await w.log());
+    const after = await w.pg();
+    assert.deepEqual(after.app.ledger, before.app.ledger, 'his database got no migration');
+    assert.equal(after.app.connections, 0, 'the app had connected to his, and let go');
+    assert.deepEqual(w.emitted.at(-1).outcome, 'not-recorded');
+  } finally { await w.done(); }
+});
+
+test('a migration that fails goes back to the Foreman once', { timeout: 60_000 }, async () => {
+  const { autoMigrationMessage } = await import('../runner/evidence.js');
+  const w = await autoWorld({ migrate: 'fake' });
+  try {
+    process.env.FAKE_PG_FAIL = '0002_b';
+    for (let i = 0; i < 2; i++) {
+      await assert.rejects(w.door.record('auto-job', { waitMs: 50_000 }), (err) => err.status === 409 && /0002_b/.test(err.message));
+    }
+    // A second look by the change watcher at the same commit sends nothing either.
+    w.handlers.change();
+    await settle(1500);
+    assert.equal(w.sends.length, 1, 'one send');
+    assert.equal(w.sends[0].kind, 'auto-migration');
+    const text = autoMigrationMessage(w.sends[0].err);
+    assert.ok(text.startsWith('Starbase couldn\'t apply 0002_b to Auto\'s copy of the database:\n'), text);
+    assert.ok(text.endsWith('\nFix it, then raise the brief into Test again.'), text);
+    assert.match(text, /error line 25/);
+    const problem = (await w.door.view('auto-job')).problem;
+    for (const words of [text, problem.message]) assert.doesNotMatch(words, /s3cret-pw|postgres:\/\//, 'no address and no password');
+    assert.equal(await w.runs(), 0);
+    assert.deepEqual(w.list[0].auto, { on: true }, 'the job\'s Auto record is not stopped');
+    assert.equal(w.local.jobs.get('auto-job')?.server ?? null, null, 'the app never started');
+  } finally { delete process.env.FAKE_PG_FAIL; await w.done(); }
+});
+
+test('with no saved original the recording waits and tries again', { timeout: 60_000 }, async () => {
+  const { AUTO_DB_WAITING } = await import('../runner/evidence.js');
+  const w = await autoWorld({ original: false, connections: 1 });
+  try {
+    assert.equal(AUTO_DB_WAITING, 'Waiting for a copy of your database. Starbase makes it when nothing is connected to it.');
+    w.handlers.change();
+    await untilTrue(async () => (await w.door.view('auto-job')).problem?.message === AUTO_DB_WAITING, 'no waiting line');
+    const view = await w.door.view('auto-job');
+    assert.equal(view.problem.waiting, true);
+    assert.ok(!w.emitted.some((e) => e.outcome === 'not-recorded'), 'not shown as failed');
+    assert.ok(!w.audits.some((a) => a.outcome === 'not-recorded'));
+    assert.equal(await w.runs(), 0);
+    // He stops his app: the next look (the timer) saves the original and records.
+    const state = JSON.parse(await fs.readFile(process.env.FAKE_PG_STATE, 'utf8'));
+    state.databases.app.connections = 0;
+    await fs.writeFile(process.env.FAKE_PG_STATE, JSON.stringify(state));
+    await untilTrue(async () => { const v = await w.door.view('auto-job'); return v.evidence && !v.recording; }, 'never recorded after waiting');
+    assert.equal((await w.door.view('auto-job')).problem, null);
+    assert.ok((await w.pg()).app__original, 'the original was saved');
+    onAutoOnly(await w.log(), { savedOriginal: true });
+  } finally { await w.done(); }
+});
+
+test('a job not in Auto records as today', { timeout: 60_000 }, async () => {
+  const w = await autoWorld({ auto: null });
+  try {
+    const r = await w.door.record('auto-job', { waitMs: 50_000 });
+    assert.equal(r.evidence.commit, 'abc1234def5');
+    assert.ok(!w.steps.some((s) => s.startsWith('copy')), 'no autoDatabase call');
+    assert.equal(w.local.jobs.get('auto-job').server.db, null);
+    assert.equal((await w.pg()).app__auto, undefined);
+  } finally { await w.done(); }
+});
+
+test('Auto switched off during a recording: it finishes on Auto\'s database, and the next job\'s copy starts after it', { timeout: 90_000 }, async () => {
+  const w = await autoWorld({ slugs: ['first-job', 'next-job'] });
+  const holdFile = path.join(w.top, 'hold');
+  process.env.STARBASE_FAKE_HOLD = holdFile; // Playwright holds after the first line begins
+  try {
+    const first = w.door.record('first-job', { waitMs: 100 });
+    assert.equal((await first).started, true);
+    await untilTrue(async () => (await w.door.view('first-job')).progress?.lines?.[0]?.state === 'running', 'the first recording never got going');
+    w.list[0].auto = { ...w.list[0].auto, on: false }; // switched off part way
+    const next = w.door.record('next-job', { waitMs: 100 });
+    assert.equal((await next).started, true);
+    await settle(800);
+    assert.deepEqual(w.steps, ['copy first-job', 'copied first-job'], 'the next job\'s copy waits');
+    assert.equal(w.local.jobs.get('first-job').server.db, 'auto');
+    assert.equal(w.local.jobs.get('first-job').server.status, 'running', 'it carries on on Auto\'s database');
+    await fs.writeFile(holdFile, 'go');
+    const ended = async (slug) => { const v = await w.door.view(slug); return v.evidence && !v.recording; };
+    await untilTrue(async () => (await ended('first-job')) && ended('next-job'), 'both never recorded');
+    assert.deepEqual(w.steps, ['copy first-job', 'copied first-job', 'stopped first-job', 'copy next-job', 'copied next-job', 'stopped next-job']);
+    onAutoOnly(await w.log());
+  } finally { delete process.env.STARBASE_FAKE_HOLD; await w.done(); }
+});
+
+test('an Auto job whose app has no database Starbase can copy records nothing, says why and does not try again', { timeout: 60_000 }, async () => {
+  const w = await autoWorld({ settings: 'OTHER=1\n' });
+  try {
+    const why = 'Your main folder’s .env.local has no DATABASE_URL.';
+    w.handlers.change(); // the change watcher records it by itself
+    await untilTrue(async () => (await w.door.view('auto-job')).problem?.message === why, 'the reason never showed');
+    w.handlers.change();
+    await settle(4000); // past the watcher's second look and Auto's look-again time
+    assert.deepEqual(w.steps, ['copy auto-job', 'copied auto-job'], 'no second try');
+    assert.equal(await w.runs(), 0);
+    assert.equal(w.local.jobs.get('auto-job')?.server ?? null, null, 'the app never started');
+    assert.deepEqual(await w.log(), []);
+  } finally { await w.done(); }
+});
+
+test('an Auto job whose profile names no database key records as today', { timeout: 60_000 }, async () => {
+  const { database, ...noKey } = AUTO_PROFILE;
+  const w = await autoWorld({ profile: noKey });
+  try {
+    const r = await w.door.record('auto-job', { waitMs: 50_000 });
+    assert.equal(r.evidence.commit, 'abc1234def5');
+    assert.deepEqual(w.steps.filter((s) => s.startsWith('copy')), [], 'no autoDatabase call');
+    assert.equal(w.local.jobs.get('auto-job').server.db, null);
+  } finally { await w.done(); }
+});
+
+test('his Try it server running for an Auto job: the recording is refused, no copy is made, and his server is left running', { timeout: 60_000 }, async () => {
+  const { AUTO_TRY_IT_RUNNING } = await import('../lib/local.js');
+  const w = await autoWorld();
+  try {
+    await w.local.startServer(w.list[0]);
+    await untilTrue(() => w.local.jobs.get('auto-job').server.status === 'running', 'his app never ran');
+    await assert.rejects(w.door.record('auto-job', { waitMs: 50_000 }), (err) => err.status === 409 && err.message === AUTO_TRY_IT_RUNNING);
+    assert.equal((await w.door.view('auto-job')).problem.message, AUTO_TRY_IT_RUNNING);
+    assert.deepEqual(w.steps, [], 'no copy, nothing stopped');
+    assert.equal(w.local.jobs.get('auto-job').server.status, 'running', 'his server is left running');
+    assert.equal(await w.runs(), 0);
+  } finally { await w.done(); }
+});

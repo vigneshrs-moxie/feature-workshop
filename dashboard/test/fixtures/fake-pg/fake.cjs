@@ -3,6 +3,7 @@
 // line to $FAKE_PG_LOG ({ tool, args, url }) and answers from the JSON state file $FAKE_PG_STATE:
 //   { version: 170000, databases: { <name>: { ledger: [migration names] | null, connections: n } } }
 // createdb fails when $FAKE_PG_FAIL names its target; migrate fails when it names the migration.
+// migrate exits 0 having written nothing when $FAKE_PG_SILENT names the migration (a script that went elsewhere).
 'use strict';
 const fs = require('node:fs');
 
@@ -65,8 +66,10 @@ module.exports = function fake(tool) {
     const name = args.at(-1);
     if (process.env.FAKE_PG_FAIL && process.env.FAKE_PG_FAIL === name) {
       for (let i = 1; i <= 25; i++) process.stderr.write(`migrate ${name}: error line ${i}\n`);
+      process.stderr.write(`migrate ${name}: could not apply on ${process.env.DATABASE_URL}\n`); // as many scripts do
       process.exit(1);
     }
+    if (process.env.FAKE_PG_SILENT && process.env.FAKE_PG_SILENT === name) return console.log(`migrate ${name}: done`);
     const db = decodeURIComponent(new URL(process.env.DATABASE_URL).pathname.slice(1));
     if (!dbs[db]) fail(`migrate: database "${db}" does not exist`);
     dbs[db].ledger = [...(dbs[db].ledger ?? []), name];

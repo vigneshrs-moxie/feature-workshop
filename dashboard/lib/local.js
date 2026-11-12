@@ -172,30 +172,89 @@ export function createdbArgs(from, to, { fileCopy }) {
   return ['-T', from, ...(fileCopy ? ['--strategy=file_copy'] : []), to];
 }
 
+const ADDRESS = /postgres(?:ql)?:\/\/[^\s'"`<>]+/gi;
+
+/**
+ * Text with every database address blanked (`<database address>`), and each of `secrets` (the
+ * passwords in the addresses, as written and decoded) too: what a tool printed may go to the
+ * Foreman and the job page, and no address leaves the laptop. A secret under 4 characters isn't
+ * blanked alone (it would blank parts of words); the address it was in still is.
+ */
+export function blankAddresses(text, secrets = []) {
+  let out = String(text ?? '').replace(ADDRESS, '<database address>');
+  for (const s of secrets) if (typeof s === 'string' && s.length >= 4) out = out.split(s).join('<password>');
+  return out;
+}
+
 /**
  * Why Auto's database couldn't be made. code: 'no-original' (no saved original, and it can't be
- * saved now), 'busy' (another switch didn't end in time), 'copy' (dropping or copying failed),
- * 'migration' (a migration failed: migration names it, tail is its last 20 lines).
+ * saved now), 'busy' (another switch didn't end in time), 'copy' (dropping or copying failed this
+ * time), 'no-database' (this app has no database Starbase can copy: it never will, as it is),
+ * 'migration' (a migration failed: migration names it, tail is its last 20 lines), 'not-landed' (a
+ * migration ended well but isn't in __auto's ledger: it went somewhere else; migration names it).
+ * Database addresses are blanked from the message and the tail (blankAddresses).
  */
 export class AutoDbError extends Error {
   constructor(code, message, { migration = null, tail = null } = {}) {
-    super(message);
+    super(blankAddresses(message));
     this.name = 'AutoDbError';
     this.code = code;
     this.migration = migration;
-    this.tail = tail;
+    this.tail = tail === null ? null : blankAddresses(tail);
   }
+}
+
+/** Try it's server for a job is running, so Auto's recording of it can't start on Auto's database (plan's words). */
+export const AUTO_TRY_IT_RUNNING = 'Try it is running for this job, so Auto can\'t record it on its own database. Stop Try it, then press Record.';
+
+const pgPort = (u) => u.port || '5432';
+const sameServer = (a, b) => (isLocalHost(a.hostname) ? isLocalHost(b.hostname) : a.hostname.toLowerCase() === b.hostname.toLowerCase()) && pgPort(a) === pgPort(b);
+
+/**
+ * The environment for everything Auto starts on its own database (the migrate script and the
+ * recording's app): base (Starbase's own, as a child gets it) with
+ *   - DATABASE_URL, the profile's key (db.key) and PGDATABASE set to Auto's (db.autoUrl, db.auto);
+ *   - each key in his settings file (settingsText) whose value names his database (db.url's server
+ *     and db.name) set to the same address naming db.auto: a value in the process wins over the
+ *     file for an app that loads it as Next.js and dotenv do, so setting it is what protects it;
+ *   - every other key from base whose value names his database left out.
+ * Nothing else changes. db: #database's ({ url, name, key, auto, autoUrl }).
+ */
+export function autoDbEnv(db, settingsText, base = process.env) {
+  const his = new URL(db.url);
+  const naming = (value) => {
+    let u;
+    try { u = new URL(String(value)); } catch { return null; }
+    if (!/^postgres(ql)?:$/.test(u.protocol) || !sameServer(u, his)) return null;
+    let name;
+    try { name = decodeURIComponent(u.pathname.slice(1)); } catch { return null; }
+    return name === db.name ? u : null;
+  };
+  const env = {};
+  for (const [k, v] of Object.entries(base)) if (v !== undefined && !naming(v)) env[k] = v;
+  for (const line of String(settingsText ?? '').split('\n')) {
+    const m = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(line);
+    const u = m ? naming(envValue(line, m[1])) : null;
+    if (!u) continue;
+    u.pathname = `/${db.auto}`;
+    env[m[1]] = u.toString();
+  }
+  env.DATABASE_URL = db.autoUrl;
+  if (db.key) env[db.key] = db.autoUrl;
+  env.PGDATABASE = db.auto;
+  return env;
 }
 
 const AUTO_DB_WAIT_MS = 120_000; // how long Auto waits for another database switch to end
 const lastLines = (text, n) => String(text).replace(/\s+$/, '').split('\n').slice(-n).join('\n');
 
 // A fixed program with fixed arguments (no shell), its output kept, not streamed: Auto's database steps.
-function capture(file, args, { env, cwd } = {}) {
+// exactEnv: the whole environment, as given (autoDbEnv's); else Starbase's own with env added.
+function capture(file, args, { env, cwd, exactEnv = null } = {}) {
   return new Promise((resolve) => {
     let output = '';
     const add = (b) => { output = clip(output + String(b).replace(ANSI, '')); };
-    const child = spawn(file, args, { cwd, env: childEnv(env), stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(file, args, { cwd, env: exactEnv ?? childEnv(env), stdio: ['ignore', 'pipe', 'pipe'] });
     child.stdout.on('data', add);
     child.stderr.on('data', add);
     child.on('error', (err) => { add(`${err.message}\n`); resolve({ ok: false, code: err.code, output }); });
@@ -373,17 +432,32 @@ export class LocalRunner extends EventEmitter {
 
   // ----- dev server -----
 
-  async startServer(f) {
+  /**
+   * Start the job's dev server. databaseUrl: Auto's database (its recording): the app's environment
+   * is autoDbEnv's, naming that database, and the server's view says db: 'auto'. His Try it server
+   * already running for the job is never stopped for it: that is refused (AUTO_TRY_IT_RUNNING).
+   */
+  async startServer(f, { databaseUrl = null } = {}) {
     const w = await this.where(f);
     if (!w.app) throw new Error(w.reason ?? 'No app folder (a package.json with a "dev" script) in this job’s worktree.');
     const slot = this.#slot(f.slug);
-    if (slot.server && ['starting', 'running'].includes(slot.server.status)) return this.#serverView(slot.server);
+    if (slot.server && ['starting', 'running'].includes(slot.server.status)) {
+      if (databaseUrl && slot.server.db !== 'auto') throw new Error(AUTO_TRY_IT_RUNNING);
+      return this.#serverView(slot.server);
+    }
+    let autoEnv = null;
+    if (databaseUrl && !this.demo) {
+      const db = await this.#database(w);
+      if (!db.url) throw new Error(db.reason ?? `This job’s app has no database ${PRODUCT} can copy for Auto.`);
+      const u = new URL(databaseUrl);
+      autoEnv = { ...db, autoUrl: databaseUrl, auto: decodeURIComponent(u.pathname.slice(1)) };
+    }
     const port = await this.portFor(f.slug);
     if (!this.demo && await portInUse(port)) throw new Error(`Something else is already using port ${port}. Stop it, or close the other app, and try again.`);
     // The profile's command, or the app's dev script (only on this computer for a Next.js app: with
     // the sign-in skip on, the app must not be reachable from the network).
     const command = devCommand(w.tryIt, w.app.scripts.dev, port);
-    const server = { status: 'starting', port, url: fillPattern(w.tryIt.url, { port }), command, startedAt: new Date().toISOString(), output: '', child: null, exitCode: null };
+    const server = { status: 'starting', port, url: fillPattern(w.tryIt.url, { port }), command, startedAt: new Date().toISOString(), output: '', child: null, exitCode: null, db: databaseUrl ? 'auto' : null };
     slot.server = server;
     if (this.demo) {
       server.output = `$ ${command}\nDemo mode: nothing real runs.\n`;
@@ -393,7 +467,9 @@ export class LocalRunner extends EventEmitter {
     }
     server.output = `$ ${command}   (in ${w.app.dir})\n`;
     const shell = shellFor(command);
-    const child = spawn(shell.file, shell.args, { cwd: w.app.dir, env: childEnv({ PORT: String(port), HOSTNAME: '127.0.0.1', HOST: '127.0.0.1' }), ...shell.options, stdio: ['ignore', 'pipe', 'pipe'] });
+    const base = childEnv({ PORT: String(port), HOSTNAME: '127.0.0.1', HOST: '127.0.0.1' });
+    const env = autoEnv ? autoDbEnv(autoEnv, await this.#settingsText(w), base) : base;
+    const child = spawn(shell.file, shell.args, { cwd: w.app.dir, env, ...shell.options, stdio: ['ignore', 'pipe', 'pipe'] });
     server.child = child;
     const onData = (buf) => {
       const chunk = String(buf).replace(ANSI, '');
@@ -449,7 +525,7 @@ export class LocalRunner extends EventEmitter {
   }
 
   #serverView(s) {
-    return s ? { status: s.status, port: s.port, url: s.url, command: s.command, startedAt: s.startedAt, exitCode: s.exitCode } : null;
+    return s ? { status: s.status, port: s.port, url: s.url, command: s.command, startedAt: s.startedAt, exitCode: s.exitCode, ...(s.db ? { db: s.db } : {}) } : null;
   }
 
   // ----- commands -----
@@ -574,7 +650,15 @@ export class LocalRunner extends EventEmitter {
     // Auto's own database, beside his: autoUrl is his address with that name, and never leaves the server.
     const auto = `${name}__auto`;
     u.pathname = `/${auto}`;
-    return { url, name, original: `${name}__original`, incoming: `${name}__incoming`, auto, autoUrl: u.toString(), env };
+    return { url, name, key, original: `${name}__original`, incoming: `${name}__incoming`, auto, autoUrl: u.toString(), env };
+  }
+
+  /** His settings file's text (the main checkout's) and the job's copy of it (the one the app reads), for autoDbEnv. */
+  async #settingsText(w) {
+    const rule = LocalRunner.settingsFile(w);
+    if (!rule) return '';
+    const read = (file) => (file && exists(file) ? fsp.readFile(file, 'utf8').catch(() => '') : '');
+    return `${await read(w.mainRoot && path.join(w.mainRoot, rule.from))}\n${await read(w.root && path.join(w.root, rule.to))}`;
   }
 
   /** Whether createdb can use the file copy here (Postgres 15 or later): asked once per runner. */
@@ -638,7 +722,8 @@ export class LocalRunner extends EventEmitter {
   // Stop our own dev servers (they hold database connections), then make sure nothing else is connected.
   async #needQuietDb(slug, db) {
     for (const [s, slot] of this.jobs) {
-      if (slot.server && ['starting', 'running'].includes(slot.server.status)) {
+      // An app on Auto's database (a recording) isn't connected to his: his switch leaves it alone.
+      if (slot.server && ['starting', 'running'].includes(slot.server.status) && slot.server.db !== 'auto') {
         this.#note(slug, `Stopping the app for ${s} (it’s connected to the database)…\n`);
         this.stopServer(s);
       }
@@ -759,7 +844,8 @@ export class LocalRunner extends EventEmitter {
 
   /**
    * Make Auto's own database afresh for a job's turn: <name>__auto, copied from the saved original,
-   * then this branch's migrations added with the app's database key set to Auto's address. Returns
+   * then this branch's migrations added in an environment that names only Auto's database (autoDbEnv),
+   * each one checked in __auto's ledger after it ends (else 'not-landed', and nothing more). Returns
    * { url, name, added }; url never leaves the server. His database and the saved original appear
    * only as a copy's source: Auto never changes them, never connects to them, and never stops a Try
    * it app. The one exception: with no saved original, Auto saves one, and only while nothing is
@@ -778,14 +864,17 @@ export class LocalRunner extends EventEmitter {
     try {
       const w = await this.where(f);
       const db = w.app ? await this.#database(w) : { reason: w.reason };
-      if (!db.url) throw new AutoDbError('copy', db.reason ?? `This job’s app has no database ${PRODUCT} can copy for Auto.`);
+      if (!db.url) throw new AutoDbError('no-database', db.reason ?? `This job’s app has no database ${PRODUCT} can copy for Auto.`);
+      // Every error's words with the addresses and the password blanked (no address leaves the laptop).
+      const secrets = (() => { const p = new URL(db.url).password; try { return [p, decodeURIComponent(p)]; } catch { return [p]; } })();
+      const fail = (code, message, extra = {}) => new AutoDbError(code, blankAddresses(message, secrets), { ...extra, ...(extra.tail ? { tail: blankAddresses(extra.tail, secrets) } : {}) });
       const admin = { ...db, dbName: 'postgres' };
-      const ask = (on, sql) => this.#psql(on, sql).catch((err) => { throw new AutoDbError('copy', `Couldn’t read the local database: ${err.message}`); });
+      const ask = (on, sql) => this.#psql(on, sql).catch((err) => { throw fail('copy', `Couldn’t read the local database: ${err.message}`); });
       const [createdb, dropdb] = [await this.#pgTool('createdb'), await this.#pgTool('dropdb')];
-      const fileCopy = await this.#canFileCopy(db).catch((err) => { throw new AutoDbError('copy', `Couldn’t read the local database: ${err.message}`); });
+      const fileCopy = await this.#canFileCopy(db).catch((err) => { throw fail('copy', `Couldn’t read the local database: ${err.message}`); });
       const step = async (file, args) => {
         const r = await capture(file, args, { env: db.env });
-        if (!r.ok) throw new AutoDbError('copy', `Making Auto’s database ${db.auto} failed: ${path.basename(file)} ended with exit ${r.code} (${lastLines(r.output, 1)}). Your database and the saved original weren’t changed.`);
+        if (!r.ok) throw fail('copy', `Making Auto’s database ${db.auto} failed: ${path.basename(file)} ended with exit ${r.code} (${lastLines(r.output, 1)}). Your database and the saved original weren’t changed.`);
       };
 
       const names = (await ask(admin, `select datname from pg_database where datname in ('${db.name}', '${db.original}')`)).split('\n').filter(Boolean);
@@ -794,9 +883,9 @@ export class LocalRunner extends EventEmitter {
         const connections = Number(await ask(admin, `select count(*) from pg_stat_activity where datname = '${db.name}' and pid <> pg_backend_pid()`)) || 0;
         const tryItRuns = [...this.jobs.values()].some((s) => s.server && ['starting', 'running'].includes(s.server.status));
         const waiting = `There’s no saved original of ${db.name} yet. Auto saves one when nothing is connected to ${db.name} and no Try it app is running.`;
-        if (connections || tryItRuns) throw new AutoDbError('no-original', waiting);
+        if (connections || tryItRuns) throw fail('no-original', waiting);
         const r = await capture(createdb, createdbArgs(db.name, db.original, { fileCopy }), { env: db.env });
-        if (!r.ok) throw new AutoDbError('no-original', `${waiting} Saving it didn’t work this time (${lastLines(r.output, 1)}).`);
+        if (!r.ok) throw fail('no-original', `${waiting} Saving it didn’t work this time (${lastLines(r.output, 1)}).`);
         const dbs = (await this.#settings()).db ?? {};
         const saved = dbs[db.name] ?? {};
         await this.#saveSettings({ db: { ...dbs, [db.name]: { ...saved, originalAt: new Date().toISOString(), matches: saved.matches ?? { kind: 'original' } } } });
@@ -805,14 +894,21 @@ export class LocalRunner extends EventEmitter {
       await step(dropdb, ['--if-exists', '--force', db.auto]);
       await step(createdb, createdbArgs(db.original, db.auto, { fileCopy }));
       const onAuto = { ...db, dbName: db.auto };
-      const hasLedger = (await ask(onAuto, "select to_regclass('public.applied_migrations') is not null")) === 't';
-      const ledger = hasLedger ? (await ask(onAuto, 'select name from applied_migrations order by name')).split('\n').filter(Boolean) : [];
+      // __auto's ledger, read from __auto only.
+      const ledgerNow = async () => {
+        const hasLedger = (await ask(onAuto, "select to_regclass('public.applied_migrations') is not null")) === 't';
+        return hasLedger ? (await ask(onAuto, 'select name from applied_migrations order by name')).split('\n').filter(Boolean) : [];
+      };
+      const ledger = await ledgerNow();
       const toAdd = (await diskMigrations(w.app.dir)).filter((n) => !ledger.includes(n));
-      const key = w.tryIt?.dbUrlKey || 'DATABASE_URL';
+      // The migrate script's environment names only Auto's database (autoDbEnv), with the server's own settings (db.env).
+      const env = autoDbEnv(db, await this.#settingsText(w), childEnv(db.env));
       const added = [];
       for (const name of toAdd) {
-        const r = await capture('npm', ['run', 'db:migrate', '--', name], { env: { ...db.env, [key]: db.autoUrl }, cwd: w.app.dir });
-        if (!r.ok) throw new AutoDbError('migration', `Adding ${name} to Auto’s database failed (exit ${r.code}).`, { migration: name, tail: lastLines(r.output, 20) });
+        const r = await capture('npm', ['run', 'db:migrate', '--', name], { exactEnv: env, cwd: w.app.dir });
+        if (!r.ok) throw fail('migration', `Adding ${name} to Auto’s database failed (exit ${r.code}).`, { migration: name, tail: lastLines(r.output, 20) });
+        // Ended well but not in __auto's ledger: the script went somewhere else. Nothing more is applied.
+        if (!(await ledgerNow()).includes(name)) throw fail('not-landed', `${name} did not land on Auto's copy of the database, so nothing more was applied.`, { migration: name });
         added.push(name);
       }
       return { url: db.autoUrl, name: db.auto, added };
