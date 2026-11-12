@@ -24,7 +24,8 @@
 
 /* The conversation panel (job/page/ConversationPanel.tsx): full height, the whole conversation in
    its own scroll area, newest at the bottom, the message box at its foot. Widened (is-wide) the
-   messages keep a readable width; the whole-screen form (is-full) has a larger head. */
+   messages keep a readable width; the whole-screen form (is-full) has a larger head.
+   Its parent must have a set height (the page's column); otherwise the page scrolls, not the list. */
 .sb-convo { display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: hidden; border: 1px solid var(--border-2); border-radius: var(--card-radius); background: var(--surface-1); box-shadow: var(--elev-xs); }
 .sb-convo-head { display: flex; align-items: center; gap: var(--space-2); flex: none; min-height: 44px; padding: var(--space-1) var(--space-4); border-bottom: 1px solid var(--border-1); color: var(--text-2); }
 .sb-convo-head h3 { margin: 0; font-size: var(--text-sm); color: var(--text-1); }

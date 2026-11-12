@@ -37,11 +37,11 @@ const MODELS = [{ id: 'claude-opus-5-5', label: 'Opus 5.5' }];
 /** What the test's server holds: the newest page, whether older pages exist, and the older page. */
 const server = { thread: [] as ThreadItem[], more: false, older: [] as ThreadItem[] };
 
-interface Props { wide?: boolean; onWide?: (on: boolean) => void; full?: boolean }
+interface Props { wide?: boolean; onWide?: (on: boolean) => void; full?: boolean; slug?: string }
 
-function Panel({ wide = false, onWide = () => {}, full }: Props) {
+function Panel({ wide = false, onWide = () => {}, full, slug = 'alpha' }: Props) {
   const state = useWorkshopState();
-  const j = jobBySlug(state, 'alpha')!;
+  const j = jobBySlug(state, slug)!;
   const conversation = useJobConversation(j);
   return <ConversationPanel job={j} conversation={conversation} now={NOW} wide={wide} onWide={onWide} full={full} />;
 }
@@ -51,13 +51,13 @@ function setup({ thread = THREAD, more = false, older = [] as ThreadItem[], host
   server.more = more;
   server.older = older;
   const store: Store = createStore();
-  store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [job('alpha', 'running')], permissions, meta: { token: 't', models: MODELS } }) });
+  store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [job('alpha', 'running'), job('beta', 'running')], permissions, meta: { token: 't', models: MODELS } }) });
   const get = vi.fn(async (path: string): Promise<unknown> => {
     if (path.includes('?before=')) return { thread: server.older, threadMore: false };
     const doc = /\/doc\?file=(.+)$/.exec(path);
     if (doc) return { file: decodeURIComponent(doc[1]), name: 'Brief', html: '<p>The brief in full.</p>' };
-    if (path === '/api/job/alpha') {
-      return { slug: 'alpha', thread: server.thread, threadMore: server.more, run: null, drive: { mode: 'workshop', model: 'claude-opus-5-5', sessionId: 's-1' } } as JobDetail;
+    if (path === '/api/job/alpha' || path === '/api/job/beta') {
+      return { slug: path.slice('/api/job/'.length), thread: server.thread, threadMore: server.more, run: null, drive: { mode: 'workshop', model: 'claude-opus-5-5', sessionId: 's-1' } } as JobDetail;
     }
     throw new ApiError(404, 'Not here.');
   });
@@ -81,10 +81,14 @@ const box = () => screen.getByRole('textbox', { name: /Foreman/ });
 
 /**
  * The scroll area's sizes, by hand: 100 px for each row of the conversation (the thread's children)
- * and a 500 px window; scrollTop is clamped as a browser clamps it. A row coming or going resizes
- * what the panel watches, as a browser's ResizeObserver says. Undone by the returned function.
+ * and a window of `client` px; scrollTop is clamped as a browser clamps it. A row coming or going
+ * resizes what the panel watches, as a browser's ResizeObserver says, and `resizeWindow` changes the
+ * window (the message box at the foot grew or shrank). Undone by the returned function.
  */
-function fakeScroll(client = 500) {
+let client = 500;
+const observers = new Set<{ cb: () => void; els: Element[] }>();
+function fakeScroll(start = 500) {
+  client = start;
   const tops = new WeakMap<Element, number>();
   const isList = (el: Element) => el.classList.contains('sb-convo-list');
   const height = (el: Element) => 100 * (el.querySelector('.thread')?.children.length ?? 0);
@@ -98,14 +102,21 @@ function fakeScroll(client = 500) {
   });
   vi.stubGlobal('ResizeObserver', class {
     watch: MutationObserver;
-    constructor(cb: () => void) { this.watch = new MutationObserver(() => cb()); }
-    observe(el: Element) { this.watch.observe(el, { childList: true, subtree: true }); }
-    disconnect() { this.watch.disconnect(); }
+    seen: { cb: () => void; els: Element[] };
+    constructor(cb: () => void) { this.watch = new MutationObserver(() => cb()); this.seen = { cb, els: [] }; observers.add(this.seen); }
+    observe(el: Element) { this.seen.els.push(el); this.watch.observe(el, { childList: true, subtree: true }); }
+    disconnect() { this.watch.disconnect(); observers.delete(this.seen); }
   });
   return () => {
     for (const p of ['scrollHeight', 'clientHeight', 'scrollTop']) Reflect.deleteProperty(HTMLElement.prototype, p);
     vi.unstubAllGlobals();
+    observers.clear();
   };
+}
+/** The list's window is now `h` px high: what watches the list hears it, as from a ResizeObserver. */
+function resizeWindow(h: number) {
+  client = h;
+  act(() => { for (const o of [...observers]) if (o.els.includes(list())) o.cb(); });
 }
 /** The conversation is in and its loading line has gone. */
 async function loaded(text: string) {
@@ -184,6 +195,36 @@ describe('ConversationPanel', () => {
     expect(list().scrollTop).toBeGreaterThan(150);
   });
 
+  // Fix round 1: within 96 px of the end but not at it (the conversation nearly fits), Load older
+  // still keeps your place; nothing snaps the list to its end afterwards.
+  it('Load older keeps your place when the conversation nearly fits', async () => {
+    undo = fakeScroll(520);
+    setup({ thread: LONG.slice(0, 5), more: true, older: OLDER });
+    await loaded('Message 15 from the Foreman.');
+    expect(list().scrollTop, 'it opens at its end').toBe(end());
+    scrollTo(0); // 80 px above the end: still "at the end" for new messages
+    const before = placeOf('Message 11 from the Foreman.');
+    fireEvent.click(screen.getByRole('button', { name: 'Load older' }));
+    await screen.findByText('Message 1 from the Foreman.');
+    await act(async () => {}); // what watches the list has heard the new rows
+    expect(placeOf('Message 11 from the Foreman.')).toBe(before);
+    expect(list().scrollTop).toBeLessThan(end());
+  });
+
+  // Fix round 1: the message box growing shrinks the list's window; at its end, the list stays there.
+  it('the message box growing keeps the list at its end, but not while you read higher up', async () => {
+    undo = fakeScroll();
+    setup({ thread: LONG });
+    await loaded('Message 40 from the Foreman.');
+    expect(list().scrollTop).toBe(end());
+    resizeWindow(400); // the box grew by five lines
+    expect(list().scrollTop, 'still at the end').toBe(end());
+    scrollTo(end() - 300);
+    const reading = list().scrollTop;
+    resizeWindow(500); // the box shrank back after Send
+    expect(list().scrollTop, 'reading higher up: left where it is').toBe(reading);
+  });
+
   it('Widen asks for the full page and its word becomes Back to the job', async () => {
     const onWide = vi.fn();
     const { rerenderWith, arrive } = setup({ onWide });
@@ -216,6 +257,7 @@ describe('ConversationPanel', () => {
   });
 
   it('looking at the conversation clears the count', async () => {
+    undo = fakeScroll(); // shown: the list has a size
     localStorage.setItem(seenKey('alpha'), at(5));
     const { arrive } = setup();
     await screen.findByText('Message 9 from the Foreman.');
@@ -227,6 +269,7 @@ describe('ConversationPanel', () => {
   });
 
   it('the full form draws the new line above the first new message', async () => {
+    undo = fakeScroll();
     localStorage.setItem(seenKey('alpha'), at(5));
     setup({ full: true });
     await screen.findByText('Message 9 from the Foreman.');
@@ -241,6 +284,48 @@ describe('ConversationPanel', () => {
     // Your look is kept for this view: the line stays while you read.
     await waitFor(() => expect(localStorage.getItem(seenKey('alpha'))).toBe(at(9)));
     expect(within(panel()).getByText('2 new')).toBeInTheDocument();
+  });
+
+  // Fix round 1: messages are seen only while you can see them.
+  it('nothing is seen while the page is in the background or the panel is not shown', async () => {
+    let state: DocumentVisibilityState = 'hidden';
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
+    const scroll = fakeScroll(0); // not shown yet: the list has no size
+    undo = () => { scroll(); Reflect.deleteProperty(document, 'visibilityState'); };
+    localStorage.setItem(seenKey('alpha'), at(5));
+    const { arrive } = setup();
+    await loaded('Message 9 from the Foreman.');
+    await act(async () => {});
+    expect(localStorage.getItem(seenKey('alpha')), 'not shown, page hidden').toBe(at(5));
+    state = 'visible';
+    act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+    expect(localStorage.getItem(seenKey('alpha')), 'page in front, panel still not shown').toBe(at(5));
+    resizeWindow(500); // the panel is shown
+    expect(localStorage.getItem(seenKey('alpha'))).toBe(at(9));
+    // The page goes to the background: a new message waits to be seen until it comes back.
+    state = 'hidden';
+    act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+    await arrive(reply(10));
+    await act(async () => {});
+    expect(localStorage.getItem(seenKey('alpha'))).toBe(at(9));
+    state = 'visible';
+    act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+    expect(localStorage.getItem(seenKey('alpha'))).toBe(at(10));
+  });
+
+  // Fix round 1: another job in the same panel starts afresh: its own last look and new count.
+  it('another job starts afresh: its own new count and its own scroll place', async () => {
+    undo = fakeScroll();
+    localStorage.setItem(seenKey('alpha'), at(5));
+    localStorage.setItem(seenKey('beta'), at(8));
+    const { rerenderWith } = setup({ full: true });
+    await loaded('Message 9 from the Foreman.');
+    expect(head()).toHaveTextContent('9 messages · 2 new');
+    const alphaList = list();
+    rerenderWith({ full: true, slug: 'beta' });
+    await waitFor(() => expect(head()).toHaveTextContent('9 messages · 1 new'));
+    expect(list(), 'a list of its own').not.toBe(alphaList);
+    expect(within(panel()).getByText('1 new')).toBeInTheDocument();
   });
 
   it('on the website a reply the laptop keeps reads as its note', async () => {

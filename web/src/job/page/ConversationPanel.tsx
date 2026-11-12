@@ -5,17 +5,23 @@
 // messages new since your last look, with the new line above the first of them. Permission cards
 // are not drawn here: they stay on the bar. What sits above the full form is the page's.
 //
-// The panel owns its scroll area: it opens at its end and follows new messages there unless you are
-// more than 96 px above the end; Load older keeps the message you were reading where it was. While
-// it is on screen it remembers the newest message's time as your last look (sb.convo.seen.<slug>).
+// The panel owns its scroll area: it opens at its end and follows new messages there (and stays there
+// when the message box at its foot grows) unless you are more than 96 px above the end; Load older
+// keeps the message you were reading where it was. While you can see it (the page is in front and
+// the panel has a size) it remembers the newest message's time as your last look
+// (sb.convo.seen.<slug>). The full form's "· N new" counts from your last look before this view, so
+// it still rises for messages that arrive while you read. Another job starts the panel afresh.
+//
+// Its parent must have a set height (the page's column); otherwise the page scrolls, not the list,
+// and none of the scroll rules can work.
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Job, ThreadItem } from '../../api/types';
 import { Button } from '../../components/Button';
 import { Icon } from '../../components/Icon';
 import { readStored, writeStored } from '../../lib/stored';
 import { Composer } from '../../panes/Foreman/Composer';
-import { isNewSince, ThreadList, useJobConversation } from '../../panes/Foreman/ForemanPane';
-import { shownItems } from '../../panes/Foreman/thread';
+import { ThreadList, useJobConversation } from '../../panes/Foreman/ForemanPane';
+import { isNewSince, shownItems } from '../../panes/Foreman/thread';
 import { useWorkshopState } from '../../state/store';
 import { foremanModel } from './foremanModel';
 import './page.css';
@@ -53,6 +59,8 @@ const AT_END = 96;
  */
 function useConvoScroll(items: ThreadItem[]) {
   const listRef = useRef<HTMLDivElement>(null);
+  /** Also told when the list or its content changes size (it may have just been shown). */
+  const onResize = useRef<(() => void) | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const atEnd = useRef(true);
   const height = useRef(0);
@@ -73,14 +81,20 @@ function useConvoScroll(items: ThreadItem[]) {
     const firstId = items[0]?.id ?? null;
     // Older messages came in above: the old first one is still there, no longer first.
     const above = was !== null && firstId !== was && items.some((it) => it.id === was);
-    if (above) el.scrollTop += el.scrollHeight - height.current;
-    else if (atEnd.current) el.scrollTop = el.scrollHeight;
+    if (above) {
+      el.scrollTop += el.scrollHeight - height.current;
+      // You are reading the older ones now: only when that is also the very end does it follow.
+      atEnd.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 0;
+    } else if (atEnd.current && el.scrollHeight !== height.current) {
+      // Only when something came in: a render that changed nothing never moves you.
+      el.scrollTop = el.scrollHeight;
+    }
     first.current = firstId;
     height.current = el.scrollHeight;
   });
 
-  // Something in it changed size (a brief's text came in, the live row, a card folding): at the end,
-  // it stays at the end.
+  // Something in it changed size (a brief's text came in, the live row, a card folding), or its
+  // window did (the message box at the foot grew or shrank): at the end, it stays at the end.
   useEffect(() => {
     const el = listRef.current;
     const body = bodyRef.current;
@@ -88,15 +102,17 @@ function useConvoScroll(items: ThreadItem[]) {
     const watch = new ResizeObserver(() => {
       if (atEnd.current) el.scrollTop = el.scrollHeight;
       height.current = el.scrollHeight;
+      onResize.current?.();
     });
     watch.observe(body);
+    watch.observe(el);
     return () => watch.disconnect();
   }, []);
 
-  return { listRef, bodyRef, onScroll };
+  return { listRef, bodyRef, onScroll, onResize };
 }
 
-export function ConversationPanel({ job, conversation, now, wide, onWide, full = false }: {
+interface PanelProps {
   job: Job; conversation: Conversation; now: Date;
   /** The panel has the full page. */
   wide: boolean;
@@ -104,7 +120,15 @@ export function ConversationPanel({ job, conversation, now, wide, onWide, full =
   onWide(on: boolean): void;
   /** The phone's and the narrow window's whole-screen form. */
   full?: boolean;
-}) {
+}
+
+/** The conversation panel. Its parent must have a set height (see the head of this file). */
+export function ConversationPanel(props: PanelProps) {
+  // Each job its own: its last look, where its list was, its message box.
+  return <JobConversation key={props.job.slug} {...props} />;
+}
+
+function JobConversation({ job, conversation, now, wide, onWide, full = false }: PanelProps) {
   const { thread, run } = conversation;
   const state = useWorkshopState();
   const items = thread.items;
@@ -114,15 +138,24 @@ export function ConversationPanel({ job, conversation, now, wide, onWide, full =
   const [lastLook] = useState(() => readStored(key));
   const fresh = newCount(items, lastLook);
 
-  // On screen: the newest message is seen.
+  const { listRef, bodyRef, onScroll, onResize } = useConvoScroll(items);
+
+  // While you can see it (the page in front, the panel shown with a size), the newest message is seen.
   const newest = newestAt(items);
-  useEffect(() => {
-    if (!newest) return;
+  const markSeen = useRef(() => {});
+  markSeen.current = () => {
+    if (!newest || document.visibilityState === 'hidden' || !listRef.current?.clientHeight) return;
     // Only ever forward (an unreadable one is replaced).
     if (!(Date.parse(readStored(key) ?? '') >= Date.parse(newest))) writeStored(key, newest);
-  }, [key, newest]);
+  };
+  useEffect(() => { markSeen.current(); }, [key, newest]);
+  useEffect(() => {
+    const look = () => markSeen.current();
+    onResize.current = look;
+    document.addEventListener('visibilitychange', look);
+    return () => { document.removeEventListener('visibilitychange', look); onResize.current = null; };
+  }, [onResize]);
 
-  const { listRef, bodyRef, onScroll } = useConvoScroll(items);
   const modelLine = foremanModel(thread.detail, state.meta?.models);
 
   return (

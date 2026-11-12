@@ -138,6 +138,33 @@ const FINISHED_FIRST = 'The reply finished before your message got there. It’s
 
 const px = (v: string) => parseFloat(v) || 0;
 
+// What decides how the text wraps and how tall it is: copied to the measuring copy.
+const MIRRORED = [
+  'font-family', 'font-size', 'font-style', 'font-weight', 'font-variant', 'letter-spacing', 'word-spacing',
+  'line-height', 'text-transform', 'text-indent', 'tab-size', 'white-space', 'word-break', 'overflow-wrap',
+  'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
+  'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width',
+  'border-top-style', 'border-right-style', 'border-bottom-style', 'border-left-style',
+];
+
+/**
+ * The height of the box's text with its padding, read from a hidden copy of the box (same width,
+ * same text, same font and padding) that is added to the page for the reading and taken away. The
+ * box itself is never shrunk to measure it, so nothing scrolled above it is pulled up meanwhile.
+ */
+function textHeight(el: HTMLTextAreaElement, css: CSSStyleDeclaration): number {
+  const copy = document.createElement('textarea');
+  for (const name of MIRRORED) copy.style.setProperty(name, css.getPropertyValue(name));
+  copy.style.boxSizing = 'border-box';
+  copy.style.width = `${el.getBoundingClientRect().width}px`;
+  Object.assign(copy.style, { position: 'absolute', top: '0', left: '-9999px', height: '0', minHeight: '0', maxHeight: 'none', overflow: 'hidden', visibility: 'hidden' });
+  copy.setAttribute('aria-hidden', 'true');
+  copy.tabIndex = -1;
+  copy.value = el.value;
+  document.body.appendChild(copy);
+  try { return copy.scrollHeight; } finally { copy.remove(); }
+}
+
 /**
  * The message box grows with its text from 3 to 8 lines, then scrolls. Measured again whenever its
  * text changes and whenever its width does (the text wraps differently then).
@@ -149,8 +176,7 @@ function fitBox(el: HTMLTextAreaElement) {
   const border = px(css.borderTopWidth) + px(css.borderBottomWidth);
   // What the style's height holds: the text alone in content-box, its padding and border too otherwise.
   const extra = css.boxSizing === 'content-box' ? 0 : padding + border;
-  el.style.height = 'auto';
-  const needs = el.scrollHeight - padding + extra; // scrollHeight is the text and its padding
+  const needs = textHeight(el, css) - padding + extra; // the copy's scrollHeight is the text and its padding
   const most = 8 * line + extra;
   // Three lines or fewer: the box as it always was (rows={3}), with no size of its own.
   if (needs <= 3 * line + extra) {

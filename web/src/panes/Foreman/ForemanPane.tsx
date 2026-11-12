@@ -3,7 +3,7 @@
 // row at the foot while it replies. With no job open it lists every card waiting for you (Needs
 // you); with Play on, that is part of the workshop floor (play/WorkshopFloor.tsx). The composer sits under the conversation: Send, Steer and Stop (Composer.tsx).
 import { Fragment, useEffect, useMemo, useRef, type Ref } from 'react';
-import type { Job, ThreadItem } from '../../api/types';
+import type { Job } from '../../api/types';
 import { HowThisWorks } from '../../components/HowThisWorks';
 import { JobCards, NeedsYouCards } from '../../components/permissions/PendingCards';
 import { useUi } from '../../app/ui';
@@ -20,7 +20,7 @@ import { JobGithub } from './JobGithub';
 import { JobHeader } from './JobHeader';
 import { LevelCard } from './LevelCard';
 import { LiveRow } from './LiveRow';
-import { isDetailFile, shownItems, steerStateOf, type ShownItem } from './thread';
+import { isNewSince, shownItems, steerStateOf, type ShownItem } from './thread';
 import { ThreadItemView, YouMessage } from './ThreadItems';
 import { Composer } from './Composer';
 import { useJobThread } from './useJobThread';
@@ -65,20 +65,6 @@ export function useCurrentJob(job: Job, { thread, run }: Conversation) {
     setCurrent({ slug: job.slug, run, dir, worktree, policyOverride });
   }, [setCurrent, job.slug, run, dir, worktree, policyOverride]);
   useEffect(() => () => setCurrent(null), [setCurrent]);
-}
-
-/** What you did yourself: your messages, your answers to permissions, your saves of the job's notes. */
-const isYours = (it: ThreadItem) => it.kind === 'you' || it.kind === 'decision' || (it.kind === 'note' && Boolean(it.notes));
-
-/**
- * Whether a message is new to you: newer than your last look (`seenAt`, a time) and not yours.
- * Never looked (null), or a message with no time: not new. A brief's detail file is part of its brief.
- */
-export function isNewSince(it: ThreadItem, seenAt: string | null | undefined): boolean {
-  if (!seenAt || !it.at || isYours(it) || (it.kind === 'brief' && isDetailFile(it.file))) return false;
-  const t = Date.parse(it.at);
-  const seen = Date.parse(seenAt);
-  return Number.isFinite(t) && Number.isFinite(seen) && t > seen;
 }
 
 /**
