@@ -2602,7 +2602,8 @@ export async function createRunner(config) {
         if (policyCleared) { try { await driver.applyModes(); settingsChanged(); } catch (err) { notes.push(`The permission modes could not be refreshed (${oneLine(err)}).`); } }
         if (autoWasOn) notes.push('A restart switches Auto off. Turn it on again on the new job if you want it.');
         // Its branch and worktree were withheld above (a guess may be another job's): the sheet promised a backup branch, so it says so.
-        if (f.locate?.branchGuessed) notes.push('Starbase isn\'t sure which branch is this job\'s, so it left branches and folders alone.');
+        // A worktree status.json names is the job's own and was moved aside: then only the branch was left.
+        if (f.locate?.branchGuessed) notes.push(out.worktreeAside ? 'Starbase isn\'t sure which branch is this job\'s, so it left the branch alone.' : 'Starbase isn\'t sure which branch is this job\'s, so it left branches and folders alone.');
         try { await state.audit({ action: 'restart-done', featureDir: f.dir, slug: f.slug, newSlug: out.slug, model: body.model, was: drive.model ?? null, archive: out.archive, backupBranch: out.backupBranch, worktreeAside: out.worktreeAside }); } catch (err) { notes.push(`The restart could not be written to the record (${oneLine(err)}).`); }
         invalidate();
         return { ok: true, slug: out.slug, archive: out.archive, backupBranch: out.backupBranch, worktreeAside: out.worktreeAside, notes };

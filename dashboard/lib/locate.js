@@ -143,7 +143,8 @@ export async function locateJob(clues) {
   // Branch: what the records say, else a local branch named after the job.
   const slugWords = new Set([...words(clues.slug), ...words(clues.title)]);
   // The job's own ticket key: the slug's; the title's only when the slug has none (a title may mention another ticket).
-  const slugKeys = ticketKeys(clues.slug);
+  // A slug's key is the one it starts with ("orbit-463-…"); "…-phase-2" further in is no ticket key.
+  const slugKeys = ticketKeys(clues.slug).filter((k) => String(clues.slug).toLowerCase().startsWith(k));
   const jobKeys = new Set(slugKeys.length ? slugKeys : ticketKeys(clues.title));
   const otherTicket = (b) => { const keys = ticketKeys(b); return keys.length > 0 && jobKeys.size > 0 && !keys.some((k) => jobKeys.has(k)); };
   // The whole slug in the branch name, ending where a word ends.

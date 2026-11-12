@@ -219,6 +219,7 @@ function JobView({ job }: { job: Job }) {
         </div>
         <aside className="job-side" aria-label="The conversation and the job">
           <NowLine job={job} now={now} className="job-now" />
+          <BranchGuess slug={job.slug} detail={thread.detail} onConfirmed={thread.reload} />
           <More screen="job" id="details" label="Details" note="level, stops, who is working, facts" icon="list" className="is-card job-details">
             <div className="job-details-head">
               {ticket && <Chip className="num">{ticket}</Chip>}
@@ -235,7 +236,6 @@ function JobView({ job }: { job: Job }) {
               <StopMap job={{ ...job, lane }} faces={play.full && !narrow} label="Every stop, with its name" />
             </section>
             <JobFacts job={job} now={now} />
-            <BranchGuess slug={job.slug} detail={thread.detail} onConfirmed={thread.reload} />
           </More>
           {wide ? (
             <section className="job-convo" aria-label="Conversation">

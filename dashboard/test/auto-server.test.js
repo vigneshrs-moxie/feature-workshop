@@ -3677,7 +3677,9 @@ test('a restart of a job whose branch is recorded says nothing about a guess, an
     const res = await restartIt(w);
     assert.match(res.backupBranch ?? '', /^backup\/feature\/visit-audit-/);
     assert.ok(res.worktreeAside);
-    assert.ok(!res.notes.includes(RESTART_GUESS_NOTE), JSON.stringify(res.notes));
+    for (const sentence of ['Starbase isn\'t sure which branch is this job\'s, so it left branches and folders alone.', 'Starbase isn\'t sure which branch is this job\'s, so it left the branch alone.']) {
+      assert.ok(!res.notes.includes(sentence), JSON.stringify(res.notes));
+    }
   } finally { await w.stop(); }
 });
 
@@ -3696,5 +3698,24 @@ test('the refusals name the guessed branch; once you confirm it (your choice), T
     const closed = await w.runner.handle({ type: 'close', slug: w.slug, as: 'done', removeWorktree: true }, { from: 'local' });
     assert.equal(closed.closed.worktreeRemoved, wt);
     assert.equal(fsSync.existsSync(wt), false, 'removed as the job\'s own');
+  } finally { await w.stop(); }
+});
+
+test('a restart whose branch is a guess but whose worktree status.json names moves that folder aside and says it left only the branch alone', { timeout: 60_000 }, async () => {
+  const w = await restartedWorld({ auto: null, jobStatus: status(1, { stage_state: 'working', waiting_for: null }) });
+  try {
+    const wt = path.join(w.root, 'wt-visit-audit');
+    w.git('worktree', 'add', '-q', '-b', 'feature/visit-audit', wt);
+    w.git('branch', 'feature/other-thing');
+    await mentionBranch(w, 'feature/other-thing');
+    await w.writeStatus(status(1, { stage_state: 'working', waiting_for: null, worktree: wt }));
+    await new Promise((r) => setTimeout(r, 1600));
+    const job = await w.runner.read.job(w.slug);
+    assert.deepEqual({ branch: job.branch, guessed: job.locate.branchGuessed, worktree: job.worktree }, { branch: 'feature/other-thing', guessed: true, worktree: wt });
+    const res = await restartIt(w);
+    assert.ok(res.worktreeAside, 'the recorded folder is moved aside');
+    assert.equal(res.backupBranch, null, 'the guessed branch keeps its name');
+    assert.ok(res.notes.includes('Starbase isn\'t sure which branch is this job\'s, so it left the branch alone.'), JSON.stringify(res.notes));
+    assert.ok(!res.notes.includes('Starbase isn\'t sure which branch is this job\'s, so it left branches and folders alone.'), JSON.stringify(res.notes));
   } finally { await w.stop(); }
 });

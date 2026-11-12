@@ -1735,6 +1735,9 @@ export function createReviewRounds(deps) {
   async function answerCard({ card, action, note }) {
     const fn = actions[action];
     if (!fn) throw new ReviewRefused(400, 'Unknown answer.');
+    // As act(): a branch Starbase only guessed may be another job's.
+    const f = await jobOf(card.slug);
+    if (f.guess) throw new ReviewRefused(409, f.guess);
     const body = action === 'send' || action === 'retry' || action === 'reopen' || action === 'sync' || action === 'fix-checks' ? { go: true, note } : { note };
     return fn(card.slug, body);
   }

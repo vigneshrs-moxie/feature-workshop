@@ -20,6 +20,8 @@ export function BranchGuess({ slug, detail, onConfirmed }: { slug: string; detai
   const branch = detail?.locate?.branchGuessed ? detail.locate.branch ?? null : null;
   if (!branch) return null;
   const repoPath = detail?.repoPath ?? detail?.locate?.path ?? null;
+  // The repository's folder name, so you see what you confirm with the branch.
+  const repoName = repoPath ? repoPath.split(/[\\/]/).filter(Boolean).pop() ?? null : null;
   const hosted = Boolean(api.hosted?.());
   const confirm = async () => {
     setBusy(true);
@@ -35,7 +37,7 @@ export function BranchGuess({ slug, detail, onConfirmed }: { slug: string; detai
   };
   return (
     <div className="job-branch-guess" role="group" aria-label="The job’s branch">
-      <p className="job-facts-line"><span>Branch (a guess): <code>{branch}</code></span></p>
+      <p className="job-facts-line"><span>Branch (a guess): <code>{branch}</code>{repoName && <> <span className="muted">in {repoName}</span></>}</span></p>
       {!hosted && repoPath && (
         <Button size="sm" busy={busy} onClick={confirm}>{CONFIRM_LABEL}</Button>
       )}

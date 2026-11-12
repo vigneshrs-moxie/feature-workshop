@@ -234,6 +234,10 @@ test('locateJob: ticket keys decide, whole, and the slug\'s own key first', asyn
   // A title that mentions another ticket does not make that ticket's branch match: the slug's key is the job's.
   const followUp = { slug: 'orbit-463-talent-follow-up', title: 'ORBIT-463: follow-up to ORBIT-470 talent hide' };
   assert.equal((await at(followUp, 'feature/orbit-470-talent-hide-before-hire')).branch, null);
+  // A slug's ticket key is only the one it starts with: "phase-2" further in is no key, so it never lets another ticket's branch in.
+  const phase = await at({ slug: 'prototypes-platform-phase-2', title: 'Prototypes platform phase 2' }, 'feature/orbit-470-phase-2-cleanup');
+  assert.deepEqual({ branch: phase.branch, guessed: phase.branchGuessed }, { branch: null, guessed: false });
+  assert.equal((await at({ slug: 'orbit-463-foo', title: 'ORBIT-463: foo' }, 'fix/orbit-463')).branch, 'fix/orbit-463');
   // A branch the text only mentions is not taken when it carries another ticket's key.
   const other = await at({ ...job463, wsText: 'Stacked on the parent branch `feature/orbit-400-parent` for now.' });
   assert.equal(other.branch, null);

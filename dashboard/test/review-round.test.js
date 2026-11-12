@@ -724,3 +724,24 @@ test('a job whose branch is only a guess: every action is refused in its words, 
   assert.deepEqual(github.writes(), [], 'no reply, resolve, review request or merge on the PR');
   assert.equal(s.gitCalls.filter((g) => g[1] === 'push').length, 0, 'nothing pushed');
 });
+
+test('the round card answered from the Desk on a job whose branch turned out to be a guess is refused in the same words, and nothing reaches the pull request', async () => {
+  const GUESS = 'Starbase isn\'t sure which branch is this job\'s. It looks like feature/sample-job. Confirm it on the job page and try again.';
+  const s = await setup();
+  const { c, t, github, driver } = s;
+  await c.pass(s.flow());
+  await c.act('sample-job', 'fix', {});
+  t.status = report([
+    { id: 'c7001', state: 'fixed', commit: 'abc1234', reply: 'Fixed in abc1234.' },
+    { id: 'c7002', state: 'answered', reply: 'It is reassigned below.' },
+    { id: 'r5001', state: 'answered', reply: 'Thanks.' },
+  ]);
+  assert.equal((await c.refreshJob('sample-job')).state, 'ready');
+  const card = driver.cards.get(s.dir);
+  assert.ok(card, 'the ready card is on the Desk');
+  // The job turns guessed before the next pass drops its card: the card's Send back is refused.
+  t.guess = GUESS;
+  await assert.rejects(c.answerCard({ card: { ...card, slug: 'sample-job' }, action: 'send' }), (e) => e.status === 409 && e.message === GUESS);
+  assert.deepEqual(github.writes(), []);
+  assert.equal(s.gitCalls.filter((g) => g[1] === 'push').length, 0);
+});
