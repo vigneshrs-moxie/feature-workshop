@@ -1,6 +1,6 @@
 // Jobs (#/): every job in four lanes, Working, Needs you, In review and Ready to merge (the lane
 // comes from the dashboard: dashboard/lib/snapshot.js laneFor, with the reason in words). Resting
-// and Done fold under the board. The next-step bar names the job that has waited longest for you;
+// and Done fold under the board. The next-step bar names the next job that needs you (yours first);
 // Open (o) opens it. A card that changes lane or place waits until the pointer leaves the board, so
 // nothing moves under it, then slides there. The other layouts (Settings → Look → Jobs layout, or
 // the switch in the heading in Play full) are One list and, in Play full only, Station: the 3D
@@ -100,7 +100,7 @@ export const JOBS_GUIDE: GuideSpec = {
   cards: [
     { icons: ['activity', 'hand', 'eye', 'merge'], title: 'Four lanes', say: 'Working, Needs you, In review, Ready to merge.' },
     { icons: ['loader'], title: 'A light means working', say: 'Each card says which stop it’s at and for how long.' },
-    { icons: ['hand', 'external'], title: 'Needs you comes first', say: 'The bar at the top opens the one that has waited longest.' },
+    { icons: ['hand', 'external'], title: 'Needs you comes first', say: 'The bar at the top opens the next one: yours first, then Auto’s.' },
   ],
 };
 
@@ -257,6 +257,8 @@ export function JobsPage() {
   const autoNeed = byAuto['needs-you'];
   const pick = nextJob(yours) ?? [...autoNeed].sort((a, b) => age(a) - age(b))[0] ?? null;
   const needCount = byLane['needs-you'].length + autoNeed.length;
+  // Yours come first, so the pick may not be the longest wait: the bar says so only when it is.
+  const longest = pick !== null && [...byLane['needs-you'], ...autoNeed].every((j) => age(pick) <= age(j));
   // Yours' count: the jobs on its four lanes (Resting and Done have their own, under the board).
   const yoursCount = BOARD.reduce((n, l) => n + byLane[l].length, 0);
 
@@ -287,7 +289,7 @@ export function JobsPage() {
 
   // One line of a fixed height (packet R): it keeps its space when nothing waits, so the lanes never move.
   const bar = pick ? (
-    <NextBar line tone="stop" icon="hand" say={`${pick.title || pick.slug} needs you`} sub={`${t0(pick) ? `Waiting ${t0(pick)}. ` : ''}${needCount === 1 ? 'It is the only one.' : `${needCount} jobs need you. This one has waited longest.`}`}>
+    <NextBar line tone="stop" icon="hand" say={`${pick.title || pick.slug} needs you`} sub={`${t0(pick) ? `Waiting ${t0(pick)}. ` : ''}${needCount === 1 ? 'It is the only one.' : `${needCount} jobs need you.${longest ? ' This one has waited longest.' : ''}`}`}>
       <Button kind="primary" keyId="jobs-open" keyShown href={jobHref(pick.slug)} title={`Open ${pick.title || pick.slug}: ${reviews.get(pick.slug)?.desk?.headline ?? pick.laneReason ?? 'it waits for you'} (key: o).`}>Open</Button>
     </NextBar>
   ) : open.length ? (

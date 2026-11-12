@@ -474,3 +474,22 @@ describe('Jobs: Yours and Auto, review fixes', () => {
     } finally { vi.unstubAllGlobals(); }
   });
 });
+
+describe('Jobs: the bar says "waited longest" only when it is true', () => {
+  const mine = (since: string) => job('alpha', 'needs-you', { title: 'Customer notes', stage: 'plan', lane: 'needs-you', waitingFor: 'approval', waitingSince: since });
+  const autoStopped = job('a-stop', 'needs-you', { title: 'Auto stopped here', stage: 'plan', lane: 'needs-you', laneReason: 'Auto stopped: the Foreman says it is blocked', waitingFor: 'approval', waitingSince: '2026-10-21T08:00:00Z', auto: { on: true, ran: true, stopped: { reason: 'the Foreman says it is blocked' }, group: 'needs-you' } });
+  const sub = () => screen.getByRole('region', { name: 'Next step' }).querySelector('.next-sub')!.textContent ?? '';
+
+  it('yours waited a short time and a stopped Auto job longer: yours is named, and the line stops after the count', () => {
+    setup([mine('2026-10-21T09:00:00Z'), autoStopped]);
+    expect(screen.getByRole('region', { name: 'Next step' })).toHaveTextContent('Customer notes needs you');
+    expect(sub()).toMatch(/2 jobs need you\.$/);
+    expect(sub()).not.toContain('This one has waited longest.');
+  });
+
+  it('yours waited longer than the Auto job: the full sentence', () => {
+    setup([mine('2026-10-21T07:00:00Z'), autoStopped]);
+    expect(screen.getByRole('region', { name: 'Next step' })).toHaveTextContent('Customer notes needs you');
+    expect(sub()).toMatch(/2 jobs need you\. This one has waited longest\.$/);
+  });
+});
