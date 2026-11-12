@@ -1692,6 +1692,24 @@ describe('after a click on the go / no go bar', () => {
     expect(screen.queryByText(MOVED)).toBeNull();
   });
 
+  // Fix round 1, M5: when he answered the brief himself, the line says only where his unsent words are.
+  it.each([['the laptop app', false], ['the website', true]] as const)('after his own Go the unsent change words move to the message box with a line that says so (%s)', async (_where, hosted) => {
+    // The box is named for steering while the run his Go started works.
+    const composerBox = () => document.querySelector<HTMLTextAreaElement>('[data-composer-input]')!;
+    setup({ jobs: waiting(), gate: GATE, post: sentPost(), hosted });
+    await sendBack('Use the small table.');
+    fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
+    const go = screen.getByRole('button', { name: /^Go: approve/ });
+    await waitFor(() => expect(go).toBeEnabled());
+    fireEvent.click(go);
+    await waitFor(() => expect(composerBox()).toHaveValue('Use the small table.'));
+    expect(screen.getByText('Your unsent words are in the message box.')).toBeVisible();
+    expect(screen.queryByText(/was answered while you were writing/)).toBeNull();
+    // The same rule: it goes once he writes there.
+    fireEvent.change(composerBox(), { target: { value: 'Use the small table. Later.' } });
+    await waitFor(() => expect(screen.queryByText('Your unsent words are in the message box.')).toBeNull());
+  });
+
   it('a send that fails puts the words back in the box and in the store', async () => {
     let refuse: (e: unknown) => void = () => {};
     const post = vi.fn((p: string): Promise<unknown> => (p.endsWith('/gate') ? new Promise((_res, rej) => { refuse = rej; }) : Promise.resolve({ ok: true })));

@@ -101,7 +101,7 @@ function MovedWordsLine({ slug }: { slug: string }) {
   if (!moved || wrote) return null;
   return (
     <div className="gate-notice is-ok sb-moved-words" role="status">
-      <p className="gate-notice-text">{movedWordsLine(moved.brief)}</p>
+      <p className="gate-notice-text">{movedWordsLine(moved)}</p>
       <Button kind="quiet" onClick={() => setRaw(null)} title="Close this note.">Got it</Button>
     </div>
   );

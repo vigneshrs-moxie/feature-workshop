@@ -220,8 +220,11 @@ export const gateBoxKey = (slug: string) => `fw.gateBox.${slug}`;
 /** Where the bar's line about words moved to the message box waits until he writes or dismisses it. */
 export const gateMovedKey = (slug: string) => `fw.gateMoved.${slug}`;
 
-/** What is kept: for which go / no go (gateKey) and its brief number, the open box, and the words. */
-interface KeptBox { gate: string; brief: number | null; mode: 'changes' | 'message' | null; notes: Notes }
+/**
+ * What is kept: for which go / no go (gateKey) and its brief number, the open box, and the words.
+ * `mine`: he answered this brief himself (a Go or a send back went out), so what is left is unsent.
+ */
+interface KeptBox { gate: string; brief: number | null; mode: 'changes' | 'message' | null; notes: Notes; mine?: boolean }
 
 function readKeptBox(raw: string | null): KeptBox | null {
   if (!raw) return null;
@@ -234,23 +237,29 @@ function readKeptBox(raw: string | null): KeptBox | null {
       brief: typeof v.brief === 'number' ? v.brief : null,
       mode: v.mode === 'changes' || v.mode === 'message' ? v.mode : null,
       notes: { changes: typeof n.changes === 'string' ? n.changes : '', message: typeof n.message === 'string' ? n.message : '' },
+      ...(v.mine === true ? { mine: true } : {}),
     };
   } catch { return null; }
 }
 
-/** The bar's line once words were moved: for which brief, and the message box's text then. */
-export interface MovedWords { brief: number | null; draft: string }
+/** The bar's line once words were moved: for which brief, the message box's text then, and whether he answered it. */
+export interface MovedWords { brief: number | null; draft: string; mine?: boolean }
 
 export function readMovedWords(raw: string | null): MovedWords | null {
   if (!raw) return null;
   try {
     const v = JSON.parse(raw) as Partial<MovedWords> | null;
-    return v && typeof v.draft === 'string' ? { brief: typeof v.brief === 'number' ? v.brief : null, draft: v.draft } : null;
+    return v && typeof v.draft === 'string' ? { brief: typeof v.brief === 'number' ? v.brief : null, draft: v.draft, ...(v.mine === true ? { mine: true } : {}) } : null;
   } catch { return null; }
 }
 
+/** He answered the brief himself (fix round 1, M5): the line says only where his unsent words are. */
+export const UNSENT_WORDS_MOVED = 'Your unsent words are in the message box.';
+
 /** The bar's line, once, after the card went with his words still held. */
-export const movedWordsLine = (brief: number | null) => `${brief !== null ? `Brief ${brief}` : 'The brief'} was answered while you were writing. Your words are in the message box.`;
+export const movedWordsLine = (moved: Pick<MovedWords, 'brief' | 'mine'>) => (moved.mine
+  ? UNSENT_WORDS_MOVED
+  : `${moved.brief !== null ? `Brief ${moved.brief}` : 'The brief'} was answered while you were writing. Your words are in the message box.`);
 
 /**
  * The page (one call, mounted for as long as the job's page is): when the card's brief is answered
@@ -274,7 +283,7 @@ export function useKeptBoxWords(job: Job, detail: JobDetail | null) {
     const draft = (readStored(draftKey(slug)) ?? '').replace(/\s+$/, '');
     const text = draft ? `${draft}\n\n${words}` : words;
     writeStored(draftKey(slug), text);
-    writeStored(gateMovedKey(slug), JSON.stringify({ brief: kept.brief, draft: text } satisfies MovedWords));
+    writeStored(gateMovedKey(slug), JSON.stringify({ brief: kept.brief, draft: text, ...(kept.mine ? { mine: true } : {}) } satisfies MovedWords));
   }, [raw, detail, closed, slug]);
 }
 
@@ -297,11 +306,13 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   const [mode, setMode] = useState<Mode>(restored?.mode ?? null);
   // Each box keeps its own words (final review A3): what was typed as a change is never a Reply's note.
   const [notes, setNotes] = useState<Notes>(restored?.notes ?? { changes: '', message: '' });
+  // He answered this brief himself (a deciding send is out or went): what is left is unsent (M5).
+  const answeredHere = useRef(false);
   /** Write what is held now; written at once where the card may go straight after (a send, Cancel). */
   const keep = (m: Mode, n: Notes) => {
     const box = m === 'changes' || m === 'message' ? m : null;
     const held = box !== null || n.changes.trim() !== '' || n.message.trim() !== '';
-    if (held) { writeStored(gateBoxKey(slug), JSON.stringify({ gate: thisGate, brief: gate.briefNumber ?? null, mode: box, notes: n } satisfies KeptBox)); return; }
+    if (held) { writeStored(gateBoxKey(slug), JSON.stringify({ gate: thisGate, brief: gate.briefNumber ?? null, mode: box, notes: n, ...(answeredHere.current ? { mine: true } : {}) } satisfies KeptBox)); return; }
     // Nothing held: forget this brief's, never another brief's words still to be moved (useKeptBoxWords).
     const was = readKeptBox(readStored(gateBoxKey(slug)));
     if (was && was.gate === thisGate) writeStored(gateBoxKey(slug), null);
@@ -522,11 +533,13 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
     // What goes out leaves the store at the press (fix round 1, I1): the job's details can say the
     // brief is answered before the send's own answer comes back, and words that went out must never
     // be moved to the message box. The box still shows them until the answer comes.
+    answeredHere.current = DECIDING_KINDS.includes(kind);
     keep(mode, leftAfter(kind, extra));
     try {
       done(kind, await post(kind, extra), extra);
     } catch (err) {
       // Nothing went: the words are kept again, as the box still shows them.
+      answeredHere.current = false;
       keep(mode, notes);
       if (isStale(err)) return; // said in the slot; the card is refetched
       if (err instanceof ApiError && err.body.code === 'terminal-open') setAskTerminal(true);
@@ -998,7 +1011,11 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
           sendHint="Send this text as your approval of this brief (⌘/Ctrl+Enter)."
           // The plan changed while the sheet was open: sending is off (your text stays to copy).
           blocked={stale ? 'The plan changed since this card was raised, so this approval would be for an old version. Nothing was sent; close this and check the new version.' : null}
-          submit={async (text, { confirmNoTerminal }) => { edited.current = await post('approve', { text, ...(confirmNoTerminal ? { confirmNoTerminal } : {}) }); }}
+          submit={async (text, { confirmNoTerminal }) => {
+            answeredHere.current = true;
+            keep(mode, notes);
+            try { edited.current = await post('approve', { text, ...(confirmNoTerminal ? { confirmNoTerminal } : {}) }); } catch (err) { answeredHere.current = false; keep(mode, notes); throw err; }
+          }}
           onClose={closeEdit}
           onSent={() => { setEditing(null); if (edited.current) done('approve', edited.current); }}
         />
