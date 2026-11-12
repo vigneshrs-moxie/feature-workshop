@@ -299,7 +299,7 @@ export function normalize(input = {}, { exists = (p) => fs.existsSync(p), previo
   out.evidence = evidenceChoice(input.evidence) ?? evidenceChoice(previous?.evidence) ?? 'auto';
   // Run as a stack (New job, the Inbox's Start as stack): the Foreman is the stack's coordinator.
   if (input.stack === true || (input.stack === undefined && previous?.stack === true)) out.stack = true;
-  // Auto mode (lib/auto.js): only a literal true, only below L3, and its time only with it. What
+  // Auto mode (lib/auto.js): only a literal true, at any level up to AUTO_MAX_LEVEL (L3: every level), and its time only with it. What
   // says Auto is on is the sessions record; the runner writes these two from it (writeAutoOption).
   if (input.auto === true && !(isLevel(out.level) && out.level > AUTO_MAX_LEVEL)) {
     out.auto = true;

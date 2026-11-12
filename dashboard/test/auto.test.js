@@ -4,26 +4,21 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { AUTO_MAX_LEVEL, AUTO_RULES, AUTO_L3, autoAllowed, autoCardView, autoOption, autoRecord } from '../lib/auto.js';
+import * as autoLib from '../lib/auto.js';
+import { AUTO_MAX_LEVEL, AUTO_RULES, autoAllowed, autoCardView, autoOption, autoRecord } from '../lib/auto.js';
 
-const L3 = 'Auto works up to L2. An L3 job needs you to approve each step.';
-
-test('L3 is not allowed and says why', () => {
-  assert.equal(AUTO_MAX_LEVEL, 2);
-  assert.equal(AUTO_L3, L3);
-  assert.deepEqual(autoAllowed({ level: 3 }), { ok: false, why: L3 });
-  for (const level of [0, 1, 2]) assert.deepEqual(autoAllowed({ level, suggestedLevel: level }), { ok: true, why: null }, `L${level}`);
+test('autoAllowed: every level and a suggested L3 are allowed', () => {
+  assert.equal(AUTO_MAX_LEVEL, 3);
+  assert.equal('AUTO_L3' in autoLib, false, 'no sentence for a refusal that no longer happens');
+  for (const level of [0, 1, 2, 3]) assert.deepEqual(autoAllowed({ level, suggestedLevel: level }), { ok: true, why: null }, `L${level}`);
+  for (const level of [null, 0, 1, 2, 3]) assert.deepEqual(autoAllowed({ level, suggestedLevel: 3 }), { ok: true, why: null }, `L${level} with a suggested L3`);
+  assert.deepEqual(autoAllowed({ level: 3, suggestedLevel: null }), { ok: true, why: null });
 });
 
 test('no level yet is allowed', () => {
   assert.deepEqual(autoAllowed({ level: null, suggestedLevel: null }), { ok: true, why: null });
   assert.deepEqual(autoAllowed({}), { ok: true, why: null });
   assert.deepEqual(autoAllowed({ level: null, suggestedLevel: 2 }), { ok: true, why: null });
-});
-
-test('a suggested L3 is not allowed, with no level and on an L2 job alike', () => {
-  assert.deepEqual(autoAllowed({ level: null, suggestedLevel: 3 }), { ok: false, why: L3 });
-  assert.deepEqual(autoAllowed({ level: 2, suggestedLevel: 3 }), { ok: false, why: L3 });
 });
 
 test('the stop rules are the fixed list', () => {
@@ -44,17 +39,18 @@ test('the record: on starts fresh, off keeps that Auto ran', () => {
 test('the card: on, ran, stopped, never deciding yet, and whether it is allowed', () => {
   const rec = autoRecord(null, { on: true, by: 'you', now: '2026-11-10T09:00:00.000Z' });
   assert.deepEqual(autoCardView(rec, { level: 1, suggestedLevel: null }), { on: true, by: 'you', ran: true, stopped: null, deciding: false, allowed: true, why: null, began: 'you', group: 'working', waitingToTest: false, tooBig: null, risky: 0, finished: null });
-  assert.deepEqual(autoCardView(null, { level: 3 }), { on: false, by: null, ran: false, stopped: null, deciding: false, allowed: false, why: L3, began: null, group: null, waitingToTest: false, tooBig: null, risky: 0, finished: null });
+  assert.deepEqual(autoCardView(null, { level: 3 }), { on: false, by: null, ran: false, stopped: null, deciding: false, allowed: true, why: null, began: null, group: null, waitingToTest: false, tooBig: null, risky: 0, finished: null });
+  assert.deepEqual([autoCardView(rec, { level: 2, suggestedLevel: 3 }).allowed, autoCardView(rec, { level: 2, suggestedLevel: 3 }).why], [true, null], 'a suggested L3 too');
   const stopped = { reason: 'The plan adds a migration', rule: 'database', at: '2026-11-10T09:30:00.000Z' };
   assert.deepEqual(autoCardView({ ...rec, stopped }, { level: 2 }).stopped, stopped);
   assert.equal(autoCardView({ ...rec, on: false, stopped }, { level: 2 }).stopped, null, 'off: nothing is stopped');
 });
 
-test('options.json says Auto only while the record does, and never above L2', () => {
+test('options.json says Auto only while the record does, at every level', () => {
   const rec = autoRecord(null, { on: true, by: 'you', now: '2026-11-10T09:00:00.000Z' });
   assert.deepEqual(autoOption(rec, 2), { on: true, since: '2026-11-10T09:00:00.000Z' });
   assert.deepEqual(autoOption(rec, null), { on: true, since: '2026-11-10T09:00:00.000Z' });
-  assert.deepEqual(autoOption(rec, 3), { on: false, since: null });
+  assert.deepEqual(autoOption(rec, 3), { on: true, since: '2026-11-10T09:00:00.000Z' });
   assert.deepEqual(autoOption({ ...rec, on: false }, 1), { on: false, since: null });
   assert.deepEqual(autoOption(null, 1), { on: false, since: null });
   assert.deepEqual(autoOption({ on: 'yes', since: 'x' }, 1), { on: false, since: null }, 'only a literal true');

@@ -56,8 +56,8 @@ test('gate and job rules', () => {
   const job = (over) => fixedStop({ kind: 'job', level: 1, suggestedLevel: null, triggers: [], stageState: 'running', statusCard: null, step: null, failures: 0, ...over }, ctx());
   assert.equal(job({}), null);
   assert.equal(job({ triggers: ['migrations'] }).rule, 'database');
-  assert.equal(job({ level: 3 }).rule, 'level');
-  assert.equal(job({ suggestedLevel: 3 }).rule, 'level');
+  assert.equal(job({ level: 3 }), null);
+  assert.equal(job({ suggestedLevel: 3 }), null);
   assert.deepEqual(job({ step: { stage: 'plan', count: 3 } }), { rule: 'loop', reason: 'the Plan step came back for approval three times without moving on.' });
   assert.equal(job({ step: { stage: 'plan', count: 2 } }), null);
   assert.equal(job({ step: { stage: 'implement', count: 1 } }), null, 'a new stage starts again');

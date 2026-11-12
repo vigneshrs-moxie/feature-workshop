@@ -582,7 +582,6 @@ test('minor: a job with no session sends its first message on the model its opti
 
 // ---------- Auto mode's switch: kept in Starbase's own sessions.json, never in the job's folder ----------
 
-const L3 = 'Auto works up to L2. An L3 job needs you to approve each step.';
 const readJson = async (file) => JSON.parse(await fs.readFile(file, 'utf8'));
 const sessions = () => readJson(path.join(stateDir, 'sessions.json')).catch(() => ({}));
 
@@ -662,15 +661,19 @@ test('the site cannot send by: \'auto\'', () => {
   assert.equal(parseCommand({ type: 'approve', slug: 'auto-job', by: 'auto' }, { from: 'local' }).ok, false, 'not from this computer’s page either');
 });
 
-test('L3 refuses with the sentence', { timeout: 60_000 }, async () => {
+test('L3: the switch answers 200 and Auto runs the job', { timeout: 60_000 }, async () => {
   const dir = path.join(featuresDir, 'big-job');
+  const before = await getJson('/api/job/big-job');
+  assert.deepEqual([before.auto.on, before.auto.allowed, before.auto.why], [false, true, null], 'the switch is not held back at L3');
   const r = await post('/api/job/big-job/auto', { on: true });
-  assert.equal(r.status, 409);
-  assert.equal(r.body.error, L3);
-  assert.equal((await sessions())[dir]?.auto, undefined, 'no record written');
-  assert.equal('auto' in (await optionsOf('big-job')), false);
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal((await sessions())[dir]?.auto?.on, true, 'the record is written');
+  const o = await optionsOf('big-job');
+  assert.deepEqual([o.level, o.auto], [3, true]);
   const job = await getJson('/api/job/big-job');
-  assert.deepEqual([job.auto.on, job.auto.allowed, job.auto.why], [false, false, L3]);
+  assert.deepEqual([job.auto.on, job.auto.allowed, job.auto.why], [true, true, null]);
+  // Off again, so the tests after this one see the job as it was.
+  assert.equal((await post('/api/job/big-job/auto', { on: false })).status, 200);
 });
 
 test('turning Auto on for a job with no options.json writes one with auto and auto_since', { timeout: 60_000 }, async () => {

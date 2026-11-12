@@ -31,11 +31,8 @@
 //   acted      when he acted after PR #1, else null; cleared by on
 // finished is cleared by on as well. Which group a record shows in under Auto: autoGroup.
 
-/** The highest level Auto runs at. */
-export const AUTO_MAX_LEVEL = 2;
-
-/** Why an L3 job (or one the Foreman suggests is L3) can't run in Auto. Exact words. */
-export const AUTO_L3 = 'Auto works up to L2. An L3 job needs you to approve each step.';
+/** The highest level Auto runs at: every level. An L3 job runs to PR #1 like any other. */
+export const AUTO_MAX_LEVEL = 3;
 
 /** The most cards (a worker's question or permission) Auto answers between two gates of one job. */
 export const AUTO_CARDS_PER_REPLY = 40;
@@ -47,12 +44,11 @@ const isLevel = (v) => Number.isInteger(v) && v >= 0 && v <= 3;
 const aboveAuto = (v) => isLevel(v) && v > AUTO_MAX_LEVEL;
 
 /**
- * Whether a job may run in Auto: not at L3, and not while the Foreman suggests L3, with or without
- * a level set (a proposed raise to L3 is the person's to decide, never the Approver's). No level yet
- * is allowed. Returns { ok, why } with why the exact sentence when it isn't.
+ * Whether a job may run in Auto: at every level, with no level yet, and whatever level the Foreman
+ * suggests (Auto applies a suggestion by raising the job's level, never lowering it). Returns
+ * { ok: true, why: null }; kept with its shape so the switch, the driver's door and the card need no change.
  */
-export function autoAllowed({ level = null, suggestedLevel = null } = {}) {
-  if (aboveAuto(level) || aboveAuto(suggestedLevel)) return { ok: false, why: AUTO_L3 };
+export function autoAllowed() {
   return { ok: true, why: null };
 }
 
@@ -117,7 +113,7 @@ export function autoGroup(record, { closed = false } = {}) {
 
 /**
  * What a job's options.json should say about Auto: { on, since } from its record. On only while the
- * record says a literal true, and never above L2 (normalize drops it there too).
+ * record says a literal true, and never above AUTO_MAX_LEVEL (normalize does the same): at every level.
  */
 export function autoOption(record, level = null) {
   const on = record?.on === true && !aboveAuto(level);
@@ -126,8 +122,8 @@ export function autoOption(record, level = null) {
 
 /**
  * The board card's `auto`: { on, by, ran, stopped, deciding, allowed, why } (by: who turned it on; the tag is the job page's, added with it). deciding is false until
- * Auto answers gates (a later part); allowed and why are autoAllowed's, so the switch can say why
- * it is off at L3. The Auto queue adds began (beganOf), group (autoGroup; null when closed),
+ * Auto answers gates (a later part); allowed and why are autoAllowed's (allowed at every level, why
+ * null). The Auto queue adds began (beganOf), group (autoGroup; null when closed),
  * waitingToTest (the runner's: it waits for the test place), tooBig ({ at, reason } or null), risky
  * (a count, 0 when not known) and finished (when PR #1 was seen open, else null).
  */

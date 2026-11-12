@@ -22,7 +22,7 @@
 // Everything Auto writes is an audit line { action: 'auto', what, stage, asked, chose, why, ... } and
 // nothing reaches the Foreman but through decide.gate with by: 'auto'.
 
-import { autoAllowed, AUTO_CARDS_PER_REPLY, AUTO_MARK, OWN_SENDS, YOURS_NOW, wroteWhileWaiting } from '../lib/auto.js';
+import { AUTO_CARDS_PER_REPLY, AUTO_MARK, OWN_SENDS, YOURS_NOW, wroteWhileWaiting } from '../lib/auto.js';
 import { AUTO_STOP_REASONS, autoVerdict, fixedStop } from '../lib/auto-rules.js';
 import { APPROVER_BUDGET_USD, approverCut, approverPaths, approverRoots, callPreview, checkAnswer } from '../lib/approver.js';
 import { DECIDING_KINDS } from '../lib/gate.js';
@@ -121,22 +121,22 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
    * Auto stops and waits for you: the record says why, one audit line, one notification (none if it already had). Resolves true when it wrote the stop.
    * why: the Approver's own words when the reason is Starbase's (they go on the line; the reason is what the person is told).
    */
-  async function stop(job, { rule, reason }, { leave = false, why = null, card = false, cardId = null } = {}) {
+  async function stop(job, { rule, reason }, { why = null, card = false, cardId = null } = {}) {
     stopping(job.slug, true);
-    try { return await writeStop(job, { rule, reason }, { leave, why, card, cardId }); } finally { stopping(job.slug, false); }
+    try { return await writeStop(job, { rule, reason }, { why, card, cardId }); } finally { stopping(job.slug, false); }
   }
   // card: the stop was written on a card (stopOnCard); only then does the person's answer to a card clear it (N1).
   // cardId: that card's request id; only the person's answer to that card clears the stop (F1).
-  async function writeStop(job, { rule, reason }, { leave, why, card, cardId }) {
+  async function writeStop(job, { rule, reason }, { why, card, cardId }) {
     const at = now().toISOString();
     let spent = 0;
     let wrote = false;
     await update(job.dir, (prev) => {
-      // Auto was switched off, or already stopped: nothing to stop (leaving for L3 replaces a stop).
-      if (prev?.on !== true || (!leave && prev.stopped)) return null;
+      // Auto was switched off, or already stopped: nothing to stop.
+      if (prev?.on !== true || prev.stopped) return null;
       wrote = true;
       spent = prev.spent ?? 0;
-      return { ...prev, ...(leave ? { on: false } : {}), stopped: { reason, rule, at, ...(card ? { card: true, ...(cardId ? { cardId } : {}) } : {}) } };
+      return { ...prev, stopped: { reason, rule, at, ...(card ? { card: true, ...(cardId ? { cardId } : {}) } : {}) } };
     });
     if (!wrote) return false;
     try {
@@ -147,7 +147,6 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       // What the person should do, for every stop: the reason ends with its own full stop.
       const said = /[.!?]$/.test(reason) ? reason : `${reason}.`;
       notify({ level: 'needs', title: job.title, body: `Auto stopped: ${said} Open the job to answer.`, slug: job.slug, key: `auto-stop:${job.slug}:${at}` });
-      if (leave) changed();
       freed(); // a stopped job frees its Auto start place: it can be filled now
     }
     return true;
@@ -206,18 +205,13 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     stuckSince.delete(job.dir);
     if (job.restarting) return null;
     if (job.prOpen) { await finish(job); return null; }
-    // A job at L3 (or one the Foreman suggests is L3) leaves Auto, stopped or not, even in the middle of a reply.
-    if (!autoAllowed({ level: job.level, suggestedLevel: job.suggestedLevel }).ok) {
-      await stop(job, fixedStop({ kind: 'job', level: job.level, suggestedLevel: job.suggestedLevel }), { leave: true });
-      return null;
-    }
     if (job.auto.stopped) { await carryOnIfYouDecided(job); return null; }
     if (job.running || job.locked || job.paused) return null;
     // A reply cut off by a Starbase crash or restart waits for Resume, which only the person presses: no ten minutes for that.
     if (job.cutOff) { await stop(job, { rule: 'blocked', reason: CUT_OFF }); return null; }
-    // A suggested L1 or L2 above the job's level is applied before the gate is answered (never lowered).
+    // A suggested L1, L2 or L3 above the job's level is applied before the gate is answered (the higher one wins, never lowered).
     const suggested = job.suggestedLevel;
-    if ((suggested === 1 || suggested === 2) && !(job.level >= suggested)) {
+    if ((suggested === 1 || suggested === 2 || suggested === 3) && !(job.level >= suggested)) {
       try { await raiseLevel(job, suggested); job.level = suggested; } catch (err) { console.error(`auto level (${job.slug}):`, err.message); return null; }
     }
     const gate = job.gate && !job.gate.stale && job.gate.briefNumber !== null && !job.answered.includes(job.gate.briefNumber) && job.gate.briefNumber !== job.auto.lastBrief ? job.gate : null;
@@ -332,8 +326,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       const gate = job.gate;
       const rec = job.auto;
       const hit = stopFor(job, rec, gate);
-      // At L3 the job leaves Auto here, as triage would: one stop line and one notice, not a stop now and a leave next pass.
-      if (hit) return stop(job, hit, { leave: !autoAllowed({ level: job.level, suggestedLevel: job.suggestedLevel }).ok });
+      if (hit) return stop(job, hit);
       const route = fixedStop({ kind: 'gate', stage: job.stage, nextStage: gate.nextStage });
       if (route) return stop(job, route);
       if (notNow(job)) return;
@@ -521,7 +514,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     const waits = () => pendingCard(card.id);
     if (!waits()) { cards.delete(card.id); return; } // gone while it queued: answered, or the reply ended
     const [job] = await read(card.featureDir);
-    if (!job || job.auto?.on !== true || job.auto.stopped || job.restarting || !autoAllowed({ level: job.level, suggestedLevel: job.suggestedLevel }).ok) return leave();
+    if (!job || job.auto?.on !== true || job.auto.stopped || job.restarting) return leave();
     // Never answered: a card about Starbase's own checks, PR feedback, a review round. A status card also stops Auto.
     if (card.feedbackCard || card.roundCard) return leave();
     if (card.statusCard) return stopOnCard(job, fixedStop({ kind: 'job', statusCard: true }), leave, { cardId: card.id });

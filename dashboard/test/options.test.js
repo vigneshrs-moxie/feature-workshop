@@ -338,18 +338,15 @@ test('job options: a document the job already had is kept when saved again, even
   assert.throws(() => normalize({ level: 2, provided: { plan: '/tmp/fw-test/moved-plan.md' } }, { exists: nowhere }), /no file at/, 'without the earlier options it is checked');
 });
 
-test('auto survives normalize below L3 and is dropped at L3', async () => {
+test('auto survives normalize at every level', async () => {
   const since = '2026-11-10T09:00:00.000Z';
-  for (const level of [0, 1, 2]) {
+  for (const level of [0, 1, 2, 3]) {
     const o = normalize({ level, auto: true, auto_since: since });
     assert.equal(o.auto, true, `L${level}`);
     assert.equal(o.auto_since, since, `L${level}`);
   }
   const none = normalize({ auto: true, auto_since: since });
   assert.deepEqual([none.level, none.auto, none.auto_since], [null, true, since], 'no level yet: kept');
-  const l3 = normalize({ level: 3, auto: true, auto_since: since });
-  assert.equal('auto' in l3, false, 'L3: dropped');
-  assert.equal('auto_since' in l3, false, 'L3: its time goes with it');
   for (const v of ['true', 1, {}, false, null]) assert.equal('auto' in normalize({ level: 1, auto: v, auto_since: since }), false, `auto: ${JSON.stringify(v)}`);
   assert.equal('auto_since' in normalize({ level: 1, auto_since: since }), false, 'no auto: no auto_since');
   assert.equal('auto' in normalize({ level: 1 }), false, 'nothing said: no field at all');
@@ -373,5 +370,6 @@ test('describeOptions has the Auto line', () => {
   const line = 'Auto: Starbase\'s Auto answers each gate for the person, no hand test is asked for, and the job stops once PR #1 is open.';
   assert.ok(describeOptions(normalize({ level: 2, auto: true, auto_since: '2026-11-10T09:00:00.000Z' })).includes(line));
   assert.ok(!describeOptions(normalize({ level: 2 })).includes(line));
-  assert.ok(!describeOptions(normalize({ level: 3, auto: true })).includes(line), 'never at L3');
+  for (const level of [0, 1, 3]) assert.ok(describeOptions(normalize({ level, auto: true })).includes(line), `L${level}`);
+  assert.ok(describeOptions(normalize({ auto: true })).includes(line), 'no level yet');
 });

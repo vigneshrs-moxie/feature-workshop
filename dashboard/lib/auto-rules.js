@@ -32,7 +32,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { autoAllowed } from './auto.js';
 import { classify, commandParts, isInside, TEMP_DIRS } from './policy.js';
 import { hardLine, namesStarbaseAddress, namesThisComputer, ORG_REMOTES, ORG_URL, physicalPath, rmInsideJob, withPathMemo, WRAPPERS } from './hard-lines.js';
 import { envCopy, gitReadForm, localPlain, plainWhy, psRead, starbaseDecisions } from './auto-plain.js';
@@ -130,7 +129,7 @@ const stageLabel = (id) => STAGES.find((s) => s.id === id)?.label ?? String(id ?
 function jobStop(j) {
   const ids = (j.triggers ?? []).map((t) => (typeof t === 'string' ? t : t?.id));
   if (ids.includes('migrations')) return stop('database');
-  if (!autoAllowed({ level: j.level ?? null, suggestedLevel: j.suggestedLevel ?? null }).ok) return stop('level');
+  // No stop for the level: Auto runs an L3 job to PR #1. AUTO_STOP_REASONS.level stays for old audit lines.
   if ((j.step?.count ?? 0) >= 3) return { rule: 'loop', reason: `the ${stageLabel(j.step.stage)} step came back for approval three times without moving on.` };
   if ((j.failures ?? 0) >= 2) return { rule: 'approver', reason: `the Approver failed twice running (${j.problem ?? 'no usable answer'}).` };
   if (j.stageState === 'blocked') return stop('blocked');
