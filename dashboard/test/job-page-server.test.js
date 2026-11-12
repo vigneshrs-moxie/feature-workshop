@@ -503,7 +503,7 @@ function guessedWorld() {
     }
     assert.deepEqual({ branch: job.branch, guessed: job.locate?.branchGuessed, located: job.locate?.worktree }, { branch: 'feature/other-thing', guessed: true, located: main.wt });
     assert.equal(exp.locate?.branchGuessed, true);
-    return { d, get, slug: main.slug, repo: gRepo, wt: main.wt, baseSha, s1: main.s1, merged };
+    return { d, get, slug: main.slug, dir: main.dir, repo: gRepo, wt: main.wt, baseSha, s1: main.s1, merged };
   })();
   return guessed;
 }
@@ -557,8 +557,13 @@ test('the header\'s place of the work never comes from a guessed branch\'s pull 
   assert.equal(job.finish?.reached, false, 'not "PR #1 open from your fork" by the guessed branch\'s PR #1');
 });
 
+/** The slugs the flow map has a lane for now (GET /api/flow). */
+const laneSlugs = async (w) => (await w.get('/api/flow')).repos.flatMap((r) => r.lanes ?? []).map((l) => l.slug);
+
 test('the plan is all done by a merged PR #1 only while the branch is recorded, never by a guessed branch\'s lane', { timeout: 60_000 }, async () => {
   const w = await guessedWorld();
+  // What a revert would wrongly read is still there: the map kept the lane it read while the branch was recorded.
+  assert.ok((await laneSlugs(w)).includes(w.merged.slug), 'the map still has the guessed job\'s lane');
   const job = await w.get(`/api/job/${w.merged.slug}`);
   assert.deepEqual(job.page.plan.steps.map((s) => s.state), ['next', 'next'], 'not "all done" by the guessed branch\'s merged PR #1, nor built by its [S1]');
   assert.equal(job.page.prs[0].state, 'not-started');
@@ -597,7 +602,18 @@ test('This is the job\'s branch tells every open page the job changed, and the j
   });
   req.on('error', () => {});
   try {
-    await sleep(300);
+    // Start from a map with no lane for the job, so only the handler's own recount can give it back
+    // in time: a change in the job's folder first (the map's recount after a change then waits 15
+    // seconds), then a recount, which drops the guessed job's lane.
+    await fs.writeFile(path.join(w.dir, 'notes.md'), 'Seen again.\n');
+    for (let n = 0; n < 100 && !seen.some((e) => e.type === 'change'); n++) await sleep(50);
+    assert.ok(seen.some((e) => e.type === 'change'), 'the folder\'s change was seen');
+    const refreshed = await fetch(`${w.d.base}/api/flow/refresh`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Starbase-Token': w.d.token }, body: '{}' });
+    assert.equal(refreshed.status, 202, await refreshed.text());
+    for (let n = 0; n < 100 && (await laneSlugs(w)).includes(w.slug); n++) await sleep(50);
+    assert.equal((await laneSlugs(w)).includes(w.slug), false, 'the map has no lane for the guessed job');
+    assert.equal((await w.get(`/api/job/${w.slug}`)).page.prs[0].state, 'not-started');
+    seen.length = 0;
     const res = await fetch(`${w.d.base}/api/job/${w.slug}/repo`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Starbase-Token': w.d.token }, body: JSON.stringify({ repoPath: w.repo, branch: 'feature/other-thing' }) });
     assert.equal(res.status, 200, await res.text());
     for (let n = 0; n < 60 && !seen.some((e) => e.type === 'change'); n++) await sleep(50);
