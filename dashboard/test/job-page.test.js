@@ -142,6 +142,28 @@ test('a report with no marks is null', async () => {
   assert.equal(checkCounts(null), null);
 });
 
+test('every AC on one line gets the line’s mark', async () => {
+  const { checkCounts } = await import('../lib/job-page.js');
+  assert.deepEqual(checkCounts('- AC-1, AC-2: PASS\n- AC-3 and AC-4 FAIL\n'), { passed: 2, failed: 2, notRun: 0 });
+  // The later line for the same AC still wins.
+  assert.deepEqual(checkCounts('- AC-1, AC-2: PASS\n- AC-2 FAIL\n'), { passed: 1, failed: 1, notRun: 0 });
+});
+
+test('a line with both PASS and FAIL counts as failed', async () => {
+  const { checkCounts } = await import('../lib/job-page.js');
+  assert.deepEqual(checkCounts('- AC-2 expected PASS, got FAIL\n'), { passed: 0, failed: 1, notRun: 0 });
+  assert.deepEqual(checkCounts('- AC-2 FAIL, then PASS on a retry of another check\n'), { passed: 0, failed: 1, notRun: 0 });
+  assert.deepEqual(checkCounts('- AC-3 PASSED before, FAILED now\n'), { passed: 0, failed: 1, notRun: 0 });
+});
+
+test('PASSED and FAILED count; lower case does not', async () => {
+  const { checkCounts } = await import('../lib/job-page.js');
+  assert.deepEqual(checkCounts('- AC-1 PASSED\n- AC-2 FAILED\n- AC-3 NOT RUN\n'), { passed: 1, failed: 1, notRun: 1 });
+  assert.equal(checkCounts('- AC-1 passed\n- AC-2 failed\n- AC-3 should pass\n'), null);
+  // Whole words only.
+  assert.equal(checkCounts('- AC-1 PASSES\n- AC-2 FAILING\n- AC-3 BYPASS\n'), null);
+});
+
 // ---------- Fix round 1 ----------
 
 test('stepDocs: a bug job’s repro.md is under Investigate, its diagnosis.md under Plan and Build; a feature job is unchanged', () => {

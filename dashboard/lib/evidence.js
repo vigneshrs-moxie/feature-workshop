@@ -246,7 +246,8 @@ export async function markWatched(watchFile) {
 /**
  * A live picture's bytes, or null: opened without following a link (O_NOFOLLOW), and only when that
  * open file is a plain file of 1 byte to LIVE_MAX_BYTES saved under LIVE_FRESH_MS ago. The bytes come
- * from that same open file, so a picture renamed over it meanwhile can't change what is sent.
+ * from that same open file, so a picture renamed over it meanwhile can't change what is sent, and
+ * all of them or none: a file that holds fewer bytes than its size said is null.
  */
 export async function readLiveFrame(liveFile, { now = Date.now() } = {}) {
   const before = await fsp.lstat(liveFile).catch(() => null);
@@ -256,9 +257,16 @@ export async function readLiveFrame(liveFile, { now = Date.now() } = {}) {
     fh = await fsp.open(liveFile, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
     const st = await fh.stat();
     if (!st.isFile() || st.size < 1 || st.size > LIVE_MAX_BYTES || now - st.mtimeMs >= LIVE_FRESH_MS) return null;
+    // A read may give fewer bytes than asked: read on until the size is reached or the file ends.
+    // A file that ends short (a cut picture) is no picture.
     const bytes = Buffer.alloc(st.size);
-    const { bytesRead } = await fh.read(bytes, 0, st.size, 0);
-    return bytesRead > 0 ? bytes.subarray(0, bytesRead) : null;
+    let got = 0;
+    while (got < st.size) {
+      const { bytesRead } = await fh.read(bytes, got, st.size - got, got);
+      if (!bytesRead) return null;
+      got += bytesRead;
+    }
+    return bytes;
   } catch {
     return null;
   } finally {
@@ -576,6 +584,8 @@ async function copyLineVideo({ evidenceDir, commit, id, from, outputDir }) {
  * the computer is handed in:
  *   server.start()   starts Try it for the job (or finds it running): { baseURL, startedHere }
  *   server.stop()    stops it again (called only when start said startedHere)
+ *   server.cannotStart()  optional: the words a start would be refused with, known before anything
+ *                    starts (a branch only guessed), else null; asked before onStart
  *   dbCheck()        { ok } : whether the local database copy is up (null: there is no check)
  *   run({ configFile, cwd, specs, onLine })   runs Playwright: { code, output }; onLine(text) for
  *                    each line of its output as it comes (the progress reporter's lines among them)
@@ -605,6 +615,9 @@ export async function recordEvidence({ job, server, dbCheck = null, run, playwri
     onStart();
     return { ok: true, evidence: await collectEvidence({ evidenceDir, commit, specs, lines, level, at: now().toISOString(), report: null, outputDir: evidenceDir }) };
   }
+  // A start already known to be refused is refused here, so nothing says a recording started.
+  const refused = server.cannotStart?.() ?? null;
+  if (refused) throw new EvidenceError(409, refused);
   if (dbCheck) {
     const db = await dbCheck();
     if (db && !db.ok) throw new EvidenceError(503, DB_DOWN, { code: 'database-down' });

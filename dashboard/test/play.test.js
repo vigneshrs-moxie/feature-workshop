@@ -1172,6 +1172,19 @@ test('reviewRows: a finding’s text is cut at a word with …, and at most 150 
   assert.equal(many[149].text, 'Finding 149');
 });
 
+test('a cut never splits an emoji', () => {
+  // No spaces, so the cut is not at a word: 300 two-unit emoji put the cut on a pair's first half.
+  const emoji = '😀'.repeat(300);
+  const [row] = reviewRows(`| Severity | Finding |\n|---|---|\n| Major | ${emoji} |\n`);
+  assert.ok(row.text.isWellFormed(), 'no half of a pair is left at the end');
+  assert.ok(row.text.length <= FINDING_TEXT_MAX, String(row.text.length));
+  assert.ok(row.text.endsWith('…'));
+  assert.equal(row.text, `${'😀'.repeat(199)}…`);
+  // One unit later, the cut already falls between two emoji and is not moved.
+  const [shifted] = reviewRows(`| Severity | Finding |\n|---|---|\n| Major | a${emoji} |\n`);
+  assert.equal(shifted.text, `a${'😀'.repeat(199)}…`);
+});
+
 test('reviewRows: a finding with words is never dropped: agent names and lists map to a lens, any severity maps', () => {
   const text = [
     '| Severity | Lens | Finding |',

@@ -42,6 +42,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { HttpError } from '../lib/http-guard.js';
 import { EVIDENCE_DIR, EvidenceError, NO_LIVE, evidenceFile, evidenceWanted, liveFiles, markWatched, readEvidence, readLiveFrame, readyToRecord, recordEvidence, recordingWords, reportCommit, shortCommit } from '../lib/evidence.js';
+import { guessedWorktree, guessWords } from '../lib/locate.js';
 import { fillPattern } from '../lib/profile.js';
 import { killTree, shellFor } from '../lib/platform.js';
 import { PRODUCT } from '../lib/brand.js';
@@ -219,6 +220,8 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
         return { baseURL: fillPattern(w.tryIt.url, { port }), startedHere, cwd: w.root };
       },
       stop: async () => { if (startedHere) await local.stopServerAndWait(f.slug); },
+      // A branch only guessed (lib/locate.js): Try it's where() refuses it with these words, so say them before the start.
+      cannotStart: () => (f.worktree && guessedWorktree(f) ? guessWords(f) : null),
     };
   }
 
@@ -256,7 +259,7 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
           progress.set(f.slug, p);
           events.emit('evidence', f.slug, { slug: f.slug, outcome: 'progress', at: new Date().toISOString(), progress: p });
         },
-        server: { start: async () => { const s = await server.start(); cwd = s.cwd ?? cwd; return s; }, stop: server.stop },
+        server: { start: async () => { const s = await server.start(); cwd = s.cwd ?? cwd; return s; }, stop: server.stop, cannotStart: server.cannotStart },
         dbCheck: await dbCheckFor(f),
         run: (opts) => runPlaywright(pw.script, { ...opts, cwd }),
       });

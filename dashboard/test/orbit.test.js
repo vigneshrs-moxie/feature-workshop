@@ -931,3 +931,30 @@ test('a secret with a dash, a dot or a plus in front of it is still hidden', () 
   ];
   for (const [input, secret] of cases) assert.equal(scrub(input).includes(secret), false, `${input} → ${scrub(input)}`);
 });
+
+// ---------- Parked fixes: two gaps in hiding a command line's secrets ----------
+
+test('--user= x:pw and --user = x:pw are hidden like --user x:pw', () => {
+  assert.equal(scrub('curl --user= admin:hunter2pass https://x'), 'curl --user= [hidden] https://x');
+  assert.equal(scrub('curl --user = admin:hunter2pass https://x'), 'curl --user = [hidden] https://x');
+  assert.equal(scrub('curl --user =admin:hunter2pass https://x'), 'curl --user =[hidden] https://x');
+  // As before: the plain forms, and a name alone (curl asks for the password) is left.
+  assert.equal(scrub('curl --user admin:hunter2pass https://x'), 'curl --user [hidden] https://x');
+  assert.equal(scrub('curl --user=admin:hunter2pass https://x'), 'curl --user=[hidden] https://x');
+  assert.equal(scrub('curl --user = admin https://x'), 'curl --user = admin https://x');
+  // Still quick on a long run of spaces or equals signs after the flag.
+  const N = 200_000;
+  for (const text of [` --user${' '.repeat(N)}`, ` --user${' ='.repeat(N / 2)}`, ` --user ${'= '.repeat(N / 2)}`]) {
+    const started = performance.now();
+    scrub(text);
+    assert.ok(performance.now() - started < 500);
+  }
+});
+
+test('a password in front of a token inside an address is hidden', () => {
+  const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U';
+  assert.equal(scrub(`git clone https://deploy:hunter2-${jwt}@git.example.com/x`), 'git clone https://[hidden]@git.example.com/x');
+  assert.equal(scrub(`psql postgres://app:pw.${jwt}@db/app`), 'psql postgres://[hidden]@db/app');
+  // A token anywhere else is still hidden by its shape.
+  assert.equal(scrub(`curl https://x/?t=${jwt}`), 'curl https://x/?t=[JWT hidden]');
+});

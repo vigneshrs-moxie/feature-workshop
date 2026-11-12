@@ -683,3 +683,38 @@ test('evidence server, demo mode: the demo’s recording shows on the job’s ev
   assert.equal(r.cacheControl, 'no-store', 'never kept by the browser, as the real picture');
   assert.equal((await liveAs('demo-recording-job', 'cross-site')).status, 404, 'another site’s page still can’t ask');
 });
+
+// ---------- Parked fixes: a guessed branch is refused before anything says a recording started ----------
+
+test('Record on a guessed branch refuses before anything says a recording started', async () => {
+  const { guessedWorktree, guessWords } = await import('../lib/locate.js');
+  const slug = 'guessed-branch-job';
+  const dir = path.join(root, 'door-jobs', slug);
+  const worktree = path.join(root, 'door-jobs', 'someone-elses-worktree');
+  await fs.mkdir(path.join(dir, 'evidence', 'specs'), { recursive: true });
+  await fs.mkdir(worktree, { recursive: true });
+  await fs.writeFile(path.join(dir, 'test-report.md'), REPORT('abc1234def5'));
+  for (const n of [1, 2]) await fs.writeFile(path.join(dir, 'evidence', 'specs', `AC-${n}.spec.mjs`), SPEC(n));
+  // The branch only guessed (lib/locate.js): its worktree may be another job's.
+  const f = { slug, dir, options: { schema_version: 2, level: 2, flow: 'small' }, worktree, statusWorktree: null, locate: { branch: 'feature/other-thing', branchGuessed: true, worktree } };
+  assert.equal(guessedWorktree(f), worktree);
+  const emitted = [];
+  const started = [];
+  const door = evidenceRunner({
+    jobs: async () => [f],
+    // Try it as the real one answers a guessed worktree (lib/local.js where()).
+    local: {
+      where: async (job) => (guessedWorktree(job) ? { reason: guessWords(job) } : { root: job.worktree, app: null }),
+      startServer: async (job) => { started.push(job.slug); },
+      dbView: async () => null, // no local database to check
+      jobs: new Map(),
+    },
+    state: { audit: async () => {} }, events: { emit: (_name, _slug, data) => emitted.push(data) }, on: () => {},
+    env: { STARBASE_PLAYWRIGHT: path.join(FIXTURE, 'fake-playwright.mjs') },
+  });
+  await assert.rejects(door.record(slug), (err) => err.status === 409 && err.message === guessWords(f));
+  assert.deepEqual(emitted.map((e) => e.outcome), ['not-recorded'], 'never "recording", only the refusal');
+  assert.equal(emitted[0].reason, guessWords(f));
+  assert.deepEqual(started, [], 'no server started');
+  assert.equal((await door.view(slug)).problem?.message, guessWords(f));
+});
