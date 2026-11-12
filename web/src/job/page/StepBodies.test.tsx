@@ -4,6 +4,8 @@
 // on the laptop and on the website, and with a record from an older laptop (none of the new
 // facts). Invented jobs, commits and reviews only; no model, browser or network.
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../../api/client';
@@ -280,6 +282,21 @@ describe('Review', () => {
     setup((j) => <ReviewStep slug={SLUG} job={j} view={stage('review')} />);
     expect(screen.queryByText(/finding/i)).toBeNull();
     expect(screen.queryByRole('heading', { name: 'The reviewers and what they found' })).toBeNull();
+  });
+
+  it('the Review step’s heading is drawn as the other steps’ section headings are', () => {
+    setup((j) => <BuildStep slug={SLUG} job={j} view={stage('build', { plan: PLAN_V2 })} />, { hosted: true });
+    const build = screen.getByRole('heading', { name: 'The plan’s steps · Plan v2' });
+    const buildClass = build.className;
+    cleanup();
+    setup((j) => <ReviewStep slug={SLUG} job={j} view={stage('review', { review: REVIEWERS })} />);
+    const review = screen.getByRole('heading', { name: 'The reviewers and what they found' });
+    expect(review.tagName).toBe(build.tagName);
+    expect(review.className).toBe(buildClass);
+    // The open step's own headings (Who worked on it, Documents from this step) are larger: inside
+    // the panel these section headings keep the eyebrow's size, as on the overview.
+    const css = readFileSync(path.join(process.cwd(), 'src/job/page/page.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(css).toMatch(/\.sb-panel h3\.eyebrow \{[^}]*font-size: var\(--text-2xs\)/);
   });
 
   it('the review walkthrough folds under Review only when there is one', () => {
