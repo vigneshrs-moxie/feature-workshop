@@ -1,6 +1,6 @@
 # Auto queue: design
 
-Status: written for the owner's OK on 2026-11-12. Branch `feature/auto-queue` (from `main` 8c794b8). Nothing here is built yet.
+Status: written 2026-11-12; the owner answered Q15 to Q17 the same day (yes, yes, and (b) for Q17). Branch `feature/auto-queue` (from `main` 8c794b8).
 
 ## What it is for
 
@@ -13,7 +13,7 @@ The owner's words:
 
 ## Decisions
 
-Q1 to Q14 are the owner's answers of 2026-11-11. Q15 to Q17 are my recommendations and still need his answer; the design below assumes them.
+Q1 to Q14 are the owner's answers of 2026-11-11; Q15 to Q17 are his answers of 2026-11-12.
 
 | # | Decision | From |
 |---|---|---|
@@ -28,15 +28,15 @@ Q1 to Q14 are the owner's answers of 2026-11-11. Q15 to Q17 are my recommendatio
 | 9 | The per-job Auto switch stays. A job with it on shows under `Auto`. | owner |
 | 10 | A started job stays an Auto job if the tag is removed. Removing the tag only holds back a ticket that has not started. | owner |
 | 11 | Inbox `Auto`: `Next up`, `Auto is working on these`. Jobs `Auto`: `Working`, `Needs you`, `Ready for you to try`. A job leaves the tab when he acts on it after PR #1. | owner |
-| 12, 15 | Spec, plan, build and review run side by side. Testing runs one Auto job at a time, on a database that belongs to Auto. | **assumed** |
+| 12, 15 | Spec, plan, build and review run side by side. Testing runs one Auto job at a time, on a database that belongs to Auto. | owner |
 | 13 | A ticket the Foreman's first brief calls stack-sized is set aside as `Too big for Auto`. No hand-off to Stacks. | owner |
 | 14 | Auto starts nothing new near the usage limit, and the Auto tab says so. | owner |
-| 16 | Notifications only for `Ready for you to try`, `Needs you` and `Too big for Auto`. | **assumed** |
-| 17 | Auto's risky calls are listed in Starbase only, with the count in the finish notice. Not in PR #1's description. | **assumed** |
+| 16 | Notifications only for `Ready for you to try`, `Needs you` and `Too big for Auto`. | owner |
+| 17 | Auto's risky calls are written down in both places: in Starbase, with the count in the finish notice, and in PR #1's description ("lets store the decisions in both pr desc and starbase"). | owner |
 
 ## Three things the code read changed
 
-These differ from what was put to the owner. Each needs his OK with the rest.
+These differ from what was first put to the owner. They were put to him with Q15 to Q17 on 2026-11-12; he answered the questions and raised nothing against these, which is taken as his OK.
 
 1. **The workflow skills change too.** The Foreman's own instructions forbid Auto at L3 and require his own words for any plan with a migration. Starbase alone cannot make the Foreman carry on. So this build changes the skills repo as well as Starbase, and go-live includes installing the skills.
 2. **The crew runs no database commands under Auto. Starbase applies the migrations.** Q8 said a database command is "allowed on the job's own local database". The rule in the code cannot see which database a command targets, and teaching it to would be the riskiest part of the build. The simpler rule gives the same result: a database command from the crew is refused with a note, and Starbase itself applies the job's migrations to Auto's database when that job's turn to test comes.
@@ -132,6 +132,7 @@ Gone: `Started by Auto`, `Auto start could not start` (it shows in the Inbox's A
 - Each risky call is a line in the What Auto decided list with a `Risky call` mark: what the Approver first said, what Auto chose, and why.
 - Each refusal is a line too: `Refused: <what>`.
 - The count of risky calls shows on the row, on the job page and in the finish notice.
+- **In PR #1's description:** a short section headed `Decisions Auto made`, one line for each risky call: the step, what was in doubt, and what Auto chose. Starbase gives the Foreman the list with its go-ahead for PR #1, and the Foreman puts it at the end of the description as written. With no risky calls there is no section. Refusals are not listed there; they stay in Starbase.
 
 ### 10. The website
 
@@ -146,7 +147,7 @@ Six parts, each reviewed on its own.
 | A | The Auto record keeps how the job began; places count every working Auto job; N is a setting; ceiling of 10 | `dashboard/lib/auto.js`, `auto-start.js`, `state.js`, `runner/index.js`, Settings |
 | B | No questions: refuse on the card, the safer second ask, L3 allowed, the migrations trigger no longer a stop | `dashboard/lib/auto-rules.js`, `auto.js`, `runner/auto.js`; skills repo `feature/skills/feature/job-options.md`, `workflow-gates.md`, the bug-fix levels, the database checklist |
 | C | Auto's database, the job's turn, the test place, the fast copy for Try it | `dashboard/lib/local.js`, `runner/evidence.js`, `runner/auto.js` |
-| D | Too big for Auto, the three notifications, the risky count | `runner/auto.js`, `auto-start.js`, `runner/index.js`, `lib/auto-log.js` |
+| D | Too big for Auto, the three notifications, the risky count, the `Decisions Auto made` list for PR #1's description | `runner/auto.js`, `auto-start.js`, `runner/index.js`, `lib/auto-log.js`; skills repo `feature/skills/feature/job-options.md` and the bug-fix equivalent |
 | E | Jobs tabs, Inbox tabs, the Desk mark, the job page's lines | `web/src/home/JobsPage.tsx`, `views/Inbox.tsx`, `home/DeskView.tsx`, `views/Settings/AutoStartGroup.tsx`, `job/page/` |
 | F | The new facts on the website | `dashboard/runner/mirror.js`, `hosted/` |
 
@@ -165,7 +166,8 @@ Go-live for this build: merge to `main`, install the skills on the laptop, rebui
 |---|---|
 | Auto's rules were deep-reviewed on 2026-11-11 (5 Critical, 10 Important fixed). Loosening them can reopen a hole | Refusals reuse the existing deny path. Nothing that was refused before becomes allowed, except L3 and plans with migrations. Part B gets a review on the most capable model, like the last one |
 | The job's app ignores the database address Starbase gives it and uses his database | The plan proves the address wins for Orbit (a Next.js app; its migrate script already takes it this way) with a test, and the recording refuses to start if the app's database is not Auto's |
-| A wrong safer call lands in PR #1 | PR #1 is not merged, and the risky calls are listed and counted in front of him |
+| A wrong safer call lands in PR #1 | PR #1 is not merged, and the risky calls are listed and counted in front of him and in the PR's description for the team |
+| The Foreman leaves the section out of PR #1's description | The skills say to add it as written, and Starbase's own list is complete whatever the PR says |
 | Five jobs load the laptop | Testing is one at a time; N is a setting he can lower |
 | A job with a guessed branch | Unchanged: Auto never acts on a guessed branch |
 
