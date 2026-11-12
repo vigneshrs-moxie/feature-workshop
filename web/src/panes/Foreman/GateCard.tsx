@@ -159,12 +159,22 @@ export function GateSlot({ job, detail, now, reload, callsOutside = false, extra
   const noticeEl = useRef<HTMLDivElement>(null);
   const headId = useId();
 
+  // Once per notice: a new onWrite is not a new hand to the box. A notice that takes the focus is
+  // brought into view and focused once it is shown (fix round 3): a folded card shows a moment later.
+  const noticeDue = useRef(false);
   useEffect(() => {
     if (!notice) return;
-    // Once per notice: a new onWrite is not a new hand to the box.
     if (notice.focus === 'composer') (onWrite ?? (() => focusMessageBox()))();
-    else noticeEl.current?.focus();
+    else noticeDue.current = true;
   }, [notice]);
+  useEffect(() => {
+    const el = noticeEl.current;
+    if (!noticeDue.current || !el) return;
+    if (el.closest('[hidden]')) return;
+    noticeDue.current = false;
+    if (typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'nearest' });
+    el.focus();
+  });
 
   // Your reply to this brief waits in the composer (made while the Foreman was working).
   const waiting = gate !== null && memo !== null && gate.briefNumber !== null && memo.brief === gate.briefNumber;
@@ -406,6 +416,33 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   const spins = (button: NonNullable<typeof pressed>) => sending && pressed === button;
   const [error, setError] = useState<string | null>(null);
   const [askTerminal, setAskTerminal] = useState(false);
+  // What a failed press says is always seen (fix round 3): the error, or the terminal tick box, is
+  // brought into view once, inside whatever area scrolls, as soon as it is shown (a folded card shows
+  // a moment later), and the focus is never left on the page body. Not again while the same words stay.
+  const cardEl = useRef<HTMLElement>(null);
+  const pressedFrom = useRef<HTMLElement | null>(null);
+  const reveal = useRef<{ focus: boolean; tries: number } | null>(null);
+  const said = error ?? (askTerminal ? 'terminal' : null);
+  useEffect(() => { if (said !== null) reveal.current = { focus: true, tries: 0 }; }, [said]);
+  useEffect(() => {
+    const r = reveal.current;
+    if (!r) return;
+    const el = cardEl.current?.querySelector<HTMLElement>('[data-gate-holds]');
+    if (!el) { reveal.current = null; return; }
+    if (el.closest('[hidden]')) return; // the folded card is shown on its next drawing
+    if (r.tries === 0 && typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'nearest' });
+    r.tries += 1;
+    const at = document.activeElement;
+    // A box he is typing in, or a place he moved to himself, keeps the focus.
+    if (!r.focus || (at && at !== document.body && at.isConnected && !(at as HTMLButtonElement).disabled)) { reveal.current = null; return; }
+    const back = pressedFrom.current;
+    if (back?.isConnected && !(back as HTMLButtonElement).disabled && !back.closest('[hidden]')) { back.focus(); reveal.current = null; return; }
+    // The call he pressed is off for a moment (the bar reads the card a moment later): wait a drawing or two.
+    if (back?.isConnected && r.tries < 3) return;
+    if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '-1');
+    el.focus();
+    reveal.current = null;
+  });
   const [noTerminal, setNoTerminal] = useState(false);
   // The job is held elsewhere (a terminal, another dashboard): from the snapshot, or a refused answer.
   const [refused, setRefused] = useState<JobLockInfo | null>(null);
@@ -626,6 +663,8 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
 
   async function act(kind: GateKind, extra: Partial<GateRequest> = {}, button: NonNullable<typeof pressed> = kind === 'stop' ? 'stop' : kind) {
     if (busy) return;
+    const from = document.activeElement;
+    pressedFrom.current = from instanceof HTMLElement && from !== document.body ? from : null;
     setPressed(button);
     setBusy(true);
     setError(null);
@@ -748,7 +787,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   // On the Desk the card's extras go into its one Details sheet; elsewhere they stay on the card.
   const putExtras = (node: ReactNode, key: string) => (extrasTo ? createPortal(node, extrasTo, key) : node);
   return (
-    <section className={`perm-card question-card gate-card${stale ? ' is-stale' : ''}`} data-ask="question" aria-labelledby={headId} aria-busy={busy}>
+    <section ref={cardEl} className={`perm-card question-card gate-card${stale ? ' is-stale' : ''}`} data-ask="question" aria-labelledby={headId} aria-busy={busy}>
       {/* The Send back or Reply box, when open: first, directly under the page's bar. */}
       {(mode === 'changes' || mode === 'message') && (
         <div className="gate-note" data-box={mode}>
