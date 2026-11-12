@@ -350,13 +350,30 @@ describe('StepPanel', () => {
     expect(order()).toEqual(['Who worked on it', 'Live: what they’re doing', 'body', 'Documents from this step']);
     view.rerender(panel(BUILD, true));
     expect(order()).toEqual(['body', 'Who worked on it', 'Live: what they’re doing', 'Documents from this step']);
-    // A step not reached: the not-yet line, then the body, then who will work on it.
+    // A step not reached: the not-yet line, then the body; nobody to list, so no who heading.
     const TEST: StageView = { ...BUILD, stop: 'test', label: 'Test', state: 'next', stateWords: 'Not yet', since: null, agents: [], finished: [], docs: [] };
     const line = 'Not yet. The Tester starts when the build is done. These three run then:';
     view.rerender(panel(TEST, true));
-    expect(order()).toEqual([line, 'body', 'Who will work on it', 'Documents from this step']);
+    expect(order()).toEqual([line, 'body', 'Documents from this step']);
     view.rerender(panel(TEST));
     expect(order()).toEqual(['Who will work on it', line, 'body', 'Documents from this step']);
+  });
+
+  it('a heading never stands alone: a step not reached with nobody to list draws no who heading', () => {
+    const notYet: StageView = { ...BUILD, stop: 'test', label: 'Test', state: 'next', stateWords: 'Not yet', since: null, agents: [], finished: [], docs: [] };
+    const s = stores(BUILDING);
+    const panel = (bodyFirst: boolean, extraAgents?: StageAgent[]) => s.wrap(<StepPanel job={BUILDING} stop="test" view={notYet} error={null} onRetry={() => {}} now={NOW} bodyFirst={bodyFirst} extraAgents={extraAgents}><p>The step’s own body</p></StepPanel>);
+    const view = render(panel(true));
+    expect(screen.queryByRole('heading', { name: 'Who will work on it' })).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Who will work on it' })).toBeNull();
+    expect(screen.getByText('Not yet. The Tester starts when the build is done. These three run then:')).toBeInTheDocument();
+    expect(screen.getByText('The step’s own body')).toBeInTheDocument();
+    // In the usual order the not-yet line sits under the heading, so the heading stays.
+    view.rerender(panel(false));
+    expect(within(who('Who will work on it')).getByText('Not yet. The Tester starts when the build is done. These three run then:')).toBeInTheDocument();
+    // A row to list: the heading is back, with the row under it.
+    view.rerender(panel(true, [agent('starbase-recorder', { role: 'Starbase', model: 'recorder', ref: 'recorder' })]));
+    expect(who('Who will work on it').querySelectorAll('.sb-who-row')).toHaveLength(1);
   });
 
   it('an older answer never overwrites a newer one', async () => {

@@ -3,7 +3,7 @@
 // recording runs, as the evidence strip does, else every 30 s. It stops asking when the job changes
 // or the component goes; an answer for another job never lands; a request that fails keeps the
 // last view (nothing flashes to empty).
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { EvidenceView } from '../../api/types';
 import { useWorkshop } from '../../state/store';
 
@@ -22,14 +22,22 @@ export function useEvidence(slug: string): { view: EvidenceView | null; reload()
   }
   const [tries, setTries] = useState(0);
 
-  const ask = useCallback((alive: () => boolean) => Promise.resolve(api.get<EvidenceView>(`/api/job/${encodeURIComponent(slug)}/evidence`)).then(
-    (view) => {
-      if (!alive() || !view || typeof view !== 'object') return;
-      setHeld((h) => (h.slug === slug ? { slug, view } : h));
-    },
-    // The step shows its last view; the next ask tries again.
-    () => {},
-  ), [api, slug]);
+  // Each ask is numbered: an answer older than one already taken is dropped (a slow ask that lands
+  // after a quicker later one never puts the older view back).
+  const asked = useRef(0);
+  const taken = useRef(0);
+  const ask = useCallback((alive: () => boolean) => {
+    const mine = ++asked.current;
+    return Promise.resolve(api.get<EvidenceView>(`/api/job/${encodeURIComponent(slug)}/evidence`)).then(
+      (view) => {
+        if (!alive() || !view || typeof view !== 'object' || mine < taken.current) return;
+        taken.current = mine;
+        setHeld((h) => (h.slug === slug ? { slug, view } : h));
+      },
+      // The step shows its last view; the next ask tries again.
+      () => {},
+    );
+  }, [api, slug]);
 
   // At once: on mount, on another job, and on reload.
   useEffect(() => {

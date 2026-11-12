@@ -19,12 +19,12 @@ import { useNarrow } from '../../components/page/Page';
 import { EvidenceStrip } from '../../panes/Foreman/EvidenceStrip';
 import { TryTab } from '../../panes/Preview/TryTab';
 import { useWorkshop } from '../../state/store';
+import { AUTO_SKIPS_HAND_TEST } from '../../views/JobDrawer/OptionsEditor';
 import { spentWords, statesOf } from './stepWords';
 import { WatchPicture } from './WatchPicture';
 import { WhatToCheck } from './WhatToCheck';
 import './page.css';
 
-export const AUTO_SKIPS_HAND_TEST = 'Auto skips your hand test on this job. The recorded evidence still runs.';
 /** How many waiting lines show before the rest fold into one row ("11 more waiting"). */
 const WAITING_SHOWN = 4;
 
@@ -231,7 +231,7 @@ function EvidenceRow({ slug, evidence, now, hosted, watching, onWatching, stripO
     <Kind name="Recorded evidence" by={`by ${BRAND.name}`} state={state} tone={tone} stateTitle={title} where="The job’s app on its own address, in a hidden browser" when={when}>
       {canWatch && (
         <div className="sb-test-action">
-          <Button kind="secondary" size="sm" icon={watching ? 'eye-off' : 'eye'} aria-pressed={watching} onClick={() => onWatching(!watching)}>
+          <Button kind="secondary" size="sm" icon={watching ? 'eye-off' : 'eye'} onClick={() => onWatching(!watching)}>
             {watching ? 'Stop watching' : 'Watch'}
           </Button>
           <span className="muted sb-test-note">The hidden browser, live, in this page.</span>

@@ -169,6 +169,9 @@ function Who({ job, stop, view, error, onRetry, now, rows, reached, notYet }: { 
   } else if (rows.length === 0) {
     body = <p className="muted sb-who-empty">{view.state === 'skipped' ? 'This job skipped this step.' : 'Nobody is working here now.'}</p>;
   }
+  // A heading never stands alone: nothing to say and nobody to list (a step not reached whose
+  // not-yet line sits above the body) draws no who section at all.
+  if (!body && rows.length === 0 && !note) return null;
   return (
     <section className="sb-who" aria-labelledby={id}>
       <header className="sb-who-head">

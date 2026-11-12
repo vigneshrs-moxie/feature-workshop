@@ -26,10 +26,19 @@ export function captionOf(progress: EvidenceProgress | null | undefined): string
 }
 
 export function WatchPicture({ slug, progress }: { slug: string; progress: EvidenceProgress | null | undefined }) {
-  const [src, setSrc] = useState<string | null>(null);
-  const [stale, setStale] = useState(false);
+  // The picture and the "no picture" line belong to one job: another job starts with neither (the
+  // old picture's address is revoked as its chain stops).
+  const [held, setHeld] = useState<{ slug: string; src: string | null; stale: boolean }>({ slug, src: null, stale: false });
+  let current = held;
+  if (held.slug !== slug) {
+    current = { slug, src: null, stale: false };
+    setHeld(current);
+  }
+  const { src, stale } = current;
 
   useEffect(() => {
+    const setSrc = (u: string) => setHeld((h) => (h.slug === slug ? { ...h, src: u, stale: false } : h));
+    const setStale = () => setHeld((h) => (h.slug === slug ? { ...h, stale: true } : h));
     let on = true;
     let n = 0;
     let shown: string | null = null;
@@ -40,7 +49,7 @@ export function WatchPicture({ slug, progress }: { slug: string; progress: Evide
     const hidden = () => typeof document !== 'undefined' && document.visibilityState === 'hidden';
     const waitForPicture = () => {
       clearTimeout(none);
-      none = setTimeout(() => { if (on) setStale(true); }, NO_FRAME_MS);
+      none = setTimeout(() => { if (on) setStale(); }, NO_FRAME_MS);
     };
 
     async function ask() {
@@ -58,7 +67,6 @@ export function WatchPicture({ slug, progress }: { slug: string; progress: Evide
             if (shown) URL.revokeObjectURL(shown);
             shown = url;
             setSrc(url);
-            setStale(false);
             waitForPicture();
           }
         }

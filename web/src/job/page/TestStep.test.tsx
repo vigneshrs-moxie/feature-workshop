@@ -13,6 +13,7 @@ import { job, snapshot } from '../../state/test-fixtures';
 import { StepPanel } from './StepPanel';
 import { recorderAgent, TestStep } from './TestStep';
 import { useEvidence } from './useEvidence';
+import { WatchPicture } from './WatchPicture';
 
 const NOW = new Date('2026-11-10T12:00:00Z');
 const ago = (min: number) => new Date(NOW.getTime() - min * 60_000).toISOString();
@@ -293,6 +294,8 @@ describe('TestStep', () => {
     const row = kind('Recorded evidence');
     expect(row).toHaveTextContent('The hidden browser, live, in this page.');
     expect(liveCalls(fetch)).toHaveLength(0);
+    // The words carry the state (Watch, Stop watching): no pressed state on top.
+    expect(within(row).getByRole('button', { name: 'Watch' })).not.toHaveAttribute('aria-pressed');
     fireEvent.click(within(row).getByRole('button', { name: 'Watch' }));
     await act(async () => {});
     expect(liveCalls(fetch)).toHaveLength(1);
@@ -317,6 +320,72 @@ describe('TestStep', () => {
     expect(liveCalls(fetch)).toHaveLength(4);
     expect(within(row).queryByRole('img')).toBeNull();
     expect(within(row).getByRole('button', { name: 'Watch' })).toBeInTheDocument();
+  });
+
+  it('while frames keep coming it never says there is no picture', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
+    const fetch = stubFrames(['frame']);
+    show({ evidence: RECORDING, watching: true });
+    await act(async () => {});
+    for (let s = 0; s < 8; s += 1) {
+      await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+      expect(kind('Recorded evidence')).not.toHaveTextContent('No picture right now.');
+    }
+    expect(within(kind('Recorded evidence')).getByRole('img', { name: 'The hidden browser, live' })).toBeInTheDocument();
+    expect(liveCalls(fetch).length).toBeGreaterThanOrEqual(16);
+  });
+
+  it('asks nothing while the tab is hidden, and starts again when it shows', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
+    let state: DocumentVisibilityState = 'visible';
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
+    try {
+      const fetch = stubFrames(['frame']);
+      show({ evidence: RECORDING, watching: true });
+      await act(async () => {});
+      await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+      expect(liveCalls(fetch)).toHaveLength(3);
+      state = 'hidden';
+      // The ask already planned finds the tab hidden and rests; nothing more for a minute.
+      await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+      const resting = liveCalls(fetch).length;
+      await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+      expect(liveCalls(fetch)).toHaveLength(resting);
+      state = 'visible';
+      await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+      expect(liveCalls(fetch)).toHaveLength(resting + 1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+      expect(liveCalls(fetch)).toHaveLength(resting + 2);
+    } finally {
+      delete (document as unknown as { visibilityState?: unknown }).visibilityState;
+    }
+  });
+
+  it('another job’s Watch drops the old picture and asks for the new job', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
+    const fetch = vi.fn(async (url: string) => (String(url).startsWith(`/api/job/${SLUG}/`)
+      ? { ok: true, status: 200, blob: async () => new Blob(['jpeg'], { type: 'image/jpeg' }) }
+      : { ok: false, status: 404, blob: async () => new Blob([]) }));
+    vi.stubGlobal('fetch', fetch);
+    let urls = 0;
+    Object.assign(URL, { createObjectURL: vi.fn(() => `blob:frame-${++urls}`), revokeObjectURL: vi.fn() });
+    const p = progress();
+    const view = render(<WatchPicture slug={SLUG} progress={p} />);
+    await act(async () => {});
+    expect(screen.getByRole('img', { name: 'The hidden browser, live' })).toBeInTheDocument();
+    view.rerender(<WatchPicture slug="other-job" progress={p} />);
+    expect(screen.queryByRole('img')).toBeNull();
+    await act(async () => {});
+    expect(screen.queryByRole('img')).toBeNull();
+    expect(fetch.mock.calls.some(([u]) => String(u).startsWith('/api/job/other-job/evidence/live?'))).toBe(true);
+    // The old job's "no picture" line goes too.
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_100); });
+    expect(screen.getByText('No picture right now. The recording may be between lines.')).toBeInTheDocument();
+    const before = fetch.mock.calls.filter(([u]) => String(u).startsWith(`/api/job/${SLUG}/`)).length;
+    view.rerender(<WatchPicture slug={SLUG} progress={p} />);
+    expect(screen.queryByText('No picture right now. The recording may be between lines.')).toBeNull();
+    await act(async () => {});
+    expect(fetch.mock.calls.filter(([u]) => String(u).startsWith(`/api/job/${SLUG}/`)).length).toBe(before + 1);
   });
 
   it('with no frame for 5 seconds it says so and keeps asking', async () => {
@@ -379,7 +448,6 @@ describe('TestStep', () => {
     expect(kinds()).not.toHaveTextContent(/line \d+ of \d+/i);
     expect(lineRows()).toHaveLength(0);
     expect(within(row).queryByRole('button', { name: /Watch/ })).toBeNull();
-    expect(recorderAgent(died.recording ? died.progress : null)).toBeNull();
     fireEvent.click(within(row).getByRole('button', { name: 'Record again' }));
     await waitFor(() => expect(api.post).toHaveBeenCalledWith(`/api/job/${SLUG}/evidence/record`, {}));
     await waitFor(() => expect(onRecorded).toHaveBeenCalled());
@@ -466,6 +534,37 @@ describe('TestStep', () => {
     expect(within(kind('Your hand test')).getByRole('button', { name: 'Open Try it' })).toBeInTheDocument();
   });
 
+  it('the recorder’s feed has only the last three lines it finished', () => {
+    const p = progress();
+    // Lines 1 to 6 finished (line 5 failed), line 7 runs.
+    const later: EvidenceProgress = {
+      ...p, line: 7,
+      lines: p.lines.map((l, i) => (i < 6 ? { ...l, state: i === 4 ? 'failed' as const : 'passed' as const, at: ago(6 - i) } : i === 6 ? { ...l, state: 'running' as const, at: ago(0.5) } : l)),
+    };
+    const feed = recorderAgent(later)!.feed!.map((f) => f.text);
+    expect(feed).toEqual([`Line 4 passed: ${TITLES[3]}`, `Line 5 failed: ${TITLES[4]}`, `Line 6 passed: ${title(5)}`, `Line 7: ${title(6)}`]);
+    expect(recorderAgent(later)!.doing).toBe('Recording evidence: line 7 of 19');
+  });
+
+  it('the plain states for what an older record leaves out: Done, Recorded, Skipped', () => {
+    // The Tester finished but the view has no counts.
+    show({ view: { ...TEST, checks: undefined } });
+    expect(chip('Checks')).toBe('Done');
+    expect(fact('Checks', 'When')).toBe('Finished 18 min ago, took 6 min');
+    expect(within(kind('Checks')).queryByRole('button', { name: 'The command and the end of its output' })).toBeNull();
+    cleanup();
+    // Evidence with no lines in it.
+    show({ evidence: { ...EVIDENCE, evidence: { ...EVIDENCE.evidence!, criteria: [] } } });
+    expect(chip('Recorded evidence')).toBe('Recorded');
+    expect(fact('Recorded evidence', 'When')).toBe('Finished 40 min ago');
+    cleanup();
+    // Past Test on an Auto job that decides: Auto skipped the hand test, not you.
+    show({ j: { ...REVIEWING, auto: { on: true, ran: true } }, view: { ...TEST, state: 'done', handTest: { startedAt: null } } });
+    expect(chip('Your hand test')).toBe('Skipped');
+    expect(fact('Your hand test', 'When')).toBe(AUTO_LINE);
+    expect(kind('Your hand test')).not.toHaveTextContent('Skipped by you');
+  });
+
   it('Each line and its video opens the evidence strip below', async () => {
     show();
     fireEvent.click(within(kind('Recorded evidence')).getByRole('button', { name: 'Each line and its video' }));
@@ -508,6 +607,24 @@ describe('useEvidence', () => {
     view.unmount();
     await act(async () => { await vi.advanceTimersByTimeAsync(120_000); });
     expect(calls(s.api.get)).toBe(5);
+  });
+
+  it('an older answer never overwrites a newer one', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
+    const answers: ((v: EvidenceView) => void)[] = [];
+    const s = stores(TESTING);
+    s.api.get.mockImplementation(() => new Promise((r) => { answers.push(r as (v: EvidenceView) => void); }));
+    render(s.wrap(<Probe slug={SLUG} />));
+    await act(async () => {});
+    expect(calls(s.api.get)).toBe(1);
+    // Nothing answered yet: the next ask comes at 30 s.
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(calls(s.api.get)).toBe(2);
+    // The second (newer) answers first, then the slow first one.
+    await act(async () => { answers[1]({ ...EVIDENCE, why: 'The newer answer.' }); });
+    expect(screen.getByTestId('ev')).toHaveTextContent('The newer answer.');
+    await act(async () => { answers[0]({ ...EVIDENCE, why: 'The older answer.' }); });
+    expect(screen.getByTestId('ev')).toHaveTextContent('The newer answer.');
   });
 
   it('an answer for another job never lands', async () => {
