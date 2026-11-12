@@ -31,6 +31,15 @@ const message = (err: unknown) => (err instanceof Error ? err.message : String(e
 /** While a recording is under way, look again this often (ms). */
 const POLL_MS = 3000;
 
+/**
+ * Whether a video can play here: always in the laptop app; on the website only once the laptop has
+ * put it on the site (the evidence view's onSite list), since one still on its way answers 404.
+ */
+export function canPlay(video: string | null | undefined, { hosted, onSite }: { hosted: boolean; onSite: unknown }): boolean {
+  if (!video) return false;
+  return !hosted || (Array.isArray(onSite) && onSite.includes(video));
+}
+
 /** A line's result in words, with its icon (the icon is never the only sign). */
 export function resultOf(c: Pick<EvidenceCriterion, 'status' | 'spec'>): { icon: string; word: string } {
   if (c.status === 'passed') return { icon: '✓', word: 'Passed' };
@@ -160,8 +169,6 @@ export function EvidenceStrip({ slug, tested = null, refresh = null, fold = fals
   const against = tested ?? view.commit;
   const earlier = Boolean(ev && against && !sameCommit(ev.commit, against));
   const canRecord = !hosted && view.wanted && !view.recording && (!ev || earlier || Boolean(view.problem));
-  const onSite = new Set(Array.isArray(view.onSite) ? view.onSite : []);
-  const canPlay = (c: EvidenceCriterion) => !hosted || (c.video !== null && onSite.has(c.video));
 
   async function copyLink() {
     if (!view) return;
@@ -237,7 +244,7 @@ export function EvidenceStrip({ slug, tested = null, refresh = null, fold = fals
         )}
         {ev && ev.criteria.length > 0 && (
           <ul className="evidence-list" aria-label="Each acceptance line">
-            {ev.criteria.map((c) => <Row key={c.id} slug={slug} c={c} canPlay={canPlay(c)} />)}
+            {ev.criteria.map((c) => <Row key={c.id} slug={slug} c={c} canPlay={canPlay(c.video, { hosted, onSite: view.onSite })} />)}
           </ul>
         )}
         <p className="gate-evidence-actions">

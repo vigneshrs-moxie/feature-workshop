@@ -16,7 +16,7 @@ import { BRAND } from '../../app/brand';
 import { useUi } from '../../app/ui';
 import { Button } from '../../components/Button';
 import { useNarrow } from '../../components/page/Page';
-import { EvidenceStrip } from '../../panes/Foreman/EvidenceStrip';
+import { canPlay, EvidenceStrip } from '../../panes/Foreman/EvidenceStrip';
 import { TryTab } from '../../panes/Preview/TryTab';
 import { useWorkshop } from '../../state/store';
 import { AUTO_SKIPS_HAND_TEST } from '../../views/JobDrawer/OptionsEditor';
@@ -243,7 +243,7 @@ function EvidenceRow({ slug, evidence, now, hosted, watching, onWatching, stripO
         </div>
       )}
       {canWatch && watching && <WatchPicture slug={slug} progress={progress} />}
-      {progress && <Lines slug={slug} lines={progress.lines} />}
+      {progress && <Lines slug={slug} lines={progress.lines} playable={(video) => canPlay(video, { hosted, onSite: evidence?.onSite })} />}
       {problem && <Problem slug={slug} problem={problem} hosted={hosted} onRecorded={onRecorded} />}
       {(ev || evidence?.wanted) && (
         <button type="button" className="link-button sb-test-link" aria-expanded={stripOpen} aria-controls={stripId} onClick={onStrip} title="Open the evidence for each acceptance line below, with its pictures and video.">
@@ -254,8 +254,12 @@ function EvidenceRow({ slug, evidence, now, hosted, watching, onWatching, stripO
   );
 }
 
-/** Each line in order: the finished ones, the one it runs, the first few waiting and the rest as one row. */
-function Lines({ slug, lines }: { slug: string; lines: Line[] }) {
+/**
+ * Each line in order: the finished ones, the one it runs, the first few waiting and the rest as one
+ * row. A finished line's video has Play video only where it can play (on the website, once it is on
+ * the site).
+ */
+function Lines({ slug, lines, playable }: { slug: string; lines: Line[]; playable(video: string | null | undefined): boolean }) {
   const waiting = lines.filter((l) => isLine(l) && l.state === 'waiting').length;
   const keep = waiting - WAITING_SHOWN > 1 ? WAITING_SHOWN : waiting;
   let seen = 0;
@@ -268,13 +272,13 @@ function Lines({ slug, lines }: { slug: string; lines: Line[] }) {
   });
   return (
     <ol className="sb-test-lines" aria-label="Each line">
-      {rows.map(({ l, n }) => <LineRow key={l.id || n} slug={slug} line={l} n={n} />)}
+      {rows.map(({ l, n }) => <LineRow key={l.id || n} slug={slug} line={l} n={n} video={playable(l.video) ? l.video : null} />)}
       {waiting > keep && <li className="muted sb-test-more">{waiting - keep} more waiting</li>}
     </ol>
   );
 }
 
-function LineRow({ slug, line, n }: { slug: string; line: Line; n: number }) {
+function LineRow({ slug, line, n, video }: { slug: string; line: Line; n: number; /** The video it can play here, else null. */ video: string | null }) {
   const narrow = useNarrow();
   const [open, setOpen] = useState(false);
   const videoId = useId();
@@ -284,13 +288,13 @@ function LineRow({ slug, line, n }: { slug: string; line: Line; n: number }) {
       <span className="muted num sb-test-line-n">{n}</span>
       <span className={`chip sb-test-line-state is-${line.state}`}>{state}</span>
       <span className="sb-test-line-title">{line.title}</span>
-      {line.video && (
+      {video && (
         <button type="button" className="link-button sb-test-play" aria-expanded={open} aria-controls={videoId} onClick={() => setOpen(!open)} title={`Watch the recording of line ${n}.`}>
           {open ? 'Hide video' : narrow ? 'Video' : 'Play video'}
         </button>
       )}
-      {open && line.video && (
-        <video className="sb-test-video" id={videoId} src={fileUrl(slug, line.video)} controls autoPlay muted aria-label={`The recording of line ${n}: ${line.title}`} />
+      {open && video && (
+        <video className="sb-test-video" id={videoId} src={fileUrl(slug, video)} controls autoPlay muted aria-label={`The recording of line ${n}: ${line.title}`} />
       )}
     </li>
   );

@@ -435,10 +435,11 @@ describe('TestStep', () => {
     expect(within(row).queryByRole('button', { name: 'Watch' })).toBeNull();
     expect(row).not.toHaveTextContent('The hidden browser, live, in this page.');
     expect(within(row).queryByRole('img')).toBeNull();
-    // The same list and videos.
+    // The same list; a video the laptop has not put on the site yet has no button, and no error.
     expect(chip('Recorded evidence')).toBe('Running, line 4 of 19');
     expect(lineRows()).toHaveLength(8);
-    expect(within(lineRows()[0]).getByRole('button', { name: 'Play video' })).toBeInTheDocument();
+    expect(within(lineRows()[0]).queryByRole('button', { name: 'Play video' })).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
     expect(within(row).getByText('11 more waiting')).toBeInTheDocument();
     await act(async () => {});
     expect(fetch).not.toHaveBeenCalled();
@@ -448,6 +449,21 @@ describe('TestStep', () => {
     show({ evidence: { ...RECORDING, watch: undefined } });
     expect(within(kind('Recorded evidence')).queryByRole('button', { name: 'Watch' })).toBeNull();
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('on the website a finished line plays its video only once the video is on the site', () => {
+    show({ hosted: true, evidence: { ...RECORDING, onSite: ['abc1234/AC-3/video.webm'] } });
+    const [one, two, three] = lineRows();
+    // Lines 1 and 2 have videos still on their way from the laptop: no button.
+    expect(within(one).queryByRole('button')).toBeNull();
+    expect(within(two).queryByRole('button')).toBeNull();
+    fireEvent.click(within(three).getByRole('button', { name: 'Play video' }));
+    expect(three.querySelector('video')).toHaveAttribute('src', `/api/job/${SLUG}/evidence/file?path=${encodeURIComponent('abc1234/AC-3/video.webm')}`);
+    expect(screen.queryByRole('alert')).toBeNull();
+    cleanup();
+    // The laptop app plays every finished line's video, whatever onSite says.
+    show({ evidence: { ...RECORDING, onSite: [] } });
+    expect(lineRows().slice(0, 3).map((r) => within(r).queryByRole('button', { name: 'Play video' }) !== null)).toEqual([true, true, true]);
   });
 
   it('a recording that could not finish shows the problem and Record again, and no line number', async () => {
