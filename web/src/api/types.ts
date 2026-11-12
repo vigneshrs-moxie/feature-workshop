@@ -42,6 +42,8 @@ export interface JobAuto {
   /** Why it stopped and waits for you ({ reason, rule, at } as the record keeps it), or null. */
   stopped?: { reason?: string; rule?: string | null; at?: string } | string | null;
   step?: string | null;
+  /** He wrote to the job while this step waited, so the step is his to decide (Task 6b); missing: not known. */
+  yours?: boolean;
   failures?: number;
   lastBrief?: string | null;
   /** The board card's view only: whether the job's level allows Auto, and the sentence when it doesn't. */

@@ -7,6 +7,7 @@ import { useId, type ReactNode } from 'react';
 import type { Job, JobDetail, JobPageFacts } from '../../api/types';
 import { Icon } from '../../components/Icon';
 import { Fold } from '../../components/page/Page';
+import { ticketOf } from '../NextStep';
 import { WhatToCheck } from './WhatToCheck';
 import './page.css';
 
@@ -22,9 +23,8 @@ const text = (v: unknown): string | null => (typeof v === 'string' && v.trim() ?
 function ticketFor(job: Job, page: JobPageFacts | undefined): Ticket | null {
   const t = page?.ticket;
   if (t && text(t.key)) return t;
-  const own = job.ticket as unknown;
-  const key = typeof own === 'string' ? own : (own as { key?: unknown } | null | undefined)?.key;
-  return text(key) ? { key: key as string } : null;
+  const key = ticketOf(job);
+  return key && text(key) ? { key } : null;
 }
 
 /** "Nov 3", or null when the time can't be read. */
