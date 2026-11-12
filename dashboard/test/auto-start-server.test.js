@@ -111,7 +111,7 @@ test('with no repository registered, a tagged ticket fails to start, once, says 
 });
 
 test('with a repository registered, the ticket starts a job with Auto on by the tag, and the next starts too (up to five at a time)', { timeout: 90_000 }, async () => {
-  await withDashboard(() => [row(1, ['auto']), row(2, ['auto'])], async ({ dirs, write, inbox, until }) => {
+  await withDashboard(() => [row(1, ['auto']), row(2, ['auto'])], async ({ d, dirs, write, inbox, until }) => {
     const repo = path.join(dirs.home, 'widgets');
     await fs.mkdir(repo);
     const git = (...a) => execFileSync('git', ['-C', repo, ...a], { stdio: 'pipe' });
@@ -133,6 +133,9 @@ test('with a repository registered, the ticket starts a job with Auto on by the 
     const both = await until(async () => { const m = await memoryOf(dirs); return m?.started?.length === 2 && m.started.every((e) => e.slug) ? m : null; }, 'the second start');
     assert.deepEqual(both.started.map((e) => e.key), ['ORBIT-1', 'ORBIT-2'], 'the second starts while the first has no PR #1: five places');
     assert.deepEqual(both.failed, []);
+    // A started job tells nothing (Auto queue, Task 13): no notice names either ticket.
+    const history = (await (await fetch(`${d.base}/api/notifications`)).json()).history ?? [];
+    assert.deepEqual(history.filter((n) => /ORBIT-[12]\b|Started by Auto/.test(`${n.title} ${n.body}`)), [], 'no notice of the starts');
   });
 });
 

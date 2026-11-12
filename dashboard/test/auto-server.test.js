@@ -1394,26 +1394,30 @@ test('an Approver that fails on a card is counted; two failures stop Auto like f
   } finally { await clear(w); await w.stop(); }
 });
 
-test('after one failure on a card the card waits and nobody is told (Auto tells three things only)', { timeout: 30_000 }, async () => {
+test('after one failure on a card it is asked again at once: the second answer goes, and nobody is told', { timeout: 30_000 }, async () => {
   const outcomes = [];
-  const w = await world({ query: cardQuery([FETCH], outcomes), ask: () => failure('It ended with an error.', 0.1) });
+  const w = await world({ query: cardQuery([FETCH], outcomes), ask: (_t, n) => (n === 1 ? failure('It ended with an error.', 0.1) : allow()) });
   try {
     await raise(w);
-    await w.until(async () => (await w.record()).failures === 1, 'the failure');
+    await w.until(() => outcomes.length === 1, 'the card to be answered');
+    assert.equal(outcomes[0].result.behavior, 'allow');
+    assert.equal(w.asks.length, 2, 'asked again at once');
+    // The answer's line resets the failures, just after the decision went.
+    const rec = await w.until(async () => { const r = await w.record(); return r.failures === 0 ? r : null; }, 'the failures to be reset');
+    assert.equal(rec.stopped, null);
     await new Promise((r) => setTimeout(r, 300));
-    assert.equal((await w.record()).stopped, null);
-    assert.equal((await waiting(w)).length, 1);
     assert.deepEqual(w.notes, [], 'no notification');
   } finally { await clear(w); await w.stop(); }
 });
 
 test('a run on a card that timed out is charged the ceiling', { timeout: 30_000 }, async () => {
   const outcomes = [];
+  // Asked again at once (fix round 1), and timing out again: the approver dead end, both runs at the ceiling on its line.
   const w = await world({ query: cardQuery([FETCH], outcomes), ask: () => failure('It took longer than 5 minutes.', 0.01) });
   try {
     await raise(w);
-    await w.until(async () => (await w.record()).failures === 1, 'the failure');
-    assert.equal((await w.record()).spent, APPROVER_BUDGET_USD);
+    const [stop] = await w.until(async () => { const l = await w.autoLines('stop'); return l.length ? l : null; }, 'the stop');
+    assert.equal(stop.costUsd, 2 * APPROVER_BUDGET_USD);
   } finally { await clear(w); await w.stop(); }
 });
 
@@ -1696,9 +1700,10 @@ test('J2: a card left waiting on an Auto job tells nothing; on a job not in Auto
   } finally { await o.stop(); }
 });
 
-test('J2: when the decision is refused but the card still waits, the person is told once; when the card is gone, not at all', async () => {
+test('J2: when the decision is refused but the card still waits, Auto stops on it and tells him once; when the card is gone, not at all', async () => {
   const mk = (stillWaits) => {
     const told = [];
+    const notes = [];
     let rec = { ...autoRecord(null, { on: true, now: OLD }) };
     let waits = true;
     const card = { id: 'c1', slug: 's', featureDir: unitDir, kind: 'permission', toolName: 'WebFetch', input: {}, plain: { headline: 'Fetch' }, hardLine: null };
@@ -1708,14 +1713,17 @@ test('J2: when the decision is refused but the card still waits, the person is t
       decide: { gate: async () => {}, permission: async () => { if (!stillWaits) waits = false; throw new Error('refused'); } },
       askApprover: async () => ({ ok: true, costUsd: 0.1, answer: { decision: 'allow', why: 'Fine.', risk: 'low' } }),
       pendingCard: () => (waits ? { ...card } : null), cardCtx: async () => ({ worktrees: [unitDir], featureDir: unitDir, cwd: unitDir }),
-      state: { audit: async () => {}, auditFor: async () => [] },
+      state: { audit: async () => {}, auditFor: async () => [] }, notify: (n) => notes.push(n),
     });
-    return { auto, card, told };
+    return { auto, card, told, notes, rec: () => rec };
   };
+  // Still waiting: a stop on the card (fix round 1), told once as Needs you; leftWaiting is not called, the stop told him.
   for (const [stillWaits, expected] of [[true, 1], [false, 0]]) {
-    const { auto, card, told } = mk(stillWaits);
+    const { auto, card, told, notes, rec } = mk(stillWaits);
     await auto.onPermission(card, { leftWaiting: (c) => told.push(c.id) });
-    assert.equal(told.length, expected, stillWaits ? 'waiting: told once' : 'gone: not told');
+    assert.equal(notes.length, expected, stillWaits ? 'waiting: told once' : 'gone: not told');
+    assert.equal(Boolean(rec().stopped), stillWaits, stillWaits ? 'waiting: stopped' : 'gone: no stop');
+    assert.deepEqual(told, []);
   }
 });
 
@@ -2236,6 +2244,8 @@ test('K4: a message the person steers in while the Approver answers a card leave
   const told = [];
   const sent = [];
   const lines = [];
+  const written = [];
+  const notes = [];
   let rec = { ...autoRecord(null, { on: true, now: OLD }) };
   const card = { id: 'c1', slug: 's', featureDir: unitDir, kind: 'permission', toolName: 'WebFetch', input: {}, plain: { headline: 'Fetch' }, hardLine: null };
   const auto = createAuto({
@@ -2244,12 +2254,15 @@ test('K4: a message the person steers in while the Approver answers a card leave
     decide: { gate: async () => {}, permission: async (...a) => { sent.push(a); } },
     askApprover: async () => { lines.push({ action: 'steer', at: new Date().toISOString(), text: 'wait' }); return { ok: true, costUsd: 0.1, answer: { decision: 'allow', why: 'Fine.', risk: 'low' } }; },
     pendingCard: () => ({ ...card }), cardCtx: async () => ({ worktrees: [unitDir], featureDir: unitDir, cwd: unitDir }),
-    state: { audit: async () => {}, auditFor: async () => [...lines] },
+    state: { audit: async (l) => { written.push(l); }, auditFor: async () => [...lines] }, notify: (n) => notes.push(n),
   });
   await auto.onPermission(card, { leftWaiting: (c) => told.push(c.id) });
   assert.deepEqual(sent, [], 'Auto answered nothing');
-  assert.deepEqual(told, ['c1']);
-  assert.equal(rec.spent, 0.1);
+  // The card is his: a stop on it (Task 13, fix round 1), and the stop tells him; the money is on the stop line.
+  assert.deepEqual({ reason: rec.stopped?.reason, cardId: rec.stopped?.cardId }, { reason: 'You wrote to this job while a card waited, so the card is yours.', cardId: 'c1' });
+  assert.deepEqual(notes.map((n) => n.title), ['Needs you: T']);
+  assert.deepEqual(told, [], 'the stop told him');
+  assert.equal(written.find((l) => l.what === 'stop')?.costUsd, 0.1);
 });
 
 // ---------- K5: a gate Auto cannot act on ----------
@@ -2428,34 +2441,37 @@ test('I3 (E2): Starbase crashed in the middle of an Auto job\'s reply; at start-
 
 const WORKING = status(1, { stage: 'plan', stage_state: 'working', waiting_for: null });
 
-test('I4 (H1): a card the Approver failed on once is left to the person: Needs you with the ordinary card sentence, and no notification', { timeout: 30_000 }, async () => {
+test('I4 (H1): a card the Approver fails on is asked again; failing twice, Auto stops on it: Needs you, and he is told once', { timeout: 30_000 }, async () => {
   const outcomes = [];
   const w = await world({ query: cardQuery([FETCH], outcomes), ask: () => failure(), jobStatus: WORKING });
   try {
     await raise(w);
-    await w.until(async () => (await w.record()).failures === 1, 'the failure');
+    await w.until(async () => (await w.record()).stopped, 'the stop');
+    await w.told(1);
     await new Promise((r) => setTimeout(r, 1700));
     const card = (await w.runner.read.features()).features.find((c) => c.slug === w.slug);
     assert.equal((await waiting(w)).length, 1, 'the card waits');
-    assert.equal((await w.record()).stopped, null);
-    assert.deepEqual({ lane: card.lane, laneReason: card.laneReason }, { lane: 'needs-you', laneReason: 'A permission waits for your yes' });
-    assert.deepEqual(w.notes, [], 'Auto tells three things only: a card it left waiting is not one');
+    assert.equal(w.asks.length, 2, 'asked again at once');
+    assert.deepEqual({ rule: (await w.record()).stopped.rule, card: (await w.record()).stopped.card }, { rule: 'approver', card: true });
+    assert.equal(card.lane, 'needs-you');
+    assert.deepEqual(w.notes.map((n) => [n.title, n.body]), [['Needs you: Visit audit columns', 'Auto stopped: the Approver failed twice running (It ended with an error).']]);
   } finally { await clear(w); await w.stop(); }
 });
 
-test('I4 (H2): a throw while Auto handles a card leaves the card to the person and tells nobody', { timeout: 30_000 }, async () => {
+test('I4 (H2): a throw while Auto handles a card leaves the card to the person: Auto stops on it and tells him once', { timeout: 30_000 }, async () => {
   const outcomes = [];
   const w = await world({ query: cardQuery([FETCH], outcomes), ask: () => { throw new Error('the disk said no'); }, jobStatus: WORKING });
   try {
     await raise(w);
-    await w.until(async () => (await waiting(w)).length === 1 && w.asks.length === 1, 'the card and the ask');
+    await w.until(async () => (await w.record()).stopped, 'the stop');
+    await w.told(1);
     await new Promise((r) => setTimeout(r, 1700));
     await w.pass();
     const card = (await w.runner.read.features()).features.find((c) => c.slug === w.slug);
     assert.equal((await waiting(w)).length, 1, 'the card waits');
-    // The lane says the card is his: Auto has left it. Nobody is told.
-    assert.deepEqual({ lane: card.lane, laneReason: card.laneReason }, { lane: 'needs-you', laneReason: 'A permission waits for your yes' });
-    assert.deepEqual(w.notes, [], 'no notification');
+    assert.equal(card.lane, 'needs-you');
+    assert.equal((await w.record()).stopped.reason, 'Auto hit an error while answering a card, so the card is yours.');
+    assert.deepEqual(w.notes.map((n) => [n.title, n.body]), [['Needs you: Visit audit columns', 'Auto stopped: Auto hit an error while answering a card, so the card is yours.']]);
   } finally { await clear(w); await w.stop(); }
 });
 
@@ -2474,7 +2490,7 @@ test('I4: a card raised before Auto was switched on is the person\'s: Needs you 
   } finally { await clear(w); await w.stop(); }
 });
 
-test('N3 (I5-8): two cards wait; the person steers a message in while the Approver thinks about the first: both cards are theirs, Auto tells the worker nothing, the Approver is asked once', { timeout: 60_000 }, async () => {
+test('N3 (I5-8): two cards wait; the person steers a message in while the Approver thinks about the first: both cards are theirs, Auto stops and tells him once, the worker is told nothing, the Approver is asked once', { timeout: 60_000 }, async () => {
   const outcomes = [];
   let release;
   const released = new Promise((r) => { release = r; });
@@ -2488,14 +2504,12 @@ test('N3 (I5-8): two cards wait; the person steers a message in while the Approv
     await w.runner.handle({ type: 'steer', runId: run.id, text: 'Do not fetch anything from example.com.' }, { from: 'local' });
     await new Promise((r) => setTimeout(r, 50));
     release();
-    // His words make both cards his: Auto leaves them waiting, and a card it leaves waiting tells nothing (Task 13). The lane says they are his.
-    await w.until(async () => {
-      await new Promise((r) => setTimeout(r, 200));
-      const card = (await w.runner.read.features()).features.find((c) => c.slug === w.slug);
-      return card?.lane === 'needs-you' && card.laneReason === '2 permissions wait for your yes';
-    }, 'both cards left to the person');
+    // His words make both cards his: Auto stops on the first (fix round 1) and he is told once; the second, on a stopped job, is his too.
+    await w.until(async () => (await w.record()).stopped, 'the stop');
+    await w.told(1);
     await new Promise((r) => setTimeout(r, 300));
-    assert.deepEqual(w.notes, [], 'nobody is told');
+    assert.equal((await w.record()).stopped.reason, 'You wrote to this job while a card waited, so the card is yours.');
+    assert.deepEqual(w.notes.map((n) => n.title), ['Needs you: Visit audit columns'], 'told once');
     assert.deepEqual(outcomes, [], 'the worker was told nothing by Auto');
     assert.equal((await waiting(w)).length, 2, 'both cards wait for the person');
     assert.equal(w.asks.length, 1, 'the Approver is asked once');
@@ -4350,14 +4364,16 @@ test('a refusal whose audit line cannot be written is still a deny, and nothing 
   assert.deepEqual([u.asks, u.told], [[], []]);
 });
 
-test('a refused decision that fails leaves the card to the person as an answer does: no line, no count, no stop', async () => {
+test('a refused decision that fails leaves the card to the person as an answer does: no refuse line, no count, a stop that tells him', async () => {
   const u = refuseUnit({ card: PSQL_CARD, permission: async () => { throw new Error('That card was already answered or has gone.'); } });
   await u.run();
   assert.deepEqual(u.sent.map((s) => s.decision), ['deny'], 'only a deny was ever tried');
-  assert.deepEqual(u.told, ['r1'], 'the card still waits: the person is told once');
-  assert.deepEqual(u.lines, []);
+  // The card still waits: Auto stops on it (Task 13, fix round 1), and the stop tells him once.
+  assert.deepEqual(u.lines.map((l) => l.what), ['stop']);
   assert.equal(u.record().cards ?? 0, 0);
-  assert.equal(u.record().stopped, null);
+  assert.deepEqual({ reason: u.record().stopped?.reason, cardId: u.record().stopped?.cardId }, { reason: 'Starbase could not send Auto\'s answer to a card, so the card is yours.', cardId: 'r1' });
+  assert.deepEqual(u.notes.map((n) => n.title), ['Needs you: T']);
+  assert.deepEqual(u.told, []);
   assert.deepEqual(u.asks, []);
 });
 
@@ -4411,7 +4427,8 @@ test('the safer ask failing twice stops Auto with the approver rule', { timeout:
     await twice.pass();
     assert.equal(twice.asks.length, 3, 'while stopped the pass does nothing');
   } finally { await twice.stop(); }
-  // On cards: the first failure leaves its card to the person, the second stops Auto; neither card is answered.
+  // On cards: the first failure is asked again at once (Task 13, fix round 1), with the same first answer; the second stops Auto.
+  // The other card, on a stopped job, is never asked about; neither card is answered.
   const outcomes = [];
   const cards = await world({ jobStatus: MID_REPLY, query: cardQuery([FETCH, { ...FETCH, input: { ...FETCH.input, url: 'https://example.org/y' } }], outcomes, { parallel: true }), ask: (_t, n) => (n % 2 === 1 ? { ok: true, costUsd: 0.1, answer: { decision: 'stop', why: 'Unrelated.', risk: 'medium' } } : failure('It ended with an error.', 0.1)) });
   try {
@@ -4419,8 +4436,8 @@ test('the safer ask failing twice stops Auto with the approver rule', { timeout:
     await cards.until(async () => (await cards.record()).stopped, 'Auto to stop');
     const rec = await cards.record();
     assert.equal(rec.stopped.rule, 'approver');
-    assert.equal(cards.asks.length, 4);
-    assert.deepEqual(cards.asks.map((a) => Boolean(a.task.safer)), [false, true, false, true]);
+    assert.equal(cards.asks.length, 3);
+    assert.deepEqual(cards.asks.map((a) => Boolean(a.task.safer)), [false, true, true]);
     assert.equal((await waiting(cards)).length, 2, 'both cards wait for the person');
     assert.deepEqual(outcomes, []);
   } finally { await clear(cards); await cards.stop(); }
@@ -4474,7 +4491,9 @@ test('a refusal at the driver\'s door after Auto was switched off is refused as 
     await raise(w);
     await w.until(() => did, 'the door');
     await w.until(async () => (await w.autoLines('off')).length === 1, 'the off line');
-    await new Promise((r) => setTimeout(r, 600));
+    // The positive sign: Auto is done with the card and has left it to him.
+    const [card] = await waiting(w);
+    await w.until(() => w.runner.auto.leftCard(card.id), 'Auto to leave the card');
     assert.equal(outcomes.length, 0, 'nothing reached the worker');
     assert.equal((await waiting(w)).length, 1, 'the card waits for the person');
     assert.equal((await w.lines()).filter((l) => l.action === 'permission').length, 0, 'nothing was sent');
@@ -5022,4 +5041,157 @@ test('his stop on the brief clears the mark', { timeout: 30_000 }, async () => {
     assert.deepEqual([rec.tooBig, rec.asOne, rec.on], [null, true, false]);
     assert.equal((await cardOf(w)).auto.group, null, 'in Yours');
   } finally { await w.stop(); }
+});
+
+// ---------- Task 13, fix round 1: Auto never leaves a card silently; a stopped job's cards are told ----------
+
+const CARD_THREW = 'Auto hit an error while answering a card, so the card is yours.';
+const CARD_YOURS = 'You wrote to this job while a card waited, so the card is yours.';
+const CARD_NOT_SENT = 'Starbase could not send Auto\'s answer to a card, so the card is yours.';
+const CARD_LEFT = 'Auto left a card unanswered, so the card is yours.';
+
+/**
+ * createAuto with one card waiting on an Auto job. ask(task, n) is the Approver; decide(rec) runs as the driver's decision
+ * (default: the card is answered). The card waits until it is answered. Lines are the job's audit lines (a steer goes there).
+ */
+function cardUnit({ ask = () => allow(), decide = null, record = {} } = {}) {
+  let rec = { ...autoRecord(null, { on: true, now: OLD }), ...record };
+  const st = { waits: true, rec: () => rec, notes: [], lines: [], asks: 0, decides: 0 };
+  const card = { id: 'c-fr1', slug: 's', featureDir: unitDir, title: 'T', kind: 'permission', toolName: 'WebFetch', input: { url: 'https://example.com/a', prompt: 'x' }, plain: { headline: 'Fetch' }, hardLine: null };
+  st.card = card;
+  st.auto = createAuto({
+    read: async () => [{ dir: unitDir, slug: 's', title: 'T', auto: { ...rec }, level: 1, suggestedLevel: null, stage: 'plan', answered: [], worktrees: [], specDirs: [], artifacts: [] }],
+    update: async (dir, fn) => { const n = fn({ ...rec }); if (n) rec = n; return { ...rec }; },
+    decide: { gate: async () => {}, permission: async () => { st.decides++; if (decide) return decide(st, (r) => { rec = r; }); st.waits = false; } },
+    askApprover: async (task) => { st.asks++; return ask(task, st.asks, st); },
+    pendingCard: () => (st.waits ? { ...card } : null), cardCtx: async () => ({ worktrees: [unitDir], featureDir: unitDir, cwd: unitDir }),
+    state: { audit: async (l) => { st.lines.push({ at: new Date().toISOString(), ...l }); }, auditFor: async () => st.lines },
+    notify: (n) => st.notes.push(n),
+  });
+  return st;
+}
+const autoGone = () => Object.assign(new Error('Auto was switched off or stopped, or the job is being closed or restarted, before its answer went. Nothing was sent.'), { extra: { code: 'auto-gone' } });
+
+test('a card after one Approver failure is asked again at once; a second failure stops Auto and tells him', { timeout: 30_000 }, async () => {
+  // Two asks, both failing: the approver dead end, with its words.
+  const two = cardUnit({ ask: () => failure('It ended with an error.', 0.1) });
+  await two.auto.onPermission(two.card);
+  assert.equal(two.asks, 2, 'asked again at once');
+  assert.deepEqual({ rule: two.rec().stopped?.rule, reason: two.rec().stopped?.reason, cardId: two.rec().stopped?.cardId }, { rule: 'approver', reason: 'the Approver failed twice running (It ended with an error).', cardId: 'c-fr1' });
+  assert.equal(two.lines.filter((l) => l.what === 'stop').length, 1, 'one stop line');
+  assert.deepEqual(two.notes.map((n) => [n.title, n.body]), [['Needs you: T', 'Auto stopped: the Approver failed twice running (It ended with an error).']]);
+  // A second look: the first answer is a stop, the safer ask fails twice. Three asks, the first answer on the stop line.
+  const safer = cardUnit({ ask: (_t, n) => (n === 1 ? { ok: true, costUsd: 0.1, answer: { decision: 'stop', why: 'It looks unrelated.', risk: 'medium' } } : failure('It ended with an error.', 0.1)) });
+  await safer.auto.onPermission(safer.card);
+  assert.equal(safer.asks, 3);
+  const [stopLine] = safer.lines.filter((l) => l.what === 'stop');
+  assert.equal(stopLine.rule, 'approver');
+  assert.equal(stopLine.why, 'Stop: It looks unrelated.', 'the first answer is kept across the retry');
+  assert.equal(safer.notes.length, 1);
+  // One failure, then a good answer: the card is answered, failures back to 0, nobody told.
+  const once = cardUnit({ ask: (_t, n) => (n === 1 ? failure('It ended with an error.', 0.1) : allow()) });
+  await once.auto.onPermission(once.card);
+  assert.deepEqual([once.asks, once.waits, once.rec().failures, once.rec().stopped, once.notes.length], [2, false, 0, null, 0]);
+});
+
+test('a throw while handling a card stops Auto and tells him', { timeout: 30_000 }, async () => {
+  const u = cardUnit({ ask: () => { throw new Error('the disk said no'); } });
+  await u.auto.onPermission(u.card);
+  assert.deepEqual({ rule: u.rec().stopped?.rule, reason: u.rec().stopped?.reason, card: u.rec().stopped?.card, cardId: u.rec().stopped?.cardId }, { rule: 'blocked', reason: CARD_THREW, card: true, cardId: 'c-fr1' });
+  assert.deepEqual(u.notes.map((n) => [n.title, n.body]), [['Needs you: T', `Auto stopped: ${CARD_THREW}`]]);
+});
+
+test('his steer makes the card his: Auto stops and he is told once', { timeout: 30_000 }, async () => {
+  // He steers a message into the reply while the Approver thinks: its answer is dropped, Auto stops on the card.
+  const u = cardUnit({ ask: (_t, _n, st) => { st.lines.push({ at: new Date(Date.now() + 5).toISOString(), action: 'steer', text: 'Not that page.' }); return allow(); } });
+  await u.auto.onPermission(u.card);
+  assert.equal(u.decides, 0, 'nothing was sent');
+  assert.deepEqual({ rule: u.rec().stopped?.rule, reason: u.rec().stopped?.reason, cardId: u.rec().stopped?.cardId }, { rule: 'blocked', reason: CARD_YOURS, cardId: 'c-fr1' });
+  assert.equal(u.notes.length, 1);
+  assert.equal(u.notes[0].body, `Auto stopped: ${CARD_YOURS}`);
+  // He steered before Auto took the card up's turn came (it queued behind another): the Approver is never asked, and the same stop.
+  const q = cardUnit();
+  q.lines.push({ at: new Date(Date.now() + 1000).toISOString(), action: 'steer', text: 'Wait.' });
+  await q.auto.onPermission(q.card);
+  assert.deepEqual([q.asks, q.rec().stopped?.reason, q.notes.length], [0, CARD_YOURS, 1]);
+});
+
+test('a refused decide stops Auto and tells him; auto-gone tells nothing', { timeout: 30_000 }, async () => {
+  // Answered by the Approver, refused at the driver for another reason: a stop on the card.
+  const no = cardUnit({ decide: () => { throw new Error('That card was already answered or has gone.'); } });
+  await no.auto.onPermission(no.card);
+  assert.deepEqual({ rule: no.rec().stopped?.rule, reason: no.rec().stopped?.reason, cardId: no.rec().stopped?.cardId }, { rule: 'blocked', reason: CARD_NOT_SENT, cardId: 'c-fr1' });
+  assert.deepEqual(no.notes.map((n) => n.body), [`Auto stopped: ${CARD_NOT_SENT}`]);
+  // The same for a call Auto refuses on its card (Task 5): its deny could not be sent.
+  const refusal = cardUnit({ decide: () => { throw new Error('refused'); } });
+  refusal.card.toolName = 'Edit';
+  refusal.card.input = { file_path: '/etc/hosts', old_string: 'a', new_string: 'b' };
+  await refusal.auto.onPermission(refusal.card);
+  assert.equal(refusal.asks, 0, 'refused without the Approver');
+  assert.equal(refusal.rec().stopped?.reason, CARD_NOT_SENT);
+  assert.equal(refusal.notes.length, 1);
+  // Auto-gone: he switched Auto off (or the job is closing or restarting) before the answer went. Nothing written, nothing told.
+  for (const off of [true, false]) {
+    const gone = cardUnit({ decide: (st, set) => { if (off) set({ ...st.rec(), on: false }); throw autoGone(); } });
+    await gone.auto.onPermission(gone.card);
+    assert.equal(gone.rec().stopped, null, `${off ? 'switched off' : 'closing'}: no stop`);
+    assert.deepEqual(gone.notes, [], `${off ? 'switched off' : 'closing'}: nobody told`);
+    assert.equal(gone.lines.filter((l) => l.what === 'stop').length, 0);
+  }
+});
+
+test('no card is left on a job whose Auto is on and not stopped', { timeout: 30_000 }, async () => {
+  const steer = (_t, _n, st) => { st.lines.push({ at: new Date(Date.now() + 5).toISOString(), action: 'steer', text: 'No.' }); return allow(); };
+  const rows = [
+    ['one Approver failure, then another', { ask: () => failure() }, 'the Approver failed twice running (It ended with an error).'],
+    ['a throw while handling it', { ask: () => { throw new Error('boom'); } }, CARD_THREW],
+    ['his steer', { ask: steer }, CARD_YOURS],
+    ['a refused decide', { decide: () => { throw new Error('no'); } }, CARD_NOT_SENT],
+    ['auto-gone, switched off', { decide: (st, set) => { set({ ...st.rec(), on: false }); throw autoGone(); } }, null],
+    // A path nobody thought of: the decision went, yet the card still waits.
+    ['an answer that went while the card still waits', { decide: () => {} }, CARD_LEFT],
+  ];
+  for (const [path, opts, reason] of rows) {
+    const u = cardUnit(opts);
+    await u.auto.onPermission(u.card);
+    const r = u.rec();
+    assert.ok(!u.waits || r.on !== true || Boolean(r.stopped), `${path}: the card is answered, or the record is stopped or off`);
+    assert.equal(r.stopped?.reason ?? null, reason, `${path}: the reason`);
+    assert.equal(u.notes.length, reason ? 1 : 0, `${path}: told once when stopped, else not at all`);
+  }
+});
+
+test('a left card is told within one pass, not never', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const w = await world({ query: cardQuery([FETCH], outcomes), ask: () => failure('It ended with an error.', 0.1), jobStatus: status(1, { stage_state: 'working', waiting_for: null }) });
+  try {
+    await raise(w);
+    const [card] = await w.until(async () => { const p = await waiting(w); return p.length ? p : null; }, 'the card');
+    // Auto is done with the card: it answered it, stopped, or left it.
+    await w.until(async () => w.runner.auto.leftCard(card.id) || (await w.record()).stopped, 'Auto to be done with the card');
+    await w.pass();
+    const rec = await w.record();
+    assert.ok(rec.stopped, 'the job is stopped, not waiting silently');
+    await w.told(1);
+    assert.deepEqual(w.notes.map((n) => n.title), ['Needs you: Visit audit columns']);
+    assert.equal((await waiting(w)).length, 1, 'the card waits for him');
+  } finally { await clear(w); await w.stop(); }
+});
+
+test('a card raised on a stopped Auto job is told as on any job', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  // He carries on by hand after an idle stop (a plain message clears no stop): the reply's card is his, and he is told.
+  const stopped = { ...autoRecord(null, { on: true, now: OLD }), stopped: { reason: IDLE, rule: 'blocked', at: OLD } };
+  const w = await world({ auto: stopped, query: cardQuery([FETCH], outcomes), jobStatus: status(1, { stage_state: 'working', waiting_for: null }) });
+  try {
+    await raise(w);
+    const [card] = await w.until(async () => { const p = await waiting(w); return p.length ? p : null; }, 'the card');
+    await w.told(1);
+    w.driver.emit('permission', card); // raised again: not told again
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(w.notes.length, 1, 'told once');
+    assert.match(w.notes[0].body, /Permission: /);
+    assert.equal(w.asks.length, 0, 'Auto does not handle it');
+    assert.equal(w.runner.auto.leftCard(card.id), false, 'never taken up by Auto');
+  } finally { await clear(w); await w.stop(); }
 });

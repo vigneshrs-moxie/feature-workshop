@@ -2038,8 +2038,8 @@ export async function createRunner(config) {
       }
     }
   }
-  // A card raised for you: told as it arrives, once. A card on a job whose Auto is on is never told (Auto tells three
-  // things only, Task 13): Auto handles it, and a card it leaves waiting tells nothing (runner/auto.js onPermission).
+  // A card raised for you: told as it arrives, once. A card on a job whose Auto is on and not stopped is not told: Auto answers
+  // it, or stops on it and its Needs you tells him (runner/auto.js onPermission). A stopped Auto job's cards are told here.
   const toldCards = new Set();
   const tellPermission = (p) => {
     if (toldCards.has(p.id)) return;
@@ -2049,7 +2049,8 @@ export async function createRunner(config) {
   };
   driver.on('permission', (p) => {
     state.sessionFor(p.featureDir).then((record) => {
-      if (record?.auto?.on === true) return auto.onPermission(p);
+      // Auto handles a card only while it is on and not stopped; a stopped Auto job's cards are his, told as on any job.
+      if (record?.auto?.on === true && !record.auto.stopped) return auto.onPermission(p);
       return tellPermission(p);
     }).catch((err) => { console.error('permission:', err.message); tellPermission(p); });
   });
@@ -3796,7 +3797,7 @@ export async function createRunner(config) {
   // jobs being started again, the look at what waits for you. The site and the pages reach the runner only through handle and read.
   // A decision sent as Auto ({ by: 'auto' }) is reachable only from inside: the pass, and a test's hooks, never this object.
   if (testHooks && typeof testHooks === 'object') testHooks.decideGate = gateDecision;
-  return { handle, read, local: local_, on, start, stop, auto: { pass: auto.pass, restarting, checkWaiting, checkLevels } };
+  return { handle, read, local: local_, on, start, stop, auto: { pass: auto.pass, restarting, checkWaiting, checkLevels, leftCard: (id) => auto.leftCard(id) } };
 
 
 }

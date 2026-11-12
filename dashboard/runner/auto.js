@@ -86,6 +86,14 @@ const riskyPlusOne = (prev) => (Number.isInteger(prev?.risky) && prev.risky > 0 
 /** Auto's stop for a job nothing moves (I3): after ten minutes, or at once for a reply cut off by a crash or restart. */
 const IDLE = 'nothing is running on this job and no step waits, so it needs you.';
 const CUT_OFF = 'Starbase stopped while this job was working, so it needs you: press Resume.';
+/**
+ * Auto never leaves a card silently (Task 13, fix round 1): while Auto is on and not stopped, a card it does not answer is a
+ * stop on that card, with one of these reasons, and he is told Needs you. His answer to the card clears the stop.
+ */
+const CARD_THREW = 'Auto hit an error while answering a card, so the card is yours.';
+const CARD_YOURS = 'You wrote to this job while a card waited, so the card is yours.';
+const CARD_NOT_SENT = 'Starbase could not send Auto\'s answer to a card, so the card is yours.';
+const CARD_LEFT = 'Auto left a card unanswered, so the card is yours.';
 /** "Not now" this many times running on one gate stops Auto, like the Approver failing twice. */
 const NOT_NOW_LIMIT = 3;
 /** A gate Auto can't act on (stale, or no brief number) stops Auto after this long. */
@@ -582,11 +590,13 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
   const BOTH_HIGH_WHY = 'High risk on both looks, so Auto denied it.';
 
   /**
-   * A card has been raised (the driver's 'permission'). For a job with Auto on and not stopped, Auto
-   * answers it, refuses it (refuseCard), or stops and leaves it to the person; for anything else it does nothing. leftWaiting(card)
-   * is called, at most once, whenever the card is left for the person and Auto's own stop notification
-   * has not already told them (the runner passes none: a card on an Auto job tells nothing, Task 13). Cards of one job are handled
-   * one at a time, in the order they came; a card is taken up once. Resolves when this card is done with.
+   * A card has been raised (the driver's 'permission'; the runner sends only cards of a job whose Auto is on and not stopped).
+   * Auto answers it, refuses it (refuseCard), or stops on it with a reason, and he is told Needs you (Task 13, fix round 1): while
+   * Auto is on and not stopped, no card is left silently. A card left while the record is still on and not stopped, by a path
+   * that wrote no stop, gets its stop here (CARD_THREW after a throw, else CARD_LEFT). Left without a stop on purpose ("quiet"):
+   * Auto went off, stopped, or the job is closing or restarting (auto-gone), and PR feedback and review round cards.
+   * leftWaiting(card) is called, at most once, whenever the card is left and no stop was written for it; the runner passes none.
+   * Cards of one job are handled one at a time, in the order they came; a card is taken up once. Resolves when this card is done with.
    */
   function onPermission(card, { leftWaiting = () => {} } = {}) {
     if (!card?.id || cards.has(card.id)) return Promise.resolve();
@@ -596,20 +606,35 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     const dir = card.featureDir;
     let told = false;
     const tell = () => { if (!told) { told = true; leftWaiting(card); } };
+    let quiet = false;
+    let threw = false;
     const mine = (queues.get(dir) ?? Promise.resolve())
-      .then(() => attendCard(card, tell, takenAt))
+      .then(() => attendCard(card, tell, takenAt, () => { quiet = true; }))
       .catch((err) => {
         console.error(`auto card (${card.slug}):`, err.message);
-        // Something failed while Auto had the card: it is the person's now, and they are told (once).
-        if (pendingCard(card.id)) tell();
+        threw = true;
       })
-      .then(() => {
-        // Done with, and it still waits: Auto has left it to the person (a stop, a failure, a card it never answers).
-        if (cards.has(card.id) && pendingCard(card.id)) cards.set(card.id, 'left');
+      .then(async () => {
+        if (!cards.has(card.id) || !pendingCard(card.id)) return;
+        // Done with, and it still waits: Auto has left it to the person (a stop, Auto gone, a card it never answers).
+        cards.set(card.id, 'left');
+        if (!quiet) await stopOnLeft(card, threw ? CARD_THREW : CARD_LEFT, tell);
       })
+      .catch((err) => console.error(`auto card (${card.slug}):`, err.message))
       .finally(() => { if (queues.get(dir) === mine) queues.delete(dir); });
     queues.set(dir, mine);
     return mine;
+  }
+
+  /**
+   * A card left while the job's record is still on and not stopped: a stop on it (stop writes nothing once Auto is off or
+   * stopped). Already stopped: the stop that left it has told him. Off or restarting: no stop, and leftWaiting is called.
+   */
+  async function stopOnLeft(card, reason, tell) {
+    const [job] = await read(card.featureDir);
+    if (job?.auto?.on === true && job.auto.stopped) return;
+    if (!job || job.auto?.on !== true || job.restarting) { tell(); return; }
+    await stopOnCard(job, { rule: 'blocked', reason }, tell, { cardId: card.id });
   }
 
   /** A card that has gone away (answered, the reply ended) is forgotten. */
@@ -619,20 +644,24 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
   /** Whether Auto is handling this card now: taken up, and not done with. Any other card that waits is the person's. */
   function handlingCard(id) { return cards.get(id) === true; }
 
-  /** A stop on the card: its own notification tells the person; when none was written, the card's notification does. */
+  /** A stop on the card: its own notification tells the person; when none was written (Auto went off or stopped), leave() is called. */
   async function stopOnCard(job, hit, leave, opts = {}) {
     if (!(await stop(job, hit, { ...opts, card: true }))) leave();
   }
 
-  async function attendCard(card, leftWaiting, takenAt = Date.now()) {
+  // hush(): the card is left without a stop on purpose (Auto went off or stopped, the job is restarting, auto-gone, or a PR
+  // feedback or review round card), so onPermission writes none for it.
+  async function attendCard(card, leftWaiting, takenAt = Date.now(), hush = () => {}) {
     let left = false;
     const leave = () => { if (!left) { left = true; leftWaiting(card); } };
+    const quietly = () => { hush(); leave(); };
     const waits = () => pendingCard(card.id);
     if (!waits()) { cards.delete(card.id); return; } // gone while it queued: answered, or the reply ended
     const [job] = await read(card.featureDir);
-    if (!job || job.auto?.on !== true || job.auto.stopped || job.restarting) return leave();
-    // Never answered: a card about Starbase's own checks, PR feedback, a review round. A status card also stops Auto.
-    if (card.feedbackCard || card.roundCard) return leave();
+    if (!job || job.auto?.on !== true || job.auto.stopped || job.restarting) return quietly();
+    // Never answered: a card about Starbase's own checks, PR feedback, a review round (they come after PR #1, when the finish
+    // that follows tells him). A status card also stops Auto.
+    if (card.feedbackCard || card.roundCard) return quietly();
     if (card.statusCard) return stopOnCard(job, fixedStop({ kind: 'job', statusCard: true }), leave, { cardId: card.id });
     const full = waits();
     if (!full) { cards.delete(card.id); return; }
@@ -672,18 +701,20 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     }
     // Before youSpokeSince on purpose: the call is one Auto may never allow, so his message does not make the card his to
     // answer here. To take such a card himself he switches Auto off (m1).
-    if (refused) return refuseCard(job, full, hit, { leave, lastAnswered, hardLine: hardLineHit ? full.hardLine.line ?? '' : null });
+    if (refused) return refuseCard(job, full, hit, { leave, quietly, lastAnswered, hardLine: hardLineHit ? full.hardLine.line ?? '' : null });
 
     // The person wrote to the job (a message, or one steered into the reply) since Auto took the card up, while it
-    // queued behind another: it is theirs, and the Approver is not asked.
-    if (await youSpokeSince(job, takenAt, { steer: true })) { leave(); return; }
+    // queued behind another: it is theirs, and the Approver is not asked. A stop on the card, and he is told.
+    if (await youSpokeSince(job, takenAt, { steer: true })) return stopOnCard(job, { rule: 'blocked', reason: CARD_YOURS }, leave, { cardId: card.id });
     const task = { ...cardTask(job, full), facts: cardFacts(ctx, why, full, plainPush) };
     // The Approver never judges a card it cannot see whole (C4): a command or a field it would be shown cut stops instead.
     const cut = approverCut(task);
     if (cut) return stopOnCard(job, { rule: 'blocked', reason: `this ${cut} is too long for the Approver to read, so it needs you.` }, leave, { cardId: card.id });
     const roots = approverRoots({ featureDir: job.dir, worktrees: job.worktrees, specDirs: job.specDirs });
-    // One ask, by the same rules for the first and the second: the answer, or null once the card is done with here.
-    const ask = async (t) => {
+    // One ask, by the same rules for the first and the second: the answer, FAILED after a failure that is no dead end yet, or
+    // null once the card is done with here.
+    const FAILED = Symbol('failed');
+    const askOne = async (t) => {
       const res = await askApprover(t, { roots, job });
       const cost = res?.ok === false && TIMED_OUT.test(res.problem ?? '') ? APPROVER_BUDGET_USD : Number.isFinite(res?.costUsd) ? res.costUsd : 0;
       const checked = res?.ok ? checkAnswer(t, res.answer) : null;
@@ -691,27 +722,37 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       const [fresh] = await read(job.dir);
       if (!waits() || !fresh || fresh.auto?.on !== true || fresh.auto.stopped || fresh.restarting) {
         await settleDropped(job, cost);
-        if (waits()) leave(); // the card still waits for the person: told once
+        if (waits()) quietly(); // Auto went off or stopped meanwhile: no stop is written for it
         return null;
       }
       // The person wrote to the job since Auto took the card up (while it waited, or while the Approver thought): the
-      // Approver never saw that. The card is left to them.
+      // Approver never saw that. The card is theirs: a stop on it, and he is told.
       if (await youSpokeSince(job, takenAt, { steer: true })) {
         await settleDropped(job, cost);
-        leave();
+        await stopOnCard(job, { rule: 'blocked', reason: CARD_YOURS }, leave, { cardId: card.id });
         return null;
       }
       if (!checked?.ok) {
         let count = 0;
         const problem = res?.ok ? checked.problem : res?.problem ?? 'It ended with an error.';
         await update(job.dir, (prev) => { if (!prev) return null; count = (prev.failures ?? 0) + 1; return { ...prev, failures: count, problem, spent: (prev.spent ?? 0) + cost }; });
-        // The same sentence as for a gate (stopFor): the problem without its closing full stop.
+        // The same sentence as for a gate (stopFor): the problem without its closing full stop. On a second look the dead end
+        // shows what the Approver first said, as for a gate.
         const hitAgain = fixedStop({ kind: 'job', failures: count, problem: String(problem).replace(/\.$/, '') });
-        if (hitAgain) await stopOnCard(job, hitAgain, leave, { cardId: card.id }); else leave();
+        if (!hitAgain) return FAILED;
+        await stopOnCard(job, hitAgain, leave, { cardId: card.id, ...(t.safer ? { why: firstWords(t.safer) } : {}) });
         return null;
       }
       await addSpent(job, cost);
       return checked.answer;
+    };
+    // A card has no later pass (the reply counts as running while it waits): one failure is asked again at once, with the same
+    // task (a second look keeps the first answer). A second failure is the approver dead end, written by askOne.
+    const ask = async (t) => {
+      const first = await askOne(t);
+      if (first !== FAILED) return first;
+      const again = await askOne(t);
+      return again === FAILED ? null : again; // still no dead end (the record could not count it): onPermission stops on the card
     };
     let asked = task;
     let answer = await ask(asked);
@@ -724,7 +765,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       answer = await ask(asked);
       if (!answer) return;
     }
-    await answerCard(job, full, asked, answer, { leave, lastAnswered });
+    await answerCard(job, full, asked, answer, { leave, quietly, lastAnswered });
   }
 
   /**
@@ -784,7 +825,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
    * 'auto'; the Approver is never asked. One refuse line; the card counts toward AUTO_CARDS_PER_REPLY; failures stay as they
    * were; nobody is told. The answer is a deny on every path: a decision that fails leaves the card as answerCard does.
    */
-  async function refuseCard(job, card, { rule, reason }, { leave, lastAnswered, hardLine = null }) {
+  async function refuseCard(job, card, { rule, reason }, { leave, quietly, lastAnswered, hardLine = null }) {
     // The crew's reason, looked up (REFUSE_REASONS), never the owner's stop sentence; the refuse line's why is the same.
     let why = '';
     // For outside: which of its sentences hit (its key in OUTSIDE_REASONS), else the general row.
@@ -795,9 +836,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     try {
       await decide.permission(card.id, { decision: 'deny', note }, { by: 'auto' });
     } catch (err) {
-      if (codeOf(err) !== 'auto-gone') console.error(`auto card (${job.slug}):`, err.message);
-      await settleIfOff(job);
-      if (pendingCard(card.id)) leave(); // refused but still waiting: the person is told once
+      await cardNotSent(job, card, err, { leave, quietly });
       return;
     }
     await update(job.dir, (prev) => (prev ? { ...prev, cards: ((prev.cardsBrief ?? 0) === lastAnswered ? prev.cards ?? 0 : 0) + 1, cardsBrief: lastAnswered } : null));
@@ -805,8 +844,21 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     await audit(job, 'refuse', { rule, asked, chose: `Refused: ${asked}`, why });
   }
 
+  /**
+   * Auto's decision on a card was refused at the driver. Auto-gone (Auto went off or stopped, or the job is closing or
+   * restarting): nothing is written or told. Any other refusal while the card still waits: a stop on it, and he is told.
+   */
+  async function cardNotSent(job, card, err, { leave, quietly }) {
+    const gone = codeOf(err) === 'auto-gone';
+    if (!gone) console.error(`auto card (${job.slug}):`, err.message);
+    await settleIfOff(job);
+    if (!pendingCard(card.id)) return;
+    if (gone) quietly();
+    else await stopOnCard(job, { rule: 'blocked', reason: CARD_NOT_SENT }, leave, { cardId: card.id });
+  }
+
   /** Send the decision the way a click does, by 'auto': once, or no. Writes the Auto line and counts the card. */
-  async function answerCard(job, card, task, answer, { leave, lastAnswered }) {
+  async function answerCard(job, card, task, answer, { leave, quietly, lastAnswered }) {
     let decision;
     let note = '';
     let answers = null;
@@ -843,9 +895,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     } catch (err) {
       // Refused (the card went away between the look and the decision, or Auto went off or stopped): nothing was sent.
       // The cost stays in spent, or, with Auto off, goes on a line of its own.
-      if (codeOf(err) !== 'auto-gone') console.error(`auto card (${job.slug}):`, err.message);
-      await settleIfOff(job);
-      if (pendingCard(card.id)) leave(); // refused but still waiting: the person is told once
+      await cardNotSent(job, card, err, { leave, quietly });
       return;
     }
     // The second ask's answer (task.safer holds the first): a risky call, counted with the card.

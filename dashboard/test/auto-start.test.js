@@ -79,7 +79,7 @@ async function rig(over = {}) {
   const file = path.join(dir, 'auto-start.json');
   const r = {
     dir, file, items: [item(1)], setting: { ...SETTING }, tickets: new Set(), working: null, unfinished: null, freed: new Set(), paused: null, tagsShown: true, afterStart: null,
-    started: [], told: [], failWith: null, seenFile: [],
+    started: [], failWith: null, seenFile: [],
   };
   Object.assign(r, over);
   r.starter = new AutoStarter({
@@ -99,11 +99,14 @@ async function rig(over = {}) {
       r.afterStart?.(it);
       return { slug: `orbit-${it.number}-t` };
     },
-    // Not an option of the starter any more (Auto queue, Task 13): kept so a test sees any notice it would still send.
-    notify: async (n) => { r.told.push(n); },
   });
   return r;
 }
+/**
+ * The starter tells nobody (Auto queue, Task 13): it takes no notify and has none, so nothing it does can send a notice. This
+ * fails if a notify is ever given back to it (the constructor keeps what it takes). The server test checks the notices too.
+ */
+const tellsNothing = (r) => assert.equal('notify' in r.starter, false, 'the starter has no way to tell anyone');
 
 test('a tagged assigned ticket starts once', async () => {
   const r = await rig();
@@ -120,7 +123,7 @@ test('a started job tells nothing', async () => {
   const r = await rig({ items: [item(1, { title: 'Fix the dial' })] });
   await r.starter.run(); await r.starter.run();
   assert.deepEqual(r.started, [{ key: 'ORBIT-1', tag: 'auto' }]);
-  assert.deepEqual(r.told, []);
+  tellsNothing(r);
 });
 test('two tagged tickets start one after the other', async () => {
   const r = await rig({ items: [item(1), item(2)] });
@@ -164,14 +167,14 @@ test('m4: a failed start tells nothing; its reason is kept for the Inbox', async
   await r.starter.run();
   await r.starter.run();
   assert.equal(r.seenFile.length, 1, 'tried once');
-  assert.deepEqual(r.told, []);
+  tellsNothing(r);
   assert.equal(r.starter.failedReason('ORBIT-1'), 'This laptop has no repository for it.');
   assert.deepEqual(r.starter.failedList(), [{ key: 'ORBIT-1', reason: 'This laptop has no repository for it.' }]);
   // A start refused for the limit is not a failed start: nothing is told.
   const lim = await rig({ failWith: null });
   lim.starter.start = async () => { throw Object.assign(new Error('Claude’s limit is reached.'), { code: 'limited' }); };
   await lim.starter.run();
-  assert.deepEqual(lim.told, []);
+  tellsNothing(lim);
 });
 test('a start that fails is remembered and not tried again', async () => {
   const r = await rig({ failWith: 'This laptop has no repository for it.' });
@@ -179,7 +182,7 @@ test('a start that fails is remembered and not tried again', async () => {
   r.failWith = null;
   await r.starter.run();
   assert.deepEqual(r.started, []);
-  assert.deepEqual(r.told, [], 'nothing is told');
+  tellsNothing(r);
   const saved = JSON.parse(await fs.readFile(r.file, 'utf8'));
   assert.deepEqual(saved, { started: [], failed: [{ key: 'ORBIT-1', at: '2026-11-11T10:00:00.000Z', reason: 'This laptop has no repository for it.' }] });
   assert.equal(r.starter.failedReason('ORBIT-1'), 'This laptop has no repository for it.');
