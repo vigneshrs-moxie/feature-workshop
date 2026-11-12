@@ -58,9 +58,9 @@ Order: model, api, email, csv, refunds, dunning, ui, reports
 
 const sec = (name, state, extra = {}) => ({ name, state, slug: state === 'pending' ? null : `inv--${name}`, branch: state === 'pending' ? null : `feature/inv--${name}`, worktree: null, port: null, failures: 0, mergedAt: null, owns: [], dependsOn: [], problem: null, ...extra });
 
-function fixtureView({ busy = null } = {}) {
+function fixtureView({ busy = null, now = Date.now() } = {}) {
   const plan = parseStackPlan(PLAN);
-  const at = (h) => new Date(Date.now() - h * 3600e3).toISOString();
+  const at = (h) => new Date(now - h * 3600e3).toISOString();
   const stack = {
     version: 1, parent: 'inv', cap: 4, autoIntegrate: false, model: 'claude-opus-5-5', effort: 'high', repo: '/repo', parentBranch: 'feature/inv', parentWorktree: '/repo',
     planApprovedAt: at(50), planHash: null, push: { state: 'waiting' },
@@ -146,7 +146,15 @@ test('enrichView and stackCard: counts by lane, cost from Telemetry’s record, 
   assert.equal(v.parts[0].costSource, 'telemetry');
   assert.equal(v.parts.find((p) => p.name === 'ui').costUsd, 0.5); // the stack's line for its section wins over the card's
   assert.equal(v.costUsd, 4.5);
-  assert.equal(v.mergedToday >= 1, true);
+  // Merged today, whatever the hour: the code's "now" is the model's merge (an hour after its own
+  // fixture time), so that merge is today and the api's, 29 hours before it, is not. Also just after
+  // midnight (a fixture made at 00:30, its model merged at 23:30 the day before).
+  const halfPastMidnight = new Date(2026, 10, 12, 0, 30).getTime();
+  for (const base of [Date.now(), halfPastMidnight]) {
+    const view = fixtureView({ now: base });
+    const mergedNow = Date.parse(view.log.find((l) => l.event === 'merged' && l.section === 'model').at);
+    assert.equal(enrichView(view, { cards, usage, now: mergedNow }).mergedToday, 1, new Date(base).toString());
+  }
   assert.deepEqual(v.parts.find((p) => p.name === 'reports').waitsOn, [4]);
   assert.deepEqual(v.parts[0].unblocks, [2, 4]);
   assert.equal(v.parts.find((p) => p.name === 'ui').now.what, 'run the tests');

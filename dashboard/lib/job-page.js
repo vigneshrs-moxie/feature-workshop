@@ -256,21 +256,32 @@ export function keepLatest(map, key, value, max) {
 // ---------- The Tester's check counts (design 3.5) ----------
 
 // An acceptance line's id (AC-1, AC-01) and the Tester's mark on the same line of test-report.md.
-const AC_ID = /\bAC-(\d{1,4})\b/;
-const CHECK_MARK = /\b(NOT RUN|PASS|FAIL)\b/;
+// Upper case, whole words only: prose says "pass" and "failed" without meaning a mark.
+const AC_ID = /\bAC-(\d{1,4})\b/g;
+const CHECK_MARK = /\b(NOT RUN|PASS(?:ED)?|FAIL(?:ED)?)\b/g;
+
+// The one mark a report line gives every AC on it: FAIL when it has both a pass word and a fail
+// word (a count must never call a failing check passed), otherwise its first mark. Null when none.
+function lineMark(line) {
+  const words = [...line.matchAll(CHECK_MARK)].map((m) => m[1].replace(/ED$/, ''));
+  if (!words.length) return null;
+  if (words.includes('PASS') && words.includes('FAIL')) return 'FAIL';
+  return words[0];
+}
 
 /**
  * How the Tester's checks came out, by test-report.md: { passed, failed, notRun }, one count per
- * acceptance line (AC-<n>) the report marks PASS, FAIL or NOT RUN on the same line, its last mention
- * winning (a line checked again). Null when no line is marked. Pure.
+ * acceptance line (AC-<n>) the report marks PASS, FAIL or NOT RUN (PASSED and FAILED too) on the
+ * same line, every AC on a line taking that line's mark and its last mention winning (a line
+ * checked again). Null when no line is marked. Pure.
  */
 export function checkCounts(reportText) {
   if (typeof reportText !== 'string') return null;
   const marks = new Map();
   for (const line of reportText.split(/\r?\n/)) {
-    const id = AC_ID.exec(line);
-    const mark = id ? CHECK_MARK.exec(line) : null;
-    if (mark) marks.set(Number(id[1]), mark[1]);
+    const ids = [...line.matchAll(AC_ID)];
+    const mark = ids.length ? lineMark(line) : null;
+    if (mark) for (const id of ids) marks.set(Number(id[1]), mark);
   }
   if (!marks.size) return null;
   const out = { passed: 0, failed: 0, notRun: 0 };

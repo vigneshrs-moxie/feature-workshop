@@ -521,3 +521,63 @@ test('evidence: a live frame is read only from a plain, fresh file under the cap
   assert.equal(await readLiveFrame(path.join(dir, 'folder.jpg')), null);
   assert.equal(await readLiveFrame(path.join(dir, 'missing.jpg')), null);
 });
+
+// ---------- Parked fixes: the live picture whole or not at all; the guard's busy and stopped ----------
+
+test('evidence: a live frame is sent whole, or not at all when the file ends short', async () => {
+  const dir = await tmp('frame-short');
+  const frame = path.join(dir, 'live.jpg');
+  const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 0xff, 0xd9]);
+  await fs.writeFile(frame, jpeg);
+  // A read may give fewer bytes than asked: stand in for that on every open file for a moment.
+  const probe = await fs.open(frame);
+  const proto = Object.getPrototypeOf(probe);
+  await probe.close();
+  const realRead = proto.read;
+  try {
+    proto.read = function (buf, off, len, pos) { return realRead.call(this, buf, off, Math.min(len, 4), pos); };
+    assert.deepEqual(await readLiveFrame(frame), jpeg, 'four bytes a read: still the whole picture');
+    proto.read = function (buf, off, len, pos) {
+      return pos >= 4 ? Promise.resolve({ bytesRead: 0, buffer: buf }) : realRead.call(this, buf, off, Math.min(len, 4 - pos), pos);
+    };
+    assert.equal(await readLiveFrame(frame), null, 'the file ended after four bytes: no picture');
+  } finally {
+    proto.read = realRead;
+  }
+});
+
+async function guardedPage(name, screenshot) {
+  const dir = await tmp(name);
+  const liveFile = path.join(dir, 'live.jpg');
+  const watchFile = path.join(dir, 'watching');
+  const pw = pathToFileURL(path.join(dir, 'playwright.mjs')).href;
+  await fs.writeFile(path.join(dir, 'playwright.mjs'), 'export const test = { extend: (fixtures) => ({ fixtures }) };\nexport const expect = () => {};\n');
+  await fs.writeFile(path.join(dir, 'guard.mjs'), guardModule(pw, { liveFile, watchFile }));
+  await fs.writeFile(watchFile, ''); // watched from the start
+  const { test: guarded } = await import(pathToFileURL(path.join(dir, 'guard.mjs')).href);
+  const page = { route: async () => {}, mainFrame: () => null, screenshot };
+  return { dir, liveFile, run: (body) => guarded.fixtures.page({ page }, body) };
+}
+
+test('evidence: the guard never takes a picture while the last one is still being taken (busy)', async () => {
+  let inFlight = 0;
+  let most = 0;
+  let shots = 0;
+  const g = await guardedPage('guard-busy', async () => {
+    shots += 1; inFlight += 1; most = Math.max(most, inFlight);
+    await pause(1300); // slower than the 500 ms between ticks
+    inFlight -= 1;
+    return Buffer.from(`frame ${shots}`);
+  });
+  await g.run(async () => { await until(async () => shots >= 2, 'a second picture after the slow first'); });
+  assert.equal(most, 1, 'never two at once');
+});
+
+test('evidence: a picture still being taken when the test ends is never written (stopped)', async () => {
+  let started = false;
+  const g = await guardedPage('guard-stopped', async () => { started = true; await pause(1000); return Buffer.from('late'); });
+  await g.run(async () => { await until(async () => started, 'a picture started'); });
+  await pause(1500); // the late picture comes back after the end
+  assert.equal(await exists(g.liveFile), false, 'no live.jpg');
+  assert.deepEqual((await fs.readdir(g.dir)).filter((f) => f.startsWith('live')), [], 'and no live.jpg.part');
+});

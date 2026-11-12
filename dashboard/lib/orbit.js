@@ -169,7 +169,9 @@ export const SECRET_PATTERNS = [
   { name: 'Private key', re: /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----(?:[A-Za-z0-9+/=\s]|\\[nr])*(?:-----END [A-Z0-9 ]*PRIVATE KEY-----)?/g },
   // A JWT: three base64url parts, the first starting eyJ. Its first part (the header) is read
   // 500 characters at most (a header is far shorter), so a long run (-eyJ-eyJ…) stays quick.
-  { name: 'JWT', re: /\beyJ[A-Za-z0-9_-]{5,500}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}/g },
+  // Replaced after SECRET_PLACES (afterPlaces): a password in front of one inside an address
+  // (https://me:pw-eyJ…@host) is then hidden whole by the address rule, not left showing.
+  { name: 'JWT', re: /\beyJ[A-Za-z0-9_-]{5,500}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}/g, afterPlaces: true },
 ];
 // Secrets by where they sit on a command line: group 1 (the flag, header or address before it) is
 // kept and the value becomes [hidden]. A value already hidden ([…]) is left as it is. No value
@@ -180,8 +182,9 @@ const SECRET_PLACES = [
   // Authorization: Bearer …, Basic …, token … (any scheme word), and a bare Bearer value with a digit in it.
   new RegExp(String.raw`(\bAuthorization:\s*(?:(?:Bearer|Basic|token|Digest)\s+)?)(?!\[|(?:Bearer|Basic|token|Digest)\b)([^\s"'\\]+)`, 'gi'),
   /(\bBearer\s+)(?!\[)(?=[A-Za-z0-9._~+/=-]*\d)([A-Za-z0-9._~+/=-]{8,})/g,
-  // curl -u user:pass, --user user:pass (a name alone, which curl asks the password for, is left).
-  /((?:^|[\s"'])(?:-u\s*|--user(?:=|\s+)))(?!\[)([^\s"'\\:]+:[^\s"'\\]+)/g,
+  // curl -u user:pass, --user user:pass, --user=, --user= and --user = alike (a name alone, which
+  // curl asks the password for, is left).
+  /((?:^|[\s"'])(?:-u\s*|--user(?:\s*=\s*|\s+)))(?!\[)([^\s"'\\:]+:[^\s"'\\]+)/g,
   // A name and password inside an address, any scheme: scheme://[hidden]@host. The kept part is the
   // whole run of scheme characters before ://, from where none is before it (-https://, 1.https:// too),
   // so a long run (a-a-a-…) is read once.
@@ -206,12 +209,13 @@ const ENV_SECRET = /((?:^|[^A-Za-z0-9_])(?=[A-Za-z0-9_]*?(?:TOKEN|SECRET|PASSWOR
 export function scrub(text, { secrets = [] } = {}) {
   if (typeof text !== 'string' || !text) return text;
   let out = text;
-  for (const { name, re } of SECRET_PATTERNS) out = out.replace(re, `[${name} hidden]`);
+  for (const { name, re, afterPlaces } of SECRET_PATTERNS) if (!afterPlaces) out = out.replace(re, `[${name} hidden]`);
   for (const value of [...knownSecrets, ...secrets]) {
     if (typeof value === 'string' && value.length >= 8 && out.includes(value)) out = out.split(value).join(HIDDEN);
   }
   out = out.replace(ENV_SECRET, (_m, name) => `${name}${HIDDEN}`);
   for (const re of SECRET_PLACES) out = out.replace(re, (_m, before) => `${before}${HIDDEN}`);
+  for (const { name, re, afterPlaces } of SECRET_PATTERNS) if (afterPlaces) out = out.replace(re, `[${name} hidden]`);
   return out;
 }
 

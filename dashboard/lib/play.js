@@ -415,10 +415,12 @@ function findingSeverity(cell) {
   return 'minor';
 }
 
-/** The words cut at FINDING_TEXT_MAX characters, at the end of a word, with …. */
+/** The words cut at FINDING_TEXT_MAX characters, at the end of a word, with …; never between the two halves of a pair (an emoji). */
 function cutFinding(text) {
   if (text.length <= FINDING_TEXT_MAX) return text;
-  const room = text.slice(0, FINDING_TEXT_MAX - 1);
+  const end = FINDING_TEXT_MAX - 1;
+  const firstHalf = /[\uD800-\uDBFF]/.test(text[end - 1]);
+  const room = text.slice(0, firstHalf ? end - 1 : end);
   const wordStart = room.search(/\s\S*$/);
   return `${(wordStart > FINDING_TEXT_MAX / 2 ? room.slice(0, wordStart) : room).trimEnd()}…`;
 }

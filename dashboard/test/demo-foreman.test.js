@@ -460,6 +460,28 @@ test('buildDemo refuses a root outside the temp folder and deletes nothing', asy
   await assert.rejects(fs.lstat(root), { code: 'ENOTDIR' });
 });
 
+test('a link inside the temp folder that points outside it is refused', async () => {
+  const { buildDemo } = await import('../demo/run-demo.js');
+  // The demo's temp folder is, for this test, a fresh folder (os.tmpdir() answers it), so the
+  // link's target, a fresh folder beside it, is outside it without leaving the real temp folder.
+  const base = await fs.mkdtemp(path.join(os.tmpdir(), 'workshop-demo-link-'));
+  const temp = path.join(base, 'temp');
+  const outside = path.join(base, 'outside');
+  await fs.mkdir(path.join(temp, 'fresh'), { recursive: true });
+  await fs.mkdir(outside);
+  await fs.writeFile(path.join(outside, 'keep.txt'), 'mine');
+  const link = path.join(temp, 'fresh', 'demo-root');
+  await fs.symlink(outside, link);
+  const realTmpdir = os.tmpdir;
+  os.tmpdir = () => temp;
+  let built;
+  try { built = buildDemo({ root: link }); } finally { os.tmpdir = realTmpdir; }
+  await assert.rejects(built, /only inside the system’s temp folder/);
+  assert.equal(await fs.readFile(path.join(outside, 'keep.txt'), 'utf8'), 'mine', 'the target folder still holds its file');
+  assert.deepEqual(await fs.readdir(outside), ['keep.txt']);
+  await fs.rm(base, { recursive: true, force: true });
+});
+
 test('the demo has a job with an overview and plan steps, one with a recording under way, and an Auto job he wrote to that waits for him with its sentence', { timeout: 120_000 }, async () => {
   // Not realpath'd: the demo writes only inside the system's temp folder as os.tmpdir() names it.
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'workshop-demo-page-'));

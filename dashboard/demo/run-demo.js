@@ -63,10 +63,35 @@ function setRoot(root) {
 }
 setRoot(path.join(os.tmpdir(), 'starbase-demo'));
 
-/** The one rule for where the demo may write: a folder inside the system's temp folder (never that folder itself). */
+/**
+ * The one rule for where the demo may write: a folder inside the system's temp folder (never that
+ * folder itself), by real paths, so a link inside the temp folder that points outside it is refused.
+ * A folder not made yet is judged by its nearest parent that is there (plus the rest of the path).
+ */
 function insideTemp(dir) {
-  const rel = path.relative(os.tmpdir(), path.resolve(String(dir)));
-  return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+  try {
+    const real = realPathOrNearest(path.resolve(String(dir)));
+    if (!real) return false;
+    const rel = path.relative(fsSync.realpathSync(os.tmpdir()), real);
+    return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+  } catch {
+    return false;
+  }
+}
+
+/** The real path of `p`, or of its nearest parent that is there joined with the rest; null for a link that leads nowhere. */
+function realPathOrNearest(p) {
+  const rest = [];
+  for (let cur = p; ; cur = path.dirname(cur)) {
+    try {
+      return path.join(fsSync.realpathSync(cur), ...rest);
+    } catch (err) {
+      if (err.code !== 'ENOENT' && err.code !== 'ENOTDIR') throw err;
+      if (fsSync.lstatSync(cur, { throwIfNoEntry: false })?.isSymbolicLink()) return null;
+      if (path.dirname(cur) === cur) throw err;
+      rest.unshift(path.basename(cur));
+    }
+  }
 }
 let BASE = null;
 
