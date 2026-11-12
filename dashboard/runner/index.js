@@ -57,7 +57,7 @@ import { DECISIONS_FILE, autoLines, briefNames, decisionLog, decisionRows, local
 import { typicalRuns } from '../lib/run-typical.js';
 import { proofStamp } from '../lib/proof.js';
 import { suggestLevel, changedPaths, diffSummary } from '../lib/levels.js';
-import { checkDiff, chooseLevel } from '../lib/auto-level.js';
+import { checkDiff, chooseLevel, ownLevelStands } from '../lib/auto-level.js';
 import { AUTO_MARK, autoAllowed, autoCardView, autoOption, autoRecord, wroteWhileWaiting } from '../lib/auto.js';
 import { createAuto } from './auto.js';
 import { askApprover as askApproverLib, approverOptions, setApproverStateDir } from '../lib/approver.js';
@@ -447,8 +447,7 @@ export async function createRunner(config) {
   }
   /**
    * Called under the job's Auto lock right before Auto's own answer goes (a gate reply or a card decision): refuses unless
-   * the job's level allows Auto (options.json, read first), Auto is on and not stopped, and the job is not being closed,
-   * restarted or archived, nor closed. The refusal's code, 'auto-gone', is one the pass treats as moved on: nothing is
+   * Auto is on and not stopped, and the job is not being closed, restarted or archived, nor closed (Auto runs at every level). The refusal's code, 'auto-gone', is one the pass treats as moved on: nothing is
    * sent and no failure is counted.
    *
    * Keep the record check the last thing before driver.start / driver.decide. That there is no window between the check
@@ -456,12 +455,8 @@ export async function createRunner(config) {
    * may be put between the record check and the start, or a click could land in between again.
    */
   async function autoMaySend(dir) {
-    const gone = () => new HttpError(409, 'Auto was switched off or stopped, the job left Auto for its level, or the job is being closed or restarted, before its answer went. Nothing was sent.', { code: 'auto-gone' });
-    // The level first (a file read): set to L3 at the door, the answer does not go.
-    let level = null;
-    try { level = (await readOptions(dir))?.level ?? null; } catch { level = null; }
-    if (!autoAllowed({ level: Number.isInteger(level) ? level : null }).ok) throw gone();
-    // Then the record, from memory, last.
+    const gone = () => new HttpError(409, 'Auto was switched off or stopped, or the job is being closed or restarted, before its answer went. Nothing was sent.', { code: 'auto-gone' });
+    // The record, from memory, last.
     const saved = await state.sessionFor(dir);
     const rec = saved?.auto ?? null;
     if (rec?.on === true && !rec.stopped && !saved?.closed && !closing.has(dir) && !restarting.has(dir) && !autoArchiving.has(dir)) return;
@@ -1394,7 +1389,7 @@ export async function createRunner(config) {
     const written = await writeJobOptions(f, options, { title: f.options?.title ?? f.title, repo: f.options?.repo, kind: f.options?.kind, from_session: f.options?.from_session });
     await state.audit({ action: 'options', featureDir: f.dir, slug: f.slug, options: written.options, via: 'gate', was: f.options?.level ?? null });
     invalidate();
-    auto.pass(); // a level chip may have taken the job to L3: an Auto job leaves Auto now
+    auto.pass(); // a level chip may have changed the level: Auto's pass looks again (an Auto job stays in Auto at every level)
   }
 
 
@@ -1746,7 +1741,7 @@ export async function createRunner(config) {
     await writeJobOptions(f, options, { title: f.options?.title, repo: f.options?.repo, kind: f.options?.kind, from_session: f.options?.from_session });
     await state.audit({ action: 'auto-level', featureDir: f.dir, slug: f.slug, level, was: f.level ?? null, ...record });
     invalidate();
-    auto.pass(); // a raise to L3 takes an Auto job out of Auto now
+    auto.pass(); // the level changed: Auto's pass looks again (an Auto job stays in Auto at every level)
   }
   async function checkLevelsNow() {
     if (!(await state.getSettings()).workflow.autoLevel) return;
@@ -1768,8 +1763,9 @@ export async function createRunner(config) {
       const key = `${f.worktree}\n${base}\n${head}`;
       if (!head || levelDiffSeen.get(f.dir) === key) continue;
       levelDiffSeen.set(f.dir, key);
-      // You changed an automatic level yourself: your choice stands; no more automatic raises here.
-      if ((await state.auditFor(f.dir, 400)).some((e) => e.action === 'options' && e.overrode === 'auto')) continue;
+      // You changed an automatic level yourself (the options editor or a gate card's level chip): your choice stands; no more
+      // automatic raises here. The one rule Auto's pass uses too (lib/auto-level.js ownLevelStands), on all of the job's lines.
+      if (ownLevelStands(await state.auditFor(f.dir, Infinity))) continue;
       const diff = await diffSummary(f.worktree, base);
       // The files only: the description was weighed when the level was chosen.
       const r = checkDiff({ level: f.level, diff });
@@ -1976,7 +1972,7 @@ export async function createRunner(config) {
       const cwd = full?.cwd ?? card.cwd;
       return ctx && typeof cwd === 'string' && cwd ? { ...ctx, cwd } : ctx;
     },
-    // The Foreman suggests L1 or L2 above the job's level: applied before the gate is answered (raise only).
+    // The Foreman suggests L1, L2 or L3 above the job's level: applied before the gate is answered (raise only).
     raiseLevel: async (job, level) => {
       const f = await featureBySlug(job.slug);
       if (f) await setLevelAutomatically(f, level, { how: 'chose', note: `Level set to L${level} automatically (Foreman L${level}; the higher one wins).`, rules: null, foreman: level });
@@ -2517,8 +2513,7 @@ export async function createRunner(config) {
         // The job's options go in its private folder (read before every stage) and in the first message.
         const { detail: fromDetail, ...fromRecord } = from ?? {};
         // Started in Auto (options.auto): its record first, so the Foreman's very first reply runs in
-        // Auto's permission mode, and options.json says so with the record's time. normalize has
-        // already dropped auto at L3.
+        // Auto's permission mode, and options.json says so with the record's time. Auto runs at every level.
         let autoOn = null;
         if (options.auto === true && autoAllowed({ level: options.level }).ok) {
           autoOn = autoRecord(null, internal.autoStart ? { on: true, by: 'tag', tag: internal.autoStart.tag } : { on: true, by: 'you' });
@@ -2742,7 +2737,7 @@ export async function createRunner(config) {
       const overrode = lastLevel?.action === 'auto-level' && options.level !== lastLevel.level ? 'auto' : undefined;
       await state.audit({ action: 'options', featureDir: f.dir, slug: f.slug, options, was: f.options?.level ?? null, overrode });
       invalidate();
-      auto.pass(); // L3 here takes an Auto job out of Auto now
+      auto.pass(); // the level may have changed: Auto's pass looks again (an Auto job stays in Auto at every level)
       return { ok: true, options, summary: describeOptions(options), updated_at: updatedAt };
     },
 
@@ -2850,15 +2845,11 @@ export async function createRunner(config) {
     },
     // POST /api/job/:slug/auto: Auto mode's switch (lib/auto.js). The record in sessions.json is what
     // turns it on; options.json gets auto and auto_since for the skills, and nothing else changes.
-    // Refused at L3, and while the Foreman suggests L3: that raise is yours to decide.
+    // Never refused for the level: Auto runs at every level, and applies a suggested one by raising the job's level.
     async auto(body) {
       const f = await jobOf(body.slug);
       // A restart is moving this job's folders and record aside: Auto set now would land on the old job.
       if (restarting.has(f.dir)) throw new HttpError(409, BEING_RESTARTED);
-      if (body.on) {
-        const allowed = autoAllowed({ level: f.level, suggestedLevel: f.suggestedLevel });
-        if (!allowed.ok) throw new HttpError(409, allowed.why, { code: 'auto-level' });
-      }
       // Inside the lock nothing may call features() or jobContext: they wait on this same lock.
       const { record, changed } = await autoLocked(f.dir, async () => {
         const prev = (await state.sessionFor(f.dir))?.auto ?? null;

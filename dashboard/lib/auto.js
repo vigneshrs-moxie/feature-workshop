@@ -98,7 +98,7 @@ const aboveAuto = (v) => isLevel(v) && v > AUTO_MAX_LEVEL;
 /**
  * Whether a job may run in Auto: at every level, with no level yet, and whatever level the Foreman
  * suggests (Auto applies a suggestion by raising the job's level, never lowering it). Returns
- * { ok: true, why: null }; kept with its shape so the switch, the driver's door and the card need no change.
+ * { ok: true, why: null }; kept with its shape so the job's start and the card need no change.
  */
 export function autoAllowed() {
   return { ok: true, why: null };

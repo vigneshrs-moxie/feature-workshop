@@ -4858,3 +4858,60 @@ test('a set-aside job is told once as Too big for Auto', { timeout: 30_000 }, as
   await u.auto.pass();
   assert.deepEqual(u.notes.map((x) => [x.title, x.key]), [['Too big for Auto: Visit audit', 'auto-too-big:visit-audit']]);
 });
+
+// ---------- One rule decides whether his own level stands: checkLevels uses ownLevelStands on the whole job ----------
+
+/** A build that adds a migration on the job's branch, then "Choose the level for me" looks at its diff (L3 unless his level stands). */
+async function migrationBuild(w) {
+  const base = w.git('rev-parse', 'HEAD').toString().trim();
+  await fs.mkdir(path.join(w.dirs.repo, 'db', 'migrations'), { recursive: true });
+  await fs.writeFile(path.join(w.dirs.repo, 'db', 'migrations', '001_visits.sql'), 'alter table visits add column x int;\n');
+  w.git('add', '.'); w.git('commit', '-q', '-m', 'build');
+  await w.writeStatus(status(1, { stage_state: 'working', waiting_for: null, worktree: w.dirs.repo, base_sha: base }));
+  await new Promise((r) => setTimeout(r, 1600)); // the job list is cached for 1.5 seconds
+  await w.runner.handle({ type: 'settings', workflow: { autoLevel: true } }, { from: 'local' });
+  await w.runner.auto.checkLevels();
+}
+const levelLines = async (w) => (await w.lines()).filter((l) => l.action === 'auto-level');
+
+test('a level he sets with the gate chip after an automatic level is not raised again', { timeout: 30_000 }, async () => {
+  const w = await world({ auto: null, options: { level: 2, flow: 'small', title: 'Visit audit columns' } });
+  try {
+    await auditLine(w, { at: AT(1), action: 'auto-level', level: 2, was: 1 });
+    await w.runner.handle({ type: 'approve', slug: w.slug, briefNumber: 1, chips: [{ kind: 'level', level: 1 }] }, { from: 'local' });
+    await w.idle();
+    const chip = (await w.lines()).filter((l) => l.action === 'options').at(-1);
+    assert.deepEqual([chip.via, chip.options.level, chip.was, chip.overrode], ['gate', 1, 2, undefined], 'the chip wrote his level, with was and no overrode');
+    await migrationBuild(w);
+    assert.equal((await w.ownOptions()).level, 1, 'his chip level stands');
+    assert.equal((await levelLines(w)).length, 1, 'no auto-level line is added');
+  } finally { await w.stop(); }
+});
+
+test('his level still stands when more than 400 lines came after it', { timeout: 30_000 }, async () => {
+  const w = await world({ auto: null, jobStatus: status(1, { stage_state: 'working', waiting_for: null }) });
+  try {
+    await auditLine(w, { at: AT(1), action: 'auto-level', level: 2, was: 1 });
+    await auditLine(w, { at: AT(2), action: 'options', options: { level: 1 }, was: 2, overrode: 'auto' });
+    const filler = Array.from({ length: 450 }, (_, i) => JSON.stringify({ featureDir: w.dir, slug: w.slug, at: AT(3), action: 'test-filler', n: i })).join('\n');
+    await fs.appendFile(path.join(w.dirs.state, 'audit.jsonl'), `${filler}\n`);
+    await migrationBuild(w);
+    assert.equal((await w.ownOptions()).level, 1, 'his level stands');
+    assert.equal((await levelLines(w)).length, 1, 'no auto-level line is added');
+  } finally { await w.stop(); }
+});
+
+test('a chip save that keeps the level does not stop later raises', { timeout: 30_000 }, async () => {
+  const w = await world({ auto: null });
+  try {
+    await auditLine(w, { at: AT(1), action: 'auto-level', level: 1, was: null });
+    // An ask-Fable chip on the gate he answers by hand: the whole options go on the line, level 1 unchanged.
+    await w.runner.handle({ type: 'approve', slug: w.slug, briefNumber: 1, chips: [{ kind: 'fable', point: 'review' }] }, { from: 'local' });
+    await w.idle();
+    const chip = (await w.lines()).filter((l) => l.action === 'options').at(-1);
+    assert.deepEqual([chip.via, chip.options.level, chip.was], ['gate', 1, 1], 'the chip kept the level');
+    await migrationBuild(w);
+    assert.equal((await w.ownOptions()).level, 3, 'raised by the build\'s diff');
+    assert.equal((await levelLines(w)).at(-1).level, 3);
+  } finally { await w.stop(); }
+});

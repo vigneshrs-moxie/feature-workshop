@@ -69,9 +69,8 @@ export function checkDiff({ level, description = '', diff }) {
  * them): the latest level line (an 'auto-level' line, or an 'options' line that changed the level: the
  * options editor or a gate card's level chip, its level not its `was`) is his options change, made after
  * an automatic level. Then nothing raises the level by itself; his choice stands. A save that keeps the
- * level (a note, reviewers, a skip or Fable chip) is no level choice. checkLevelsNow (runner/index.js)
- * still decides by its own test, an 'options' line with overrode 'auto' among its newest 400 lines: it
- * differs for a level chip (never marked overrode) and once that line is older than the newest 400.
+ * level (a note, reviewers, a skip or Fable chip) is no level choice. The one rule: Auto's pass (triage)
+ * and the build's diff check (checkLevelsNow, runner/index.js) both ask it, on all of the job's lines.
  */
 export function ownLevelStands(lines = []) {
   const levelLines = lines.filter((e) => e?.action === 'auto-level' || (e?.action === 'options' && Number.isInteger(e.options?.level) && e.options.level !== e.was));
