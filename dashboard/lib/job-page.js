@@ -275,14 +275,24 @@ function lineMark(line) {
   return { mark, at: found[0].index };
 }
 
+// A check box's mark ([x], [X], [ ]) is markup, not a word, though x is a letter.
+const CHECK_BOX = /\[[ xX]\]/g;
+// Whether the id at `index` starts its line: no letter before it, once check boxes are taken out.
+function startsLine(line, index) {
+  return !/\p{L}/u.test(line.slice(0, index).replace(CHECK_BOX, ''));
+}
+
 /**
  * How the Tester's checks came out, by test-report.md: { passed, failed, notRun }, one count per
  * acceptance line (AC-<n>) the report marks PASS, FAIL or NOT RUN (PASSED and FAILED too). The rule:
  *   1. A line's mark is the worst mark word on it: FAIL, then NOT RUN, then PASS.
  *   2. The mark goes only to the AC ids written before the line's first mark word (an AC named
  *      after it, "AC-2: PASS (needed AC-5's fix first)", is only mentioned).
- *   3. A later line for the same AC wins (a line checked again), except that an id which is not
- *      the first id on its line never turns an earlier FAIL into a PASS.
+ *   3. A later line for the same AC wins (a line checked again), except that only the id that STARTS
+ *      its line may turn an earlier FAIL into a PASS. An id starts its line when no letter comes
+ *      before it (list bullets and numbers, a check box, table pipes, quote marks, *, _, #,
+ *      backticks, an emoji and spaces may). Any other id before the mark word is a mention: it takes
+ *      the mark when it has none yet, or when the mark is not a PASS over a FAIL.
  * Null when no line is marked. Pure.
  */
 export function checkCounts(reportText) {
@@ -292,11 +302,10 @@ export function checkCounts(reportText) {
     const ids = [...line.matchAll(AC_ID)];
     const found = ids.length ? lineMark(line) : null;
     if (!found) continue;
-    const first = Number(ids[0][1]);
     for (const id of ids) {
       if (id.index > found.at) break;
       const n = Number(id[1]);
-      if (n !== first && found.mark === 'PASS' && marks.get(n) === 'FAIL') continue;
+      if (!startsLine(line, id.index) && found.mark === 'PASS' && marks.get(n) === 'FAIL') continue;
       marks.set(n, found.mark);
     }
   }

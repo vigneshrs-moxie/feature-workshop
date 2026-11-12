@@ -175,6 +175,15 @@ test('a later line cannot turn a failure into a pass by listing the AC second', 
   assert.deepEqual(checkCounts('- AC-1, AC-2: PASS\n- AC-3, AC-2: FAIL\n'), { passed: 1, failed: 2, notRun: 0 });
 });
 
+test('words before an AC make it a mention: it cannot turn a failure into a pass', async () => {
+  const { checkCounts } = await import('../lib/job-page.js');
+  assert.deepEqual(checkCounts('- AC-5: FAIL\n- After the AC-5 fix, AC-2: PASS\n'), { passed: 1, failed: 1, notRun: 0 });
+  assert.deepEqual(checkCounts('- AC-5: FAIL\n- Blocked by AC-5 until now; AC-2: PASS\n'), { passed: 1, failed: 1, notRun: 0 });
+  assert.deepEqual(checkCounts('- AC-5: FAIL\n- [x] **AC-5**: PASS\n'), { passed: 1, failed: 0, notRun: 0 });
+  assert.deepEqual(checkCounts('- AC-5: FAIL\n1. AC-5: PASS\n'), { passed: 1, failed: 0, notRun: 0 });
+  assert.deepEqual(checkCounts('- Re-ran AC-7: PASS\n'), { passed: 1, failed: 0, notRun: 0 });
+});
+
 test('the worst word on a line wins', async () => {
   const { checkCounts } = await import('../lib/job-page.js');
   assert.deepEqual(checkCounts('- AC-3: NOT RUN earlier, now FAIL\n'), { passed: 0, failed: 1, notRun: 0 });
