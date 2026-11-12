@@ -536,6 +536,26 @@ describe('the phone’s step screen', () => {
     expect(await screen.findByRole('textbox', { name: /What should change\?/ })).toHaveValue('Use the small table.');
   });
 
+  // Fix round 2, item 3 (N1): a card drawn again while its send is out gets the words back if it fails.
+  it.each([['the laptop app', false], ['the website', true]] as const)('a send that fails while the card was drawn again puts the words back in its box (%s)', async (_where, hosted) => {
+    let refuse: (e: unknown) => void = () => {};
+    const post = vi.fn((p: string): Promise<unknown> => (p === '/api/job/alpha/gate' ? new Promise((_res, rej) => { refuse = rej; }) : Promise.resolve({ ok: true })));
+    setup({ jobs: [AUTO_OFF[1]], gate: GATE, hosted, post });
+    await threeCallsOn();
+    fireEvent.click(screen.getByRole('button', { name: /^No go: send back/ }));
+    fireEvent.change(await screen.findByRole('textbox', { name: /What should change\?/ }), { target: { value: 'Use the small table.' } });
+    fireEvent.click(within(document.querySelector<HTMLElement>('.gate-note')!).getByRole('button', { name: 'Send back' }));
+    await waitFor(() => expect(post.mock.calls.filter(([p]) => p === '/api/job/alpha/gate')).toHaveLength(1));
+    // Another screen and back while the send is out: the card is drawn again.
+    go('#/job/alpha/overview');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Overview' })).toBeInTheDocument();
+    go('#/job/alpha');
+    await screen.findByRole('textbox', { name: /What should change\?/, hidden: true });
+    await act(async () => { refuse(new ApiError(503, 'The laptop is away.')); });
+    await waitFor(() => expect(screen.getByRole('textbox', { name: /What should change\?/, hidden: true })).toHaveValue('Use the small table.'));
+    expect(localStorage.getItem('fw.gateBox.alpha')).toContain('Use the small table.');
+  });
+
   it('after Go the chip reads Sent and the step’s row and screen read Approved', async () => {
     let n = 0;
     const sentPost = vi.fn(async (p: string, body?: unknown): Promise<unknown> => {
