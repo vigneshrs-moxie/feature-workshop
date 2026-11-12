@@ -2,10 +2,11 @@
 // laptop…", with Cancel) and the Desk's calls rest meanwhile; a changed one says to look again; a
 // permission says when it was asked and when it expires; and the live stream carries on quietly
 // when the site ends one, and polls every 5 seconds when it can't have one.
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../../api/client';
-import type { Gate, JobDetail, Permission } from '../../api/types';
+import type { Gate, JobDetail, Permission, StageView, StopId } from '../../api/types';
+import { STOPS } from '../../components/stops/stops';
 import { DeskView } from '../../home/DeskView';
 import { AutoSwitch } from '../../job/AutoSwitch';
 import { WhatAutoDecided } from '../../job/WhatAutoDecided';
@@ -16,6 +17,8 @@ import { PermissionCard } from '../../components/permissions/PermissionCard';
 import { createStore, WorkshopContext } from '../../state/store';
 import { job, snapshot } from '../../state/test-fixtures';
 import { hostedStream, POLL_MS } from './hostedStream';
+import { HostedWorkshop } from './HostedWorkshop';
+import type { MirrorRoute } from './route';
 import { askedLine, type QueuedView } from './QueuedDecision';
 
 const NOW = new Date('2026-10-30T16:00:00Z');
@@ -210,6 +213,72 @@ describe('Auto on the website', () => {
     expect(await screen.findByText('Auto is on.')).toBeInTheDocument();
     expect(screen.getByText(/because it is small/)).toHaveTextContent('<img src=x onerror="alert(1)"> because it is small');
     expect(document.querySelector('img')).toBeNull();
+  });
+});
+
+// Part 3, Task 17: the website's job page is the new page, at a job's address and a step's, and
+// going from one to the other (a hashchange on the website) keeps it mounted, so typed words stay.
+describe('the job page on the website', () => {
+  const stageView = (slug: string, stop: StopId): StageView => ({
+    slug, stop, label: STOPS.find((s) => s.id === stop)!.label, state: 'done', stateWords: 'Done', since: null, stages: [],
+    agents: [], finished: [], terminalApp: null, terminalApps: [], docs: [], checks: null, handTest: null, plan: null, prs: [], review: { reviewers: [] },
+  });
+  function site(route: MirrorRoute) {
+    const store = createStore();
+    // Play subtle: the bar's calls carry the page's own words (No go: send back, Reply, Go: …).
+    store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [ALPHA], meta: { token: null, settings: { play: { mode: 'subtle' } } } as never }) });
+    const get = vi.fn(async (path: string): Promise<unknown> => {
+      const stage = /^\/api\/job\/([^/]+)\/stage\/([a-z]+)$/.exec(path);
+      if (stage) return stageView(decodeURIComponent(stage[1]), stage[2] as StopId);
+      if (path.endsWith('/evidence')) return { evidence: null, commit: null, wanted: false, why: '', recording: false, problem: null, folder: '', folderUrl: '', watch: false };
+      if (path.endsWith('/docs')) return { docs: [] };
+      if (path.endsWith('/commits')) return { commits: [] };
+      if (path.endsWith('/decisions')) return { decisions: [] };
+      if (path.endsWith('/local')) return null;
+      return { slug: 'alpha', thread: [], threadMore: false, gate: GATE, answeredBriefs: [], heldReply: null, options: { level: 1 }, queued: null } as JobDetail;
+    });
+    const api = { get, post: vi.fn(async () => ({ ok: true })), hosted: () => true } as unknown as ApiClient;
+    const utils = render(<HostedWorkshop api={api} store={store} route={route} />);
+    return { ...utils, go: (next: MirrorRoute) => utils.rerender(<HostedWorkshop api={api} store={store} route={next} />) };
+  }
+  const openTab = () => screen.getByRole('tab', { selected: true, hidden: true });
+
+  it('the website’s job page is the new page', async () => {
+    site({ name: 'job', slug: 'alpha' });
+    const page = await screen.findByRole('main', { name: 'Job' });
+    expect(page).toHaveClass('sb-job-page');
+    expect(within(page.querySelector<HTMLElement>('.sb-job-top')!).getByRole('heading', { name: 'Job alpha' })).toBeInTheDocument();
+    expect(within(page).getAllByRole('tab', { hidden: true })).toHaveLength(7);
+    expect(openTab().id).toBe('sb-step-plan');
+    // The job waits for him: the bar has its three calls on the website too.
+    expect(await screen.findByRole('button', { name: /^No go: send back/ })).toBeEnabled();
+    cleanup();
+    // A step's address opens the same page on that step.
+    site({ name: 'stage', slug: 'alpha', stop: 'review' });
+    expect(await screen.findByRole('main', { name: 'Job' })).toHaveClass('sb-job-page');
+    expect(openTab().id).toBe('sb-step-review');
+  });
+
+  it('the website’s step address keeps the page mounted', async () => {
+    const { go } = site({ name: 'job', slug: 'alpha' });
+    const page = await screen.findByRole('main', { name: 'Job' });
+    fireEvent.click(await screen.findByRole('button', { name: /^No go: send back/ }));
+    const box = await screen.findByRole('textbox', { name: /What should change\?/ });
+    box.focus();
+    fireEvent.change(box, { target: { value: 'Use the small table.' } });
+    // The job's address, then a step's, then another step's: the same page, the same box, the same words.
+    go({ name: 'stage', slug: 'alpha', stop: 'spec' });
+    await act(async () => {});
+    expect(openTab().id).toBe('sb-step-spec');
+    expect(screen.getByRole('main', { name: 'Job' })).toBe(page);
+    expect(screen.getByRole('textbox', { name: /What should change\?/ })).toBe(box);
+    expect(box).toHaveValue('Use the small table.');
+    go({ name: 'stage', slug: 'alpha', stop: 'build' });
+    await act(async () => {});
+    expect(openTab().id).toBe('sb-step-build');
+    expect(screen.getByRole('main', { name: 'Job' })).toBe(page);
+    expect(screen.getByRole('textbox', { name: /What should change\?/ })).toBe(box);
+    expect(box).toHaveValue('Use the small table.');
   });
 });
 
