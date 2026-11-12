@@ -1,13 +1,13 @@
 // The Review step's body in the open step (design 3.2): each reviewer that ran (job.page.review
 // through the step's view) with its model, how many findings and each one Fixed, Not doing or Open;
 // a reviewer with none says No findings. Then the review walkthrough, folded, when the job has one.
-// A record from an older Starbase (review not known) says nothing about findings; the rest draws.
+// A record from an older laptop (review not known) says nothing about findings; the rest draws.
 import type { Job, ReviewRow, StageReviewer, StageView } from '../../api/types';
 import { Chip, type ChipTone } from '../../components/Chip';
 import type { IconName } from '../../components/Icon';
 import { Fold } from '../../components/page/Page';
 import { WalkthroughTab } from '../../panes/Preview/WalkthroughTab';
-import { StepAutoLine } from './SpecStep';
+import { StepAutoLine } from './stepAuto';
 import './page.css';
 
 const STATUS: Record<NonNullable<ReviewRow['status']>, { words: string; tone: ChipTone; icon: IconName }> = {
