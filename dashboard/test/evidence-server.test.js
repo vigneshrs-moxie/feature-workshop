@@ -243,6 +243,15 @@ async function setHold(text) {
   await fs.rename(`${hold}.next`, hold);
 }
 const runningFirst = (v) => v.progress?.lines?.[0]?.state === 'running';
+/**
+ * Let a held recording go and see it end, so no later test finds it still in the queue (one recording
+ * at a time): every held test does this in its finally, so one that fails part way holds up no other.
+ * At once when the job never recorded.
+ */
+async function letGo(slug) {
+  await setHold('go');
+  await viewWhen(slug, (v) => !v.recording && v.progress == null, 'the recording never ended');
+}
 
 test('evidence server: while it records, the view says which line of how many and each line’s state', async () => {
   await fs.rm(hold, { force: true }); // the next recording holds once its first line begins
@@ -261,9 +270,7 @@ test('evidence server: while it records, the view says which line of how many an
     assert.equal(card.lane, 'working');
     assert.equal(card.laneReason, 'Recording evidence: line 1 of 3');
   } finally {
-    // Let it go and see it end, so no later test finds this recording still in the queue (final fixes C4).
-    await setHold('go');
-    await viewWhen('held-job', (v) => !v.recording, 'the held recording never ended');
+    await letGo('held-job');
   }
 });
 
@@ -274,7 +281,7 @@ test('evidence server: when the recording ends the progress is gone', async () =
     await writeJob('ended-job', { level: 2 });
     await viewWhen('ended-job', runningFirst, 'no recording part way');
   } finally {
-    await setHold('go');
+    await letGo('ended-job');
   }
   const view = await viewWhen('ended-job', (v) => v.evidence && !v.recording, 'the held recording never ended');
   assert.equal(view.progress, null);
@@ -306,7 +313,7 @@ test('evidence server: when the recording dies the progress is gone and the prob
     const seen = (await eventsFor(800, epoch)).filter((e) => e.type === 'evidence' && e.job === 'dying-job');
     assert.deepEqual(seen.slice(-2).map((e) => [e.data.outcome, e.data.progress]), [['not-recorded', undefined], ['progress', null]]);
   } finally {
-    await setHold('go');
+    await letGo('dying-job');
   }
 });
 
@@ -333,7 +340,7 @@ test('evidence server: a line’s video is there as soon as the line ends', asyn
     assert.equal(done.evidence.criteria[0].video, 'abc1234def5/AC-1/video.webm', 'the same place at the end');
     assert.equal((await get(fileUrl('video-job', done.evidence.criteria[0].video))).status, 200);
   } finally {
-    await setHold('go');
+    await letGo('video-job');
   }
 });
 
@@ -384,7 +391,7 @@ test('evidence server: the laptop’s card hears each line as it moves, and the 
       const moved = await changeAfter(w, (d) => d.progress?.line === 1, 'no change after the line moved to 1');
       assert.equal((await moved.card).testing, 'Recording evidence: line 1 of 3');
     } finally {
-      await setHold('go');
+      await letGo('heard-job');
     }
     const ended = await changeAfter(w, (d) => d.outcome === 'progress' && d.progress === null, 'no change after the progress was gone');
     const card = await ended.card;
@@ -409,7 +416,7 @@ test('evidence server: the laptop’s card hears the end of a recording that die
       assert.doesNotMatch(card.laneReason, /Recording evidence/);
       assert.ok((await getJson('/api/job/heard-dying-job/evidence')).problem, 'the problem is said');
     } finally {
-      await setHold('go');
+      await letGo('heard-dying-job');
     }
   } finally {
     w.stop();
@@ -458,7 +465,7 @@ test('evidence server: the live route answers the newest frame while a recording
     assert.equal(await there(path.join(featuresDir, 'tiny-tweak', 'evidence', 'abc1234def5')), false);
     assert.equal((await get(liveUrl('no-such-job'))).status, 404);
   } finally {
-    await setHold('go');
+    await letGo('watched-job');
   }
   const done = await viewWhen('watched-job', (v) => v.evidence && !v.recording, 'the watched recording never ended');
   assert.equal(done.watch, false, 'no Watch once it ended');
@@ -480,7 +487,7 @@ test('evidence server: nobody watching, no frame is written', async () => {
     assert.equal(await there(path.join(runDirOf('unwatched-job'), 'live.jpg')), false, 'no frame');
     assert.equal(await there(path.join(runDirOf('unwatched-job'), 'watching')), false, 'reading the view marks nothing');
   } finally {
-    await setHold('go');
+    await letGo('unwatched-job');
   }
   await viewWhen('unwatched-job', (v) => v.evidence && !v.recording, 'the recording never ended');
 });
@@ -503,10 +510,7 @@ async function heldRecording(slug) {
   await fs.rm(hold, { force: true });
   await writeJob(slug, { level: 2 });
   await viewWhen(slug, runningFirst, 'no recording part way');
-  return async () => {
-    await setHold('go');
-    await viewWhen(slug, (v) => !v.recording && v.progress == null, 'the recording never ended');
-  };
+  return () => letGo(slug);
 }
 
 test('evidence server: a later ask keeps it watched past the mark’s first 5 seconds; another site’s page can’t start it', async () => {
