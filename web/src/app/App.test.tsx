@@ -421,7 +421,8 @@ describe('a step view with missing parts', () => {
     const page = await screen.findByRole('main', { name: 'Job' });
     const panel = within(page).getByRole('tabpanel', { name: 'Build' });
     expect(await within(panel).findByText('Nobody is working here now.')).toBeInTheDocument();
-    expect(within(panel).getByText('No documents from this step yet.')).toBeInTheDocument();
+    // Documents that are not a list are not known: it says so, never that there are none.
+    expect(within(panel).getByText('This step’s documents aren’t known yet.')).toBeInTheDocument();
     // The page is whole: the header, the seven steps, the bar and the conversation are all there.
     expect(within(page.querySelector<HTMLElement>('.sb-job-top')!).getByRole('heading', { name: 'Job alpha' })).toBeInTheDocument();
     expect(within(within(page).getByRole('tablist', { name: 'The job’s seven steps' })).getAllByRole('tab')).toHaveLength(7);

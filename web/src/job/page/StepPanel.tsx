@@ -6,12 +6,14 @@
 // panel is whole. On the website there is no terminal: one sentence says where the buttons are.
 // In Play full the bay at this step, in 3D (StageStrip), sits above who worked on it on a laptop, as
 // it did on the step page; the phone's step screen has none.
+// Under the step's documents, folded, the job's documents no step owns (notes.md, workflow-status.md,
+// the history, a file the server's map does not know), with the same rows and reader.
 import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import type { FeedLine, Job, JobDocEntry, StageAgent, StageView, StopId } from '../../api/types';
 import { BRAND } from '../../app/brand';
 import { Button } from '../../components/Button';
 import { Icon } from '../../components/Icon';
-import { useNarrow } from '../../components/page/Page';
+import { Fold, useNarrow } from '../../components/page/Page';
 import { Select } from '../../components/Select';
 import { STOPS, stopOf } from '../../components/stops/stops';
 import type { GateKind } from '../../lib/compose';
@@ -39,7 +41,8 @@ const isLive = (a: StageAgent) => a.status === 'working' || a.status === 'waitin
 /** The role word: the crew pack's, else the one the view sends (a row the step's body adds), else Helper. */
 const roleWord = (a: StageAgent) => (a.who === 'conductor' ? roleOf(null) : ROLE_WORDS[a.who] ?? (a.role || roleOf(a.who)));
 const initials = (a: StageAgent) => roleWord(a).split(/\s+/).map((w) => w.charAt(0).toUpperCase()).join('').slice(0, 2) || initialsOf(a.who);
-const ms = (iso: string | null | undefined) => (iso ? Date.parse(iso) : NaN);
+/** A time's milliseconds; NaN when it is missing or not a time. The open step's bodies use it too. */
+export const ms = (iso: string | null | undefined): number => (typeof iso === 'string' && iso ? Date.parse(iso) : NaN);
 
 /** How long: running, from its start to now; finished, from its start to its last action. */
 function rowTime(a: StageAgent, now: Date): string | null {
@@ -74,7 +77,7 @@ function statusOf(a: StageAgent, { job, stop, rows }: { job: Job; stop: StopId; 
   return a.since ? { cls: 'is-stopped', words: 'Stopped' } : { cls: 'is-stopped', words: 'Not started' };
 }
 
-export function StepPanel({ job, stop, view, error, onRetry, now, extraAgents, sent = null, docRequest, bodyFirst = false, regionOf, children }: {
+export function StepPanel({ job, stop, view, error, onRetry, now, extraAgents, sent = null, docRequest, bodyFirst = false, regionOf, otherDocs, children }: {
   job: Job;
   stop: StopId;
   /** useStage's answer for this step; null while it loads or when it failed. */
@@ -92,6 +95,8 @@ export function StepPanel({ job, stop, view, error, onRetry, now, extraAgents, s
   bodyFirst?: boolean;
   /** The phone's step screen has no tab row: the panel is a region named by that screen's heading (its id). */
   regionOf?: string;
+  /** The job's documents no step owns (the job's facts, docs.none); not known or none: no fold. */
+  otherDocs?: JobDocEntry[] | null;
   children?: ReactNode;
 }) {
   const play = usePlay();
@@ -100,10 +105,12 @@ export function StepPanel({ job, stop, view, error, onRetry, now, extraAgents, s
   const i = STOPS.findIndex((s) => s.id === stop);
   const here = STOPS[i];
   const state = stepState(job, stop, sent);
-  const time = stepTimeWords(job, stop, view?.time, now, view?.since, sent);
+  // The step's span only, as the steps row reads it: never a time of its own from view.since.
+  const time = stepTimeWords(job, stop, view?.time, now, null, sent);
   const reached = (view?.state ?? statesOf(job)[stop]) !== 'next';
   const rows = view ? [...listOf<StageAgent>(view.agents), ...listOf<StageAgent>(view.finished), ...(extraAgents ?? [])] : extraAgents ?? [];
   const title = `${STEP_PANEL_ID}-title`;
+  const others = listOf<JobDocEntry>(otherDocs);
   // The last document request handed down: each step's list is its own (keyed by step), so a request
   // already acted on is not handed to the next list, and picking the step again does not reopen it.
   const handled = useRef<number | null>(null);
@@ -131,8 +138,15 @@ export function StepPanel({ job, stop, view, error, onRetry, now, extraAgents, s
       {!bodyFirst && children}
       <section className="sb-panel-docs" aria-labelledby={`${title}-docs`}>
         <h3 id={`${title}-docs`}>Documents from this step</h3>
-        <StepDocs key={stop} slug={job.slug} docs={listOf<JobDocEntry>(view?.docs)} request={request} loaded={view !== null || error !== null} />
+        <StepDocs key={stop} slug={job.slug} docs={listOf<JobDocEntry>(view?.docs)} request={request} loaded={view !== null || error !== null} known={Array.isArray(view?.docs)} />
       </section>
+      {others.length > 0 && (
+        <div className="sb-panel-docs" key={`${stop}-others`}>
+          <Fold icon="file" name="Other documents of this job">
+            <StepDocs slug={job.slug} docs={others} />
+          </Fold>
+        </div>
+      )}
     </section>
   );
 }
@@ -144,22 +158,30 @@ export function StepPanel({ job, stop, view, error, onRetry, now, extraAgents, s
  * scroll back, so the steps row and the bar drop. A pick (another stop) whose view is not in yet
  * measures the panel as it still stands on the page (the draw for the pick is not on the page yet)
  * and holds that. Nothing is held on the first draw, on a load of the same step (Try again), or
- * when `on` is false (the phone's step screen is its own screen).
+ * when `on` is false (the phone's step screen is its own screen). A pick made while another loads
+ * measures the panel with the first pick's minimum still on it, so it keeps that height.
+ *
+ * The panel is measured during render, on purpose (React's rule is not to read a ref in render).
+ * The minimum must land in the same commit as the pick. A measure after the commit (a layout
+ * effect) comes too late: the shrunk panel is already committed, and any other layout read in that
+ * commit forces layout, so the browser clamps `.sb-job-work`'s scroll before the minimum arrives,
+ * and a later minimum does not give the scroll back. Revisit this if the hooks lint's refs rule or
+ * the React Compiler is turned on.
  */
 function useHeldHeight(box: RefObject<HTMLElement | null>, stop: StopId, loading: boolean, on: boolean): number | null {
-  const [held, setHeld] = useState<{ stop: StopId; px: number } | null>(null);
+  const [held, setHeld] = useState<number | null>(null);
   const [seenStop, setSeenStop] = useState(stop);
   let hold = held;
   if (seenStop !== stop) {
     setSeenStop(stop);
     const px = on && loading ? box.current?.getBoundingClientRect().height ?? 0 : 0;
-    hold = px > 0 ? { stop, px } : null;
+    hold = px > 0 ? px : null;
     setHeld(hold);
-  } else if (hold && !loading) {
+  } else if (hold !== null && !loading) {
     hold = null;
     setHeld(null);
   }
-  return hold && on ? hold.px : null;
+  return hold !== null && on ? hold : null;
 }
 
 function Who({ job, stop, view, error, onRetry, now, rows, reached, notYet }: { job: Job; stop: StopId; view: StageView | null; error: string | null; onRetry(): void; now: Date; rows: StageAgent[]; reached: boolean; /** The not-yet line, when it sits in the list's place (else drawn above the body). */ notYet: ReactNode }) {

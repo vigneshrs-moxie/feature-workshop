@@ -13,6 +13,7 @@ import { createStore, useWorkshopState, WorkshopContext } from '../../state/stor
 import { job, snapshot } from '../../state/test-fixtures';
 import { StepDocs } from './StepDocs';
 import { StepPanel } from './StepPanel';
+import { StepsRow } from './StepsRow';
 import { useStage } from './useStage';
 
 const NOW = new Date('2026-11-10T12:00:00Z');
@@ -57,10 +58,10 @@ function stores(j: Job, { hosted = false, play, get, post }: { hosted?: boolean;
 }
 
 /** The panel drawn with a view in hand. */
-function show(view: StageView | null, { j = BUILDING, stop = view?.stop ?? 'build', hosted = false, play = undefined as 'full' | 'subtle' | undefined, error = null as string | null, extraAgents = undefined as StageAgent[] | undefined } = {}) {
+function show(view: StageView | null, { j = BUILDING, stop = view?.stop ?? 'build', hosted = false, play = undefined as 'full' | 'subtle' | undefined, error = null as string | null, extraAgents = undefined as StageAgent[] | undefined, otherDocs = undefined as JobDocEntry[] | null | undefined, regionOf = undefined as string | undefined } = {}) {
   const s = stores(j, { hosted, play });
   const onRetry = vi.fn();
-  render(s.wrap(<StepPanel job={j} stop={stop} view={view} error={error} onRetry={onRetry} now={NOW} extraAgents={extraAgents}><p>The step’s own body</p></StepPanel>));
+  render(s.wrap(<StepPanel job={j} stop={stop} view={view} error={error} onRetry={onRetry} now={NOW} extraAgents={extraAgents} otherDocs={otherDocs} regionOf={regionOf}><p>The step’s own body</p></StepPanel>));
   return { ...s, onRetry };
 }
 
@@ -278,6 +279,57 @@ describe('StepPanel', () => {
     await waitFor(() => expect(document.activeElement).toHaveAttribute('data-file', 'implementation-plan.md'));
   });
 
+  it('workflow-status.md and an unknown notes-extra.md can be opened from Other documents of this job', async () => {
+    const STATUS_DOC: JobDocEntry = { file: 'workflow-status.md', name: 'Workflow status', group: 'other', version: null, updatedAt: ago(5), size: 300, type: 'md' };
+    const EXTRA: JobDocEntry = { file: 'notes-extra.md', name: 'notes-extra.md', group: 'other', version: null, updatedAt: ago(8), size: 120, type: 'md' };
+    const get = async (path: string): Promise<unknown> => {
+      if (/\/doc\?file=workflow-status\.md$/.test(path)) return { file: 'workflow-status.md', name: 'Workflow status', html: '<p>Status: building step 3.</p>', summary: null };
+      if (/\/doc\?file=notes-extra\.md$/.test(path)) return { file: 'notes-extra.md', name: 'notes-extra.md', html: '<p>Extra notes from the reviewer.</p>', summary: null };
+      throw new Error(`not in this test: ${path}`);
+    };
+    // The laptop app, the website, and the phone's step screen (a region named by its heading).
+    for (const mode of [{ hosted: false }, { hosted: true }, { hosted: false, regionOf: 'phone-step-title' }]) {
+      const s = stores(BUILDING, { hosted: mode.hosted, get });
+      render(s.wrap(
+        <>
+          {mode.regionOf && <h1 id={mode.regionOf}>Build</h1>}
+          <StepPanel job={BUILDING} stop="build" view={BUILD} error={null} onRetry={() => {}} now={NOW} otherDocs={[STATUS_DOC, EXTRA]} regionOf={mode.regionOf}><p>The step’s own body</p></StepPanel>
+        </>,
+      ));
+      const fold = screen.getByText('Other documents of this job', { selector: '.fold-name' }).closest('details')!;
+      // Closed at first, under the step's own documents.
+      expect(fold.open).toBe(false);
+      const own = screen.getByRole('region', { name: 'Documents from this step' });
+      expect(own.compareDocumentPosition(fold) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(within(own).queryByText('Workflow status')).toBeNull();
+      fireEvent.click(fold.querySelector('summary')!);
+      expect(fold.open).toBe(true);
+      const items = within(fold).getAllByRole('button');
+      expect(items.map((b) => b.querySelector('.doc-name')?.textContent)).toEqual(['Workflow status', 'notes-extra.md']);
+      fireEvent.click(items[0]);
+      expect(await within(fold).findByText('Status: building step 3.')).toBeInTheDocument();
+      fireEvent.click(within(fold).getByRole('button', { name: /All documents/ }));
+      fireEvent.click(within(fold).getByRole('button', { name: /notes-extra\.md/ }));
+      expect(await within(fold).findByText('Extra notes from the reviewer.')).toBeInTheDocument();
+      expect(s.api.get).toHaveBeenCalledWith(`/api/job/${SLUG}/doc?file=notes-extra.md`);
+      // The step's own documents are still its own.
+      expect(within(own).getAllByRole('button').map((b) => b.querySelector('.doc-name')?.textContent)).toEqual(['Implementation plan', 'Test plan']);
+      expect(screen.queryByRole('alert')).toBeNull();
+      cleanup();
+    }
+  });
+
+  it('no fold when the job has no other documents', () => {
+    for (const otherDocs of [[], null, undefined]) {
+      for (const hosted of [false, true]) {
+        show(BUILD, { otherDocs, hosted });
+        expect(screen.queryByText('Other documents of this job')).toBeNull();
+        expect(screen.getByRole('region', { name: 'Documents from this step' })).toBeInTheDocument();
+        cleanup();
+      }
+    }
+  });
+
   it('a request opens its document in the list', async () => {
     const { wrap, api } = stores(BUILDING);
     const view = render(wrap(<StepDocs slug={SLUG} docs={[PLAN_DOC, TEST_PLAN]} />));
@@ -489,6 +541,34 @@ describe('StepPanel', () => {
     }
   });
 
+  it('a pick made while another pick is loading keeps the first pick’s height as the minimum', () => {
+    // jsdom lays nothing out. As a browser would: a panel with a minimum is at least that tall; else
+    // a step that shows measures 640 px and a step still loading only its loading line, 120 px.
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const min = parseFloat(this.style.minHeight) || 0;
+      const own = this.classList.contains('sb-panel') ? (this.querySelector('.sb-who-row') ? 640 : 120) : 0;
+      return { height: Math.max(min, own), width: 0, top: 0, left: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON() {} } as DOMRect;
+    });
+    try {
+      const specView: StageView = { ...BUILD, stop: 'spec', label: 'Spec', agents: [], finished: [], docs: [] };
+      const { wrap } = stores(BUILDING);
+      const panelOf = (stop: StopId, view: StageView | null) => wrap(<StepPanel job={BUILDING} stop={stop} view={view} error={null} onRetry={() => {}} now={NOW} />);
+      const panel = () => document.querySelector<HTMLElement>('.sb-panel')!;
+      const view = render(panelOf('build', BUILD));
+      // Build shows; Plan is picked and loads: Build's height is held.
+      view.rerender(panelOf('plan', null));
+      expect(panel().style.minHeight).toBe('640px');
+      // Spec is picked while Plan still loads: still Build's height, never the loading line's.
+      view.rerender(panelOf('spec', null));
+      expect(panel().style.minHeight).toBe('640px');
+      // Spec shows: the minimum goes.
+      view.rerender(panelOf('spec', specView));
+      expect(panel().style.minHeight).toBe('');
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
   it('an older good answer that lands after a newer failure is kept', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'] });
     const asks: { ok(v: StageView): void; fail(e: Error): void }[] = [];
@@ -592,8 +672,51 @@ describe('StepPanel', () => {
     expect(rows()[0]).toHaveTextContent('Getting started');
     expect(screen.getByRole('region', { name: 'Live: what they’re doing' })).toHaveTextContent('BuilderOpus 5.5LiveNo actions to show yet.');
     expect(screen.getByText('The step’s own body')).toBeInTheDocument();
-    expect(within(screen.getByRole('region', { name: 'Documents from this step' })).getByText('No documents from this step yet.')).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Documents from this step' })).getByText('This step’s documents aren’t known yet.')).toBeInTheDocument();
     expect(panel).not.toHaveTextContent(/NaN|undefined|null/);
+  });
+
+  it('the steps row and the open step show the same time for a step: with no time known, neither shows one', () => {
+    // A step with no span (an older laptop, a job started in a terminal), though its view has a start.
+    const s = stores(BUILDING);
+    render(s.wrap(
+      <>
+        <StepsRow job={BUILDING} times={{}} open="build" sent={null} now={NOW} onOpen={() => {}} />
+        <StepPanel job={BUILDING} stop="build" view={{ ...BUILD, time: undefined, since: ago(12) }} error={null} onRetry={() => {}} now={NOW}><p>The step’s own body</p></StepPanel>
+      </>,
+    ));
+    const tab = screen.getByRole('tab', { name: /^Build/ });
+    expect(tab.querySelector('.sb-step-time')).toBeNull();
+    expect(screen.getByRole('tabpanel', { name: 'Build' }).querySelector('.sb-panel-time')).toBeNull();
+    cleanup();
+    // With a span, both say the same.
+    const t = stores(BUILDING);
+    render(t.wrap(
+      <>
+        <StepsRow job={BUILDING} times={{ build: BUILD.time }} open="build" sent={null} now={NOW} onOpen={() => {}} />
+        <StepPanel job={BUILDING} stop="build" view={BUILD} error={null} onRetry={() => {}} now={NOW}><p>The step’s own body</p></StepPanel>
+      </>,
+    ));
+    const rowTime = screen.getByRole('tab', { name: /^Build/ }).querySelector('.sb-step-time')?.textContent;
+    expect(rowTime).toBe('32 min so far');
+    expect(screen.getByRole('tabpanel', { name: 'Build' }).querySelector('.sb-panel-time')?.textContent).toBe(rowTime);
+  });
+
+  it('documents not known say so; a known empty list says there are none yet', () => {
+    const docs = () => screen.getByRole('region', { name: 'Documents from this step' });
+    for (const hosted of [false, true]) {
+      // A laptop older than the step's documents (no docs list), and a step that could not be read.
+      show({ ...BUILD, docs: undefined }, { hosted });
+      expect(docs()).toHaveTextContent('This step’s documents aren’t known yet.');
+      expect(docs()).not.toHaveTextContent('No documents from this step yet.');
+      cleanup();
+      show(null, { hosted, error: 'Starbase isn’t answering' });
+      expect(docs()).toHaveTextContent('This step’s documents aren’t known yet.');
+      cleanup();
+      show({ ...BUILD, docs: [] }, { hosted });
+      expect(docs()).toHaveTextContent('No documents from this step yet.');
+      cleanup();
+    }
   });
 
   // Moved from the old step page's tests, which the job page replaced.

@@ -3,7 +3,8 @@
 // right the Auto switch with On or Off beside it, the gear (Job menu, the laptop only) and How it
 // works. Row two: the ticket (a link to Orbit when the page knows a web address), Copy decisions,
 // "Started by Auto · tag x" on a job a tag started, the kind, the level chip, the repository and
-// where the work is, and the locked Foreman model once the job has started; at the right, under the
+// where the work is, what the job has cost once it is over 10 cents (the old facts line's rule and
+// title), and the locked Foreman model once the job has started; at the right, under the
 // switch (its own line: Auto is on, Auto stopped: why), What Auto decided, which opens as a drawer.
 // Under the facts, a branch Starbase only guessed (BranchGuess: "Branch (a guess)" and This is the
 // job's branch, which records it and reloads the job); where the work is then says the step alone,
@@ -21,6 +22,7 @@ import { chipTone, laneOf, LANE_INFO, stateChip } from '../../home/JobsPage';
 import { whereLine } from '../../home/nudges';
 import type { GateKind } from '../../lib/compose';
 import { JobMenu } from '../../panes/Foreman/JobHeader';
+import { formatCost } from '../../panes/Foreman/thread';
 import { LevelChip } from '../../panes/Foreman/LevelChip';
 import { DecisionsTab } from '../../panes/Preview/DecisionsTab';
 import { useWorkshop, useWorkshopState } from '../../state/store';
@@ -87,6 +89,14 @@ export function JobStateChip({ job, sent }: { job: Job; sent: { kind: GateKind |
 }
 
 const KIND_WORDS: Record<string, string> = { feature: 'Feature', bug: 'Bug fix' };
+/** What the job has cost so far, over 10 cents only (source 'none': no cost records yet), with its title; as the old header had it. */
+function costOf(job: Job): { words: string; title: string } | null {
+  const usd = job.cost?.totalUsd;
+  if (job.cost?.source === 'none' || typeof usd !== 'number' || !(usd > 0.1)) return null;
+  const title = job.cost?.source === 'estimate' ? 'What this job has cost so far (an estimate from its sessions’ token counts).' : 'What this job has cost so far.';
+  return { words: formatCost(usd), title };
+}
+
 const isWebAddress = (v: unknown): v is string => typeof v === 'string' && /^https?:\/\/\S+$/i.test(v.trim());
 
 /** reload: reads the job again (the conversation's thread.reload), once This is the job's branch is recorded. Required, so no page leaves it out. */
@@ -100,6 +110,7 @@ export function JobTop({ job, detail, run, sent, reload }: { job: Job; detail: J
   const ticketUrl = detail?.page?.ticket?.url;
   const kind = job.kind ? KIND_WORDS[job.kind] ?? job.kind : null;
   const model = foremanModel(detail, state.meta?.models);
+  const cost = costOf(job);
   return (
     <header className="sb-job-top">
       <div className="sb-top-main">
@@ -117,6 +128,7 @@ export function JobTop({ job, detail, run, sent, reload }: { job: Job; detail: J
           <LevelChip job={job} ready={Boolean(detail)} />
           {job.repo?.name && <span className="sb-top-fact">{job.repo.name}</span>}
           <span className="sb-top-fact sb-top-where" title="Where the job’s work is, from the finish line and its PRs.">{whereLine(job)}</span>
+          {cost && <span className="sb-top-fact num" title={cost.title}>{cost.words}</span>}
           <PartOfStack slug={job.slug} index={stacks} />
           {model && <span className="sb-top-model" title={hosted ? MODEL_LOCK_HOSTED : MODEL_LOCK}><Icon name="lock" size={13} />Foreman model: {model}</span>}
         </div>

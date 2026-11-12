@@ -297,13 +297,14 @@ function StepScreen({ job, conversation, now, sent, evidence, back, write, stop,
           extraAgents={[recorder].filter((a): a is StageAgent => a !== null)}
           sent={sent}
           docRequest={docRequest}
+          otherDocs={detail?.page?.docs?.none}
           bodyFirst={stop === 'test'}
           regionOf={headingId}
         >
           {view && (
             <StepBody
               stop={stop} job={job} detail={detail} view={view} now={now}
-              evidence={evidence.view} onRecorded={evidence.reload}
+              evidence={evidence.view} onRecorded={evidence.reload} evidenceState={evidence}
               watching={evidence.watching} onWatching={evidence.setWatching} tryOpen={evidence.tryOpen} onTryOpen={evidence.setTryOpen}
             />
           )}

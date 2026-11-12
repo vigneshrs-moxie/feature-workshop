@@ -4,7 +4,8 @@
 // focus on its first document once the step's answer is in with one (none, a failed load or another
 // job: the request is dropped).
 // The focus never leaves a box he is typing in. The wireframes page is not a document: it opens in
-// the Screens page, as in the Docs tab.
+// the Screens page, as in the Docs tab. A list that is not known (an older laptop, a failed read)
+// says so, never that there are none.
 import { useEffect, useRef, useState } from 'react';
 import type { JobDocEntry } from '../../api/types';
 import { isTypingTarget } from '../../app/keyRegistry';
@@ -12,8 +13,10 @@ import { useUi } from '../../app/ui';
 import { useNow } from '../../lib/time';
 import { DocItem, DocReader } from '../../panes/Preview/DocsTab';
 
-export function StepDocs({ slug, docs, request, loaded = true }: {
+export function StepDocs({ slug, docs, request, loaded = true, known = true }: {
   slug: string; docs: JobDocEntry[]; request?: { n: number; file: string | null };
+  /** The list is known (the step's view has a docs list); false: it says so, not that there are none. */
+  known?: boolean;
   /** The step's answer is in (its `docs` are known), or its load failed; while neither, a request waits. */
   loaded?: boolean;
 }) {
@@ -74,6 +77,7 @@ export function StepDocs({ slug, docs, request, loaded = true }: {
       </div>
     );
   }
+  if (!known) return <p className="muted sb-docs-empty">This step’s documents aren’t known yet.</p>;
   if (docs.length === 0) return <p className="muted sb-docs-empty">No documents from this step yet.</p>;
   return (
     <ul ref={list} className="doc-items sb-docs">

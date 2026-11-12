@@ -8,6 +8,10 @@ import { useEvidence } from './useEvidence';
 
 export interface JobEvidence {
   view: EvidenceView | null;
+  /** An answer came (useEvidence): until then the evidence is not known. */
+  loaded: boolean;
+  /** The last failure while there is no view. */
+  error: string | null;
   reload(): void;
   recording: boolean;
   watching: boolean;
@@ -31,5 +35,5 @@ export function useJobEvidence(job: Job): JobEvidence {
     if (testing && !wasTesting.current) reload();
     wasTesting.current = testing;
   }, [testing, reload]);
-  return { view: evidence.view, reload, recording, watching, setWatching, tryOpen, setTryOpen };
+  return { view: evidence.view, loaded: evidence.loaded, error: evidence.error, reload, recording, watching, setWatching, tryOpen, setTryOpen };
 }

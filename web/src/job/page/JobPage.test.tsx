@@ -947,12 +947,12 @@ describe('when the job’s details are slow, fail, or come from an older laptop'
     expect(screen.getByText(BUILDING_NOT_WRITTEN)).toBeInTheDocument();
     expect(screen.getByText(CHECK_NOT_WRITTEN)).toBeInTheDocument();
     const panel = screen.getByRole('tabpanel', { name: 'Plan' });
-    expect(await within(panel).findByText('No documents from this step yet.')).toBeInTheDocument();
+    expect(await within(panel).findByText('This step’s documents aren’t known yet.')).toBeInTheDocument();
     expect(within(panel).getByText('Planner')).toBeInTheDocument();
     expect(within(steps()).getAllByRole('tab')).toHaveLength(7);
     for (const s of STOPS) {
       pick(s.id);
-      expect((await within(screen.getByRole('tabpanel', { name: s.label })).findAllByText(/No documents from this step yet\.|Not yet/)).length).toBeGreaterThan(0);
+      expect((await within(screen.getByRole('tabpanel', { name: s.label })).findAllByText(/This step’s documents aren’t known yet\.|Not yet/)).length).toBeGreaterThan(0);
     }
     await expectTheThreeCalls();
     expect(shown(convo())).toBe(true);

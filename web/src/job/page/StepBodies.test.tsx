@@ -79,7 +79,7 @@ function setup(ui: (j: Job) => ReactNode, { hosted = false, jobExtra = {}, slug 
   store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [j], meta: { token: 't', wireframesOrigin: SCREENS_ORIGIN } as never }) });
   const get = vi.fn(async (path: string): Promise<unknown> => {
     if (path.endsWith('/commits')) return commits;
-    if (/\/commit\//.test(path)) return change;
+    if (/\/commit\//.test(path)) { if (change instanceof Error) throw change; return change; }
     if (path.endsWith('/auto')) {
       if (auto instanceof Error) throw auto;
       return auto ? { on: true, stopped: null, tag: null, summary: ['', '', ''], ...auto } : null;
@@ -139,7 +139,7 @@ describe('Plan and Build', () => {
     cleanup();
     for (const plan of [null, { version: '1', steps: [] }]) {
       const none = setup((j) => <PlanStep slug={SLUG} job={j} view={stage('plan', { plan })} />);
-      expect(screen.getByText('This plan has no numbered steps.')).toBeInTheDocument();
+      expect(screen.getByText('No numbered plan steps yet.')).toBeInTheDocument();
       expect(none.container.querySelector('.sb-plan')).toBeNull();
       cleanup();
     }
@@ -165,7 +165,7 @@ describe('Plan and Build', () => {
 
   it('a plan with no numbered steps says so and still lists the commits', async () => {
     setup((j) => <BuildStep slug={SLUG} job={j} view={stage('build', { plan: null })} />);
-    expect(screen.getByText('This plan has no numbered steps. The commits below show the work.')).toBeInTheDocument();
+    expect(screen.getByText('No numbered plan steps yet. The commits below show the work.')).toBeInTheDocument();
     expect(screen.queryByRole('list', { name: 'The plan’s steps' })).toBeNull();
     expect(await screen.findByRole('heading', { name: `Commits so far · 2 on ${BRANCH}` })).toBeInTheDocument();
     cleanup();
@@ -227,6 +227,18 @@ describe('Plan and Build', () => {
     expect(await screen.findByText('No file changes in this commit.')).toBeInTheDocument();
   });
 
+  it('a commit’s change that fails to load has Try again, which asks once more', async () => {
+    const { get } = setup(() => <CommitChanges slug={SLUG} sha={'b'.repeat(40)} />, { change: new Error('Starbase isn’t answering') });
+    const asks = () => get.mock.calls.filter(([p]) => /\/commit\//.test(p)).length;
+    expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t read the change: Starbase isn’t answering');
+    expect(asks()).toBe(1);
+    get.mockImplementation(async (path: string) => (/\/commit\//.test(path) ? CHANGE : {}));
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText('src/routes/buildRoute.ts')).toBeInTheDocument();
+    expect(asks()).toBe(2);
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
   it('a commit with many files lists the first 50, then how many more', async () => {
     const file = (i: number) => ({ path: `src/gen/file${i}.ts`, added: 1, removed: 0, isNew: true });
     const many = (n: number, short: string) => ({ sha: short.padEnd(40, '0'), short, author: 'Ann', date: ago(5), subject: `Generate ${n} files`, step: null, files: Array.from({ length: n }, (_, i) => file(i)) });
@@ -253,7 +265,7 @@ describe('Plan and Build', () => {
     cleanup();
 
     setup((j) => <BuildStep slug={SLUG} job={j} view={stage('build', { plan: null })} />, { hosted: true });
-    expect(screen.getByText('This plan has no numbered steps.')).toBeInTheDocument();
+    expect(screen.getByText('No numbered plan steps yet.')).toBeInTheDocument();
     expect(screen.getByText('The commits show on your laptop.')).toBeInTheDocument();
   });
 });
@@ -325,6 +337,32 @@ describe('Review', () => {
     cleanup();
     setup((j) => <ReviewStep slug={SLUG} job={j} view={stage('review', { review: REVIEWERS })} />);
     expect(screen.queryByText('Review walkthrough')).toBeNull();
+  });
+
+  it('on the website the walkthrough fold says it opens on the laptop and links the published page', () => {
+    const published = 'https://claude.ai/artifact/walkthrough-1';
+    const fold = () => screen.getByText('Review walkthrough', { selector: '.fold-name' }).closest('details')!;
+    setup((j) => <ReviewStep slug={SLUG} job={j} view={stage('review', { review: REVIEWERS })} />, { hosted: true, jobExtra: { walkthrough: { updatedAt: ago(10), size: 2000, url: published } } });
+    expect(within(fold()).getByText('The review walkthrough opens on your laptop.')).toBeInTheDocument();
+    const link = within(fold()).getByRole('link', { name: 'Open the published page' });
+    expect(link).toHaveAttribute('href', published);
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(fold().querySelector('iframe')).toBeNull();
+    expect(fold()).not.toHaveTextContent('Restart');
+    cleanup();
+    // Not published, or an address that is not a web page: the sentence alone.
+    for (const url of [null, 'javascript:alert(1)']) {
+      setup((j) => <ReviewStep slug={SLUG} job={j} view={stage('review', { review: REVIEWERS })} />, { hosted: true, jobExtra: { walkthrough: { updatedAt: ago(10), size: 2000, url } } });
+      expect(within(fold()).getByText('The review walkthrough opens on your laptop.')).toBeInTheDocument();
+      expect(within(fold()).queryByRole('link')).toBeNull();
+      expect(screen.queryByRole('alert')).toBeNull();
+      cleanup();
+    }
+    // The laptop app is unchanged: the walkthrough itself, framed in the fold.
+    setup((j) => <ReviewStep slug={SLUG} job={j} view={stage('review', { review: REVIEWERS })} />, { jobExtra: { walkthrough: { updatedAt: ago(10), size: 2000, url: published } } });
+    expect(fold().querySelector('iframe')).toHaveAttribute('title', 'Review walkthrough');
+    expect(within(fold()).queryByText('The review walkthrough opens on your laptop.')).toBeNull();
   });
 });
 
@@ -466,6 +504,26 @@ describe('Auto', () => {
     expect(await screen.findByText('Auto stopped here: the pull request needs your go-ahead.')).toBeInTheDocument();
     expect(screen.queryByText(SHIP_LINE)).toBeNull();
     cleanup();
+  });
+
+  it('Ship says where Auto stops only while Auto is on, not stopped now, and the step is not his', async () => {
+    for (const hosted of [false, true]) {
+      // Auto stopped at Plan (an earlier step): Ship has no stop of its own and no rule.
+      let s = setup((j) => <ShipStep slug={SLUG} job={j} view={stage('ship', { prs: PRS })} />, { auto: { entries: ENTRIES }, jobExtra: STOPPED, hosted });
+      await read(s.get);
+      expect(screen.queryByText(SHIP_LINE)).toBeNull();
+      cleanup();
+      // He wrote to the job while the step waited: the step is his, so no rule.
+      s = setup((j) => <ShipStep slug={SLUG} job={j} view={stage('ship', { prs: PRS })} />, { auto: { entries: ENTRIES }, jobExtra: { auto: { ...AUTO.auto, yours: true } }, hosted });
+      await read(s.get);
+      expect(screen.queryByText(SHIP_LINE)).toBeNull();
+      cleanup();
+      // On, running, and not his: the rule.
+      s = setup((j) => <ShipStep slug={SLUG} job={j} view={stage('ship', { prs: PRS })} />, { auto: { entries: ENTRIES }, jobExtra: AUTO, hosted });
+      await read(s.get);
+      expect(screen.getByText(SHIP_LINE)).toBeInTheDocument();
+      cleanup();
+    }
   });
 
   it('the stop line shows only while Auto is stopped now, at the step of its newest stop', async () => {

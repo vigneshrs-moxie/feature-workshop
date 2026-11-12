@@ -7,6 +7,9 @@
 //   Your hand test, by you: Try it with What to check beside it (laptop only). While Auto decides
 //     the job, it says Auto skips the hand test.
 // Every fact may be missing (a record from an older laptop): each row then says its plain state.
+// Once Test is done or skipped, a row with nothing to show says Not run, with no When.
+// The evidence not known yet is never a state: the row says Loading… until the first answer, and
+// Couldn’t read the evidence. with Try again when the asks failed before any view came.
 // recorderAgent gives the open step Starbase's own row and feed while it records. Watch and Try it
 // open and close through the page (watching, tryOpen), which keeps them.
 import { useId, useState, type ReactNode } from 'react';
@@ -16,12 +19,14 @@ import { BRAND } from '../../app/brand';
 import { useUi } from '../../app/ui';
 import { Button } from '../../components/Button';
 import { useNarrow } from '../../components/page/Page';
-import { EvidenceStrip } from '../../panes/Foreman/EvidenceStrip';
+import { canPlay, EvidenceStrip } from '../../panes/Foreman/EvidenceStrip';
 import { TryTab } from '../../panes/Preview/TryTab';
 import { useWorkshop } from '../../state/store';
 import { AUTO_SKIPS_HAND_TEST } from '../../views/JobDrawer/OptionsEditor';
 import { spentWords, statesOf } from './stepWords';
 import { listOf } from '../../lib/lists';
+import { ms } from './StepPanel';
+import type { EvidenceState } from './useEvidence';
 import { WatchPicture } from './WatchPicture';
 import { WhatToCheck } from './WhatToCheck';
 import './page.css';
@@ -31,7 +36,6 @@ const WAITING_SHOWN = 4;
 
 type Line = EvidenceProgress['lines'][number];
 
-const ms = (iso: string | null | undefined) => (typeof iso === 'string' && iso ? Date.parse(iso) : NaN);
 const count = (n: unknown) => (typeof n === 'number' && Number.isFinite(n) && n > 0 ? Math.floor(n) : 0);
 const fileUrl = (slug: string, file: string) => `/api/job/${encodeURIComponent(slug)}/evidence/file?path=${encodeURIComponent(file)}`;
 const errorWords = (err: unknown) => (err instanceof Error ? err.message : String(err));
@@ -82,7 +86,7 @@ export function recorderAgent(progress: EvidenceProgress | null | undefined): St
   };
 }
 
-export function TestStep({ slug, job, detail, view, evidence, watching, onWatching, tryOpen, onTryOpen, now, onRecorded }: {
+export function TestStep({ slug, job, detail, view, evidence, evidenceState, watching, onWatching, tryOpen, onTryOpen, now, onRecorded }: {
   slug: string;
   job: Job;
   detail: JobDetail | null;
@@ -90,6 +94,8 @@ export function TestStep({ slug, job, detail, view, evidence, watching, onWatchi
   view: StageView | null;
   /** The job's evidence view (useEvidence); null while it loads, or from a Starbase before it. */
   evidence: EvidenceView | null;
+  /** Whether the evidence is known (useEvidence): an answer came, the last failure, and asking again. Left out: known. */
+  evidenceState?: Pick<EvidenceState, 'loaded' | 'error' | 'reload'>;
   /** Watch is on (the page keeps it). */
   watching: boolean;
   onWatching(on: boolean): void;
@@ -107,12 +113,14 @@ export function TestStep({ slug, job, detail, view, evidence, watching, onWatchi
   const [stripOpen, setStripOpen] = useState(false);
   const id = useId();
   const stripId = `${id}-strip`;
+  const at = statesOf(job).test;
+  const past = at === 'done' || at === 'skipped';
   return (
     <section className="sb-test" aria-labelledby={`${id}-head`}>
       <h3 id={`${id}-head`}>Three kinds of test</h3>
       <div className="sb-test-rows">
-        <ChecksRow view={view} now={clock} hosted={hosted} />
-        <EvidenceRow slug={slug} evidence={evidence} now={clock} hosted={hosted} watching={watching} onWatching={onWatching} stripOpen={stripOpen} onStrip={() => setStripOpen(!stripOpen)} stripId={stripId} onRecorded={onRecorded} />
+        <ChecksRow view={view} now={clock} hosted={hosted} past={past} />
+        <EvidenceRow slug={slug} evidence={evidence} known={evidenceState} now={clock} hosted={hosted} past={past} watching={watching} onWatching={onWatching} stripOpen={stripOpen} onStrip={() => setStripOpen(!stripOpen)} stripId={stripId} onRecorded={onRecorded} />
         <HandRow slug={slug} job={job} detail={detail} view={view} now={clock} hosted={hosted} tryOpen={tryOpen} onTryOpen={onTryOpen} />
       </div>
       {/* The page's evidence view: the strip asks nothing of its own. */}
@@ -124,13 +132,13 @@ export function TestStep({ slug, job, detail, view, evidence, watching, onWatchi
 type Tone = 'ok' | 'err' | 'now' | '';
 
 /** One kind of test: its name and who runs it, its state, Where and When, and what goes under them. */
-function Kind({ name, by, state, tone = '', stateTitle, where, when, children }: { name: string; by: string; state: string; tone?: Tone; stateTitle?: string; where: string; when: ReactNode | null; children?: ReactNode }) {
+function Kind({ name, by, state, tone = '', stateTitle, where, when, children }: { name: string; by: string; /** null: no state to show (not known yet). */ state: string | null; tone?: Tone; stateTitle?: string; where: string; when: ReactNode | null; children?: ReactNode }) {
   return (
     <article className="sb-test-row" aria-label={name}>
       <div className="sb-test-head">
         <h4 className="sb-test-name">{name}</h4>
         <span className="muted sb-test-by">{by}</span>
-        <span className={`chip sb-test-chip${tone ? ` is-${tone}` : ''}`} title={stateTitle}>{state}</span>
+        {state !== null && <span className={`chip sb-test-chip${tone ? ` is-${tone}` : ''}`} title={stateTitle}>{state}</span>}
       </div>
       <dl className="sb-test-facts">
         <div><dt>Where</dt><dd>{where}</dd></div>
@@ -149,7 +157,7 @@ function testerOf(view: StageView | null): StageAgent | null {
   return all.sort((a, b) => (ms(b.lastAt) || 0) - (ms(a.lastAt) || 0))[0] ?? null;
 }
 
-function ChecksRow({ view, now, hosted }: { view: StageView | null; now: Date; hosted: boolean }) {
+function ChecksRow({ view, now, hosted, past }: { view: StageView | null; now: Date; hosted: boolean; /** Test is done or skipped. */ past: boolean }) {
   const ui = useUi();
   const tester = testerOf(view);
   const working = tester !== null && (tester.status === 'working' || tester.status === 'waiting');
@@ -159,14 +167,14 @@ function ChecksRow({ view, now, hosted }: { view: StageView | null; now: Date; h
   const total = passed + failed + count(checks?.notRun);
   const finished = !working && (total > 0 || tester?.status === 'done');
 
-  let state = 'Not started';
+  let state = past ? 'Not run' : 'Not started';
   let tone: Tone = '';
   if (working) { state = 'Running'; tone = 'now'; } else if (total > 0) {
     state = failed > 0 ? `Failed, ${failed} of ${total}` : `Passed, ${passed} of ${total}`;
     tone = failed > 0 ? 'err' : 'ok';
   } else if (tester?.status === 'done') { state = 'Done'; tone = 'ok'; }
 
-  let when: string | null = 'After the build';
+  let when: string | null = past ? null : 'After the build';
   if (working) when = 'Running now';
   else if (finished) {
     const ago = agoWords(checks?.at ?? tester?.lastAt, now);
@@ -193,8 +201,8 @@ function ChecksRow({ view, now, hosted }: { view: StageView | null; now: Date; h
   );
 }
 
-function EvidenceRow({ slug, evidence, now, hosted, watching, onWatching, stripOpen, onStrip, stripId, onRecorded }: {
-  slug: string; evidence: EvidenceView | null; now: Date; hosted: boolean; watching: boolean; onWatching(on: boolean): void;
+function EvidenceRow({ slug, evidence, known, now, hosted, past, watching, onWatching, stripOpen, onStrip, stripId, onRecorded }: {
+  slug: string; evidence: EvidenceView | null; known?: Pick<EvidenceState, 'loaded' | 'error' | 'reload'>; now: Date; hosted: boolean; past: boolean; watching: boolean; onWatching(on: boolean): void;
   stripOpen: boolean; onStrip(): void; stripId: string; onRecorded?(): void;
 }) {
   const recording = evidence?.recording === true;
@@ -203,11 +211,30 @@ function EvidenceRow({ slug, evidence, now, hosted, watching, onWatching, stripO
   const problem = !recording ? evidence?.problem ?? null : null;
   const ev = evidence?.evidence ?? null;
   const canWatch = recording && !hosted && evidence?.watch === true;
+  const where = 'The job’s app on its own address, in a hidden browser';
 
-  let state = 'Not started';
+  // Not known: no view yet, from an ask still out or asks that failed. Never Not started.
+  if (!evidence && known && (!known.loaded || known.error)) {
+    return (
+      <Kind name="Recorded evidence" by={`by ${BRAND.name}`} state={null} where={where} when={null}>
+        {!known.loaded
+          ? <p className="muted sb-test-note" role="status">Loading…</p>
+          : (
+            <div className="sb-test-problem">
+              <p className="thread-error" role="alert" title={known.error ?? undefined}>Couldn’t read the evidence.</p>
+              <div className="sb-test-action">
+                <Button kind="secondary" size="sm" icon="refresh" onClick={known.reload} title={`Ask ${BRAND.name} for the evidence again.`}>Try again</Button>
+              </div>
+            </div>
+          )}
+      </Kind>
+    );
+  }
+
+  let state = past ? 'Not run' : 'Not started';
   let tone: Tone = '';
   let title: string | undefined;
-  let when: string | null = 'After the checks';
+  let when: string | null = past ? null : 'After the checks';
   if (recording) {
     const line = count(progress?.line);
     state = progress && line >= 1 ? `Running, line ${line} of ${count(progress.of) || progress.lines.length}` : 'Running';
@@ -233,7 +260,7 @@ function EvidenceRow({ slug, evidence, now, hosted, watching, onWatching, stripO
   }
 
   return (
-    <Kind name="Recorded evidence" by={`by ${BRAND.name}`} state={state} tone={tone} stateTitle={title} where="The job’s app on its own address, in a hidden browser" when={when}>
+    <Kind name="Recorded evidence" by={`by ${BRAND.name}`} state={state} tone={tone} stateTitle={title} where={where} when={when}>
       {canWatch && (
         <div className="sb-test-action">
           <Button kind="secondary" size="sm" icon={watching ? 'eye-off' : 'eye'} onClick={() => onWatching(!watching)}>
@@ -243,7 +270,7 @@ function EvidenceRow({ slug, evidence, now, hosted, watching, onWatching, stripO
         </div>
       )}
       {canWatch && watching && <WatchPicture slug={slug} progress={progress} />}
-      {progress && <Lines slug={slug} lines={progress.lines} />}
+      {progress && <Lines slug={slug} lines={progress.lines} playable={(video) => canPlay(video, { hosted, onSite: evidence?.onSite })} />}
       {problem && <Problem slug={slug} problem={problem} hosted={hosted} onRecorded={onRecorded} />}
       {(ev || evidence?.wanted) && (
         <button type="button" className="link-button sb-test-link" aria-expanded={stripOpen} aria-controls={stripId} onClick={onStrip} title="Open the evidence for each acceptance line below, with its pictures and video.">
@@ -254,8 +281,12 @@ function EvidenceRow({ slug, evidence, now, hosted, watching, onWatching, stripO
   );
 }
 
-/** Each line in order: the finished ones, the one it runs, the first few waiting and the rest as one row. */
-function Lines({ slug, lines }: { slug: string; lines: Line[] }) {
+/**
+ * Each line in order: the finished ones, the one it runs, the first few waiting and the rest as one
+ * row. A finished line's video has Play video only where it can play (on the website, once it is on
+ * the site).
+ */
+function Lines({ slug, lines, playable }: { slug: string; lines: Line[]; playable(video: string | null | undefined): boolean }) {
   const waiting = lines.filter((l) => isLine(l) && l.state === 'waiting').length;
   const keep = waiting - WAITING_SHOWN > 1 ? WAITING_SHOWN : waiting;
   let seen = 0;
@@ -268,13 +299,13 @@ function Lines({ slug, lines }: { slug: string; lines: Line[] }) {
   });
   return (
     <ol className="sb-test-lines" aria-label="Each line">
-      {rows.map(({ l, n }) => <LineRow key={l.id || n} slug={slug} line={l} n={n} />)}
+      {rows.map(({ l, n }) => <LineRow key={l.id || n} slug={slug} line={l} n={n} video={playable(l.video) ? l.video : null} />)}
       {waiting > keep && <li className="muted sb-test-more">{waiting - keep} more waiting</li>}
     </ol>
   );
 }
 
-function LineRow({ slug, line, n }: { slug: string; line: Line; n: number }) {
+function LineRow({ slug, line, n, video }: { slug: string; line: Line; n: number; /** The video it can play here, else null. */ video: string | null }) {
   const narrow = useNarrow();
   const [open, setOpen] = useState(false);
   const videoId = useId();
@@ -284,13 +315,13 @@ function LineRow({ slug, line, n }: { slug: string; line: Line; n: number }) {
       <span className="muted num sb-test-line-n">{n}</span>
       <span className={`chip sb-test-line-state is-${line.state}`}>{state}</span>
       <span className="sb-test-line-title">{line.title}</span>
-      {line.video && (
+      {video && (
         <button type="button" className="link-button sb-test-play" aria-expanded={open} aria-controls={videoId} onClick={() => setOpen(!open)} title={`Watch the recording of line ${n}.`}>
           {open ? 'Hide video' : narrow ? 'Video' : 'Play video'}
         </button>
       )}
-      {open && line.video && (
-        <video className="sb-test-video" id={videoId} src={fileUrl(slug, line.video)} controls autoPlay muted aria-label={`The recording of line ${n}: ${line.title}`} />
+      {open && video && (
+        <video className="sb-test-video" id={videoId} src={fileUrl(slug, video)} controls autoPlay muted aria-label={`The recording of line ${n}: ${line.title}`} />
       )}
     </li>
   );

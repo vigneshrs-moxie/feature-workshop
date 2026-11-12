@@ -12,10 +12,11 @@ import { Button } from '../../components/Button';
 import { Chip } from '../../components/Chip';
 import { Icon, type IconName } from '../../components/Icon';
 import { versionLabel } from '../../panes/Preview/docs';
+import { listOf } from '../../lib/lists';
 import { useNow } from '../../lib/time';
 import { useWorkshop } from '../../state/store';
 import { agoWords } from '../../views/Review/GithubLine';
-import { CommitChanges } from './CommitChanges';
+import { CommitChanges, message, type Load } from './CommitChanges';
 import { StepAutoLine } from './stepAuto';
 import './page.css';
 
@@ -27,7 +28,7 @@ const STATE: Record<NonNullable<PlanStepRow['state']>, { words: string; icon: Ic
   next: { words: 'Not yet', icon: 'circle' },
 };
 
-const stepsOf = (plan: Plan): PlanStepRow[] => (plan && Array.isArray(plan.steps) ? plan.steps.filter((s) => s && typeof s === 'object') : []);
+const stepsOf = (plan: Plan): PlanStepRow[] => listOf<PlanStepRow>(plan?.steps);
 
 /** The plan's steps, numbered; with states, each one's state in words and the one being built marked. Null when the plan has none. */
 export function PlanSteps({ plan, states }: { plan: Plan; states: boolean }) {
@@ -62,7 +63,7 @@ export function PlanStep({ slug, job, view }: { slug: string; job: Job; view: St
     <div className="sb-step-body">
       <StepAutoLine slug={slug} job={job} step="plan" approved={version ? `plan ${version}` : null} />
       {stepsOf(plan).length > 0 ? <PlanSteps plan={plan} states={false} /> : (
-        <p className="sb-step-note">{plan === undefined ? 'The plan’s steps aren’t known for this job.' : 'This plan has no numbered steps.'}</p>
+        <p className="sb-step-note">{plan === undefined ? 'The plan’s steps aren’t known for this job.' : 'No numbered plan steps yet.'}</p>
       )}
     </div>
   );
@@ -79,7 +80,7 @@ export function BuildStep({ slug, job, view }: { slug: string; job: Job; view: S
     <div className="sb-step-body">
       <StepAutoLine slug={slug} job={job} step="build" />
       {hasSteps ? <PlanSteps plan={plan} states /> : (
-        <p className="sb-step-note">{known ? `This plan has no numbered steps.${below}` : `The plan’s steps aren’t known for this job.${below}`}</p>
+        <p className="sb-step-note">{known ? `No numbered plan steps yet.${below}` : `The plan’s steps aren’t known for this job.${below}`}</p>
       )}
       {hosted ? <p className="sb-step-note">The commits show on your laptop.</p> : <Commits slug={slug} job={job} />}
     </div>
@@ -93,9 +94,6 @@ interface CommitList { commits: Commit[]; note?: string; head?: string | null }
 /** A commit lists this many files at most, then how many more. */
 export const FILES_SHOWN = 50;
 const moreFiles = (n: number) => `and ${n} more ${n === 1 ? 'file' : 'files'}`;
-
-type Load<T> = { state: 'loading' } | { state: 'error'; message: string } | { state: 'ready'; value: T };
-const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 /** "+22 −4", "+58", "−3"; empty when neither is known (a binary file) or both are 0. */
 export function linesWords(f: CommitFile): string {
@@ -138,7 +136,7 @@ function Commits({ slug, job }: { slug: string; job: Job }) {
       <h3 className="eyebrow">{`Commits so far · ${commits.length}${branch ? ` on ${branch}` : ''}`}</h3>
       <ul className="sb-commit-list" aria-label="Commits so far">
         {commits.map((c) => {
-          const files = Array.isArray(c.files) ? c.files.filter((f) => f && typeof f === 'object') : [];
+          const files = listOf<CommitFile>(c.files);
           const isOpen = open === c.sha;
           return (
             <li key={c.sha} className={`sb-commit${isOpen ? ' is-open' : ''}`}>

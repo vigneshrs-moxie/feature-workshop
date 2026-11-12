@@ -41,14 +41,45 @@ describe('WatchPicture', () => {
     expect(made).not.toHaveBeenCalled();
   });
 
-  it('a picture that answers after Watch is turned off is dropped', async () => {
+  it('a picture that answers after Watch is turned off is dropped, and no new request starts', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
     let answer: (v: unknown) => void = () => {};
-    vi.stubGlobal('fetch', vi.fn(() => new Promise((r) => { answer = r; })));
+    const fetch = vi.fn(() => new Promise((r) => { answer = r; }));
+    vi.stubGlobal('fetch', fetch);
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
     const view = render(<WatchPicture slug={SLUG} progress={null} />);
     await act(async () => {});
+    expect(fetch).toHaveBeenCalledTimes(1);
+    // Stop watching (it unmounts), then the answer lands.
     view.unmount();
-    await act(async () => { answer({ ok: true, status: 200, blob: async () => jpeg('late') }); });
+    const blob = vi.fn(async () => jpeg('late'));
+    await act(async () => { answer({ ok: true, status: 200, blob }); });
+    // Its picture is never read, and nothing waits to run: no next ask, no "no picture" timer.
+    expect(blob).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('img')).toBeNull();
+    expect(errors).not.toHaveBeenCalled();
+  });
+
+  it('Watch turned off while a picture is being read sets nothing', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
+    // The answer is in; reading its picture is held open until the test lets it finish.
+    let finish: (b: Blob) => void = () => {};
+    const fetch = vi.fn(async () => ({ ok: true, status: 200, blob: () => new Promise<Blob>((r) => { finish = r; }) }));
+    vi.stubGlobal('fetch', fetch);
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const view = render(<WatchPicture slug={SLUG} progress={null} />);
+    await act(async () => {});
+    expect(fetch).toHaveBeenCalledTimes(1);
+    // Stop watching mid-read, then the read finishes.
+    view.unmount();
+    await act(async () => { finish(jpeg('late')); });
+    // The read's picture is dropped: nothing waits to run (no next ask, no "no picture" timer).
+    expect(vi.getTimerCount()).toBe(0);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+    expect(fetch).toHaveBeenCalledTimes(1);
     expect(document.querySelector('img')).toBeNull();
     expect(errors).not.toHaveBeenCalled();
   });
