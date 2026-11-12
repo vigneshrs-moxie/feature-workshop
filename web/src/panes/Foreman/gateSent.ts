@@ -8,9 +8,18 @@
 import { useEffect } from 'react';
 import type { ApiClient } from '../../api/client';
 import type { GateRequest, GateResult, Job, JobDetail, Run } from '../../api/types';
+import { BRAND } from '../../app/brand';
 import { sendGate } from '../../app/jobActions';
 import type { GateKind } from '../../lib/compose';
 import { useSent, type SentPhase } from '../../lib/sentState';
+
+/**
+ * A send that never got an answer (fix round 1, item 12): the browser's own error ("Failed to
+ * fetch"), not an answer from the server. The card says this instead; the server's own words stay.
+ */
+export const UNREACHABLE_WORDS = `Couldn’t reach ${BRAND.name}. Try again.`;
+/** fetch rejects with a TypeError when the request gets no answer; an answer is an ApiError. */
+const unreachable = (err: unknown) => err instanceof TypeError;
 
 export const gateSentKey = (slug: string) => `gate:${slug}`;
 
@@ -105,7 +114,7 @@ export function useGateSent(job: Job, run: Run | null | undefined, queuedId: str
       r = await sendGate(api, slug, body);
     } catch (err) {
       sent.failed();
-      throw err;
+      throw unreachable(err) ? new Error(UNREACHABLE_WORDS) : err;
     }
     const queued = queuedIdOf(r);
     if (r?.sent) {

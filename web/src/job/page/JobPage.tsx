@@ -196,13 +196,15 @@ function LaptopJob({ job, conversation, now, step, view, sent }: {
   }, [talk, leaveTalk, choose]);
 
   // [ and ]: the step before and after, as a click picks it. They rest while the steps are hidden.
-  // With the focus inside the open step (its body changes under it), the focus goes to the new
+  // With the focus inside the open step (its body changes under it) or on a step's tab, the focus goes to the new
   // step's tab, never to the page.
   const at = STOPS.findIndex((s) => s.id === open);
   const tabFocus = useRef<StopId | null>(null);
   const stepTo = (stop: StopId) => {
-    const inPanel = document.activeElement instanceof Element && document.activeElement.closest(`#${STEP_PANEL_ID}`) !== null;
-    tabFocus.current = inPanel ? stop : null;
+    // On a tab in the steps row too (fix round 1, item 13): the focused tab is the open step's.
+    const focused = document.activeElement;
+    const onStep = focused instanceof Element && (focused.closest(`#${STEP_PANEL_ID}`) !== null || /^sb-step-/.test(focused.closest('[role="tab"]')?.id ?? ''));
+    tabFocus.current = onStep ? stop : null;
     choose(stop);
   };
   useEffect(() => {

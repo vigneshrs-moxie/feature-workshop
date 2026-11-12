@@ -9,6 +9,7 @@ import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type ApiClient } from '../../api/client';
 import type { EvidenceCriterion, EvidenceView, Gate, Job, JobDetail, JobDoc, JobDocEntry, Permission, StageView, StopId, ThreadItem } from '../../api/types';
+import { BRAND } from '../../app/brand';
 import { DETAIL_KEY } from '../../app/detail';
 import { installKeyListener } from '../../app/keyRegistry';
 import { useRoute, type JobView } from '../../app/router';
@@ -758,6 +759,25 @@ describe('the page’s keys and requests', () => {
     expect(box).not.toHaveFocus();
   });
 
+  // Fix round 1, item 13 (browser fault 4): from a focused step tab, the focus goes with the open step.
+  it('after ] the focused tab is the open step’s tab', async () => {
+    setup({ jobs: [working('plan')] });
+    tabOf('plan').focus();
+    fireEvent.keyDown(tabOf('plan'), { key: ']' });
+    expect(openStop()).toBe('build');
+    await waitFor(() => expect(tabOf('build')).toHaveFocus());
+    fireEvent.keyDown(tabOf('build'), { key: ']' });
+    fireEvent.keyDown(document.activeElement!, { key: '[' });
+    expect(openStop()).toBe('build');
+    await waitFor(() => expect(tabOf('build')).toHaveFocus());
+    // From the page body the focus stays where it was.
+    (document.activeElement as HTMLElement).blur();
+    fireEvent.keyDown(document.body, { key: ']' });
+    expect(openStop()).toBe('test');
+    await act(async () => {});
+    expect(document.activeElement).toBe(document.body);
+  });
+
   // Final review A6 (page Minor 8): the address and the conversation never drift apart.
   it('leaving the conversation’s address for the job’s closes the full-screen conversation', async () => {
     for (const hosted of [false, true]) {
@@ -1049,6 +1069,56 @@ describe('writing to the Foreman under 1100 px', () => {
 });
 
 // Final review A2: a folded card never hides what it says after a press.
+// Fix round 1, item 11 (browser fault 1): opening a box never changes what he chose for the fold.
+describe('the fold after a box closes, with the conversation full screen', () => {
+  const MODES = [['the laptop app', false], ['the website', true]] as const;
+  /** Watches the bar's area being scrolled back to its top (jsdom keeps no scroll position). */
+  function watchTop() {
+    const work = page().querySelector<HTMLElement>('.sb-job-work')!;
+    let top = 120;
+    Object.defineProperty(work, 'scrollTop', { configurable: true, get: () => top, set: (v: number) => { top = v; } });
+    return () => top;
+  }
+
+  it.each(MODES)('Cancel folds the card again when the box was what unfolded it (%s)', async (_where, hosted) => {
+    windowWidth(1024);
+    simple();
+    setup({ jobs: waiting(), gate: GATE, hosted });
+    await screen.findByRole('button', { name: /^Go: approve/ });
+    takePage('full screen');
+    const top = watchTop();
+    for (const [call, name] of [['Reply', /Your answers or a note/], [/^No go: send back/, /What should change\?/]] as const) {
+      expect(briefRow()).toHaveAttribute('aria-expanded', 'false');
+      const open = screen.getByRole('button', { name: call });
+      await waitFor(() => expect(open).toBeEnabled());
+      fireEvent.click(open);
+      expect(await screen.findByRole('textbox', { name })).toBeVisible();
+      fireEvent.click(within(document.querySelector<HTMLElement>('.job-gate-body .gate-note')!).getByRole('button', { name: 'Cancel' }));
+      await waitFor(() => expect(briefRow()).toHaveAttribute('aria-expanded', 'false'));
+      expect(document.querySelector('.job-gate-body')).toHaveAttribute('hidden');
+      expect(top()).toBe(0);
+    }
+  });
+
+  it.each(MODES)('a card he unfolded himself stays unfolded after Cancel (%s)', async (_where, hosted) => {
+    windowWidth(1024);
+    simple();
+    setup({ jobs: waiting(), gate: GATE, hosted });
+    await screen.findByRole('button', { name: /^Go: approve/ });
+    takePage('full screen');
+    fireEvent.click(briefRow());
+    expect(briefRow()).toHaveAttribute('aria-expanded', 'true');
+    const reply = screen.getByRole('button', { name: 'Reply' });
+    await waitFor(() => expect(reply).toBeEnabled());
+    fireEvent.click(reply);
+    await screen.findByRole('textbox', { name: /Your answers or a note/ });
+    fireEvent.click(within(document.querySelector<HTMLElement>('.job-gate-body .gate-note')!).getByRole('button', { name: 'Cancel' }));
+    await act(async () => {});
+    expect(briefRow()).toHaveAttribute('aria-expanded', 'true');
+    expect(document.querySelector('.job-gate-body')).not.toHaveAttribute('hidden');
+  });
+});
+
 describe('what the folded card says after a press', () => {
   const MODES = [['the laptop app', false], ['the website', true]] as const;
   const TERMINAL = 'Claude Code is open in this repository in a terminal.';
@@ -1099,6 +1169,28 @@ describe('words typed in the card’s boxes', () => {
     fireEvent.change(await changesBox(), { target: { value: words } });
   }
 
+  // Fix round 1, item 10 (browser fault 5). No user-event here (it is not a dependency of web/), so
+  // each key is one input event straight after the last, with no await between them.
+  it.each(MODES)('typing with no gap between keys loses nothing (%s)', async (_where, hosted) => {
+    const SENTENCE = 'Ask the office about closed tickets and the export.';
+    setup({ jobs: waiting(), gate: GATE, hosted });
+    for (const [call, name] of [[/^No go: send back/, /What should change\?/], ['Reply', /Your answers or a note/]] as const) {
+      const open = await screen.findByRole('button', { name: call });
+      await waitFor(() => expect(open).toBeEnabled());
+      fireEvent.click(open);
+      const box = await screen.findByRole('textbox', { name });
+      for (let i = 1; i <= SENTENCE.length; i++) fireEvent.change(box, { target: { value: SENTENCE.slice(0, i) } });
+      expect(screen.getByRole('textbox', { name })).toBe(box);
+      expect(box).toHaveValue(SENTENCE);
+      expect(localStorage.getItem('fw.gateBox.alpha')).toContain(SENTENCE);
+      await act(async () => {});
+      expect(box).toHaveValue(SENTENCE);
+    }
+    // Each box kept its own words.
+    const kept = JSON.parse(localStorage.getItem('fw.gateBox.alpha')!) as { notes: { changes: string; message: string } };
+    expect(kept.notes).toEqual({ changes: SENTENCE, message: SENTENCE });
+  });
+
   it.each(MODES)('words typed in What should change? survive a refresh (%s)', async (_where, hosted) => {
     setup({ jobs: waiting(), gate: GATE, hosted });
     await sendBackWith('Use the small table.');
@@ -1141,6 +1233,23 @@ describe('words typed in the card’s boxes', () => {
     expect(screen.getByText('Brief 2 was answered while you were writing. Your words are in the message box.')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Got it' }));
     expect(screen.queryByText(/was answered while you were writing/)).toBeNull();
+  });
+
+  // Fix round 1, M4: a gate with no brief number whose words change keeps the same card mounted.
+  it.each(MODES)('a gate with no brief number whose words change: the moved words leave the card’s box too (%s)', async (_where, hosted) => {
+    const NO_NUMBER = { ...GATE, briefNumber: null };
+    const { store } = setup({ jobs: waiting(), gate: NO_NUMBER, hosted });
+    await sendBackWith('Use the small table.');
+    server.gate = { ...NO_NUMBER, headline: 'Plan v3 ready', nextProposed: 'Build step 2' };
+    act(() => { store.dispatch({ type: 'event', event: ev(300, 'thread', 'alpha', {}) }); });
+    await waitFor(() => expect(messageBox()).toHaveValue('Use the small table.'));
+    await waitFor(() => expect(bar()).toHaveTextContent('Plan v3 ready'));
+    // The card for the new words: its box is closed, and opening it shows no old words.
+    expect(screen.queryByRole('textbox', { name: /What should change\?/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /^No go: send back/ }));
+    expect(await changesBox()).toHaveValue('');
+    await act(async () => {});
+    expect(messageBox()).toHaveValue('Use the small table.');
   });
 
   it.each(MODES)('sent or cancelled words are not restored (%s)', async (_where, hosted) => {
@@ -1651,6 +1760,99 @@ describe('after a click on the go / no go bar', () => {
 
   afterEach(() => { vi.useRealTimers(); });
 
+  // Fix round 1, I1: the words that go out leave the store at the press, so the brief showing as
+  // answered before the send's own answer comes back never copies them into the message box.
+  const MOVED = /was answered while you were writing|unsent words are in the message box/;
+  async function answeredBeforeTheReply(store: Store) {
+    server.answered = [2];
+    act(() => { store.dispatch({ type: 'event', event: ev(250, 'thread', 'alpha', {}) }); });
+    await waitFor(() => expect(within(bar()).queryByRole('button', { name: /^Go: approve/ })).toBeNull());
+    await act(async () => {});
+  }
+
+  it('Send back, with the answer slow to come back: the words are not copied into the message box and the bar says nothing about it', async () => {
+    const { post, answer } = held();
+    const { store } = setup({ jobs: waiting(), gate: GATE, post });
+    fireEvent.click(await sendBack('Use the small table.'));
+    await waitFor(() => expect(gatePosts(post)).toHaveLength(1));
+    await answeredBeforeTheReply(store);
+    expect(messageBox()).toHaveValue('');
+    expect(screen.queryByText(MOVED)).toBeNull();
+    await answer();
+    expect(messageBox()).toHaveValue('');
+    expect(screen.queryByText(MOVED)).toBeNull();
+    expect(localStorage.getItem('fw.gateBox.alpha')).toBeNull();
+  });
+
+  it('Reply words sent with Go, with the answer slow to come back: the words are not copied into the message box and the bar says nothing about it', async () => {
+    const { post, answer } = held();
+    const { store } = setup({ jobs: waiting(), gate: GATE, post });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Reply' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
+    fireEvent.change(await screen.findByRole('textbox', { name: /Your answers or a note/ }), { target: { value: 'Keep the icon small.' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Go: approve/ }));
+    await waitFor(() => expect(gatePosts(post)).toHaveLength(1));
+    expect(gatePosts(post)[0][1]).toEqual(expect.objectContaining({ kind: 'approve', note: 'Keep the icon small.' }));
+    await answeredBeforeTheReply(store);
+    expect(messageBox()).toHaveValue('');
+    expect(screen.queryByText(MOVED)).toBeNull();
+    await answer();
+    expect(messageBox()).toHaveValue('');
+    expect(screen.queryByText(MOVED)).toBeNull();
+  });
+
+  // Fix round 1, M5: when he answered the brief himself, the line says only where his unsent words are.
+  it.each([['the laptop app', false], ['the website', true]] as const)('after his own Go the unsent change words move to the message box with a line that says so (%s)', async (_where, hosted) => {
+    // The box is named for steering while the run his Go started works.
+    const composerBox = () => document.querySelector<HTMLTextAreaElement>('[data-composer-input]')!;
+    setup({ jobs: waiting(), gate: GATE, post: sentPost(), hosted });
+    await sendBack('Use the small table.');
+    fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
+    const go = screen.getByRole('button', { name: /^Go: approve/ });
+    await waitFor(() => expect(go).toBeEnabled());
+    fireEvent.click(go);
+    await waitFor(() => expect(composerBox()).toHaveValue('Use the small table.'));
+    expect(screen.getByText('Your unsent words are in the message box.')).toBeVisible();
+    expect(screen.queryByText(/was answered while you were writing/)).toBeNull();
+    // The same rule: it goes once he writes there.
+    fireEvent.change(composerBox(), { target: { value: 'Use the small table. Later.' } });
+    await waitFor(() => expect(screen.queryByText('Your unsent words are in the message box.')).toBeNull());
+  });
+
+  // Fix round 1, item 12 (browser fault 3): a send that never got an answer says so in plain words.
+  it.each([['the laptop app', false], ['the website', true]] as const)('a send that never gets an answer says Couldn’t reach …, not the browser’s words (%s)', async (_where, hosted) => {
+    const post = vi.fn(async (p: string): Promise<unknown> => { if (p.endsWith('/gate')) throw new TypeError('Failed to fetch'); return { ok: true }; });
+    setup({ jobs: waiting(), gate: GATE, post, hosted });
+    // Go, then Send back.
+    const go = await screen.findByRole('button', { name: /^Go: approve/ });
+    await waitFor(() => expect(go).toBeEnabled());
+    fireEvent.click(go);
+    expect(await screen.findByText(`Couldn’t reach ${BRAND.name}. Try again.`)).toBeVisible();
+    expect(screen.queryByText('Failed to fetch')).toBeNull();
+    fireEvent.click(await sendBack('Use the small table.'));
+    await waitFor(() => expect(gatePosts(post)).toHaveLength(2));
+    expect(await screen.findByText(`Couldn’t reach ${BRAND.name}. Try again.`)).toBeVisible();
+    expect(screen.queryByText('Failed to fetch')).toBeNull();
+    // An answer from the server keeps its own words.
+    post.mockImplementation(async (p: string) => { if (p.endsWith('/gate')) throw new ApiError(503, 'The laptop is away.'); return { ok: true }; });
+    fireEvent.click(screen.getByRole('button', { name: 'Send back' }));
+    expect(await screen.findByText('The laptop is away.')).toBeInTheDocument();
+  });
+
+  it('a send that fails puts the words back in the box and in the store', async () => {
+    let refuse: (e: unknown) => void = () => {};
+    const post = vi.fn((p: string): Promise<unknown> => (p.endsWith('/gate') ? new Promise((_res, rej) => { refuse = rej; }) : Promise.resolve({ ok: true })));
+    setup({ jobs: waiting(), gate: GATE, post });
+    fireEvent.click(await sendBack('Use the small table.'));
+    await waitFor(() => expect(gatePosts(post)).toHaveLength(1));
+    // While it is out, the words are not kept to be moved.
+    expect(localStorage.getItem('fw.gateBox.alpha') ?? '').not.toContain('Use the small table.');
+    await act(async () => { refuse(new ApiError(503, 'The laptop is away.')); });
+    expect(await screen.findByText('The laptop is away.')).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: /What should change\?/ })).toHaveValue('Use the small table.');
+    expect(localStorage.getItem('fw.gateBox.alpha')).toContain('Use the small table.');
+  });
+
   it('Go spins on the click and cannot be pressed twice', async () => {
     const { post, answer } = held();
     setup({ jobs: waiting(), gate: GATE, post });
@@ -2120,6 +2322,8 @@ describe('after a click on the go / no go bar', () => {
     act(() => { store.dispatch({ type: 'event', event: ev(201, 'thread', 'alpha', {}) }); });
     const go = await screen.findByRole('button', { name: /^Go: approve/ });
     await waitFor(() => expect(go).toBeEnabled());
+    // Neither sent line (fix round 1, M2): the old answer is not kept.
+    expect(bar()).not.toHaveTextContent(SENT_LINE);
     expect(bar()).not.toHaveTextContent(AT_WORK_LINE);
     fireEvent.click(go);
     await waitFor(() => expect(gatePosts(post)).toHaveLength(2));

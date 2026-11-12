@@ -11,7 +11,7 @@ import { writeStored } from '../../lib/stored';
 import { createStore, WorkshopContext, type Store } from '../../state/store';
 import { job, LEVELS, REVIEWERS, snapshot } from '../../state/test-fixtures';
 import { Composer, draftKey } from './Composer';
-import { CHANGES_TYPED, GateSlot } from './GateCard';
+import { CHANGES_TYPED, gateBoxKey, GateSlot, useKeptBoxWords } from './GateCard';
 import { clearGateSent, gateSentKey } from './gateSent';
 import { clearAllSent, useSent } from '../../lib/sentState';
 
@@ -1267,5 +1267,60 @@ describe('GateCard: focus stays where he types', () => {
     expect(card()!.querySelector('.gate-usage')!.getAttribute('title')).not.toMatch(/stage/);
     await act(async () => { fireEvent.click(button(/^Approve quick plan/)); });
     expect(screen.getByRole('list', { name: 'How the job runs from the next step' })).toHaveTextContent('Level: L2 Standard (small flow)');
+  });
+});
+
+// Fix round 1 (final review A): the words kept in the card's boxes.
+describe('words kept in the card’s boxes', () => {
+  const kept = (brief: number, words: string, extra: Record<string, unknown> = {}) => writeStored(gateBoxKey('alpha'), JSON.stringify({ gate: `#${brief}`, brief, mode: 'changes', notes: { changes: words, message: '' }, ...extra }));
+
+  // M3: the mover reads the store when it runs, not the value it was drawn with.
+  it('the mover appends the words once, even when it runs twice for one change', () => {
+    kept(2, 'Use the small table.');
+    writeStored(draftKey('alpha'), 'Earlier.');
+    const j = job('alpha', 'needs-you');
+    const d = detail(null);
+    function Mover() { useKeptBoxWords(j, d); return null; }
+    render(<><Mover /><Mover /></>);
+    expect(localStorage.getItem(draftKey('alpha'))).toBe('Earlier.\n\nUse the small table.');
+    expect(localStorage.getItem(gateBoxKey('alpha'))).toBeNull();
+  });
+});
+
+// M4: kept words belong to one Foreman session and one brief.
+describe('words kept for one session', () => {
+  it('words kept in another Foreman session are not restored into the new brief with the same number', () => {
+    writeStored(gateBoxKey('alpha'), JSON.stringify({ gate: '#2', session: 's1', brief: 2, mode: 'changes', notes: { changes: 'Old words.', message: '' } }));
+    setup({ det: detail({}, { drive: { mode: 'workshop', model: 'claude-opus-5-5', sessionId: 's2' } }) });
+    expect(card()).not.toBeNull();
+    expect(screen.queryByRole('textbox', { name: /What should change\?/ })).toBeNull();
+    // Left for the job page to move to the message box, never wiped here.
+    expect(localStorage.getItem(gateBoxKey('alpha'))).toContain('Old words.');
+  });
+});
+
+// M7: a kept slot is never overwritten.
+describe('a kept slot holding another brief’s words', () => {
+  it('words held for brief 2 are moved to the message box, not lost, when he types in brief 3’s card', () => {
+    writeStored(gateBoxKey('alpha'), JSON.stringify({ gate: '#2', session: null, brief: 2, mode: 'changes', notes: { changes: 'Brief two words.', message: '' } }));
+    writeStored(draftKey('alpha'), 'Earlier.');
+    setup({ det: oneQ({ briefNumber: 3 }) });
+    // Brief 3's card does not restore brief 2's words.
+    expect(screen.queryByRole('textbox', { name: /What should change\?/ })).toBeNull();
+    fireEvent.click(button(/^Revise with feedback/));
+    fireEvent.change(screen.getByRole('textbox', { name: /What should change\?/ }), { target: { value: 'Brief three words.' } });
+    expect(localStorage.getItem(draftKey('alpha'))).toBe('Earlier.\n\nBrief two words.');
+    const slot = localStorage.getItem(gateBoxKey('alpha')) ?? '';
+    expect(slot).toContain('Brief three words.');
+    expect(slot).not.toContain('Brief two words.');
+  });
+});
+
+// M8: with no level chip on the page (the phone), L↓ does not send him to one.
+describe('L↑ and L↓ with no level chip on the page', () => {
+  it('their titles say a level is needed, not "Pick a level first"', () => {
+    setup({ det: detail({ level: null }), jobExtra: { level: null } });
+    expect(button('Lower the level')).toHaveAttribute('title', 'L↑ and L↓ need a level.');
+    expect(button('Raise the level')).toHaveAttribute('title', 'L↑ and L↓ need a level.');
   });
 });

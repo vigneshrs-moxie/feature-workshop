@@ -48,29 +48,29 @@ const server = {
 };
 
 /** The bar as a page draws it, and what useSentShown says beside it. */
-function Bar({ job: j, onWatch, foldCard, foldHere }: { job: Job; onWatch?: () => void; foldCard?: boolean; foldHere?: boolean }) {
+function Bar({ job: j, onWatch, onWrite, foldCard, foldHere }: { job: Job; onWatch?: () => void; onWrite?: () => void; foldCard?: boolean; foldHere?: boolean }) {
   const conversation = useJobConversation(j);
   const shown = useSentShown(j, conversation);
   return (
     <>
-      <NextStep job={j} conversation={conversation} now={new Date()} onWatch={onWatch} foldCard={foldCard} foldHere={foldHere} />
+      <NextStep job={j} conversation={conversation} now={new Date()} onWatch={onWatch} onWrite={onWrite} foldCard={foldCard} foldHere={foldHere} />
       <output data-sent-shown>{shown === null ? 'none' : shown.kind ?? 'unknown'}</output>
     </>
   );
 }
-function Host({ slug, onWatch, foldCard, foldHere }: { slug: string; onWatch?: () => void; foldCard?: boolean; foldHere?: boolean }) {
+function Host({ slug, onWatch, onWrite, foldCard, foldHere }: { slug: string; onWatch?: () => void; onWrite?: () => void; foldCard?: boolean; foldHere?: boolean }) {
   const j = jobBySlug(useWorkshopState(), slug);
-  return j ? <Bar job={j} onWatch={onWatch} foldCard={foldCard} foldHere={foldHere} /> : null;
+  return j ? <Bar job={j} onWatch={onWatch} onWrite={onWrite} foldCard={foldCard} foldHere={foldHere} /> : null;
 }
 
-function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions = [] as Permission[], gate = null as Gate | null, answered = [] as number[], thread = [] as ThreadItem[], page = undefined as JobDetail['page'], hosted = false, onWatch = undefined as (() => void) | undefined, foldCard = false, foldHere = false, details = 'ok' as typeof server.details, post = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({ ok: true })) } = {}) {
+function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions = [] as Permission[], gate = null as Gate | null, answered = [] as number[], thread = [] as ThreadItem[], page = undefined as JobDetail['page'], hosted = false, onWatch = undefined as (() => void) | undefined, onWrite = undefined as (() => void) | undefined, queued = null as QueuedView | null, foldCard = false, foldHere = false, details = 'ok' as typeof server.details, post = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({ ok: true })) } = {}) {
   const store: Store = createStore();
   server.store = store;
   server.answered = [...answered];
   server.gate = undefined;
   server.thread = thread;
   server.page = page;
-  server.queued = null;
+  server.queued = queued;
   server.details = details;
   store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs, permissions, meta: { token: 't', settings: { play: { mode: 'subtle' } } } as never }) });
   const detail = (s: string): JobDetail => ({ slug: s, thread: server.thread, threadMore: false, gate: server.gate === undefined ? gate : server.gate, answeredBriefs: [...server.answered], heldReply: null, options: { level: 1 }, page: server.page, queued: server.queued } as JobDetail);
@@ -82,7 +82,7 @@ function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions =
     return detail(path.split('/')[3]);
   });
   const api = { get, post, ...(hosted ? { hosted: () => true } : {}) } as unknown as ApiClient;
-  const utils = render(<WorkshopContext.Provider value={{ store, api }}><UiProvider><Host slug="alpha" onWatch={onWatch} foldCard={foldCard} foldHere={foldHere} /></UiProvider></WorkshopContext.Provider>);
+  const utils = render(<WorkshopContext.Provider value={{ store, api }}><UiProvider><Host slug="alpha" onWatch={onWatch} onWrite={onWrite} foldCard={foldCard} foldHere={foldHere} /></UiProvider></WorkshopContext.Provider>);
   return { ...utils, get, post, store };
 }
 
@@ -321,6 +321,29 @@ describe('what the bar says after a send', () => {
     await within(bar()).findByText(SENT_WORDS);
     expect(bar().querySelector('.next-sub')).toHaveTextContent(/^Your go and your two answers reached the Foreman\. Build starts next\.$/);
     expect(live()).toHaveTextContent(`${SENT_WORDS} Your go and your two answers reached the Foreman. Build starts next.`);
+  });
+
+  // Fix round 1, M1: "at work" only for the run his send started, where its id is known.
+  it('an active run with another id keeps "Waiting for the Foreman to start."', async () => {
+    for (const hosted of [false, true]) {
+      const { store } = setup({ jobs: waiting(), gate: GATE, post: sentPost({ runEvent: false }), hosted });
+      await gateShown();
+      const go = within(bar()).getByRole('button', { name: /^Go: / });
+      await waitFor(() => expect(go).toBeEnabled());
+      fireEvent.click(go);
+      await within(bar()).findByText(SENT_WORDS);
+      act(() => { store.dispatch({ type: 'event', event: ev(60, 'run', 'alpha', { id: 'r_other', slug: 'alpha', status: 'running' }) }); });
+      await act(async () => {});
+      expect(within(bar()).getByText(SENT_WORDS)).toBeInTheDocument();
+      expect(within(bar()).queryByText(AT_WORK_WORDS)).toBeNull();
+      // The run the send started: at work.
+      act(() => { store.dispatch({ type: 'event', event: ev(61, 'run', 'alpha', { id: 'r_sent_1', slug: 'alpha', status: 'running' }) }); });
+      await within(bar()).findByText(AT_WORK_WORDS);
+      cleanup();
+      clearAllSent();
+      clearGateSent();
+      localStorage.clear();
+    }
   });
 
   it('after Go on an Auto job the second line says Auto carries on', async () => {
@@ -609,9 +632,40 @@ describe('the open box’s send row', () => {
   });
 });
 
+// Fix round 1, M6: the line about words moved to the message box shows only where the page has one
+// (the job page and the phone pass onWrite), never on the job peek or a part's page.
+describe('the moved-words line', () => {
+  const MOVED = 'Brief 2 was answered while you were writing. Your words are in the message box.';
+  it('the moved-words line is not shown where there is no message box', async () => {
+    for (const hosted of [false, true]) {
+      localStorage.setItem('fw.draft.alpha', 'Use the small table.');
+      localStorage.setItem('fw.gateMoved.alpha', JSON.stringify({ brief: 2, draft: 'Use the small table.' }));
+      setup({ jobs: [job('alpha', 'idle', { stage: 'plan' })], hosted });
+      await act(async () => {});
+      expect(screen.queryByText(MOVED)).toBeNull();
+      cleanup();
+      // Where the page has a message box (onWrite), it shows.
+      setup({ jobs: [job('alpha', 'idle', { stage: 'plan' })], hosted, onWrite: () => {} });
+      expect(await screen.findByText(MOVED)).toBeVisible();
+      cleanup();
+      localStorage.clear();
+    }
+  });
+});
+
 // Final review A6 (calls Minor 7): on the website a Go queued for the laptop takes the pressed call
 // away; the focus goes to the decision's words, not the page.
 describe('a Go queued on the website', () => {
+  // Fix round 1, M8: drawn with a decision already open (a refresh, a phone screen change), the bar
+  // leaves the focus where it is; it moves only when a decision becomes queued while he is there.
+  it('with a website decision already open when the bar is drawn, the focus is left alone', async () => {
+    const WORDS = 'Go: waiting for your laptop. It runs when the laptop is back.';
+    setup({ jobs: waiting(), gate: GATE, hosted: true, queued: { id: 'q1', kind: 'approve', state: 'waiting', words: WORDS, at: NOW, expiresAt: null, waiting: true, canCancel: true, permissionId: null } });
+    await waitFor(() => expect(bar()).toHaveTextContent(WORDS));
+    await act(async () => {});
+    expect(bar()).not.toContainElement(document.activeElement as HTMLElement);
+  });
+
   it('after Go is queued the focus is on the decision’s words', async () => {
     const WORDS = 'Go: waiting for your laptop. It runs when the laptop is back.';
     const post = vi.fn(async (p: string): Promise<unknown> => {
@@ -955,6 +1009,45 @@ describe('the brief folded under the bar (foldCard)', () => {
       fireEvent.click(row());
       fireEvent.keyDown(document.body, { key: '1' });
       await waitFor(() => expect(first()).toBeChecked());
+      cleanup();
+      localStorage.clear();
+    }
+  });
+
+  // Fix round 1, item 11: the same on the phone's step screen.
+  it('on the phone’s step screen Cancel folds the card again when the box was what unfolded it', async () => {
+    for (const hosted of [false, true]) {
+      setDefaultDetail('simple');
+      setup({ jobs: waiting(), gate: GATE, foldCard: true, hosted });
+      await gateShown();
+      expect(row()).toHaveAttribute('aria-expanded', 'false');
+      const reply = within(bar()).getByRole('button', { name: 'Reply' });
+      await waitFor(() => expect(reply).toBeEnabled());
+      fireEvent.click(reply);
+      expect(await screen.findByRole('textbox', { name: /Your answers or a note/ })).toBeVisible();
+      fireEvent.click(within(document.querySelector<HTMLElement>('.job-gate-body .gate-note')!).getByRole('button', { name: 'Cancel' }));
+      await waitFor(() => expect(row()).toHaveAttribute('aria-expanded', 'false'));
+      expect(body()).not.toBeVisible();
+      cleanup();
+      localStorage.clear();
+    }
+  });
+
+  it('on the phone’s step screen a card he unfolded himself stays unfolded after Cancel', async () => {
+    for (const hosted of [false, true]) {
+      setDefaultDetail('simple');
+      setup({ jobs: waiting(), gate: GATE, foldCard: true, hosted });
+      await gateShown();
+      fireEvent.click(row());
+      expect(row()).toHaveAttribute('aria-expanded', 'true');
+      const back = within(bar()).getByRole('button', { name: /^No go: send back/ });
+      await waitFor(() => expect(back).toBeEnabled());
+      fireEvent.click(back);
+      await screen.findByRole('textbox', { name: /What should change\?/ });
+      fireEvent.click(within(document.querySelector<HTMLElement>('.job-gate-body .gate-note')!).getByRole('button', { name: 'Cancel' }));
+      await act(async () => {});
+      expect(row()).toHaveAttribute('aria-expanded', 'true');
+      expect(body()).toBeVisible();
       cleanup();
       localStorage.clear();
     }
