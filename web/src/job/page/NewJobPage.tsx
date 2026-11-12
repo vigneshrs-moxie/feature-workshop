@@ -12,9 +12,10 @@
 // change of the address's step (a link, Back) is a pick of that step. The step's panel stays mounted
 // as the step changes; only its body changes, and only once the step's view is in.
 //
-// One clock, one sent line (useSentShown) and one evidence view (useEvidence) for the whole page.
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import type { EvidenceView, Job, JobDetail, StageAgent, StageView, StopId } from '../../api/types';
+// One clock, one sent line (useSentShown) and one evidence view (useJobEvidence) for the whole page.
+// The open step's body is StepBody; the phone's step screen draws the same one.
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { Job, StageAgent, StopId } from '../../api/types';
 import { isJobView, navigate, replaceHash, stageHref, type JobView } from '../../app/router';
 import { useUi } from '../../app/ui';
 import { Page, useMinWidth } from '../../components/page/Page';
@@ -26,19 +27,16 @@ import { jobBySlug } from '../../state/reducer';
 import { useWorkshopState } from '../../state/store';
 import { StackSuggestion, useStackIndex } from '../../views/Stack/StackRows';
 import { NextStep, useSentShown } from '../NextStep';
-import { BuildStep, PlanStep } from './BuildStep';
 import { ConversationPanel } from './ConversationPanel';
 import { JobTop } from './JobTop';
 import { lastStepKey, pickOpenStep } from './openStep';
 import { OverviewCard } from './OverviewCard';
-import { ReviewStep } from './ReviewStep';
-import { ShipStep } from './ShipStep';
-import { SpecStep } from './SpecStep';
+import { StepBody } from './StepBody';
 import { StepPanel } from './StepPanel';
 import { StepsRow } from './StepsRow';
 import { statesOf } from './stepWords';
-import { recorderAgent, TestStep } from './TestStep';
-import { useEvidence } from './useEvidence';
+import { recorderAgent } from './TestStep';
+import { useJobEvidence } from './useJobEvidence';
 import { useStage } from './useStage';
 import './page.css';
 
@@ -99,20 +97,9 @@ function JobScreen({ job, step, view }: { job: Job; step: StopId | undefined; vi
   }, [slug]);
 
   // ---- The evidence: asked once here for the bar's gate card, the Test step and its strip ----
-  const evidence = useEvidence(slug);
+  const evidence = useJobEvidence(job);
+  const { recording, watching, setWatching, tryOpen, setTryOpen } = evidence;
   const reloadEvidence = evidence.reload;
-  const recording = evidence.view?.recording === true;
-  const [watching, setWatching] = useState(false);
-  const [tryOpen, setTryOpen] = useState(false);
-  // A run that ended is not watched any more: the next one starts unwatched.
-  useEffect(() => { if (!recording) setWatching(false); }, [recording]);
-  // A recording starts (the job says so first): ask at once, not at the next quiet ask 30 s on.
-  const testing = typeof job.testing === 'string' && job.testing.trim() !== '';
-  const wasTesting = useRef(testing);
-  useEffect(() => {
-    if (testing && !wasTesting.current) reloadEvidence();
-    wasTesting.current = testing;
-  }, [testing, reloadEvidence]);
 
   // The job menu's "Try it on your computer": the Test step, with Try it open.
   const handledTry = useRef(ui.tryRequest);
@@ -176,28 +163,4 @@ function JobScreen({ job, step, view }: { job: Job; step: StopId | undefined; vi
       </div>
     </main>
   );
-}
-
-/** The open step's own body (Investigate has none). Each body draws its own Auto line. */
-function StepBody({ stop, job, detail, view, now, evidence, onRecorded, watching, onWatching, tryOpen, onTryOpen }: {
-  stop: StopId; job: Job; detail: JobDetail | null; view: StageView; now: Date;
-  evidence: EvidenceView | null; onRecorded(): void;
-  watching: boolean; onWatching(on: boolean): void; tryOpen: boolean; onTryOpen(open: boolean): void;
-}): ReactNode {
-  const slug = job.slug;
-  switch (stop) {
-    case 'spec': return <SpecStep slug={slug} job={job} view={view} />;
-    case 'plan': return <PlanStep slug={slug} job={job} view={view} />;
-    case 'build': return <BuildStep slug={slug} job={job} view={view} />;
-    case 'test':
-      return (
-        <TestStep
-          slug={slug} job={job} detail={detail} view={view} evidence={evidence} now={now} onRecorded={onRecorded}
-          watching={watching} onWatching={onWatching} tryOpen={tryOpen} onTryOpen={onTryOpen}
-        />
-      );
-    case 'review': return <ReviewStep slug={slug} job={job} view={view} />;
-    case 'ship': return <ShipStep slug={slug} job={job} view={view} />;
-    default: return null;
-  }
 }
