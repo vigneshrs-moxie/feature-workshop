@@ -25,6 +25,7 @@ import { useWorkshop } from '../../state/store';
 import { AUTO_SKIPS_HAND_TEST } from '../../views/JobDrawer/OptionsEditor';
 import { spentWords, statesOf } from './stepWords';
 import { listOf } from '../../lib/lists';
+import { ms } from './StepPanel';
 import type { EvidenceState } from './useEvidence';
 import { WatchPicture } from './WatchPicture';
 import { WhatToCheck } from './WhatToCheck';
@@ -35,7 +36,6 @@ const WAITING_SHOWN = 4;
 
 type Line = EvidenceProgress['lines'][number];
 
-const ms = (iso: string | null | undefined) => (typeof iso === 'string' && iso ? Date.parse(iso) : NaN);
 const count = (n: unknown) => (typeof n === 'number' && Number.isFinite(n) && n > 0 ? Math.floor(n) : 0);
 const fileUrl = (slug: string, file: string) => `/api/job/${encodeURIComponent(slug)}/evidence/file?path=${encodeURIComponent(file)}`;
 const errorWords = (err: unknown) => (err instanceof Error ? err.message : String(err));

@@ -653,8 +653,8 @@ describe('StepPanel', () => {
     const s = stores(BUILDING);
     render(s.wrap(
       <>
-        <StepsRow job={BUILDING} times={{ build: null }} open="build" sent={null} now={NOW} onOpen={() => {}} />
-        <StepPanel job={BUILDING} stop="build" view={{ ...BUILD, time: null, since: ago(12) }} error={null} onRetry={() => {}} now={NOW}><p>The step’s own body</p></StepPanel>
+        <StepsRow job={BUILDING} times={{}} open="build" sent={null} now={NOW} onOpen={() => {}} />
+        <StepPanel job={BUILDING} stop="build" view={{ ...BUILD, time: undefined, since: ago(12) }} error={null} onRetry={() => {}} now={NOW}><p>The step’s own body</p></StepPanel>
       </>,
     ));
     const tab = screen.getByRole('tab', { name: /^Build/ });

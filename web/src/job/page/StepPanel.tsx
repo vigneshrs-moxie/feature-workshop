@@ -41,7 +41,8 @@ const isLive = (a: StageAgent) => a.status === 'working' || a.status === 'waitin
 /** The role word: the crew pack's, else the one the view sends (a row the step's body adds), else Helper. */
 const roleWord = (a: StageAgent) => (a.who === 'conductor' ? roleOf(null) : ROLE_WORDS[a.who] ?? (a.role || roleOf(a.who)));
 const initials = (a: StageAgent) => roleWord(a).split(/\s+/).map((w) => w.charAt(0).toUpperCase()).join('').slice(0, 2) || initialsOf(a.who);
-const ms = (iso: string | null | undefined) => (iso ? Date.parse(iso) : NaN);
+/** A time's milliseconds; NaN when it is missing or not a time. The open step's bodies use it too. */
+export const ms = (iso: string | null | undefined): number => (typeof iso === 'string' && iso ? Date.parse(iso) : NaN);
 
 /** How long: running, from its start to now; finished, from its start to its last action. */
 function rowTime(a: StageAgent, now: Date): string | null {

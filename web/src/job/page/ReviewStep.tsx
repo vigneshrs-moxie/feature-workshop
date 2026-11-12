@@ -9,6 +9,7 @@ import { Button } from '../../components/Button';
 import { Chip, type ChipTone } from '../../components/Chip';
 import type { IconName } from '../../components/Icon';
 import { Fold } from '../../components/page/Page';
+import { listOf } from '../../lib/lists';
 import { WalkthroughTab } from '../../panes/Preview/WalkthroughTab';
 import { useWorkshop } from '../../state/store';
 import { isWebUrl } from './ShipStep';
@@ -30,7 +31,7 @@ export function ReviewStep({ slug, job, view }: { slug: string; job: Job; view: 
   const { api } = useWorkshop();
   const hosted = Boolean(api.hosted?.());
   const review = view?.review;
-  const reviewers = review && Array.isArray(review.reviewers) ? review.reviewers.filter((r) => r && typeof r === 'object') : [];
+  const reviewers = listOf<StageReviewer>(review?.reviewers);
   return (
     <div className="sb-step-body">
       <StepAutoLine slug={slug} job={job} step="review" />
@@ -71,7 +72,7 @@ function OnTheLaptop({ url }: { url: string | null | undefined }) {
 }
 
 function Reviewer({ reviewer }: { reviewer: StageReviewer }) {
-  const rows = Array.isArray(reviewer.rows) ? reviewer.rows.filter((r) => r && typeof r === 'object') : [];
+  const rows = listOf<ReviewRow>(reviewer.rows);
   const name = nameOf(reviewer);
   return (
     <li className="sb-reviewer">

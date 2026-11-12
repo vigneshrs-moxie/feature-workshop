@@ -8,8 +8,10 @@
 //   #/telemetry             the shared account's limit and your own jobs' graphs (packet 2E:
 //                           views/Telemetry/HostedTelemetry.tsx)
 //   #/lounge                the Lounge: the whole team, very little per person (packet 2D)
-//   #/desk, #/job/<slug>, #/job/<slug>/stage/<stop>, #/stacks, #/stack/<slug>[/part/<n>]
-//                           the laptop app's own pages, from the full mirror (packet 2B: HostedWorkshop)
+//   #/desk, #/job/<slug>, #/job/<slug>/conversation, #/job/<slug>/overview,
+//   #/job/<slug>/stage/<stop>, #/stacks, #/stack/<slug>[/part/<n>]
+//                           the laptop app's own pages, from the full mirror (packet 2B: HostedWorkshop);
+//                           every job address is the one job page, as on the laptop
 //   anything else the laptop's app has (Screens, …)
 //                           a calm "open this on your laptop for now" page, never an error
 import { useEffect, useState } from 'react';

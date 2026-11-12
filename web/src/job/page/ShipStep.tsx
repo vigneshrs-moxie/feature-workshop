@@ -9,6 +9,7 @@ import type { Job, PrRow, StageView } from '../../api/types';
 import { Button } from '../../components/Button';
 import { Chip, type ChipTone } from '../../components/Chip';
 import { Icon, type IconName } from '../../components/Icon';
+import { listOf } from '../../lib/lists';
 import { useNow } from '../../lib/time';
 import { stopOf } from '../../components/stops/stops';
 import { JobGithub } from '../../panes/Foreman/JobGithub';
@@ -74,7 +75,7 @@ export function ShipStep({ slug, job, view }: { slug: string; job: Job; view: St
   const stop = entries && entries.some((e) => e.kind) && autoStoppedNow(job) ? stopHere(entries, 'ship') : null;
   const stopped = stop ? stoppedWords(stop) : null;
   const autoRuns = job.auto?.on === true && !autoStoppedNow(job) && job.auto?.yours !== true;
-  const prs = Array.isArray(view?.prs) ? view.prs.filter((p) => p && typeof p === 'object') : null;
+  const prs = Array.isArray(view?.prs) ? listOf<PrRow>(view.prs) : null;
   const shipping = stopOf(job.stage) === 'ship' || (job.nudges?.length ?? 0) > 0;
   const now = useNow().getTime();
   return (
