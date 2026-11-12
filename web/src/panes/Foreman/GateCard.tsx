@@ -436,11 +436,13 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
     // A box he is typing in, or a place he moved to himself, keeps the focus.
     if (!r.focus || (at && at !== document.body && at.isConnected && !(at as HTMLButtonElement).disabled)) { reveal.current = null; return; }
     const back = pressedFrom.current;
-    if (back?.isConnected && !(back as HTMLButtonElement).disabled && !back.closest('[hidden]')) { back.focus(); reveal.current = null; return; }
+    // Without scrolling: the browser would bring the focused call into view and take the words,
+    // just scrolled to, back out of it (seen in a real browser on a brief with several questions).
+    if (back?.isConnected && !(back as HTMLButtonElement).disabled && !back.closest('[hidden]')) { back.focus({ preventScroll: true }); reveal.current = null; return; }
     // The call he pressed is off for a moment (the bar reads the card a moment later): wait a drawing or two.
     if (back?.isConnected && r.tries < 3) return;
     if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '-1');
-    el.focus();
+    el.focus({ preventScroll: true });
     reveal.current = null;
   });
   const [noTerminal, setNoTerminal] = useState(false);

@@ -1992,6 +1992,27 @@ describe('after a click on the go / no go bar', () => {
     } finally { undo(); }
   });
 
+  // The fourth browser pass: the focus coming back to Go scrolled the column to its top again and
+  // took the error, just brought into view, back out of it. The focus comes back without a scroll.
+  it('after a failed Go the focus comes back without scrolling the error away', async () => {
+    const focus = vi.spyOn(HTMLElement.prototype, 'focus');
+    try {
+      setup({ jobs: waiting(), gate: THREE_QUESTIONS, post: cannotReach() });
+      const go = await screen.findByRole('button', { name: /^Go: approve/ });
+      await waitFor(() => expect(go).toBeEnabled());
+      go.focus();
+      fireEvent.click(go);
+      // As a browser does while the call is off: the focus drops to the page body.
+      go.blur();
+      focus.mockClear();
+      await screen.findByText(UNREACHABLE);
+      await waitFor(() => expect(document.activeElement).not.toBe(document.body));
+      const calls = focus.mock.calls.filter((_c, i) => focus.mock.contexts[i] === document.activeElement);
+      expect(calls.length).toBeGreaterThan(0);
+      for (const c of calls) expect(c[0]).toEqual({ preventScroll: true });
+    } finally { focus.mockRestore(); }
+  });
+
   it('a failed send never takes the focus from a box he is typing in', async () => {
     setup({ jobs: waiting(), gate: THREE_QUESTIONS, post: cannotReach() });
     fireEvent.click(await sendBack('Use the small table.'));
