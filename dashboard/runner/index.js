@@ -999,8 +999,9 @@ export async function createRunner(config) {
       // A gate left waiting past the parking time: still Needs you, with a "parked" chip.
       parked: gateParked(f, active),
       finish,
-      // Auto mode (lib/auto.js): on, ran, stopped, deciding, and whether this job's level allows it.
-      auto: autoCardView(f.auto, { level: f.level, suggestedLevel: f.suggestedLevel }),
+      // Auto mode (lib/auto.js): on, ran, stopped, deciding, and whether this job's level allows it; its
+      // Auto group (none when closed). waitingToTest is filled by the test place (a later part).
+      auto: autoCardView(f.auto, { level: f.level, suggestedLevel: f.suggestedLevel, closed: Boolean(f.closed), waitingToTest: false }),
       // Its evidence being recorded now, by line ("Recording evidence: line 4 of 19"; runner/evidence.js), else null.
       testing: testingOf(f.slug),
       // The PR hand-offs waiting on someone (lib/nudges.js): the Desk's nudge items.

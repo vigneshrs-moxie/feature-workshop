@@ -49,6 +49,49 @@ export interface JobAuto {
   /** The board card's view only: whether the job's level allows Auto, and the sentence when it doesn't. */
   allowed?: boolean;
   why?: string | null;
+  /** How the job first came into Auto (kept after it is switched off; null: never); missing from dashboards from before: not known. */
+  began?: 'tag' | 'you' | null;
+  /** The group it shows in under Auto (null: it is in Yours); missing: no Auto group. */
+  group?: AutoGroup | null;
+  /** It waits for the test place, which another Auto job holds; missing: not known. */
+  waitingToTest?: boolean;
+  /** Set aside as too big for Auto, with why; null: not set aside; missing: not known. */
+  tooBig?: { at: string; reason: string } | null;
+  /** The risky calls Auto made on this job; missing: no count. */
+  risky?: number;
+  /** When PR #1 was seen open (Auto finished), else null; missing: not known. */
+  finished?: string | null;
+}
+
+/** The group an Auto job shows in on the Jobs page's Auto tab (dashboard/lib/auto.js autoGroup). */
+export type AutoGroup = 'working' | 'needs-you' | 'ready';
+
+/** One tagged ticket on the Inbox's Auto tab, in a group. */
+export interface AutoTicket {
+  key: string;
+  title: string;
+  group: 'next' | 'working' | 'too-big' | 'failed';
+  /** The job it started, else null. */
+  slug: string | null;
+  /** Why it was set aside or could not start, else null. */
+  reason: string | null;
+}
+
+/** The Auto queue (dashboard/lib/auto-queue.js): the snapshot's and the board record's autoQueue. */
+export interface AutoQueue {
+  /** Auto start's setting; max is how many Auto jobs work at once. */
+  on: boolean;
+  tag: string;
+  max: number;
+  working: number;
+  unfinished: number;
+  /** The most unfinished Auto jobs there can be (AUTO_CEILING, 10). */
+  ceiling: number;
+  paused: 'limit' | 'limit-reading' | 'orbit' | 'memory' | null;
+  /** The slug holding the test place, else null. */
+  testing: string | null;
+  /** In Inbox order. */
+  tickets: AutoTicket[];
 }
 
 /** GET /api/job/:slug/auto: the three lines and every decision Auto made on the job. */
@@ -61,8 +104,12 @@ export interface AutoDecision {
   why: string;
   risk?: string;
   answers?: { question: string; choice: string; reason: string }[];
-  /** What it was: a go-ahead, an answer, a permission allowed (or refused), or Auto stopping; missing from dashboards from before. */
-  kind?: 'approve' | 'answer' | 'allow' | 'stop';
+  /** What it was: a go-ahead, an answer, a permission allowed (or refused), Auto refusing on a card, or Auto stopping; missing from dashboards from before. */
+  kind?: 'approve' | 'answer' | 'allow' | 'refuse' | 'stop';
+  /** A risky call: the Approver was asked a second time for the safer answer; missing: not risky. */
+  risky?: boolean;
+  /** On a risky call, what the Approver first said; missing: not known. */
+  first?: string | null;
   /** The step it was on (null: not known); missing from dashboards from before. */
   stop?: StopId | null;
 }
@@ -475,7 +522,7 @@ export type WorkflowChoice = 'auto' | 'always' | 'off';
 export const WORKFLOW_CHOICES: WorkflowChoice[] = ['auto', 'always', 'off'];
 
 /** Settings → Workflow → Auto start: the switch and the Orbit tag (at most 60 characters, trimmed). */
-export interface AutoStartSetting { on: boolean; tag: string }
+export interface AutoStartSetting { on: boolean; tag: string; /** How many Auto jobs work at once, 1 to 10 (5 when missing). */ max?: number }
 
 /** settings.workflow (Settings → Workflow): the finish line (dashboard/lib/finish.js) and the defaults a new job starts with. */
 export interface WorkflowSettings {
@@ -939,6 +986,8 @@ export interface Snapshot {
   /** The plan's 5-hour and weekly usage, for the top bar's meters (lib/plan-usage.js). */
   planUsage?: PlanUsage;
   runTypical?: RunTypical;
+  /** The Auto queue (places, ceiling, the Inbox's Auto groups); missing from dashboards from before: not known. */
+  autoQueue?: AutoQueue | null;
   generatedAt: string;
 }
 

@@ -33,7 +33,7 @@ test('the stop rules are the fixed list', () => {
 
 test('the record: on starts fresh, off keeps that Auto ran', () => {
   const on = autoRecord(null, { on: true, by: 'you', now: '2026-11-10T09:00:00.000Z' });
-  assert.deepEqual(on, { on: true, since: '2026-11-10T09:00:00.000Z', by: 'you', tag: null, ran: true, stopped: null, step: null, failures: 0, lastBrief: null });
+  assert.deepEqual(on, { on: true, since: '2026-11-10T09:00:00.000Z', by: 'you', tag: null, ran: true, stopped: null, step: null, failures: 0, lastBrief: null, began: 'you', beganTag: null, risky: 0, tooBig: null, asOne: false, acted: null, finished: null });
   const off = autoRecord({ ...on, failures: 2, lastBrief: 4 }, { on: false, by: 'you', now: '2026-11-10T10:00:00.000Z' });
   assert.equal(off.on, false);
   assert.equal(off.ran, true, 'ran stays true once Auto has been on');
@@ -43,8 +43,8 @@ test('the record: on starts fresh, off keeps that Auto ran', () => {
 
 test('the card: on, ran, stopped, never deciding yet, and whether it is allowed', () => {
   const rec = autoRecord(null, { on: true, by: 'you', now: '2026-11-10T09:00:00.000Z' });
-  assert.deepEqual(autoCardView(rec, { level: 1, suggestedLevel: null }), { on: true, by: 'you', ran: true, stopped: null, deciding: false, allowed: true, why: null });
-  assert.deepEqual(autoCardView(null, { level: 3 }), { on: false, by: null, ran: false, stopped: null, deciding: false, allowed: false, why: L3 });
+  assert.deepEqual(autoCardView(rec, { level: 1, suggestedLevel: null }), { on: true, by: 'you', ran: true, stopped: null, deciding: false, allowed: true, why: null, began: 'you', group: 'working', waitingToTest: false, tooBig: null, risky: 0, finished: null });
+  assert.deepEqual(autoCardView(null, { level: 3 }), { on: false, by: null, ran: false, stopped: null, deciding: false, allowed: false, why: L3, began: null, group: null, waitingToTest: false, tooBig: null, risky: 0, finished: null });
   const stopped = { reason: 'The plan adds a migration', rule: 'database', at: '2026-11-10T09:30:00.000Z' };
   assert.deepEqual(autoCardView({ ...rec, stopped }, { level: 2 }).stopped, stopped);
   assert.equal(autoCardView({ ...rec, on: false, stopped }, { level: 2 }).stopped, null, 'off: nothing is stopped');
@@ -88,6 +88,11 @@ test('L5: the card carries who started Auto, so "Started by Auto" can show', () 
   assert.equal(autoCardView(autoRecord(null, { on: true, by: 'tag', tag: 'nightly' }), { level: 1 }).by, 'tag');
   assert.equal(autoCardView(autoRecord(null, { on: true }), { level: 1 }).by, 'you');
   assert.equal(autoCardView(autoRecord(null, { on: false }), { level: 1 }).by, null);
+  // began: how the job first came into Auto, kept after it is switched off (by is only while it is on).
+  assert.equal(autoCardView(autoRecord(null, { on: true, by: 'tag', tag: 'nightly' }), { level: 1 }).began, 'tag');
+  assert.equal(autoCardView(autoRecord(autoRecord(null, { on: true, by: 'tag', tag: 'nightly' }), { on: false }), { level: 1 }).began, 'tag');
+  assert.equal(autoCardView(autoRecord(null, { on: true }), { level: 1 }).began, 'you');
+  assert.equal(autoCardView(autoRecord(null, { on: false }), { level: 1 }).began, null, 'never on: it never began');
 });
 
 test('R3: a brief answered, or held for the usage limit, still counts after a restart that was put back', async () => {
@@ -127,4 +132,72 @@ test('wroteWhileWaiting: a message of his after the brief is his; one before the
   // No time known: any message of his counts. No lines: nothing he wrote.
   assert.equal(wroteWhileWaiting([{ action: 'send', kind: 'message', at: at('10:05') }], { briefAt: null, since: null }), true);
   assert.equal(wroteWhileWaiting([], when), false);
+});
+
+test('autoRecord: a tag start keeps began tag through off and on', () => {
+  const r = autoRecord(autoRecord(autoRecord(null, { on: true, by: 'tag', tag: 'auto' }), { on: false }), { on: true, by: 'you' });
+  assert.equal(r.began, 'tag');
+  assert.equal(r.beganTag, 'auto');
+  assert.equal(r.by, 'you');
+  assert.equal(r.tag, null, 'tag is who turned it on this time');
+  const you = autoRecord(autoRecord(autoRecord(null, { on: true, by: 'you' }), { on: false }), { on: true, by: 'tag', tag: 'auto' });
+  assert.deepEqual([you.began, you.beganTag, you.by], ['you', null, 'tag'], 'a job he started stays his start');
+  // A record from before (no began) that ran: the first on after it keeps what beganOf read from it.
+  const old = autoRecord({ on: false, since: 'x', by: 'tag', tag: 'nightly', ran: true }, { on: true, by: 'you' });
+  assert.deepEqual([old.began, old.beganTag], ['tag', 'nightly']);
+});
+
+test('autoRecord: on keeps risky, clears tooBig, acted and finished, and remembers asOne', () => {
+  const prev = { on: false, risky: 2, tooBig: { at: 't', reason: 'r' }, finished: 'f', acted: null };
+  const r = autoRecord(prev, { on: true, by: 'you', now: '2026-11-12T09:00:00.000Z' });
+  assert.deepEqual({ risky: r.risky, tooBig: r.tooBig, asOne: r.asOne, finished: r.finished, acted: r.acted }, { risky: 2, tooBig: null, asOne: true, finished: null, acted: null });
+  assert.equal(autoRecord({ ...prev, acted: '2026-11-12T08:00:00.000Z' }, { on: true }).acted, null, 'acted is cleared');
+  assert.equal(autoRecord({ on: false, asOne: true, tooBig: null }, { on: true }).asOne, true, 'asOne stays once set');
+  assert.equal(autoRecord({ on: false, tooBig: null }, { on: true }).asOne, false, 'never set aside: not asOne');
+  assert.equal(autoRecord(null, { on: true }).risky, 0, 'no risky calls yet');
+  // Off keeps everything.
+  const off = autoRecord({ ...r, risky: 3, tooBig: { at: 't2', reason: 'r2' }, acted: 'a', finished: 'f2' }, { on: false });
+  assert.deepEqual({ risky: off.risky, tooBig: off.tooBig, asOne: off.asOne, acted: off.acted, finished: off.finished, began: off.began }, { risky: 3, tooBig: { at: 't2', reason: 'r2' }, asOne: true, acted: 'a', finished: 'f2', began: 'you' });
+});
+
+test('autoGroup: working, needs you, ready, or Yours', async () => {
+  const { autoGroup, isWorking, isUnfinished } = await import('../lib/auto.js');
+  const stopped = { reason: 'the plan is unclear', rule: 'judgment', at: 't' };
+  assert.equal(autoGroup({ on: true, stopped: null }), 'working');
+  assert.equal(autoGroup({ on: true, stopped }), 'needs-you');
+  assert.equal(autoGroup({ on: false, tooBig: { at: 't', reason: 'r' } }), 'needs-you');
+  assert.equal(autoGroup({ on: false, finished: 'f' }), 'ready');
+  assert.equal(autoGroup({ on: false, finished: 'f', acted: null }), 'ready');
+  assert.equal(autoGroup({ on: false, finished: 'f', acted: 'a' }), null, 'he acted after PR #1: Yours');
+  assert.equal(autoGroup({ on: false }), null);
+  assert.equal(autoGroup(null), null);
+  for (const r of [{ on: true }, { on: true, stopped }, { on: false, tooBig: { at: 't', reason: 'r' } }, { on: false, finished: 'f' }]) {
+    assert.equal(autoGroup(r, { closed: true }), null, `closed: ${JSON.stringify(r)}`);
+  }
+  assert.deepEqual([isWorking({ on: true }), isWorking({ on: true, stopped }), isWorking({ on: false }), isWorking(null)], [true, false, false, false]);
+  assert.deepEqual([isUnfinished({ on: true }), isUnfinished({ on: true, stopped }), isUnfinished({ on: false, tooBig: { at: 't', reason: 'r' } }), isUnfinished(null)], [true, true, false, false]);
+});
+
+test('beganOf reads a record from before', async () => {
+  const { beganOf } = await import('../lib/auto.js');
+  assert.equal(beganOf({ by: 'tag', ran: true }), 'tag');
+  assert.equal(beganOf({ by: 'you', ran: true }), 'you');
+  assert.equal(beganOf(null), null);
+  assert.equal(beganOf({ began: 'tag', by: 'you', ran: true }), 'tag', 'began wins over by');
+  assert.equal(beganOf({ on: true, by: 'tag' }), 'tag', 'on now: it began');
+});
+
+test('autoCardView carries began, group, waitingToTest, tooBig, risky and finished', () => {
+  const tooBig = { at: '2026-11-12T09:00:00.000Z', reason: 'It touches 14 files in 3 areas.' };
+  const aside = { ...autoRecord(autoRecord(null, { on: true, by: 'tag', tag: 'auto' }), { on: false }), tooBig, risky: 2 };
+  const c = autoCardView(aside, { level: 1 });
+  assert.deepEqual({ began: c.began, group: c.group, waitingToTest: c.waitingToTest, tooBig: c.tooBig, risky: c.risky, finished: c.finished }, { began: 'tag', group: 'needs-you', waitingToTest: false, tooBig, risky: 2, finished: null });
+  const done = { ...autoRecord(autoRecord(null, { on: true }), { on: false }), finished: '2026-11-12T10:00:00.000Z' };
+  assert.equal(autoCardView(done, { level: 1 }).group, 'ready');
+  assert.equal(autoCardView(done, { level: 1 }).finished, '2026-11-12T10:00:00.000Z');
+  assert.equal(autoCardView(done, { level: 1, closed: true }).group, null, 'a closed job is in no Auto group');
+  assert.equal(autoCardView(autoRecord(null, { on: true }), { level: 1, waitingToTest: true }).waitingToTest, true);
+  // A record from before: none of the new fields.
+  const old = autoCardView({ on: true, since: 'x', by: 'tag', tag: 'nightly', ran: true, stopped: null }, { level: 1 });
+  assert.deepEqual({ began: old.began, group: old.group, tooBig: old.tooBig, risky: old.risky, finished: old.finished }, { began: 'tag', group: 'working', tooBig: null, risky: 0, finished: null });
 });
