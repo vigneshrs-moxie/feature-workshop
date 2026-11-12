@@ -1906,11 +1906,11 @@ export async function createRunner(config) {
     return jobs;
   }
 
-  // The stop notification replaces "waiting for your go-ahead": that job is already told.
-  // Jobs whose stop Auto is writing now: checkWaiting does not tell them "waiting" in that window (the stop notice does).
+  // The stop notification (Needs you) and the set-aside one (Too big for Auto) replace "waiting for your go-ahead": that job is already told.
+  // Jobs whose stop or set-aside Auto is writing now: checkWaiting does not tell them "waiting" in that window (Auto's notice does).
   const autoStopping = new Set();
   const autoNotify = (n) => {
-    if (n.slug && String(n.key ?? '').startsWith('auto-stop:')) waitingBefore?.add(n.slug);
+    if (n.slug && /^auto-(stop|too-big):/.test(String(n.key ?? ''))) waitingBefore?.add(n.slug);
     return tell(n);
   };
 
@@ -2017,7 +2017,7 @@ export async function createRunner(config) {
       told.add('done');
       // The crossing itself was a landing too: one notification, not two.
       if (finish.landed && finish.by === finish.landed) told.add(finish.landed);
-      // Auto's own "Auto finished" tells this event: a job it has finished, or is about to (PR #1 open), is not also told Done.
+      // Auto's own "Ready for you to try" tells this event: a job it has finished, or is about to (PR #1 open), is not also told Done.
       const autoTells = finish.by === 'pr1-open' && record?.ran === true && (record.on === true || typeof record.finished === 'string');
       if (!autoTells) tell({ level: 'done', title, body: doneWords(finish, repoName), slug, key: `finish:${slug}` });
     }
@@ -2041,8 +2041,8 @@ export async function createRunner(config) {
       }
     }
   }
-  // A card raised for you: told as it arrives, once. A card Auto is handling (the job is in Auto and not
-  // stopped) is not told; Auto tells it itself if it leaves the card waiting for you (runner/auto.js onPermission).
+  // A card raised for you: told as it arrives, once. A card on a job whose Auto is on is never told (Auto tells three
+  // things only, Task 13): Auto handles it, and a card it leaves waiting tells nothing (runner/auto.js onPermission).
   const toldCards = new Set();
   const tellPermission = (p) => {
     if (toldCards.has(p.id)) return;
@@ -2052,7 +2052,7 @@ export async function createRunner(config) {
   };
   driver.on('permission', (p) => {
     state.sessionFor(p.featureDir).then((record) => {
-      if (record?.auto?.on === true) return auto.onPermission(p, { leftWaiting: tellPermission });
+      if (record?.auto?.on === true) return auto.onPermission(p);
       return tellPermission(p);
     }).catch((err) => { console.error('permission:', err.message); tellPermission(p); });
   });
@@ -2288,7 +2288,6 @@ export async function createRunner(config) {
       await state.audit({ action: 'auto-start', key: item.key, tag, slug: out.slug });
       return { slug: out.slug };
     },
-    notify: (n) => tell(n),
   });
   autoStarter.load().catch(() => {}); // the memory early: the queue knows what was started or failed before the first pass
   function runAutoStart() {

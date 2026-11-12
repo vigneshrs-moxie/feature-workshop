@@ -118,6 +118,15 @@ export function beganOf(record) {
 const riskyOf = (record) => (Number.isInteger(record?.risky) && record.risky > 0 ? record.risky : 0);
 
 /**
+ * The words of the notice when PR #1 opens (Ready for you to try): `PR #1 is open.`, then ` L3.` at L3, then
+ * ` 1 risky call.` or ` <n> risky calls.` when there are any (a count that is not a whole number above 0 reads as none).
+ */
+export function finishBody({ level = null, risky = 0 } = {}) {
+  const n = riskyOf({ risky });
+  return `PR #1 is open.${level === 3 ? ' L3.' : ''}${n === 1 ? ' 1 risky call.' : n > 1 ? ` ${n} risky calls.` : ''}`;
+}
+
+/**
  * The record after turning Auto on or off. On starts fresh (since now, nothing stopped, no steps
  * or failures counted, finished, acted and tooBig cleared) but keeps began, beganTag and risky, and
  * remembers asOne once it has been set aside; off keeps the rest of the record, so `ran` stays true.

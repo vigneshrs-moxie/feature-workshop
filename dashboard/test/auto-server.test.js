@@ -363,7 +363,7 @@ test('two failures running stop Auto with the approver reason and one notificati
     assert.deepEqual({ rule: stop.rule, reason: stop.reason, costUsd: stop.costUsd }, { rule: 'approver', reason: rec.stopped.reason, costUsd: 0.2 });
     await w.told(1);
     assert.equal(w.notes.length, 1);
-    assert.deepEqual({ level: w.notes[0].level, title: w.notes[0].title, body: w.notes[0].body }, { level: 'needs', title: 'Visit audit columns', body: `Auto stopped: ${rec.stopped.reason} Open the job to answer.` });
+    assert.deepEqual({ level: w.notes[0].level, title: w.notes[0].title, body: w.notes[0].body }, { level: 'needs', title: 'Needs you: Visit audit columns', body: `Auto stopped: ${rec.stopped.reason}` });
   } finally { await w.stop(); }
 });
 
@@ -451,7 +451,7 @@ test('PR #1 open switches Auto off and tells you once', { timeout: 30_000 }, asy
     assert.equal((await w.autoLines('finished')).length, 1);
     assert.equal(w.asks.length, 0);
     assert.equal((await w.told(1)).length, 1);
-    assert.deepEqual({ level: w.notes[0].level, title: w.notes[0].title, body: w.notes[0].body }, { level: 'done', title: 'Auto finished: PR #1 is open.', body: 'Visit audit columns. Review it and merge it yourself when you\'re ready.' });
+    assert.deepEqual({ level: w.notes[0].level, title: w.notes[0].title, body: w.notes[0].body }, { level: 'done', title: 'Ready for you to try: Visit audit columns', body: 'PR #1 is open.' });
     assert.equal('auto' in await w.optionsFile(), false);
   } finally { await w.stop(); }
 });
@@ -501,7 +501,7 @@ test('no "waiting for your go-ahead" notification for an Auto job', { timeout: 3
     await w.runner.auto.checkWaiting();
     await w.told(2);
     assert.deepEqual(w.notes.map((n) => n.body.split(':')[0]).sort(), [w.notes[0].body.split(':')[0], 'Auto stopped'].sort());
-    assert.equal(w.notes.filter((n) => n.title === 'Visit audit columns').length, 1);
+    assert.equal(w.notes.filter((n) => n.title === 'Needs you: Visit audit columns').length, 1);
   } finally { await w.stop(); }
 });
 
@@ -1283,7 +1283,7 @@ test('the person answers the card while the Approver thinks: nothing is sent, no
   } finally { await clear(w); await w.stop(); }
 });
 
-test('Auto switched off while the Approver thinks about a card: the answer is dropped, the card waits, the person is told exactly once, and the money has its own line', { timeout: 30_000 }, async () => {
+test('Auto switched off while the Approver thinks about a card: the answer is dropped, the card waits, nobody is told (Auto tells three things only), and the money has its own line', { timeout: 30_000 }, async () => {
   const outcomes = [];
   let release;
   const gate = new Promise((r) => { release = r; });
@@ -1298,7 +1298,7 @@ test('Auto switched off while the Approver thinks about a card: the answer is dr
     assert.equal((await waiting(w)).length, 1, 'the card still waits for the person');
     assert.deepEqual(outcomes, []);
     assert.deepEqual(await w.autoLines('permission'), []);
-    assert.equal(w.notes.filter((n) => /Permission/.test(n.body ?? '')).length, 1, 'exactly one notification for the card left waiting');
+    assert.deepEqual(w.notes, [], 'no notification for the card Auto left waiting');
     const [cost] = await w.autoLines('cost');
     assert.equal(cost.costUsd, 0.12);
     assert.equal(cost.why, 'The Approver answered after Auto was switched off.');
@@ -1394,17 +1394,16 @@ test('an Approver that fails on a card is counted; two failures stop Auto like f
   } finally { await clear(w); await w.stop(); }
 });
 
-test('after one failure on a card the card waits and the person is told once', { timeout: 30_000 }, async () => {
+test('after one failure on a card the card waits and nobody is told (Auto tells three things only)', { timeout: 30_000 }, async () => {
   const outcomes = [];
   const w = await world({ query: cardQuery([FETCH], outcomes), ask: () => failure('It ended with an error.', 0.1) });
   try {
     await raise(w);
-    const all = await w.told(1);
-    assert.match(all[0].body, /Permission: /);
-    assert.equal((await w.record()).failures, 1);
+    await w.until(async () => (await w.record()).failures === 1, 'the failure');
+    await new Promise((r) => setTimeout(r, 300));
     assert.equal((await w.record()).stopped, null);
     assert.equal((await waiting(w)).length, 1);
-    assert.equal(all.length, 1, 'told once');
+    assert.deepEqual(w.notes, [], 'no notification');
   } finally { await clear(w); await w.stop(); }
 });
 
@@ -1662,28 +1661,39 @@ test('J1: a gate approval of the person\'s, parked for the limit, still resumes 
   } finally { await w.stop(); }
 });
 
-test('J2: a feedback card and a review round card on an Auto job are each told once; a status card that stops Auto is told once', { timeout: 30_000 }, async () => {
+test('J2: a card left waiting on an Auto job tells nothing; on a job not in Auto it is told once', { timeout: 30_000 }, async () => {
+  // Cards Auto never answers (a feedback card, a review round card) are left waiting at once: on an Auto job, nobody is told.
+  const mine = async (w, extra) => {
+    const driver = w.driver;
+    const c = { id: crypto.randomUUID(), runId: 'none', slug: w.slug, featureDir: w.dir, title: 'T', toolName: 'AskUserQuestion', kind: 'question', input: { questions: [] }, hardLine: null, plain: { headline: 'x' }, ...extra };
+    const list = extra.feedbackCard ? driver.feedbackCards : extra.roundCard ? driver.roundCards : driver.statusCards;
+    list.set(c.id, c);
+    driver.emit('permission', driver.viewPermission(c));
+    return c;
+  };
   const w = await world({ query: cardQuery([], []), ask: () => allow() });
   try {
-    const driver = w.driver;
-    const card = (extra) => ({ id: crypto.randomUUID(), runId: 'none', slug: w.slug, featureDir: w.dir, title: 'T', toolName: 'AskUserQuestion', kind: 'question', input: { questions: [] }, hardLine: null, plain: { headline: 'x' }, ...extra });
-    const feedback = card({ feedbackCard: true });
-    driver.feedbackCards.set(feedback.id, feedback);
-    driver.emit('permission', driver.viewPermission(feedback));
+    await mine(w, { feedbackCard: true });
+    await mine(w, { roundCard: true });
+    // A status card stops Auto: that dead end is told once, as Needs you, and is the only notice.
+    await mine(w, { statusCard: true });
     await w.told(1);
-    assert.equal(w.notes.length, 1, 'the feedback card');
-    const round = card({ roundCard: true });
-    driver.roundCards.set(round.id, round);
-    driver.emit('permission', driver.viewPermission(round));
-    await w.told(2);
-    assert.equal(w.notes.length, 2, 'the review round card');
-    const status = card({ statusCard: true });
-    driver.statusCards.set(status.id, status);
-    driver.emit('permission', driver.viewPermission(status));
-    await w.told(3);
-    assert.equal(w.notes.length, 3, 'one for the status card that stopped Auto, no second');
-    assert.match(w.notes[2].body, /^Auto stopped: /);
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(w.notes.length, 1, 'only the stop');
+    assert.equal(w.notes[0].title, 'Needs you: Visit audit columns');
+    assert.match(w.notes[0].body, /^Auto stopped: /);
   } finally { await w.stop(); }
+  // The same cards on a job not in Auto: each is told once, as before.
+  const o = await world({ auto: null, query: cardQuery([], []) });
+  try {
+    const a = await mine(o, { feedbackCard: true });
+    await mine(o, { roundCard: true });
+    await o.told(2);
+    o.driver.emit('permission', o.driver.viewPermission(a)); // raised again: not told again
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(o.notes.length, 2, 'each told once');
+    for (const n of o.notes) assert.match(n.body, /A question for you\.$/);
+  } finally { await o.stop(); }
 });
 
 test('J2: when the decision is refused but the card still waits, the person is told once; when the card is gone, not at all', async () => {
@@ -2190,7 +2200,7 @@ test('I5 (runner): the person writes while the Approver thinks and the Foreman l
     assert.equal(stops[0].costUsd, 0.12, 'the dropped answer\'s cost is on the stop line');
     await w.told(1);
     assert.equal(w.notes.length, 1);
-    assert.equal(w.notes[0].body, `Auto stopped: ${YOURS} Open the job to answer.`);
+    assert.equal(w.notes[0].body, `Auto stopped: ${YOURS}`);
   } finally { await w.stop(); }
 });
 
@@ -2375,7 +2385,7 @@ test('I3 (E1): an Auto job with no reply running, no step waiting and not "needs
   await at(11);
   assert.deepEqual({ rule: u.record().stopped?.rule, reason: u.record().stopped?.reason }, { rule: 'blocked', reason: IDLE });
   assert.equal(u.notes.length, 1);
-  assert.equal(u.notes[0].body, `Auto stopped: ${IDLE} Open the job to answer.`);
+  assert.equal(u.notes[0].body, `Auto stopped: ${IDLE}`);
   assert.equal(u.lines.filter((l) => l.what === 'stop').length, 1);
   await at(60);
   assert.equal(u.notes.length, 1, 'none again');
@@ -2418,35 +2428,34 @@ test('I3 (E2): Starbase crashed in the middle of an Auto job\'s reply; at start-
 
 const WORKING = status(1, { stage: 'plan', stage_state: 'working', waiting_for: null });
 
-test('I4 (H1): a card the Approver failed on once is left to the person: Needs you with the ordinary card sentence', { timeout: 30_000 }, async () => {
+test('I4 (H1): a card the Approver failed on once is left to the person: Needs you with the ordinary card sentence, and no notification', { timeout: 30_000 }, async () => {
   const outcomes = [];
   const w = await world({ query: cardQuery([FETCH], outcomes), ask: () => failure(), jobStatus: WORKING });
   try {
     await raise(w);
-    await w.told(1);
+    await w.until(async () => (await w.record()).failures === 1, 'the failure');
     await new Promise((r) => setTimeout(r, 1700));
     const card = (await w.runner.read.features()).features.find((c) => c.slug === w.slug);
     assert.equal((await waiting(w)).length, 1, 'the card waits');
     assert.equal((await w.record()).stopped, null);
     assert.deepEqual({ lane: card.lane, laneReason: card.laneReason }, { lane: 'needs-you', laneReason: 'A permission waits for your yes' });
-    assert.equal(w.notes.length, 1);
-    assert.match(w.notes[0].body, /Permission: /);
+    assert.deepEqual(w.notes, [], 'Auto tells three things only: a card it left waiting is not one');
   } finally { await clear(w); await w.stop(); }
 });
 
-test('I4 (H2): a throw while Auto handles a card leaves the card to the person and tells them once', { timeout: 30_000 }, async () => {
+test('I4 (H2): a throw while Auto handles a card leaves the card to the person and tells nobody', { timeout: 30_000 }, async () => {
   const outcomes = [];
   const w = await world({ query: cardQuery([FETCH], outcomes), ask: () => { throw new Error('the disk said no'); }, jobStatus: WORKING });
   try {
     await raise(w);
-    await w.told(1);
+    await w.until(async () => (await waiting(w)).length === 1 && w.asks.length === 1, 'the card and the ask');
     await new Promise((r) => setTimeout(r, 1700));
     await w.pass();
     const card = (await w.runner.read.features()).features.find((c) => c.slug === w.slug);
     assert.equal((await waiting(w)).length, 1, 'the card waits');
-    assert.equal(w.notes.length, 1);
-    assert.match(w.notes[0].body, /Permission: /);
+    // The lane says the card is his: Auto has left it. Nobody is told.
     assert.deepEqual({ lane: card.lane, laneReason: card.laneReason }, { lane: 'needs-you', laneReason: 'A permission waits for your yes' });
+    assert.deepEqual(w.notes, [], 'no notification');
   } finally { await clear(w); await w.stop(); }
 });
 
@@ -2479,8 +2488,14 @@ test('N3 (I5-8): two cards wait; the person steers a message in while the Approv
     await w.runner.handle({ type: 'steer', runId: run.id, text: 'Do not fetch anything from example.com.' }, { from: 'local' });
     await new Promise((r) => setTimeout(r, 50));
     release();
-    await w.until(() => w.notes.length >= 2, 'both cards told to the person');
+    // His words make both cards his: Auto leaves them waiting, and a card it leaves waiting tells nothing (Task 13). The lane says they are his.
+    await w.until(async () => {
+      await new Promise((r) => setTimeout(r, 200));
+      const card = (await w.runner.read.features()).features.find((c) => c.slug === w.slug);
+      return card?.lane === 'needs-you' && card.laneReason === '2 permissions wait for your yes';
+    }, 'both cards left to the person');
     await new Promise((r) => setTimeout(r, 300));
+    assert.deepEqual(w.notes, [], 'nobody is told');
     assert.deepEqual(outcomes, [], 'the worker was told nothing by Auto');
     assert.equal((await waiting(w)).length, 2, 'both cards wait for the person');
     assert.equal(w.asks.length, 1, 'the Approver is asked once');
@@ -3153,19 +3168,22 @@ test('L3: closing a job, or marking it done, switches Auto off with an off line,
   } finally { await w.stop(); }
 });
 
-test('L4: a stop tells the person what to do, with one space and the reason\'s own full stop', { timeout: 30_000 }, async () => {
+test('a stop is told as Needs you, with Auto stopped: and the reason\'s own full stop', { timeout: 30_000 }, async () => {
   // The Approver's own stop is asked about once more (Task 6): its failing twice is the stop whose reason carries its words.
-  for (const [why, body] of [['Too risky', 'Auto stopped: the Approver failed twice running (Too risky). Open the job to answer.'], ['Too risky.', 'Auto stopped: the Approver failed twice running (Too risky). Open the job to answer.']]) {
+  for (const [why, body] of [['Too risky', 'Auto stopped: the Approver failed twice running (Too risky).'], ['Too risky.', 'Auto stopped: the Approver failed twice running (Too risky).']]) {
     const u = unit({ ask: () => ({ ok: false, problem: why, costUsd: 0.1 }) });
     await u.auto.pass();
-    assert.equal(u.notes[0].body, body);
+    assert.equal(u.notes.length, 1);
+    assert.deepEqual({ level: u.notes[0].level, title: u.notes[0].title, body: u.notes[0].body, slug: u.notes[0].slug }, { level: 'needs', title: 'Needs you: Visit audit', body, slug: 'visit-audit' });
+    assert.match(u.notes[0].key, /^auto-stop:visit-audit:/, 'the key as before');
   }
   const fixed = unit({ job: () => ({ stageState: 'blocked' }) }); // a stop decided by code (it was L3, no longer a stop)
   await fixed.auto.pass();
-  assert.match(fixed.notes[0].body, /^Auto stopped: .*\. Open the job to answer\.$/, 'the same ending for every stop');
+  assert.equal(fixed.notes[0].title, 'Needs you: Visit audit');
+  assert.match(fixed.notes[0].body, /^Auto stopped: [^ ].*[^ ]\.$/, 'the same shape for every stop: the reason and its own full stop, nothing after');
   // Every stop reason Auto writes itself ends with a full stop now (the Approver's own stop, which could lack one, is asked about
   // once more). A hook's kept stop carries the hook's words as they come, so it is the one that reaches the added full stop.
-  for (const [reason, body] of [['Too risky', 'Auto stopped: Too risky. Open the job to answer.'], ['Too risky.', 'Auto stopped: Too risky. Open the job to answer.']]) {
+  for (const [reason, body] of [['Too risky', 'Auto stopped: Too risky.'], ['Too risky.', 'Auto stopped: Too risky.']]) {
     const notes = [];
     let rec = { ...autoRecord(null, { on: true, now: OLD }) };
     const card = { id: 'c-l4', slug: 's', featureDir: unitDir, kind: 'permission', toolName: 'WebFetch', input: {}, plain: { headline: 'Fetch' }, hardLine: null, hookStop: { rule: 'blocked', reason } };
@@ -3318,7 +3336,7 @@ test('L8: Auto finishes: Auto\'s notice only', { timeout: 40_000 }, async () => 
     await w.runner.local.refreshFlow();
     await w.told(1);
     await new Promise((r) => setTimeout(r, 800));
-    assert.deepEqual(doneNotes(w).map((n) => n.title), ['Auto finished: PR #1 is open.']);
+    assert.deepEqual(doneNotes(w).map((n) => n.title), ['Ready for you to try: Visit audit columns']);
   } finally { await w.stop(); }
 });
 
@@ -3365,7 +3383,7 @@ test('L8: marked done by hand with PR #1 open and Auto on: one notice, not two',
     // The demo's map also says the closed job landed; that is a separate notice. Of the finish-line notices there is one.
     const crossings = doneNotes(w).filter((n) => !/^Landed/.test(n.body));
     assert.equal(crossings.length, 1, JSON.stringify(crossings.map((n) => [n.title, n.body])));
-    assert.ok(!crossings.some((n) => /^Auto finished/.test(n.title)), 'not Auto\'s too');
+    assert.ok(!crossings.some((n) => /^Ready for you to try/.test(n.title)), 'not Auto\'s too');
   } finally { await w.stop(); }
 });
 
@@ -3720,7 +3738,7 @@ test('I5: with two Auto jobs waiting, his message to the second stops it in the 
   assert.deepEqual(decides, ['first'], 'the first job is still approved; nothing is sent for the second');
   assert.deepEqual(lines.filter((l) => l.what === 'stop').map((l) => l.slug), ['second']);
   assert.equal(notes.length, 1);
-  assert.equal(notes[0].body, `Auto stopped: ${YOURS} Open the job to answer.`);
+  assert.equal(notes[0].body, `Auto stopped: ${YOURS}`);
 });
 
 test('the board says a step he wrote to is his before Auto\'s next pass', { timeout: 60_000 }, async () => {
@@ -4440,7 +4458,7 @@ test('he writes while the second ask thinks: nothing is sent and the step is his
 
 // ---------- Auto queue Task 5, fix round 1 ----------
 
-test('a refusal at the driver\'s door after Auto was switched off is refused as auto-gone: nothing sent, the card waits, one Permission notice, no refuse line', { timeout: 30_000 }, async () => {
+test('a refusal at the driver\'s door after Auto was switched off is refused as auto-gone: nothing sent, the card waits, nobody told, no refuse line', { timeout: 30_000 }, async () => {
   const outcomes = [];
   const w = await world({ jobStatus: MID_REPLY, query: cardQuery([{ tool: 'Bash', input: { command: 'npm run db:migrate' } }], outcomes) });
   const errors = [];
@@ -4456,14 +4474,12 @@ test('a refusal at the driver\'s door after Auto was switched off is refused as 
     await raise(w);
     await w.until(() => did, 'the door');
     await w.until(async () => (await w.autoLines('off')).length === 1, 'the off line');
-    const notes = await w.told(1);
-    await new Promise((r) => setTimeout(r, 300));
+    await new Promise((r) => setTimeout(r, 600));
     assert.equal(outcomes.length, 0, 'nothing reached the worker');
     assert.equal((await waiting(w)).length, 1, 'the card waits for the person');
     assert.equal((await w.lines()).filter((l) => l.action === 'permission').length, 0, 'nothing was sent');
     assert.deepEqual(await w.autoLines('refuse'), []);
-    assert.equal(notes.filter((n) => /Permission: /.test(n.body ?? '')).length, 1, 'one Permission notice');
-    assert.equal(notes.length, 1);
+    assert.deepEqual(w.notes, [], 'Auto tells three things only: a card it left waiting is not one');
     assert.deepEqual(errors.filter((e) => e.startsWith('auto card')), [], 'refused as auto-gone (any other refusal is logged)');
     await clear(w);
     await w.until(() => outcomes.length === 1, 'the person\'s answer');
@@ -4791,4 +4807,54 @@ test('M4: the switch\'s answer knows a closed job: switched on, it is in no Auto
     const again = await w.runner.handle({ type: 'auto', slug: w.slug, on: true }, { from: 'local' });
     assert.equal(again.auto.group, null, 'nothing changed: the same answer');
   } finally { await w.stop(); }
+});
+
+// ---------- Auto queue Task 13: Auto tells you three things only ----------
+
+test('PR #1 open: Ready for you to try, with L3 and the risky count when there are any', async () => {
+  for (const [level, record, body] of [[2, {}, 'PR #1 is open.'], [3, { risky: 2 }, 'PR #1 is open. L3. 2 risky calls.']]) {
+    const u = unit({ job: () => ({ prOpen: true, level }), record });
+    await u.auto.pass();
+    assert.equal(u.notes.length, 1, `L${level}: told once`);
+    const [n] = u.notes;
+    assert.deepEqual({ level: n.level, title: n.title, body: n.body, slug: n.slug, key: n.key }, { level: 'done', title: 'Ready for you to try: Visit audit', body, slug: 'visit-audit', key: 'auto-finish:visit-audit' });
+  }
+  const { finishBody } = await import('../lib/auto.js');
+  assert.equal(finishBody({ level: 2, risky: 1 }), 'PR #1 is open. 1 risky call.');
+  assert.equal(finishBody({ level: 3, risky: 0 }), 'PR #1 is open. L3.');
+  assert.equal(finishBody({ level: 1, risky: 'x' }), 'PR #1 is open.', 'a count that is not a whole number reads as none');
+});
+
+test('a set-aside job is told once as Too big for Auto', { timeout: 30_000 }, async () => {
+  const w = await world({ jobStatus: bigStatus(1, { stage_state: 'working', waiting_for: null }) });
+  try {
+    // The first look seeds what already waits; then the first brief comes, and it suggests a stack.
+    await w.runner.auto.checkWaiting();
+    await w.writeStatus(bigStatus(1));
+    await new Promise((r) => setTimeout(r, 1600)); // the runner reads the jobs at most every 1.5 seconds
+    await w.pass();
+    assert.equal((await w.record()).tooBig?.reason, STACK_WHY, 'set aside');
+    await w.told(1);
+    // Auto is off on it now and its gate waits: the waiting check does not tell it a second time.
+    await new Promise((r) => setTimeout(r, 1600));
+    await w.runner.auto.checkWaiting();
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(w.notes.length, 1, 'one notification');
+    const [n] = w.notes;
+    assert.deepEqual({ level: n.level, title: n.title, body: n.body, slug: n.slug }, {
+      level: 'needs', title: 'Too big for Auto: Visit audit columns', body: 'The Foreman thinks this ticket is big enough for a stack.', slug: w.slug,
+    });
+    // Switched back on, it runs as one job: Auto answers the brief, and nothing more is told.
+    await w.runner.handle({ type: 'auto', slug: w.slug, on: true }, { from: 'local' });
+    await w.pass();
+    assert.deepEqual(await autoGates(w), [1]);
+    await w.idle();
+    await w.pass();
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(w.notes.length, 1, 'told once');
+  } finally { await w.stop(); }
+  // The notice's key (the runner's notifications keep no key: the pass on its own shows it).
+  const u = unit({ job: () => ({ stackSuggested: STACK_WHY }) });
+  await u.auto.pass();
+  assert.deepEqual(u.notes.map((x) => [x.title, x.key]), [['Too big for Auto: Visit audit', 'auto-too-big:visit-audit']]);
 });

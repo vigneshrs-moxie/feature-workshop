@@ -132,11 +132,11 @@ const listOf = (v) => (Array.isArray(v) ? v.filter((e) => e && typeof e.key === 
  *   jobs(memory)  { ticketsWithJobs, working, unfinished }: counted over every open job's Auto record
  *                 (countAuto), not only the ones this starter started   paused() 'limit' | 'orbit' | null
  *   start(item, tag)  starts the job, returns { slug }, throws in plain words when it can't
- *   notify(n)  tells the person once per started job, and once per failed start
+ * It tells nobody (Auto queue, Task 13): a failed start's reason is kept (failedList) and shows in the Inbox's Auto tab.
  */
 export class AutoStarter {
-  constructor({ file, setting, inbox, jobs, paused, start, notify = async () => {}, now = () => new Date().toISOString(), write = writeFileAtomic }) {
-    Object.assign(this, { file, setting, inbox, jobs, paused, start, notify, now, write });
+  constructor({ file, setting, inbox, jobs, paused, start, now = () => new Date().toISOString(), write = writeFileAtomic }) {
+    Object.assign(this, { file, setting, inbox, jobs, paused, start, now, write });
     this.dirty = false; // a started job's slug is in memory but not yet on disk
     this.memory = null; // null until read; { unreadable: true } when the file can't be trusted
     this.current = null;
@@ -236,14 +236,10 @@ export class AutoStarter {
       }
       const reason = String(err?.message ?? err).replace(/\s+/g, ' ').trim().slice(0, 300) || 'It did not start.';
       memory.failed.push({ key: it.key, at: this.now(), reason });
-      try { await this.#save(); } finally {
-        // Told once per failed start (it is never tried again by itself): the row is not the only place it shows.
-        await this.notify({ level: 'problem', title: `Auto start could not start ${it.key}`, body: reason, slug: null, key: `auto-start-failed:${it.key}` });
-      }
+      await this.#save(); // never tried again by itself; its reason shows on its row and in the Auto queue
       return { failed: it };
     }
     try { await this.#save(); } catch { this.dirty = true; } // the job exists: kept as started, saved again next pass
-    await this.notify({ level: 'needs', title: `Started by Auto: ${it.key}`, body: `${it.title}. It has the tag "${tag}". Auto runs it to PR #1 and asks you only if it must.`, slug: entry.slug, key: `auto-start:${it.key}` });
     this.again = true; // a place may be free: look again (a failed start never asks)
     return { started: it };
   }

@@ -98,6 +98,7 @@ async function rig(over = {}) {
       r.afterStart?.(it);
       return { slug: `orbit-${it.number}-t` };
     },
+    // Not an option of the starter any more (Auto queue, Task 13): kept so a test sees any notice it would still send.
     notify: async (n) => { r.told.push(n); },
   });
   return r;
@@ -114,14 +115,11 @@ test('a tagged assigned ticket starts once', async () => {
   assert.deepEqual(r.seenFile[0].started.map((e) => e.key), ['ORBIT-1']);
   assert.deepEqual((await fs.readdir(r.dir)).filter((f) => f.includes('.tmp')), []);
 });
-test('a notification is sent once per started job', async () => {
+test('a started job tells nothing', async () => {
   const r = await rig({ items: [item(1, { title: 'Fix the dial' })] });
   await r.starter.run(); await r.starter.run();
-  assert.equal(r.told.length, 1);
-  assert.deepEqual({ level: r.told[0].level, title: r.told[0].title, body: r.told[0].body, slug: r.told[0].slug }, {
-    level: 'needs', title: 'Started by Auto: ORBIT-1', slug: 'orbit-1-t',
-    body: 'Fix the dial. It has the tag "auto". Auto runs it to PR #1 and asks you only if it must.',
-  });
+  assert.deepEqual(r.started, [{ key: 'ORBIT-1', tag: 'auto' }]);
+  assert.deepEqual(r.told, []);
 });
 test('two tagged tickets start one after the other', async () => {
   const r = await rig({ items: [item(1), item(2)] });
@@ -160,14 +158,14 @@ test('a failed start does not start the next ticket in the same run', async () =
   assert.deepEqual(r.started, []);
   assert.equal(r.seenFile.length, 1, 'only one try');
 });
-test('m4: a failed start tells the person once, with the ticket key in the title and the reason in the body', async () => {
+test('m4: a failed start tells nothing; its reason is kept for the Inbox', async () => {
   const r = await rig({ failWith: '  This laptop has no repository\nfor it. ' });
   await r.starter.run();
   await r.starter.run();
-  assert.equal(r.told.length, 1);
-  assert.deepEqual({ level: r.told[0].level, title: r.told[0].title, body: r.told[0].body, key: r.told[0].key }, {
-    level: 'problem', title: 'Auto start could not start ORBIT-1', body: 'This laptop has no repository for it.', key: 'auto-start-failed:ORBIT-1',
-  });
+  assert.equal(r.seenFile.length, 1, 'tried once');
+  assert.deepEqual(r.told, []);
+  assert.equal(r.starter.failedReason('ORBIT-1'), 'This laptop has no repository for it.');
+  assert.deepEqual(r.starter.failedList(), [{ key: 'ORBIT-1', reason: 'This laptop has no repository for it.' }]);
   // A start refused for the limit is not a failed start: nothing is told.
   const lim = await rig({ failWith: null });
   lim.starter.start = async () => { throw Object.assign(new Error('Claude’s limit is reached.'), { code: 'limited' }); };
@@ -180,7 +178,7 @@ test('a start that fails is remembered and not tried again', async () => {
   r.failWith = null;
   await r.starter.run();
   assert.deepEqual(r.started, []);
-  assert.equal(r.told.length, 1, 'the failed start is told once, and nothing else');
+  assert.deepEqual(r.told, [], 'nothing is told');
   const saved = JSON.parse(await fs.readFile(r.file, 'utf8'));
   assert.deepEqual(saved, { started: [], failed: [{ key: 'ORBIT-1', at: '2026-11-11T10:00:00.000Z', reason: 'This laptop has no repository for it.' }] });
   assert.equal(r.starter.failedReason('ORBIT-1'), 'This laptop has no repository for it.');

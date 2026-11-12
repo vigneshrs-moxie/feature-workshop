@@ -22,7 +22,7 @@
 // Everything Auto writes is an audit line { action: 'auto', what, stage, asked, chose, why, ... } and
 // nothing reaches the Foreman but through decide.gate with by: 'auto'.
 
-import { AUTO_CARDS_PER_REPLY, AUTO_MARK, OWN_SENDS, REFUSED_RULES, YOURS_NOW, refuseNote, refuseReason, wroteWhileWaiting } from '../lib/auto.js';
+import { AUTO_CARDS_PER_REPLY, AUTO_MARK, OWN_SENDS, REFUSED_RULES, YOURS_NOW, finishBody, refuseNote, refuseReason, wroteWhileWaiting } from '../lib/auto.js';
 import { AUTO_STOP_REASONS, OUTSIDE_REASONS, autoVerdict, fixedStop } from '../lib/auto-rules.js';
 import { APPROVER_BUDGET_USD, approverCut, approverPaths, approverRoots, callPreview, checkAnswer } from '../lib/approver.js';
 import { DECIDING_KINDS } from '../lib/gate.js';
@@ -173,30 +173,35 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       await audit(job, 'stop', { rule, reason, why: why || reason, ...(spent > 0 ? { costUsd: spent } : {}) });
       await paidOff(job, spent);
     } finally {
-      // Once the record says stopped, the person is told, even when the line could not be written.
-      // What the person should do, for every stop: the reason ends with its own full stop.
+      // Once the record says stopped, the person is told (a dead end: Needs you), even when the line could not be written.
+      // The reason ends with its own full stop.
       const said = /[.!?]$/.test(reason) ? reason : `${reason}.`;
-      notify({ level: 'needs', title: job.title, body: `Auto stopped: ${said} Open the job to answer.`, slug: job.slug, key: `auto-stop:${job.slug}:${at}` });
+      notify({ level: 'needs', title: `Needs you: ${job.title}`, body: `Auto stopped: ${said}`, slug: job.slug, key: `auto-stop:${job.slug}:${at}` });
       freed(); // a stopped job frees its Auto start place: it can be filled now
     }
     return true;
   }
 
-  /** PR #1 is open: Auto is off, `ran` stays, and the person is told once (not at all if Auto was already off). */
+  /**
+   * PR #1 is open: Auto is off, `ran` stays, and the person is told once, Ready for you to try, with the level when it is L3 and
+   * the risky calls when there are any (not at all if Auto was already off).
+   */
   async function finish(job) {
     const at = now().toISOString();
     let spent = 0;
+    let risky = 0;
     let wrote = false;
     await update(job.dir, (prev) => {
       if (prev?.on !== true) return null;
       wrote = true;
       spent = prev.spent ?? 0;
+      risky = prev.risky;
       return { ...prev, on: false, stopped: null, finished: at };
     });
     if (!wrote) return;
     await audit(job, 'finished', { why: 'PR #1 is open.', ...(spent > 0 ? { costUsd: spent } : {}) });
     await paidOff(job, spent);
-    notify({ level: 'done', title: 'Auto finished: PR #1 is open.', body: `${job.title}. Review it and merge it yourself when you're ready.`, slug: job.slug, key: `auto-finish:${job.slug}` });
+    notify({ level: 'done', title: `Ready for you to try: ${job.title}`, body: finishBody({ level: job.level, risky }), slug: job.slug, key: `auto-finish:${job.slug}` });
     changed();
     freed();
   }
@@ -291,10 +296,15 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
 
   /**
    * Too big for Auto (Auto queue, Task 12): Auto switches itself off on the job and marks it (tooBig), under the Auto lock,
-   * with one line; the job takes no place, so the next ticket can start. No Approver, no gate answered. Nothing is written
-   * when Auto went off, stopped or answered a brief meanwhile, or he switched it back on after a set-aside.
+   * with one line and one notice (Task 13); the job takes no place, so the next ticket can start. No Approver, no gate answered.
+   * Nothing is written or told when Auto went off, stopped or answered a brief meanwhile, or he switched it back on after a set-aside.
+   * Marked as being stopped meanwhile, as a stop is, so the job is not also told "waiting" before its notice goes.
    */
   async function setAside(job) {
+    stopping(job.slug, true);
+    try { await writeAside(job); } finally { stopping(job.slug, false); }
+  }
+  async function writeAside(job) {
     const reason = tooBigForAuto(job);
     const at = now().toISOString();
     let spent = 0;
@@ -311,7 +321,8 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       await audit(job, 'set-aside', { why: reason, ...(spent > 0 ? { costUsd: spent } : {}) });
       await paidOff(job, spent);
     } finally {
-      // Once the record says set aside, the pages show it and its place is free, even when the line could not be written.
+      // Once the record says set aside, the person is told, the pages show it and its place is free, even when the line could not be written.
+      notify({ level: 'needs', title: `Too big for Auto: ${job.title}`, body: 'The Foreman thinks this ticket is big enough for a stack.', slug: job.slug, key: `auto-too-big:${job.slug}` });
       changed();
       freed();
     }
@@ -565,7 +576,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
    * A card has been raised (the driver's 'permission'). For a job with Auto on and not stopped, Auto
    * answers it, refuses it (refuseCard), or stops and leaves it to the person; for anything else it does nothing. leftWaiting(card)
    * is called, at most once, whenever the card is left for the person and Auto's own stop notification
-   * has not already told them (the runner's "Permission: ..." notification). Cards of one job are handled
+   * has not already told them (the runner passes none: a card on an Auto job tells nothing, Task 13). Cards of one job are handled
    * one at a time, in the order they came; a card is taken up once. Resolves when this card is done with.
    */
   function onPermission(card, { leftWaiting = () => {} } = {}) {

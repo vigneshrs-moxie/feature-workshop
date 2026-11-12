@@ -87,7 +87,7 @@ test('Orbit showing no tags to this token: nothing starts, and the answer says s
   });
 });
 
-test('with no repository registered, a tagged ticket fails to start, once, says why on its row and tells the person; an untagged one is never tried', { timeout: 90_000 }, async () => {
+test('with no repository registered, a tagged ticket fails to start, once, says why on its row and in the queue, and tells nobody; an untagged one is never tried', { timeout: 90_000 }, async () => {
   await withDashboard(() => [row(1, ['Auto']), row(2, []), row(3, ['other'], { subject: 'auto', description: 'tag auto' })], async ({ d, dirs, write, inbox, until }) => {
     await until(async () => (await inbox()).items?.length === 3, 'the list');
     const set = await write('POST', '/api/settings', { workflow: { autoStart: { on: true, tag: 'auto' } } });
@@ -100,8 +100,10 @@ test('with no repository registered, a tagged ticket fails to start, once, says 
     const b = await until(async () => { const x = await inbox(); return x.items.find((i) => i.key === 'ORBIT-1')?.autoStartFailed ? x : null; }, 'the failed row');
     assert.match(b.items.find((i) => i.key === 'ORBIT-1').autoStartFailed, /repository/);
     assert.deepEqual(await fs.readdir(dirs['feature-work']), [], 'no job folder');
-    const notes = await until(async () => { const n = await (await fetch(`${d.base}/api/notifications`)).json(); const list = n.history ?? []; return Array.isArray(list) && list.some((x) => x.title === 'Auto start could not start ORBIT-1') ? list : null; }, 'the notification');
-    assert.equal(notes.filter((x) => x.title === 'Auto start could not start ORBIT-1').length, 1);
+    const q = await until(async () => { const s = (await (await fetch(`${d.base}/api/snapshot`)).json()).autoQueue; return s?.tickets?.some((t) => t.key === 'ORBIT-1') ? s : null; }, 'the queue');
+    const failed = q.tickets.find((t) => t.key === 'ORBIT-1');
+    const history = (await (await fetch(`${d.base}/api/notifications`)).json()).history ?? [];
+    assert.deepEqual({ notes: history, group: failed.group, reason: /repository/.test(failed.reason ?? '') }, { notes: [], group: 'failed', reason: true }, 'no notification, and the snapshot\'s autoQueue lists it as failed with its reason');
     await new Promise((r) => setTimeout(r, 500));
     const after = await memoryOf(dirs);
     assert.equal(after.started.length + after.failed.length, 1, 'once only');
