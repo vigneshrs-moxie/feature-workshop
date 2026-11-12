@@ -1833,7 +1833,8 @@ export async function createRunner(config) {
   async function clearTooBig(dir) {
     if (!dir) return;
     try {
-      await updateAuto(dir, (prev) => (prev?.tooBig ? { ...prev, tooBig: null } : null));
+      // asOne: once he has acted on a set-aside job, it is never set aside again (switched back on, it runs as one job).
+      await updateAuto(dir, (prev) => (prev?.tooBig ? { ...prev, tooBig: null, asOne: true } : null));
     } catch (err) { console.warn(`Auto: ${path.basename(dir)} still marked as too big for Auto: ${err.message}`); }
   }
   /** The job folder of a PR feedback card or a review round card (a ship step he answers), else null. */

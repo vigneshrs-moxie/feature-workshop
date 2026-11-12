@@ -4915,3 +4915,111 @@ test('a chip save that keeps the level does not stop later raises', { timeout: 3
     assert.equal((await levelLines(w)).at(-1).level, 3);
   } finally { await w.stop(); }
 });
+
+// ---------- Auto queue Task 12, fix round 1: set aside once, on the first brief only; the fixed stops first ----------
+
+/** The job list is cached for 1.5 seconds: a status written now is read after this. */
+const fresher = () => new Promise((r) => setTimeout(r, 1700));
+
+test('a job switched to Auto at a later brief is not set aside, even with a stack suggested', { timeout: 30_000 }, async () => {
+  const w = await world({ auto: null, jobStatus: bigStatus(3) });
+  try {
+    await w.runner.handle({ type: 'auto', slug: w.slug, on: true }, { from: 'local' });
+    await w.pass();
+    assert.deepEqual(await autoGates(w), [3], 'Auto answers brief 3');
+    const rec = await w.record();
+    assert.deepEqual([rec.on, rec.tooBig ?? null], [true, null]);
+    assert.deepEqual(await w.autoLines('set-aside'), []);
+  } finally { await w.stop(); }
+});
+
+test('set aside, his answer clears the mark, Auto switched on again: it runs as one job and is not set aside a second time', { timeout: 30_000 }, async () => {
+  const w = await world({ jobStatus: bigStatus(1) });
+  try {
+    await w.pass();
+    assert.equal((await w.record()).tooBig?.reason, STACK_WHY, 'set aside at brief 1');
+    await w.runner.handle({ type: 'approve', slug: w.slug, briefNumber: 1 }, { from: 'local' });
+    await w.idle();
+    assert.deepEqual([(await w.record()).tooBig, (await w.record()).asOne], [null, true], 'his Go clears the mark and remembers it');
+    // The Foreman's brief 2 still suggests a stack; he hands the job back to Auto.
+    await w.writeStatus(bigStatus(2));
+    await fresher();
+    await w.runner.handle({ type: 'auto', slug: w.slug, on: true }, { from: 'local' });
+    await w.pass();
+    assert.deepEqual(await autoGates(w), [2], 'Auto answers brief 2');
+    const rec = await w.record();
+    assert.deepEqual([rec.on, rec.tooBig, rec.asOne], [true, null, true]);
+    assert.equal((await w.autoLines('set-aside')).length, 1, 'one set-aside line in all');
+  } finally { await w.stop(); }
+});
+
+test('set aside, he writes to it without answering the brief, then switches Auto on at the same brief: not set aside again', { timeout: 30_000 }, async () => {
+  const w = await world({ jobStatus: bigStatus(1) });
+  try {
+    await w.pass();
+    assert.equal((await w.record()).tooBig?.reason, STACK_WHY, 'set aside at brief 1');
+    await w.runner.handle({ type: 'reply', slug: w.slug, text: 'What would the parts be?' }, { from: 'local' });
+    await w.idle();
+    assert.deepEqual([(await w.record()).tooBig, (await w.record()).asOne], [null, true]);
+    await new Promise((r) => setTimeout(r, 20)); // his switch comes after his message
+    await w.runner.handle({ type: 'auto', slug: w.slug, on: true }, { from: 'local' });
+    await w.pass();
+    assert.deepEqual(await autoGates(w), [1], 'Auto answers brief 1 as one job');
+    const rec = await w.record();
+    assert.deepEqual([rec.on, rec.stopped, rec.tooBig, rec.asOne], [true, null, null, true]);
+    assert.equal((await w.autoLines('set-aside')).length, 1);
+  } finally { await w.stop(); }
+});
+
+test('he wrote while the first brief waited: the step is his, and the job is not set aside', { timeout: 30_000 }, async () => {
+  const w = await world({ jobStatus: bigStatus(1) });
+  try {
+    // His message before any pass (the stub Foreman ends its reply at once, and brief 1 still waits).
+    await w.runner.handle({ type: 'reply', slug: w.slug, text: 'Please keep this to the visits table.' }, { from: 'local' });
+    await w.idle();
+    await fresher();
+    await w.pass();
+    const rec = await w.record();
+    assert.equal(rec.on, true, 'Auto is still on');
+    assert.equal(rec.stopped?.reason, YOURS, 'the step is his');
+    assert.equal(rec.tooBig ?? null, null, 'not set aside');
+    assert.deepEqual(await w.autoLines('set-aside'), []);
+    assert.equal(w.asks.length, 0);
+  } finally { await w.stop(); }
+});
+
+test('he answers the brief while the pass is deciding: no too-big mark, no line, no notice', async () => {
+  // The pass's first read sees brief 1 waiting; by the look before the write he has answered it.
+  const u = unit({ job: (n) => ({ stackSuggested: STACK_WHY, ...(n > 1 ? { answered: [1] } : {}) }) });
+  await u.auto.pass();
+  assert.equal(u.record().tooBig ?? null, null, 'no mark');
+  assert.equal(u.record().on, true);
+  assert.deepEqual(u.lines, [], 'no line');
+  assert.deepEqual(u.notes, [], 'no notice');
+  assert.equal(u.asks.length, 0);
+});
+
+test('his gate reply held for the usage limit clears the mark', { timeout: 30_000 }, async () => {
+  const w = await world({ jobStatus: bigStatus(1) });
+  try {
+    await w.pass();
+    assert.equal((await w.record()).tooBig?.reason, STACK_WHY, 'set aside first');
+    await limited(w);
+    const out = await w.runner.handle({ type: 'approve', slug: w.slug, briefNumber: 1, startAfterReset: true }, { from: 'local' });
+    assert.equal(out.held, true, 'held for the limit');
+    const rec = await w.record();
+    assert.deepEqual([rec.tooBig, rec.asOne, rec.on], [null, true, false]);
+  } finally { await w.stop(); }
+});
+
+test('his stop on the brief clears the mark', { timeout: 30_000 }, async () => {
+  const w = await world({ jobStatus: bigStatus(1) });
+  try {
+    await w.pass();
+    assert.equal((await w.record()).tooBig?.reason, STACK_WHY, 'set aside first');
+    await w.runner.handle({ type: 'stop', slug: w.slug, briefNumber: 1 }, { from: 'local' });
+    const rec = await w.record();
+    assert.deepEqual([rec.tooBig, rec.asOne, rec.on], [null, true, false]);
+    assert.equal((await cardOf(w)).auto.group, null, 'in Yours');
+  } finally { await w.stop(); }
+});

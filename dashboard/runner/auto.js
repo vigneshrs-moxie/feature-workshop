@@ -252,9 +252,6 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       try { await raiseLevel(job, suggested); job.level = suggested; } catch (err) { console.error(`auto level (${job.slug}):`, err.message); return null; }
     }
     const gate = job.gate && !job.gate.stale && job.gate.briefNumber !== null && !job.answered.includes(job.gate.briefNumber) && job.gate.briefNumber !== job.auto.lastBrief ? job.gate : null;
-    // The first brief suggests a stack (Auto queue, Task 12): the ticket is too big for Auto. Set aside before any stop and
-    // before the Approver is asked; never once Auto has answered a brief, nor after he switched it back on (asOne).
-    if (gate && tooBigForAuto(job)) { await setAside(job); return null; }
     const hit = stopFor(job, job.auto, gate);
     if (hit) { await stop(job, hit); return null; }
     // This pass found no step Auto can act on, and nothing is running, locked or paused: the job waits for the person by its
@@ -285,13 +282,20 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
         return null;
       }
     }
+    // The first brief suggests a stack (Auto queue, Task 12): the ticket is too big for Auto. After every fixed stop and "you
+    // wrote while waiting", straight before the Approver is asked: set aside once, on brief 1 only, and never after he has acted
+    // on a set-aside job (asOne).
+    if (tooBigForAuto(job, gate)) { await setAside(job, gate.briefNumber); return null; }
     return gate;
   }
 
-  /** Why the Foreman thinks the ticket is big enough for a stack, when that sets this job aside now: else null. */
-  const tooBigForAuto = (job) => {
+  /**
+   * Why the Foreman thinks the ticket is big enough for a stack, when that sets this job aside at this gate: else null. Only the
+   * job's first brief (a job switched to Auto at a later brief never is), before Auto has answered one, and not once asOne is set.
+   */
+  const tooBigForAuto = (job, gate) => {
     const why = typeof job.stackSuggested === 'string' ? job.stackSuggested.trim() : '';
-    return why && (job.auto.lastBrief ?? null) === null && job.auto.asOne !== true ? why : null;
+    return why && gate?.briefNumber === 1 && (job.auto.lastBrief ?? null) === null && job.auto.asOne !== true ? why : null;
   };
 
   /**
@@ -300,12 +304,17 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
    * Nothing is written or told when Auto went off, stopped or answered a brief meanwhile, or he switched it back on after a set-aside.
    * Marked as being stopped meanwhile, as a stop is, so the job is not also told "waiting" before its notice goes.
    */
-  async function setAside(job) {
+  async function setAside(job, n) {
     stopping(job.slug, true);
-    try { await writeAside(job); } finally { stopping(job.slug, false); }
+    try { await writeAside(job, n); } finally { stopping(job.slug, false); }
   }
-  async function writeAside(job) {
-    const reason = tooBigForAuto(job);
+  async function writeAside(first, n) {
+    // The pass read this job a while ago: read it again, as the other paths do. A brief he has answered or that moved on, Auto
+    // switched off, the job closed or restarting, or a reply now running: nothing is written or told. The next pass looks again.
+    const job = await look(first, n);
+    if (!job || notNow(job)) return;
+    const reason = tooBigForAuto(job, job.gate);
+    if (!reason) return;
     const at = now().toISOString();
     let spent = 0;
     let wrote = false;
