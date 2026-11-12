@@ -871,3 +871,11 @@ test('the view says whether Orbit shows tags to this token', () => {
   assert.equal(put('tech', { number: 1, subject: 'a', tags: [] }, { number: 2, subject: 'b' }), false, 'a row without a tags list');
   assert.equal(put('participant', { number: 1, subject: 'a', tags: [] }), false, 'a participant sees none');
 });
+
+test('the command-line secrets are hidden in a JSON line too, and the line stays valid', () => {
+  const entry = { cmds: ['mysql -pSup3rSecret app', 'tool --secret "moon base 42" run', 'run --secret ', 'curl -H "Authorization: Bearer abc123def456ghi789" -u a:b https://me:pw1@h/x'], next: 'z' };
+  const clean = scrub(JSON.stringify(entry));
+  const back = JSON.parse(clean);
+  assert.deepEqual(back.cmds, ['mysql -p[hidden] app', 'tool --secret [hidden] run', 'run --secret ', 'curl -H "Authorization: Bearer [hidden]" -u [hidden] https://[hidden]@h/x']);
+  assert.equal(back.next, 'z');
+});

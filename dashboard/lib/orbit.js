@@ -158,6 +158,31 @@ export const SECRET_PATTERNS = [
   { name: 'Orbit token', re: /orbfb_[A-Za-z0-9_-]{16,}/g }, // a real one is orbfb_ + 43; shorter pieces are hidden too
   { name: 'GitHub token', re: /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})/g },
   { name: 'Anthropic key', re: /sk-ant-[A-Za-z0-9_-]{10,}/g },
+  // Well-known key shapes a command line can carry (a crew member's last command goes up to the website).
+  { name: 'AWS key', re: /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g },
+  { name: 'Slack token', re: /\bxox[abprs]-[A-Za-z0-9-]{10,}/g },
+  { name: 'Stripe key', re: /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{10,}/g },
+  { name: 'OpenAI key', re: /\bsk-(?!ant-)(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]{20,}/g }, // sk-…, sk-proj-…: key length, with a digit (not a word like sk-learn-…)
+  // The header, its body (base64, spaces, and \n as JSON or a shell writes it) and the end line when there.
+  { name: 'Private key', re: /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----(?:[A-Za-z0-9+/=\s]|\\[nr])*(?:-----END [A-Z0-9 ]*PRIVATE KEY-----)?/g },
+];
+// Secrets by where they sit on a command line: group 1 (the flag, header or address before it) is
+// kept and the value becomes [hidden]. A value already hidden ([…]) is left as it is. No value
+// takes a quote or a backslash unpaired, so a JSON line stays valid: a quoted value is a pair of
+// \" inside a JSON string, or a pair of plain quotes with no JSON punctuation between them.
+const QUOTED_OR_BARE = String.raw`(\\"[^"\\\n]*\\"|"[^"\\\n,:{}]*"|'[^'\n]*'|(?!\[)[^\s"'\\]+)`;
+const SECRET_PLACES = [
+  // Authorization: Bearer …, Basic …, token … (any scheme word), and a bare Bearer value with a digit in it.
+  new RegExp(String.raw`(\bAuthorization:\s*(?:(?:Bearer|Basic|token|Digest)\s+)?)(?!\[|(?:Bearer|Basic|token|Digest)\b)([^\s"'\\]+)`, 'gi'),
+  /(\bBearer\s+)(?!\[)(?=[A-Za-z0-9._~+/=-]*\d)([A-Za-z0-9._~+/=-]{8,})/g,
+  // curl -u user:pass, --user user:pass (a name alone, which curl asks the password for, is left).
+  /((?:^|[\s"'])(?:-u\s*|--user[\s=]+))(?!\[)([^\s"'\\:]+:[^\s"'\\]+)/g,
+  // A name and password inside an address, any scheme: scheme://[hidden]@host.
+  /(\b[A-Za-z][A-Za-z0-9+.-]*:\/\/)(?!\[)([^\s/@"'\\:]+:[^\s/@"'\\]*)(?=@)/g,
+  // --password SECRET, --password=SECRET, and --passwd, --token, --api-key, --secret, --client-secret alike (never a next flag).
+  new RegExp(String.raw`((?:^|[\s"'])--(?:password|passwd|token|api[-_]?key|secret|client[-_]secret)(?:=|\s+))(?!-)${QUOTED_OR_BARE}`, 'gi'),
+  // mysql -pSECRET: the attached form, only on a mysql-family command (psql -p 5432, ssh -p 22 and mkdir -p are ports and flags).
+  /(\b(?:mysql|mysqldump|mysqladmin|mysqlimport|mysqlshow|mariadb|mariadb-dump)\b[^\n|;&]{0,300}?\s-p)(?!\[)([^\s"'\\]+)/g,
 ];
 // NAME=value where NAME reads like a .env secret (…_TOKEN, …SECRET…, …PASSWORD, …_KEY, DATABASE_URL…):
 // the value is hidden, the name kept. The value may be quoted, also inside a JSON string (\").
@@ -177,7 +202,18 @@ export function scrub(text, { secrets = [] } = {}) {
     if (typeof value === 'string' && value.length >= 8 && out.includes(value)) out = out.split(value).join(HIDDEN);
   }
   out = out.replace(ENV_SECRET, (_m, name) => `${name}${HIDDEN}`);
+  for (const re of SECRET_PLACES) out = out.replace(re, (_m, before) => `${before}${HIDDEN}`);
   return out;
+}
+
+// A JWT, hidden on a command line only: the site's own Google sign-in answers carry an id_token,
+// which every other scrub() passes (hosted/test/orbit-inbox.test.js checks scrub() finds nothing there).
+const JWT = /\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}/g;
+
+/** scrub() for a command line or a line about one (a crew member's last command, the job page's feed): a JWT too. */
+export function scrubCommand(text) {
+  const out = scrub(text);
+  return typeof out === 'string' ? out.replace(JWT, '[JWT hidden]') : out;
 }
 
 /** scrub() on every string in a value (objects and arrays copied, keys kept). */

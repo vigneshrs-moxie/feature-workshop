@@ -138,3 +138,47 @@ test('a report with no marks is null', async () => {
   assert.equal(checkCounts(''), null);
   assert.equal(checkCounts(null), null);
 });
+
+// ---------- Fix round 1 ----------
+
+test('stepDocs: a bug job’s repro.md is under Investigate, its diagnosis.md under Plan and Build; a feature job is unchanged', () => {
+  const docs = ['repro.md', 'diagnosis.md', 'findings.md'].map(doc);
+  const bug = filesOf(stepDocs(docs, 'bug'));
+  assert.deepEqual(bug.investigate, ['repro.md', 'findings.md']);
+  assert.deepEqual(bug.plan, ['diagnosis.md']);
+  assert.deepEqual(bug.build, ['diagnosis.md']);
+  assert.deepEqual(bug.none, []);
+  const feature = filesOf(stepDocs(docs, 'feature'));
+  assert.deepEqual(feature.investigate, ['findings.md']);
+  assert.deepEqual(feature.plan, []);
+  assert.deepEqual(feature.build, []);
+  assert.deepEqual(feature.none, ['repro.md', 'diagnosis.md']);
+});
+
+test('stepDocs: wireframes.brief.md sits with the wireframes, under Spec', () => {
+  assert.deepEqual(filesOf(stepDocs([doc('wireframes.html'), doc('wireframes.brief.md')], 'feature')).spec, ['wireframes.html', 'wireframes.brief.md']);
+});
+
+test('stepTimes: briefs whose times are out of order give no step that ends before it starts', () => {
+  // The spec brief was rewritten after the investigate brief: its file time is the later one.
+  const briefs = [brief(1, 'spec', '09:50'), brief(2, 'investigate', '09:40'), brief(3, 'plan', '10:30')];
+  const times = stepTimes({ briefs, startedAt: H('08:00'), stage: 'implement', kind: 'feature', skipped: [] });
+  for (const [stop, t] of Object.entries(times)) {
+    if (t.startedAt && t.endedAt) assert.ok(Date.parse(t.endedAt) >= Date.parse(t.startedAt), `${stop}: ${t.startedAt} to ${t.endedAt}`);
+  }
+  assert.deepEqual(times.spec, { startedAt: H('08:00'), endedAt: H('09:50') });
+  assert.deepEqual(times.investigate, { startedAt: null, endedAt: H('09:40') });
+  // The next step starts at the latest time seen so far, not at the earlier end.
+  assert.deepEqual(times.plan, { startedAt: H('09:50'), endedAt: H('10:30') });
+  assert.deepEqual(times.build, { startedAt: H('10:30'), endedAt: null });
+});
+
+test('stepTimes: a closed job’s current step ends; an open job’s does not', () => {
+  const briefs = [brief(1, 'spec', '09:10'), brief(2, 'pr1', '11:00')];
+  const args = { briefs, startedAt: H('08:00'), stage: 'pr1', kind: 'feature', skipped: ['investigate', 'spec-update', 'plan', 'implement', 'test', 'review'] };
+  assert.deepEqual(stepTimes(args).ship, { startedAt: H('09:10'), endedAt: null });
+  // Closed with its time known: the step ends then.
+  assert.deepEqual(stepTimes({ ...args, closed: { at: H('11:20'), as: 'done' } }).ship, { startedAt: H('09:10'), endedAt: H('11:20') });
+  // Closed with no time known: at its own last brief.
+  assert.deepEqual(stepTimes({ ...args, closed: { as: 'dropped' } }).ship, { startedAt: H('09:10'), endedAt: H('11:00') });
+});

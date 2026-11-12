@@ -1059,6 +1059,8 @@ export async function createRunner(config) {
     const part = (read) => read().catch(() => null);
     const times = await part(async () => stepTimes({
       briefs: f.briefs, startedAt: audit.find((e) => e.action === 'new-job')?.at ?? null, stage: f.stage, kind: f.kind, skipped: f.skipped,
+      // Marked done or dropped with nothing since (closedOff): its last step has ended.
+      closed: closedOff(f) ? f.closed : null,
     }));
     const docs = await part(async () => {
       const specPath = await shownSpec(f);

@@ -335,3 +335,34 @@ test('a long session log keeps only its last actions', () => {
   assert.equal(p.recent.at(-1).text, 'Running step 4999');
   assert.deepEqual(p.lastCommand, { command: 'step 4999', at: at(4999 % 60), tail: 'out 4999' });
 });
+
+// ---------- Fix round 1: secrets are hidden before a command is cut; cuts keep characters whole ----------
+
+const loneSurrogate = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+test('a secret that straddles the cut is hidden before the command is cut', () => {
+  const token = `ghp_${'Q7w8'.repeat(9)}`;
+  // The token starts at character 190 of the command (the 200 cut), and at 40 of the feed line's 50.
+  const long = call('s1', 'Bash', { command: `${'x'.repeat(189)} ${token} done` }, at(1));
+  const p = parseSessionLog(long);
+  assert.equal(p.lastCommand.command.length <= 200, true);
+  assert.equal(p.lastCommand.command.includes('ghp_'), false, p.lastCommand.command);
+  assert.equal(p.lastCommand.command.includes('Q7w8'), false);
+  const short = parseSessionLog(call('s2', 'Bash', { command: `echo ${'y'.repeat(35)} ${token}` }, at(2)));
+  assert.equal(short.recent[0].text.includes('ghp_'), false, short.recent[0].text);
+  assert.equal(short.lastAction.text.includes('ghp_'), false);
+  assert.equal(describeTool('Bash', { command: `curl -u admin:hunter2pass ${'z'.repeat(80)}` }).includes('hunter2pass'), false);
+  assert.equal(describeTool('Bash', { description: `Log in with ${token}` }).includes('ghp_'), false, 'a description is scrubbed too');
+});
+
+test('cuts never split a character in two', () => {
+  const smile = '😀';
+  const cmd = parseSessionLog(call('e1', 'Bash', { command: `${'a'.repeat(198)}${smile}${'b'.repeat(20)}` }, at(1))).lastCommand.command;
+  assert.equal(loneSurrogate.test(cmd), false, 'the command');
+  assert.ok(cmd.length <= 200);
+  const out = `${smile}${'c'.repeat(1199)}`; // 1,201 units: the 1,200 cut lands inside the smile
+  const tail = parseSessionLog([call('e2', 'Bash', { command: 'run' }, at(1)), answer('e2', out, at(2))].join('\n')).lastCommand.tail;
+  assert.equal(loneSurrogate.test(tail), false, 'the output');
+  assert.ok(tail.length <= 1200);
+  assert.equal(loneSurrogate.test(describeTool('Bash', { command: `${'d'.repeat(48)}${smile}${'e'.repeat(10)}` })), false, 'a feed line');
+});

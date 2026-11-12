@@ -17,13 +17,15 @@
 //   - A permission card goes up as its headline and risk, and the command for a shell step or the
 //     question for a question; the content of a file it would write or edit stays here.
 //   - The audit, Always-allow drafts and the write token stay here.
-//   - A crew member's last command goes up without its output (activity lastCommand.tail is null).
+//   - A crew member's last command goes up scrubbed and without its output (activity lastCommand.tail
+//     is null); the feed and the command go up once (not in costDetail.activity).
 //   - wireSafe() then drops any key named diff, patch, env or token at any depth, and carries a
 //     short label under `source` (a cost's "estimate") as `sourceTag`, which the site turns back.
 // Every value is then made by lib/protocol.js makeEvent (scrubbed of tokens) and checked again by
 // the site, which refuses a record that fails.
 
 import { NEVER_CARRIED } from '../lib/protocol.js';
+import { scrubCommand } from '../lib/orbit.js';
 import { capAutoLog } from '../lib/auto-log.js';
 
 /** The largest one part may be on the wire (a batch is at most 256 KB). */
@@ -125,10 +127,30 @@ export function boardRecord(snap) {
   });
 }
 
-/** The crew's activity as it goes up: a command's output stays on the laptop (the command and when it ran go up). */
+/**
+ * The crew's activity as it goes up: a command's output stays on the laptop; the command, when it ran
+ * and the feed's lines go up scrubbed of secrets (lib/orbit.js scrubCommand; the laptop parsed them scrubbed
+ * already, and this holds for a record from anywhere).
+ */
 function activityUp(list) {
   if (!Array.isArray(list)) return list;
-  return list.map((a) => (isPlain(a) && isPlain(a.lastCommand) ? { ...a, lastCommand: { ...a.lastCommand, tail: null } } : a));
+  return list.map((a) => {
+    if (!isPlain(a)) return a;
+    const out = { ...a };
+    if (isPlain(a.lastCommand)) out.lastCommand = { ...a.lastCommand, command: scrubCommand(a.lastCommand.command), tail: null };
+    if (Array.isArray(a.recent)) out.recent = a.recent.map((r) => (isPlain(r) ? { ...r, text: scrubCommand(r.text) } : r));
+    return out;
+  });
+}
+
+/** The cost part's copy of the activity: the feed and the command go up once, with `activity` (not here). */
+function costActivityUp(list) {
+  if (!Array.isArray(list)) return list;
+  return list.map((a) => {
+    if (!isPlain(a)) return a;
+    const { recent, lastCommand, ...rest } = a;
+    return rest;
+  });
 }
 
 export function jobRecord(detail) {
@@ -136,7 +158,7 @@ export function jobRecord(detail) {
   return wireSafe({
     ...rest,
     ...('activity' in rest ? { activity: activityUp(rest.activity) } : {}),
-    ...(isPlain(rest.costDetail) && 'activity' in rest.costDetail ? { costDetail: { ...rest.costDetail, activity: activityUp(rest.costDetail.activity) } } : {}),
+    ...(isPlain(rest.costDetail) && 'activity' in rest.costDetail ? { costDetail: { ...rest.costDetail, activity: costActivityUp(rest.costDetail.activity) } } : {}),
     run: runState(run), runs: (runs ?? []).map(runState),
     permissionsPending: (permissionsPending ?? []).map(permissionCard).filter(Boolean),
     thread: (thread ?? []).map(threadItem).filter(Boolean),
