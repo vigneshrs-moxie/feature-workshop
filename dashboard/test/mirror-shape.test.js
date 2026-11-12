@@ -120,29 +120,32 @@ function bigJobRecord(rest = 0) {
     history: [{ at: atOf(0), text: 'h'.repeat(rest) }],
   });
 }
-// Each shed by hand, in the order fit makes them.
+// Each shed by hand, in the order fit makes them (fix round 1: the steps' documents last). The big job's
+// findings are all open, so a cut keeps the first 30.
 const withoutFeed = (r) => ({ ...r, activity: r.activity.map((a) => (a.state === 'running' ? a : (({ recent, lastCommand, ...x }) => x)(a))) });
-const withoutDocs = (r) => ({ ...r, page: { ...r.page, docs: null } });
-const rowsCut = (r) => ({ ...r, page: { ...r.page, review: { ...r.page.review, rows: r.page.review.rows.slice(0, 30), cut: true } } });
+const rowsCut = (r) => ({ ...r, page: { ...r.page, review: { ...r.page.review, rows: r.page.review.rows.slice(0, 30), cut: true, total: r.page.review.rows.length } } });
 const decidedCut = (r) => ({ ...r, auto: { ...r.auto, decided: r.auto.decided.slice(-20) } });
+const withoutDocs = (r) => ({ ...r, page: { ...r.page, docs: null } });
+const allShed = (r) => withoutDocs(decidedCut(rowsCut(withoutFeed(r))));
 
 test('a big job still fits: it sheds in order, only as far as it must, and never the gate or the three calls’ data', () => {
   // The rest of the record brings it within 2 KB of the limit once all four are shed, so all four are needed.
-  const rest = RECORD_MAX - bytes(decidedCut(rowsCut(withoutDocs(withoutFeed(bigJobRecord(0)))))) - 2048;
+  const rest = RECORD_MAX - bytes(allShed(bigJobRecord(0))) - 2048;
   const record = bigJobRecord(rest);
   assert.ok(bytes(record) > RECORD_MAX);
-  assert.ok(bytes(rowsCut(withoutDocs(withoutFeed(record)))) > RECORD_MAX, 'the last shed is needed');
+  assert.ok(bytes(decidedCut(rowsCut(withoutFeed(record)))) > RECORD_MAX, 'the last shed is needed');
   const sent = fit('job', record);
   assert.notEqual(sent.tooBig, true);
   assert.ok(bytes(sent) <= RECORD_MAX);
-  assert.deepEqual(sent, { ...decidedCut(rowsCut(withoutDocs(withoutFeed(record)))), latestBrief: null }, 'what was shed is what the order says, and nothing else');
+  assert.deepEqual(sent, { ...allShed(record), latestBrief: null }, 'what was shed is what the order says, and nothing else');
   // What was shed, one by one.
   assert.ok(sent.activity.slice(0, 4).every((a) => a.recent.length === 6 && a.lastCommand.command), 'a running entry keeps its feed and command');
   assert.ok(sent.activity.slice(4).every((a) => !('recent' in a) && !('lastCommand' in a)));
-  assert.equal(sent.page.docs, null, 'the website has the docs part');
   assert.equal(sent.page.review.rows.length, 30);
   assert.equal(sent.page.review.cut, true);
+  assert.equal(sent.page.review.total, 150);
   assert.deepEqual(sent.auto.decided, record.auto.decided.slice(20), 'the newest 20 kept');
+  assert.equal(sent.page.docs, null, 'the steps’ documents go last');
   // Never shed.
   assert.deepEqual(sent.gate, record.gate);
   assert.deepEqual(sent.heldReply, record.heldReply);
@@ -166,6 +169,37 @@ test('a job a little too big sheds only the finished crew’s feed and keeps the
 test('a small job’s record is byte for byte what it was', () => {
   const record = jobRecord({ slug: 'small', gate: BIG_GATE, thread: [], activity: [{ who: 'planner', state: 'done', recent: [{ text: 'a', at: 'T' }], lastCommand: { command: 'ls', at: 'T', tail: null } }], page: { docs: { plan: [] }, review: { at: null, rows: [] } }, auto: { on: true, decided: ['a'] } });
   assert.equal(JSON.stringify(fit('job', record)), JSON.stringify(record));
+});
+
+test('a cut review keeps its open findings and says how many there were', () => {
+  // 150 findings: 40 fixed, then 20 open, then 90 not doing; the rest of the record makes the cut needed.
+  const status = (i) => (i < 40 ? 'fixed' : i < 60 ? 'open' : 'not-doing');
+  const rows = Array.from({ length: 150 }, (_, i) => ({ lens: 'tests', severity: 'minor', text: wordsOf(400, `finding${i}`), status: status(i) }));
+  const docs = { review: [{ file: 'review.md', name: 'Review', group: 'review', updatedAt: atOf(1) }] };
+  const record = jobRecord({ slug: 'cut', gate: BIG_GATE, thread: [], page: { docs, review: { at: atOf(1), rows } }, auto: { on: true, decided: ['a'] }, history: [{ at: atOf(0), text: 'h'.repeat(RECORD_MAX - 30_000) }] });
+  assert.ok(bytes(record) > RECORD_MAX);
+  const sent = fit('job', record);
+  assert.ok(bytes(sent) <= RECORD_MAX);
+  const kept = sent.page.review.rows;
+  assert.equal(kept.length, 30);
+  assert.deepEqual(kept.slice(0, 20).map((r) => r.text), rows.slice(40, 60).map((r) => r.text), 'every open finding, in file order');
+  assert.deepEqual(kept.slice(20).map((r) => r.text), rows.slice(0, 10).map((r) => r.text), 'then the rest, in file order');
+  assert.equal(sent.page.review.cut, true);
+  assert.equal(sent.page.review.total, 150);
+  assert.deepEqual(sent.page.docs, docs, 'it fit before the steps’ documents had to go');
+  assert.deepEqual(sent.auto.decided, ['a']);
+});
+
+test('after page.docs is shed the step view has no docs list', async () => {
+  const { stageView } = await import('../lib/stage-view.js');
+  const record = bigJobRecord(RECORD_MAX - bytes(allShed(bigJobRecord(0))) - 2048);
+  const sent = fromWire(fit('job', record));
+  assert.equal(sent.page.docs, null);
+  for (const stop of ['plan', 'review']) assert.equal('docs' in stageView(sent, stop), false, `${stop}: not known, not an empty list`);
+  // A record that kept its documents: the step view lists them as before.
+  const whole = fromWire(fit('job', bigJobRecord(0)));
+  assert.deepEqual(stageView(whole, 'review').docs, whole.page.docs.review);
+  assert.equal(stageView(whole, 'review').docs.length, 40);
 });
 
 test('made on: a gate’s mark catches another brief, another stage or new versions; a permission must still wait', () => {

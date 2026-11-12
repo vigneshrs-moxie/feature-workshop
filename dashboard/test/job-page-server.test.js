@@ -441,9 +441,10 @@ test('a job closed as done has every plan step done; one closed as dropped keeps
  *     walkthrough was built for its branch, and its Tester checked the base commit.
  *   visit-export at PR #2: the demo's map gives it PR #1 merged, so its plan is all done by the lane.
  * Then each status.json loses the branch and the job's workflow-status.md only mentions it, so the
- * branch is a guess (another job's, as far as Starbase knows). The map may still have the lane it read
- * before (it recounts at most every 15 seconds after a change, else at its minute timer), as a lane
- * can. The pure rule (lib/locate.js ownLane) is tested with a lane given in foreman.test.js.
+ * branch is a guess (another job's, as far as Starbase knows). The map keeps the lane it read before:
+ * STARBASE_FLOW_QUIET stops its minute recount and its recount after a change, so it recounts only at
+ * the start, on POST /api/flow/refresh and when a job's branch is set. The pure rule (lib/locate.js
+ * ownLane) is tested with a lane given in foreman.test.js.
  */
 let guessed = null;
 let guessedDashboard = null; // stopped in after(), even when the world's setup failed part way
@@ -491,7 +492,7 @@ function guessedWorld() {
     const d = await startDashboard({
       env: {
         HOME: dirs.home, STARBASE_DEMO: '1', STARBASE_FEATURES_DIR: dirs.features, STARBASE_PROJECTS_DIR: dirs.projects, STARBASE_AGENTS_DIR: dirs.agents,
-        STARBASE_SKILLS_DIR: dirs.skills, STARBASE_STATE_DIR: dirs.state, STARBASE_WALKTHROUGHS_DIR: dirs.walk,
+        STARBASE_SKILLS_DIR: dirs.skills, STARBASE_STATE_DIR: dirs.state, STARBASE_WALKTHROUGHS_DIR: dirs.walk, STARBASE_FLOW_QUIET: '1',
       },
       output: [],
     });
@@ -502,18 +503,14 @@ function guessedWorld() {
       return res.json();
     };
     const found = async (slug) => ((await fetch(`${d.base}/api/job/${slug}`)).status === 200 ? get(`/api/job/${slug}`) : null);
-    const refresh = () => fetch(`${d.base}/api/flow/refresh`, { method: 'POST', headers: { 'X-Starbase-Token': d.token } });
-    // A change in the folder first, so the map's recount after a change has just run (it runs at most every 15 seconds).
-    await fs.writeFile(path.join(main.dir, 'notes.md'), 'Seen.\n');
-    await sleep(1500);
-    // The branches are the jobs' own: PR #1 open and [S1] built for one, PR #1 merged for the other.
+    // The branches are the jobs' own: PR #1 open and [S1] built for one, PR #1 merged for the other
+    // (the map's count at the start, which may still be running).
     let job = null;
     let exp = null;
     for (const end = Date.now() + 20_000; Date.now() < end; await sleep(250)) {
       job = await found(main.slug);
       exp = await found(merged.slug);
       if (job?.page?.prs?.[0]?.state === 'open' && exp?.page?.prs?.[0]?.state === 'merged') break;
-      await refresh();
     }
     assert.equal(job?.page?.prs?.[0]?.state, 'open', 'the map shows PR #1 open while the branch is recorded');
     assert.deepEqual(job.page.plan.steps.map((s) => s.state), ['done', 'next'], 'its commits built [S1] while the branch is recorded');
@@ -531,7 +528,7 @@ function guessedWorld() {
     }
     assert.deepEqual({ branch: job.branch, guessed: job.locate?.branchGuessed, located: job.locate?.worktree }, { branch: 'feature/other-thing', guessed: true, located: main.wt });
     assert.equal(exp.locate?.branchGuessed, true);
-    return { d, get, slug: main.slug, dir: main.dir, repo: gRepo, wt: main.wt, baseSha, s1: main.s1, merged };
+    return { d, get, slug: main.slug, repo: gRepo, wt: main.wt, baseSha, s1: main.s1, merged };
   })();
   return guessed;
 }
@@ -630,12 +627,8 @@ test('This is the job\'s branch tells every open page the job changed, and the j
   });
   req.on('error', () => {});
   try {
-    // Start from a map with no lane for the job, so only the handler's own recount can give it back
-    // in time: a change in the job's folder first (the map's recount after a change then waits 15
-    // seconds), then a recount, which drops the guessed job's lane.
-    await fs.writeFile(path.join(w.dir, 'notes.md'), 'Seen again.\n');
-    for (let n = 0; n < 100 && !seen.some((e) => e.type === 'change'); n++) await sleep(50);
-    assert.ok(seen.some((e) => e.type === 'change'), 'the folder\'s change was seen');
+    // Start from a map with no lane for the job (a recount drops the guessed job's lane). The map is
+    // quiet (STARBASE_FLOW_QUIET), so only the handler's own recount can give the lane back.
     const refreshed = await fetch(`${w.d.base}/api/flow/refresh`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Starbase-Token': w.d.token }, body: '{}' });
     assert.equal(refreshed.status, 202, await refreshed.text());
     for (let n = 0; n < 100 && (await laneSlugs(w)).includes(w.slug); n++) await sleep(50);

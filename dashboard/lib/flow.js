@@ -360,12 +360,15 @@ export class FlowWatch extends EventEmitter {
     }
   }
 
-  /** A local pass first (the map shows at once), then the network; then every 10 min and every minute. */
+  /**
+   * A local pass first (the map shows at once), then the network; then every 10 min and every minute.
+   * localEveryMs null: no minute timer (tests only: the runner's STARBASE_FLOW_QUIET).
+   */
   start() {
     this.started = true;
     this.refresh({ network: false });
     this.refresh({ network: true });
-    this.timers.push(setInterval(() => this.refresh({ network: false }), this.localEveryMs));
+    if (this.localEveryMs !== null) this.timers.push(setInterval(() => this.refresh({ network: false }), this.localEveryMs));
     for (const t of this.timers) t.unref?.();
   }
 
