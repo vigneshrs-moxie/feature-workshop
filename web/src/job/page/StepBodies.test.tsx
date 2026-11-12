@@ -1,7 +1,7 @@
 // The open step's body for Spec, Plan, Build, Review and Ship (design 3.2, Part 3 Task 12): the
 // prototype in the page, the plan's steps, the commits with their files, the reviewers and what they
 // found, the three pull requests, and on an Auto job a line saying what Auto did at the step. Both
-// on the laptop and on the website, and with a record from an older Starbase (none of the new
+// on the laptop and on the website, and with a record from an older laptop (none of the new
 // facts). Invented jobs, commits and reviews only; no model, browser or network.
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -17,6 +17,7 @@ import { BuildStep, PlanStep, PlanSteps } from './BuildStep';
 import { ReviewStep } from './ReviewStep';
 import { ShipStep } from './ShipStep';
 import { SpecStep } from './SpecStep';
+import { autoLineWords } from './stepAuto';
 
 const SLUG = 'pause-a-recurring-service';
 const BRANCH = 'feature/orbit-900-pause-service';
@@ -106,6 +107,7 @@ describe('Spec', () => {
     expect(screen.getByText('The Screens page opens on your laptop.')).toBeInTheDocument();
     expect(site.container.querySelector('iframe')).toBeNull();
     expect(screen.queryByText(HINT)).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Review the screens' })).toBeNull();
     cleanup();
 
     // A job with no screens draws nothing about them.
@@ -124,12 +126,20 @@ describe('Plan and Build', () => {
     for (const word of ['Done', 'Building now', 'Not yet']) expect(screen.queryByText(word)).toBeNull();
     cleanup();
 
-    // The Plan step draws the same, on the website too; a plan with no numbered steps (or none known) draws no list.
+    // The Plan step draws the same, on the website too; a plan with no numbered steps says so, and
+    // one an older laptop doesn't send says it isn't known. Neither draws a list.
     setup((j) => <PlanStep slug={SLUG} job={j} view={stage('plan', { plan: { ...PLAN_V2, version: '1' } })} />, { hosted: true });
     expect(screen.getByRole('heading', { name: 'The plan’s steps · Plan v1' })).toBeInTheDocument();
     expect(screen.queryByText('Building now')).toBeNull();
     cleanup();
+    for (const plan of [null, { version: '1', steps: [] }]) {
+      const none = setup((j) => <PlanStep slug={SLUG} job={j} view={stage('plan', { plan })} />);
+      expect(screen.getByText('This plan has no numbered steps.')).toBeInTheDocument();
+      expect(none.container.querySelector('.sb-plan')).toBeNull();
+      cleanup();
+    }
     const older = setup((j) => <PlanStep slug={SLUG} job={j} view={stage('plan')} />);
+    expect(screen.getByText('The plan’s steps aren’t known for this job.')).toBeInTheDocument();
     expect(older.container.querySelector('.sb-plan')).toBeNull();
   });
 
@@ -155,7 +165,7 @@ describe('Plan and Build', () => {
     expect(await screen.findByRole('heading', { name: `Commits so far · 2 on ${BRANCH}` })).toBeInTheDocument();
     cleanup();
 
-    // An older Starbase: no plan at all, and commits with no files. The rest still draws.
+    // An older laptop: no plan at all, and commits with no files. The rest still draws.
     const older = { commits: COMMITS.commits.map(({ files: _files, ...c }) => c) };
     setup((j) => <BuildStep slug={SLUG} job={j} view={stage('build')} />, { commits: older, jobExtra: { repo: { name: 'orbit', branch: BRANCH } } });
     expect(screen.getByText('The plan’s steps aren’t known for this job. The commits below show the work.')).toBeInTheDocument();
@@ -192,6 +202,24 @@ describe('Plan and Build', () => {
     expect(get).toHaveBeenCalledWith(`/api/job/${SLUG}/commit/${'b'.repeat(40)}`);
     fireEvent.click(row);
     expect(within(first).queryByText('+new')).toBeNull();
+    // A long path keeps its whole self in the hover text.
+    expect(within(first).getByText('src/routes/buildRoute.test.ts')).toHaveAttribute('title', 'src/routes/buildRoute.test.ts');
+  });
+
+  it('a commit with many files lists the first 50, then how many more', async () => {
+    const file = (i: number) => ({ path: `src/gen/file${i}.ts`, added: 1, removed: 0, isNew: true });
+    const many = (n: number, short: string) => ({ sha: short.padEnd(40, '0'), short, author: 'Ann', date: ago(5), subject: `Generate ${n} files`, step: null, files: Array.from({ length: n }, (_, i) => file(i)) });
+    setup((j) => <BuildStep slug={SLUG} job={j} view={stage('build', { plan: PLAN_V2 })} />, { commits: { head: BRANCH, commits: [many(53, 'c000001'), many(51, 'c000002'), many(50, 'c000003')] } });
+    await screen.findByText('c000001');
+    const lists = ['c000001', 'c000002', 'c000003'].map((s) => screen.getByRole('list', { name: `The files ${s} changed` }));
+    expect(within(lists[0]).getAllByRole('listitem')).toHaveLength(50);
+    expect(within(lists[0]).getByText('src/gen/file49.ts')).toBeInTheDocument();
+    expect(within(lists[0]).queryByText('src/gen/file50.ts')).toBeNull();
+    expect(screen.getByText('and 3 more files')).toBeInTheDocument();
+    expect(within(lists[1]).getAllByRole('listitem')).toHaveLength(50);
+    expect(screen.getByText('and 1 more file')).toBeInTheDocument();
+    expect(within(lists[2]).getAllByRole('listitem')).toHaveLength(50);
+    expect(document.querySelectorAll('.sb-commit-more')).toHaveLength(2);
   });
 
   it('on the website Build shows the plan’s steps and says the commits are on the laptop', () => {
@@ -245,7 +273,7 @@ describe('Review', () => {
       cleanup();
     }
 
-    // A review with no reviewers: No findings. An older Starbase (review not known): nothing about findings, and nothing throws.
+    // A review with no reviewers: No findings. An older laptop (review not known): nothing about findings, and nothing throws.
     setup((j) => <ReviewStep slug={SLUG} job={j} view={stage('review', { review: { at: null, reviewers: [] } })} />);
     expect(screen.getByText('No findings.')).toBeInTheDocument();
     cleanup();
@@ -318,7 +346,7 @@ describe('Ship', () => {
     expect(within(prRows()[0]).getByText('Checks failed')).toBeInTheDocument();
     cleanup();
 
-    // An older Starbase: no pull requests known. It says so, and the rest draws.
+    // An older laptop: no pull requests known. It says so, and the rest draws.
     setup((j) => <ShipStep slug={SLUG} job={j} view={stage('ship')} />);
     expect(screen.getByText('The pull requests aren’t known for this job yet.')).toBeInTheDocument();
     expect(screen.queryByRole('list', { name: 'The pull requests' })).toBeNull();
@@ -347,63 +375,142 @@ describe('Auto', () => {
     { at: ago(40), stage: 'Spec', chose: 'Up to 12 weeks', asked: 'How long can a pause be?', why: 'The ticket says so.', kind: 'answer', stop: 'spec' },
     { at: ago(50), stage: 'Spec', chose: 'Allowed', asked: 'npm test', why: '', kind: 'allow', stop: 'build' },
   ];
-  const AUTO = { auto: { on: true, ran: true } };
+  // Auto on and running; Auto on and stopped now (it waits for him); Auto switched off after it ran.
+  const AUTO = { auto: { on: true, ran: true, stopped: null } };
+  const STOPPED = { auto: { on: true, ran: true, stopped: { reason: 'step 1 of the plan changes the database', at: ago(5) } } };
+  const OFF = { auto: { on: false, ran: true, stopped: null } };
   const SPEC_LINE = 'Auto answered this step’s question and approved spec v1. What Auto decided has the reasons.';
   const STOP_LINE = 'Auto stopped here: step 1 of the plan changes the database, and only you approve that.';
+  const SHIP_LINE = 'Auto stops once PR #1 is open. It never merges.';
   const specView = stage('spec', { docs: [{ file: 'spec', name: 'Product spec', group: 'plan', version: '1', updatedAt: null, size: 10, type: 'md' }] });
+  const planView = stage('plan', { plan: { ...PLAN_V2, version: '1' } });
+  const atShip: AutoDecision = { at: ago(1), stage: 'PR #1', chose: 'the pull request needs your go-ahead.', asked: '', why: '', kind: 'stop', stop: 'ship' };
+  /** The Auto read has answered and the step has drawn what it says. */
+  const read = async (get: ReturnType<typeof vi.fn>) => {
+    await waitFor(() => expect(get).toHaveBeenCalledWith(`/api/job/${SLUG}/auto`));
+    await act(async () => {});
+  };
 
   it('an Auto job says what Auto did at a step', async () => {
     for (const hosted of [false, true]) {
-      setup((j) => <SpecStep slug={SLUG} job={j} view={specView} />, { auto: { entries: ENTRIES }, jobExtra: AUTO, hosted });
+      setup((j) => <SpecStep slug={SLUG} job={j} view={specView} />, { auto: { entries: ENTRIES }, jobExtra: STOPPED, hosted });
       expect(await screen.findByText(SPEC_LINE)).toBeInTheDocument();
       expect(screen.queryByText(/Auto stopped here/)).toBeNull();
       cleanup();
     }
 
-    setup((j) => <PlanStep slug={SLUG} job={j} view={stage('plan', { plan: { ...PLAN_V2, version: '1' } })} />, { auto: { entries: ENTRIES }, jobExtra: AUTO });
+    // Stopped now, and the newest stop is Plan's: Plan says so.
+    setup((j) => <PlanStep slug={SLUG} job={j} view={planView} />, { auto: { entries: ENTRIES }, jobExtra: STOPPED });
     expect(await screen.findByText(STOP_LINE)).toBeInTheDocument();
     cleanup();
 
     // Build: only an allowed permission, so no line; Review: no entries, no line.
-    const build = setup((j) => <BuildStep slug={SLUG} job={j} view={stage('build', { plan: PLAN_V2 })} />, { auto: { entries: ENTRIES }, jobExtra: AUTO });
-    await waitFor(() => expect(build.get).toHaveBeenCalledWith(`/api/job/${SLUG}/auto`));
+    const build = setup((j) => <BuildStep slug={SLUG} job={j} view={stage('build', { plan: PLAN_V2 })} />, { auto: { entries: ENTRIES }, jobExtra: STOPPED });
+    await read(build.get);
     await screen.findByText('7d03b18');
     expect(screen.queryByText(/^Auto /)).toBeNull();
     cleanup();
-    const review = setup((j) => <ReviewStep slug={SLUG} job={j} view={stage('review', { review: REVIEWERS })} />, { auto: { entries: ENTRIES }, jobExtra: AUTO });
-    await waitFor(() => expect(review.get).toHaveBeenCalledWith(`/api/job/${SLUG}/auto`));
-    await act(async () => {});
+    const review = setup((j) => <ReviewStep slug={SLUG} job={j} view={stage('review', { review: REVIEWERS })} />, { auto: { entries: ENTRIES }, jobExtra: STOPPED });
+    await read(review.get);
     expect(screen.queryByText(/^Auto /)).toBeNull();
     cleanup();
 
-    // Ship on an Auto job: where Auto stops.
-    setup((j) => <ShipStep slug={SLUG} job={j} view={stage('ship', { prs: PRS })} />, { auto: { entries: ENTRIES }, jobExtra: AUTO });
-    expect(screen.getByText('Auto stops once PR #1 is open. It never merges.')).toBeInTheDocument();
+    // Ship while Auto is on: where Auto stops, still there once the read has answered.
+    let ship = setup((j) => <ShipStep slug={SLUG} job={j} view={stage('ship', { prs: PRS })} />, { auto: { entries: ENTRIES }, jobExtra: AUTO });
+    await read(ship.get);
+    expect(screen.getByText(SHIP_LINE)).toBeInTheDocument();
     cleanup();
-    const atShip: AutoDecision = { at: ago(1), stage: 'PR #1', chose: 'the pull request needs your go-ahead.', asked: '', why: '', kind: 'stop', stop: 'ship' };
-    setup((j) => <ShipStep slug={SLUG} job={j} view={stage('ship', { prs: PRS })} />, { auto: { entries: [atShip, ...ENTRIES] }, jobExtra: AUTO });
+    // Auto switched off before Ship: no line.
+    ship = setup((j) => <ShipStep slug={SLUG} job={j} view={stage('ship', { prs: PRS })} />, { auto: { entries: ENTRIES }, jobExtra: OFF });
+    await read(ship.get);
+    expect(screen.queryByText(/^Auto /)).toBeNull();
+    cleanup();
+    // Stopped at Ship: the stop, not the rule.
+    setup((j) => <ShipStep slug={SLUG} job={j} view={stage('ship', { prs: PRS })} />, { auto: { entries: [atShip, ...ENTRIES] }, jobExtra: STOPPED });
     expect(await screen.findByText('Auto stopped here: the pull request needs your go-ahead.')).toBeInTheDocument();
-    expect(screen.queryByText('Auto stops once PR #1 is open. It never merges.')).toBeNull();
+    expect(screen.queryByText(SHIP_LINE)).toBeNull();
+    cleanup();
+  });
+
+  it('the stop line shows only while Auto is stopped now, at the step of its newest stop', async () => {
+    const later: AutoDecision = { at: ago(1), stage: 'Plan', chose: 'Approved', asked: 'Plan v1 ready', why: '', kind: 'approve', stop: 'plan' };
+    // Still stopped: a later entry of another kind doesn't take the stop away.
+    let s = setup((j) => <PlanStep slug={SLUG} job={j} view={planView} />, { auto: { entries: [later, ...ENTRIES] }, jobExtra: STOPPED });
+    expect(await screen.findByText(STOP_LINE)).toBeInTheDocument();
     cleanup();
 
-    // A stop that is no longer the newest entry: the step's decisions show instead.
-    const later: AutoDecision = { at: ago(1), stage: 'Plan', chose: 'Approved', asked: 'Plan v1 ready', why: '', kind: 'approve', stop: 'plan' };
-    setup((j) => <PlanStep slug={SLUG} job={j} view={stage('plan', { plan: { ...PLAN_V2, version: '1' } })} />, { auto: { entries: [later, ...ENTRIES] }, jobExtra: AUTO });
+    // He decided the step himself and Auto carried on: no stop line; the step's decisions show, or nothing.
+    s = setup((j) => <PlanStep slug={SLUG} job={j} view={planView} />, { auto: { entries: [later, ...ENTRIES] }, jobExtra: AUTO });
     expect(await screen.findByText('Auto approved this step. What Auto decided has the reasons.')).toBeInTheDocument();
     expect(screen.queryByText(STOP_LINE)).toBeNull();
+    cleanup();
+    s = setup((j) => <PlanStep slug={SLUG} job={j} view={planView} />, { auto: { entries: ENTRIES }, jobExtra: AUTO });
+    await read(s.get);
+    expect(screen.queryByText(/^Auto /)).toBeNull();
+    cleanup();
+
+    // Stopped now, but at a later step: the earlier step's old stop says nothing.
+    s = setup((j) => <PlanStep slug={SLUG} job={j} view={planView} />, { auto: { entries: [atShip, ...ENTRIES] }, jobExtra: STOPPED });
+    await read(s.get);
+    expect(screen.queryByText(/Auto stopped here/)).toBeNull();
+  });
+
+  it('the Auto line’s words: several answers, a reason’s own ending, and approved it when the version isn’t known', async () => {
+    const answers = { question: 'Who may pause?', choice: 'Office staff', reason: 'The ticket.' };
+    const two: AutoDecision[] = [
+      { at: ago(30), stage: 'Spec', chose: 'Approved', asked: 'Spec v1 ready', why: '', kind: 'approve', stop: 'spec' },
+      { at: ago(40), stage: 'Spec', chose: '', asked: '', why: '', kind: 'answer', stop: 'spec', answers: [answers, { ...answers, question: 'How long?' }] },
+    ];
+    setup((j) => <SpecStep slug={SLUG} job={j} view={specView} />, { auto: { entries: two }, jobExtra: AUTO });
+    expect(await screen.findByText('Auto answered this step’s questions and approved spec v1. What Auto decided has the reasons.')).toBeInTheDocument();
+    cleanup();
+    setup((j) => <SpecStep slug={SLUG} job={j} />, { auto: { entries: ENTRIES }, jobExtra: AUTO });
+    expect(await screen.findByText('Auto answered this step’s question and approved it. What Auto decided has the reasons.')).toBeInTheDocument();
+    expect(autoLineWords(two, 'spec', null, false)?.words).toBe('Auto answered this step’s questions and approved it. What Auto decided has the reasons.');
+
+    const stopWith = (chose: string) => autoLineWords([{ at: ago(1), stage: 'Plan', chose, asked: '', why: '', kind: 'stop', stop: 'plan' }], 'plan', null, true)?.words;
+    expect(stopWith('does the plan need a database change?')).toBe('Auto stopped here: does the plan need a database change?');
+    expect(stopWith('it waits for you…')).toBe('Auto stopped here: it waits for you…');
+    expect(stopWith('the Approver said “only you approve that.”')).toBe('Auto stopped here: the Approver said “only you approve that.”');
+    expect(stopWith('the plan changes the database')).toBe('Auto stopped here: the plan changes the database.');
+  });
+
+  it('the Auto line is read again when the job changes, and another job never shows the last one’s line', async () => {
+    let entries: AutoDecision[] = ENTRIES.filter((e) => e.kind === 'approve');
+    const pending = new Promise<never>(() => {});
+    const get = vi.fn(async (path: string): Promise<unknown> => {
+      if (path === `/api/job/${SLUG}/auto`) return { on: true, stopped: null, tag: null, summary: ['', '', ''], entries };
+      if (path.endsWith('/auto')) return pending;
+      return {};
+    });
+    const store = createStore();
+    store.dispatch({ type: 'snapshot', snapshot: snapshot({ meta: { token: 't', wireframesOrigin: SCREENS_ORIGIN } as never }) });
+    const api = { get, post: vi.fn(), hosted: () => false } as unknown as ApiClient;
+    const draw = (j: Job) => <WorkshopContext.Provider value={{ store, api }}><UiProvider><SpecStep slug={j.slug} job={j} view={specView} /></UiProvider></WorkshopContext.Provider>;
+    const first = job(SLUG, 'running', { ...AUTO, updatedAt: ago(10) });
+    const view = render(draw(first));
+    expect(await screen.findByText('Auto approved this step. What Auto decided has the reasons.')).toBeInTheDocument();
+
+    entries = ENTRIES;
+    view.rerender(draw({ ...first, updatedAt: ago(1) }));
+    expect(await screen.findByText(SPEC_LINE)).toBeInTheDocument();
+    expect(get.mock.calls.filter(([p]) => p === `/api/job/${SLUG}/auto`)).toHaveLength(2);
+
+    // Another job in the same place: its own read hasn't answered, and the last job's line is gone.
+    view.rerender(draw(job('another-job', 'running', { ...AUTO, updatedAt: ago(1) })));
+    await waitFor(() => expect(get).toHaveBeenCalledWith('/api/job/another-job/auto'));
+    expect(screen.queryByText(/^Auto /)).toBeNull();
   });
 
   it('no Auto line from an older record, a failed read, or a job Auto never ran on', async () => {
     const older = ENTRIES.map(({ kind: _kind, stop: _stop, ...e }) => e);
-    let s = setup((j) => <SpecStep slug={SLUG} job={j} view={specView} />, { auto: { entries: older }, jobExtra: AUTO });
-    await waitFor(() => expect(s.get).toHaveBeenCalledWith(`/api/job/${SLUG}/auto`));
-    await act(async () => {});
+    let s = setup((j) => <SpecStep slug={SLUG} job={j} view={specView} />, { auto: { entries: older }, jobExtra: STOPPED });
+    await read(s.get);
     expect(screen.queryByText(/^Auto /)).toBeNull();
     cleanup();
 
-    s = setup((j) => <PlanStep slug={SLUG} job={j} view={stage('plan', { plan: PLAN_V2 })} />, { auto: new Error('Not found'), jobExtra: AUTO });
-    await waitFor(() => expect(s.get).toHaveBeenCalledWith(`/api/job/${SLUG}/auto`));
-    await act(async () => {});
+    s = setup((j) => <PlanStep slug={SLUG} job={j} view={stage('plan', { plan: PLAN_V2 })} />, { auto: new Error('Not found'), jobExtra: STOPPED });
+    await read(s.get);
     expect(screen.queryByText(/^Auto /)).toBeNull();
     expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.getByRole('heading', { name: 'The plan’s steps · Plan v2' })).toBeInTheDocument();

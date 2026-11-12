@@ -3,8 +3,8 @@
 // Not yet) and none on Plan. BuildStep: the plan's steps, then the commits on the job's branch
 // (GET /api/job/:slug/commits, as the Code tab reads them), each with its files, New or Changed, and
 // the lines added and removed; a commit's row opens its change (CommitChanges). Commits are read on
-// the laptop only: the website says so. A record from an older Starbase (no plan known, commits with
-// no files) says so in a sentence and the rest draws.
+// the laptop only: the website says so. A record from an older laptop (no plan known, commits with
+// no files) says so in a sentence and the rest draws. A commit lists its first 50 files, then a count.
 import { useEffect, useState } from 'react';
 import type { Job, PlanStepRow, StageView } from '../../api/types';
 import { BRAND } from '../../app/brand';
@@ -12,10 +12,11 @@ import { Button } from '../../components/Button';
 import { Chip } from '../../components/Chip';
 import { Icon, type IconName } from '../../components/Icon';
 import { versionLabel } from '../../panes/Preview/docs';
+import { useNow } from '../../lib/time';
 import { useWorkshop } from '../../state/store';
 import { agoWords } from '../../views/Review/GithubLine';
 import { CommitChanges } from './CommitChanges';
-import { StepAutoLine } from './SpecStep';
+import { StepAutoLine } from './stepAuto';
 import './page.css';
 
 type Plan = StageView['plan'];
@@ -53,13 +54,16 @@ export function PlanSteps({ plan, states }: { plan: Plan; states: boolean }) {
   );
 }
 
-/** The Plan step: the plan's steps with no states, under the step's Auto line. */
+/** The Plan step: the plan's steps with no states, under the step's Auto line; with none, a sentence says so. */
 export function PlanStep({ slug, job, view }: { slug: string; job: Job; view: StageView | null | undefined }) {
-  const version = versionLabel(view?.plan?.version ?? null);
+  const plan = view?.plan;
+  const version = versionLabel(plan?.version ?? null);
   return (
     <div className="sb-step-body">
       <StepAutoLine slug={slug} job={job} step="plan" approved={version ? `plan ${version}` : null} />
-      <PlanSteps plan={view?.plan} states={false} />
+      {stepsOf(plan).length > 0 ? <PlanSteps plan={plan} states={false} /> : (
+        <p className="sb-step-note">{plan === undefined ? 'The plan’s steps aren’t known for this job.' : 'This plan has no numbered steps.'}</p>
+      )}
     </div>
   );
 }
@@ -86,6 +90,10 @@ interface CommitFile { path?: string; added?: number | null; removed?: number | 
 interface Commit { sha: string; short: string; author: string; date: string; subject: string; step: string | null; files?: CommitFile[] }
 interface CommitList { commits: Commit[]; note?: string; head?: string | null }
 
+/** A commit lists this many files at most, then how many more. */
+export const FILES_SHOWN = 50;
+const moreFiles = (n: number) => `and ${n} more ${n === 1 ? 'file' : 'files'}`;
+
 type Load<T> = { state: 'loading' } | { state: 'error'; message: string } | { state: 'ready'; value: T };
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
@@ -102,6 +110,7 @@ function Commits({ slug, job }: { slug: string; job: Job }) {
   const [load, setLoad] = useState<Load<CommitList>>({ state: 'loading' });
   const [tries, setTries] = useState(0);
   const [open, setOpen] = useState<string | null>(null);
+  const now = useNow().getTime();
   const changedAt = job.updatedAt ?? null;
   useEffect(() => {
     let off = false;
@@ -124,7 +133,6 @@ function Commits({ slug, job }: { slug: string; job: Job }) {
   const { commits, note, head } = load.value;
   if (!commits.length) return <p className="muted">{note || 'No commits yet. They show up here once building starts.'}</p>;
   const branch = head || job.repo?.branch || null;
-  const now = Date.now();
   return (
     <section className="sb-block sb-commits" aria-label="Commits">
       <h3 className="eyebrow">{`Commits so far · ${commits.length}${branch ? ` on ${branch}` : ''}`}</h3>
@@ -141,15 +149,16 @@ function Commits({ slug, job }: { slug: string; job: Job }) {
               </button>
               {files.length > 0 && (
                 <ul className="sb-commit-files" aria-label={`The files ${c.short} changed`}>
-                  {files.map((f, i) => (
+                  {files.slice(0, FILES_SHOWN).map((f, i) => (
                     <li key={`${f.path ?? ''}-${i}`} className="sb-commit-file">
                       <Chip tone={f.isNew ? 'ok' : 'neutral'}>{f.isNew ? 'New' : 'Changed'}</Chip>
-                      <code className="sb-commit-path">{f.path ?? ''}</code>
+                      <code className="sb-commit-path" title={f.path ?? undefined}>{f.path ?? ''}</code>
                       <span className="sb-commit-lines">{linesWords(f)}</span>
                     </li>
                   ))}
                 </ul>
               )}
+              {files.length > FILES_SHOWN && <p className="sb-commit-more">{moreFiles(files.length - FILES_SHOWN)}</p>}
               {isOpen && <CommitChanges slug={slug} sha={c.sha} />}
             </li>
           );
