@@ -4606,3 +4606,49 @@ test('the default askForAuto passes safer through: the second ask\'s system text
     assert.equal((await w.autoLines('gate'))[0].risky, true);
   } finally { await w.stop(); }
 });
+
+// ---------- Auto queue Task 5, follow-up (n3): a branch whose name holds gh as a word ----------
+
+/** A job at review whose own branch (feature/gh-pages unless named) is checked out in its worktree; origin is its fork. */
+const ghPagesWorld = async (command, outcomes, branch = 'feature/gh-pages') => {
+  const w = await world({
+    jobStatus: status(1, { stage: 'review', waiting_for: 'none', stage_state: 'in_progress', branch }),
+    query: cardQuery([{ tool: 'Bash', input: { command } }], outcomes), ask: () => allow('It is the job\'s own branch, to the fork.'),
+  });
+  w.git('worktree', 'add', '-q', '-b', branch, path.join(w.root, 'orbit-visit-audit'));
+  w.git('remote', 'add', 'origin', 'https://github.com/me/app.git');
+  return w;
+};
+
+test('a push of the job\'s own branch is the plain push even when the branch\'s name holds gh as a word', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const w = await ghPagesWorld('git -C ../orbit-visit-audit push origin feature/gh-pages', outcomes);
+  try {
+    await raise(w);
+    await w.until(() => outcomes.length === 1, 'the push to be decided');
+    assert.equal(cardsOnly(w).length, 1, 'the Approver was asked');
+    assert.match(cardsOnly(w)[0].task.facts.note, /^This is a push of the job's own branch to its fork/);
+    assert.equal(outcomes[0].result.behavior, 'allow');
+    await w.idle();
+    assert.deepEqual(await w.autoLines('refuse'), [], 'not refused');
+    assert.equal((await w.record()).stopped, null);
+  } finally { await clear(w); await w.stop(); }
+});
+
+test('a push with a gh call beside it is still refused when the branch\'s name holds gh', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const w = await ghPagesWorld('git -C ../orbit-visit-audit push origin feature/gh-pages && gh pr create --fill', outcomes);
+  try {
+    await raise(w);
+    await refusedOnCard(w, outcomes, refusedNote('a push together with a gh call is a hard line, and Auto does not allow it.'), 'blocked');
+  } finally { await clear(w); await w.stop(); }
+});
+
+test('a branch named gh itself is never taken out: a push of it with a gh call beside it is still refused', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const w = await ghPagesWorld('git -C ../orbit-visit-audit push origin gh && gh pr create --fill', outcomes, 'gh');
+  try {
+    await raise(w);
+    await refusedOnCard(w, outcomes, refusedNote('a push together with a gh call is a hard line, and Auto does not allow it.'), 'blocked');
+  } finally { await clear(w); await w.stop(); }
+});

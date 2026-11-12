@@ -36,6 +36,24 @@ const oneLine = (s) => {
   for (let i = 0; i < 20 && t.includes(AUTO_MARK); i++) t = flat(t.split(AUTO_MARK).join(' '));
   return t.includes(AUTO_MARK) ? '' : t;
 };
+/**
+ * The command with each of the job's own branch names (the card context's `branches`) taken out, for the plain-push test's
+ * look for a gh call (n3). Fail closed: a name is taken out only where it stands whole (no branch-name character on either
+ * side), only a name of letters, digits and . _ / - , and never a name whose last part is gh itself (gh, gh.exe, x/gh),
+ * which could be the gh program. With no names, the command comes back as it is.
+ */
+const BRANCH_CHAR = 'A-Za-z0-9._/-';
+const withoutOwnBranches = (command, branches) => {
+  const names = (Array.isArray(branches) ? branches : [])
+    .filter((b) => typeof b === 'string' && new RegExp(`^[${BRANCH_CHAR}]+$`).test(b) && !/(^|\/)gh(\.[^/]*)?$/i.test(b))
+    .sort((a, b) => b.length - a.length);
+  let out = command;
+  for (const b of names) {
+    const exact = b.replace(/[.*+?^${}()|[\]\\/-]/g, '\\$&');
+    out = out.replace(new RegExp(`(?<![${BRANCH_CHAR}])${exact}(?![${BRANCH_CHAR}])`, 'g'), ' ');
+  }
+  return out;
+};
 /** A refusal that is only "not now": the answer waits and the next pass sends it, with no failure counted. */
 const NOT_NOW = new Set(['busy', 'limited', 'job-locked']);
 /**
@@ -580,9 +598,11 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     if (!hit && full.hookStop?.rule) hit = { rule: full.hookStop.rule, reason: full.hookStop.reason || AUTO_STOP_REASONS[full.hookStop.rule] || AUTO_STOP_REASONS.tool };
     // A push is the one hard line the Approver may judge: the fixed stops already refuse any push but the job's own branch to its fork.
     // Only the plain push: a command that also holds a gh call (an early pull request would end Auto with unreviewed work) is not it.
-    const plainPush = full.hardLine?.line === 'git-push' && !/\bgh\b/.test(String(full.input?.command ?? ''));
+    // The job's own branch names are taken out first (n3), so a branch like feature/gh-pages is not read as a gh call.
+    const plainPush = full.hardLine?.line === 'git-push' && !/\bgh\b/.test(withoutOwnBranches(String(full.input?.command ?? ''), ctx?.branches));
     const hardLineHit = !hit && Boolean(full.hardLine) && !plainPush;
-    if (hardLineHit) hit = { rule: 'blocked', reason: oneLine(full.hardLine.reason) || 'this is a hard line, and hard lines need you.' };
+    // A refused hard line's note and line come from REFUSE_REASONS by its id (refuseCard): no owner sentence is built for it (n1).
+    if (hardLineHit) hit = { rule: 'blocked', reason: null };
     // A call Auto may never allow (a rule in REFUSED_RULES, or a hard line other than the plain push) is refused on its card,
     // and the job carries on (Auto queue, Task 5). Any other stop stays a stop.
     const refused = Boolean(hit) && (hardLineHit || REFUSED_RULES.includes(hit.rule));
