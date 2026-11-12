@@ -19,7 +19,8 @@ import { BuildStep, PlanStep, PlanSteps } from './BuildStep';
 import { ReviewStep } from './ReviewStep';
 import { ShipStep } from './ShipStep';
 import { SpecStep } from './SpecStep';
-import { autoLineWords } from './stepAuto';
+import { Icon, ICON_NAMES } from '../../components/Icon';
+import { autoLineWords, autoStoppedNow } from './stepAuto';
 
 const SLUG = 'pause-a-recurring-service';
 const BRANCH = 'feature/orbit-900-pause-service';
@@ -470,6 +471,45 @@ describe('Auto', () => {
     s = setup((j) => <PlanStep slug={SLUG} job={j} view={planView} />, { auto: { entries: [atShip, ...ENTRIES] }, jobExtra: STOPPED });
     await read(s.get);
     expect(screen.queryByText(/Auto stopped here/)).toBeNull();
+  });
+
+  it('Auto is stopped now only while Auto is on: a stop left on a job with Auto off says nothing', async () => {
+    const stoppedOff = { auto: { ...STOPPED.auto, on: false } };
+    expect(autoStoppedNow(STOPPED as Pick<Job, 'auto'>)).toBe(true);
+    expect(autoStoppedNow(stoppedOff as Pick<Job, 'auto'>)).toBe(false);
+    expect(autoStoppedNow({ auto: { ran: true, stopped: { reason: 'x', at: ago(1) } } } as unknown as Pick<Job, 'auto'>)).toBe(false);
+    for (const hosted of [false, true]) {
+      const s = setup((j) => <PlanStep slug={SLUG} job={j} view={planView} />, { auto: { entries: ENTRIES }, jobExtra: stoppedOff, hosted });
+      await read(s.get);
+      expect(screen.queryByText(/Auto stopped here/)).toBeNull();
+      cleanup();
+      // Ship: no stop line either, and no "Auto stops" rule while Auto is off.
+      const ship = setup((j) => <ShipStep slug={SLUG} job={j} view={stage('ship', { prs: PRS })} />, { auto: { entries: [atShip, ...ENTRIES] }, jobExtra: stoppedOff, hosted });
+      await read(ship.get);
+      expect(screen.queryByText(/^Auto /)).toBeNull();
+      cleanup();
+    }
+  });
+
+  it('the Auto line’s icons: bot where Auto approved or answered, octagon-pause where it stopped', async () => {
+    const svgOf = (name: Parameters<typeof Icon>[0]['name']) => render(<Icon name={name} />).container.querySelector('svg')!.innerHTML;
+    expect(ICON_NAMES).toContain('octagon-pause');
+    const bot = svgOf('bot');
+    const pause = svgOf('octagon-pause');
+    cleanup();
+    expect(autoLineWords(ENTRIES, 'spec')?.icon).toBe('bot');
+    expect(autoLineWords(ENTRIES.filter((e) => e.kind !== 'answer'), 'spec')?.icon).toBe('bot');
+    expect(autoLineWords(ENTRIES.filter((e) => e.kind !== 'approve'), 'spec')?.icon).toBe('bot');
+    expect(autoLineWords(ENTRIES, 'plan', null, true)?.icon).toBe('octagon-pause');
+    // As drawn in the step.
+    setup((j) => <SpecStep slug={SLUG} job={j} view={specView} />, { auto: { entries: ENTRIES }, jobExtra: AUTO });
+    expect((await screen.findByText(SPEC_LINE)).closest('.sb-auto-line')!.querySelector('svg')!.innerHTML).toBe(bot);
+    cleanup();
+    setup((j) => <PlanStep slug={SLUG} job={j} view={planView} />, { auto: { entries: ENTRIES }, jobExtra: STOPPED });
+    expect((await screen.findByText(STOP_LINE)).closest('.sb-auto-line')!.querySelector('svg')!.innerHTML).toBe(pause);
+    cleanup();
+    setup((j) => <ShipStep slug={SLUG} job={j} view={stage('ship', { prs: PRS })} />, { auto: { entries: [atShip, ...ENTRIES] }, jobExtra: STOPPED });
+    expect((await screen.findByText('Auto stopped here: the pull request needs your go-ahead.')).closest('.sb-auto-line')!.querySelector('svg')!.innerHTML).toBe(pause);
   });
 
   it('the Auto line’s words: several answers, a reason’s own ending, and approved it when the version isn’t known', async () => {
