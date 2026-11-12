@@ -22,8 +22,8 @@
 // Everything Auto writes is an audit line { action: 'auto', what, stage, asked, chose, why, ... } and
 // nothing reaches the Foreman but through decide.gate with by: 'auto'.
 
-import { AUTO_CARDS_PER_REPLY, AUTO_MARK, OWN_SENDS, REFUSED_RULES, YOURS_NOW, refuseNote, wroteWhileWaiting } from '../lib/auto.js';
-import { AUTO_STOP_REASONS, autoVerdict, fixedStop } from '../lib/auto-rules.js';
+import { AUTO_CARDS_PER_REPLY, AUTO_MARK, OWN_SENDS, REFUSED_RULES, YOURS_NOW, refuseNote, refuseReason, wroteWhileWaiting } from '../lib/auto.js';
+import { AUTO_STOP_REASONS, OUTSIDE_REASONS, autoVerdict, fixedStop } from '../lib/auto-rules.js';
 import { APPROVER_BUDGET_USD, approverCut, approverPaths, approverRoots, callPreview, checkAnswer } from '../lib/approver.js';
 import { DECIDING_KINDS } from '../lib/gate.js';
 import { ownLevelStands } from '../lib/auto-level.js';
@@ -559,7 +559,11 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       const asked = { kind: 'card', toolName: full.toolName, input: full.input, hardLine: full.hardLine ? { decision: 'ask', ...full.hardLine } : null, blockedPath: full.blockedPath ?? null };
       hit = fixedStop(asked, ctx);
       if (!hit) why = autoVerdict(asked, ctx)?.why ?? null;
-    } catch { hit = { rule: 'tool', reason: AUTO_STOP_REASONS.tool }; }
+    } catch (err) {
+      // Refused on the card like a tool Auto can't judge; said here, so a broken job context is not silent (m3).
+      console.warn(`auto card ctx (${card.slug}):`, err?.message);
+      hit = { rule: 'tool', reason: AUTO_STOP_REASONS.tool };
+    }
     // The hook stopped this call, in the folder it runs in (Round 3): it stays a stop, whatever is read here.
     if (!hit && full.hookStop?.rule) hit = { rule: full.hookStop.rule, reason: full.hookStop.reason || AUTO_STOP_REASONS[full.hookStop.rule] || AUTO_STOP_REASONS.tool };
     // A push is the one hard line the Approver may judge: the fixed stops already refuse any push but the job's own branch to its fork.
@@ -577,7 +581,9 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     if (((job.auto.cardsBrief ?? 0) === lastAnswered ? job.auto.cards ?? 0 : 0) >= AUTO_CARDS_PER_REPLY) {
       return stopOnCard(job, { rule: 'loop', reason: `Auto has answered ${AUTO_CARDS_PER_REPLY} cards in one reply, so it needs you.` }, leave, { cardId: card.id });
     }
-    if (refused) return refuseCard(job, full, hit, { leave, lastAnswered });
+    // Before youSpokeSince on purpose: the call is one Auto may never allow, so his message does not make the card his to
+    // answer here. To take such a card himself he switches Auto off (m1).
+    if (refused) return refuseCard(job, full, hit, { leave, lastAnswered, hardLine: hardLineHit ? full.hardLine.line ?? '' : null });
 
     // The person wrote to the job (a message, or one steered into the reply) since Auto took the card up, while it
     // queued behind another: it is theirs, and the Approver is not asked.
@@ -688,8 +694,12 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
    * 'auto'; the Approver is never asked. One refuse line; the card counts toward AUTO_CARDS_PER_REPLY; failures stay as they
    * were; nobody is told. The answer is a deny on every path: a decision that fails leaves the card as answerCard does.
    */
-  async function refuseCard(job, card, { rule, reason }, { leave, lastAnswered }) {
-    const why = oneLine(reason);
+  async function refuseCard(job, card, { rule, reason }, { leave, lastAnswered, hardLine = null }) {
+    // The crew's reason, looked up (REFUSE_REASONS), never the owner's stop sentence; the refuse line's why is the same.
+    let why = '';
+    // For outside: which of its sentences hit (its key in OUTSIDE_REASONS), else the general row.
+    const outside = rule === 'outside' ? Object.keys(OUTSIDE_REASONS).find((k) => OUTSIDE_REASONS[k] === reason) ?? null : null;
+    try { why = refuseReason({ rule, outside, hardLine }); } catch { why = ''; }
     let note = '';
     try { note = refuseNote(rule, why); } catch { note = ''; } // still a deny, with the driver's own words for one of Auto's
     try {

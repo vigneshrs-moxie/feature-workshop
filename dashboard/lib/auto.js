@@ -48,9 +48,46 @@ export const AUTO_RULES = Object.freeze(['merge', 'database', 'outside', 'push',
  */
 export const REFUSED_RULES = Object.freeze(['merge', 'database', 'push', 'outside', 'tool']);
 
-/** What the crew is told when Auto refuses a call on its card: rule and reason are the fixed stop's (or the hard line's). */
+/**
+ * Why Auto refused a call, in words for the crew (it reads them; the owner's stop sentences, AUTO_STOP_REASONS,
+ * OUTSIDE_REASONS and a hard line's reason, stay his). Keyed by the rule; `outside-<key>` by which OUTSIDE_REASONS
+ * sentence hit; a hard line by its id, and `hard-line` for one with no row. Fixed sentences only: no path, address or
+ * command's arguments can reach a note. The database row is the first sentence of its own note (refuseNote).
+ */
+export const REFUSE_REASONS = Object.freeze({
+  database: `${PRODUCT} applies this job's migrations to Auto's own copy of the database when the job's turn to test comes.`,
+  merge: 'Auto never merges a pull request.',
+  push: "this would push somewhere other than the job's own branch on its fork.",
+  outside: "this would change or delete something outside the job's own folders.",
+  'outside-secret': 'this reads a place that holds secrets (keys, tokens or passwords).',
+  'outside-unknown': 'this runs a program Auto does not know.',
+  'outside-deploy': 'this would deploy or publish something.',
+  'outside-read': 'this reads in a way Auto cannot judge (another folder, a setting or a place it cannot work out).',
+  tool: 'this tool is not one Auto can judge.',
+  'gh-pr-create': 'gh pr create is a hard line, and Auto does not allow it here.',
+  'git-push': 'a push together with a gh call is a hard line, and Auto does not allow it.',
+  'rm-rf': 'deleting with rm -rf here is a hard line, and Auto does not allow it.',
+  'too-long': `this command is too long for ${PRODUCT} to check.`,
+  'hard-line': 'this is a hard line, and Auto does not allow it.',
+});
+const HARD_LINE_ROWS = new Set(['gh-pr-create', 'git-push', 'rm-rf', 'too-long']);
+const OUTSIDE_ROWS = new Set(['secret', 'unknown', 'deploy', 'read']);
+
+/**
+ * The crew's reason for one refusal, looked up in REFUSE_REASONS, never built from the owner's sentence: hardLine (the id)
+ * when a hard line was refused, else the rule; for outside, `outside` names which of auto-rules.js OUTSIDE_REASONS hit
+ * (its key, worked out by the runner: this file imports nothing that reaches the machine). Anything with no row of its
+ * own gets the general hard line's.
+ */
+export function refuseReason({ rule, outside = null, hardLine = null } = {}) {
+  if (hardLine !== null && hardLine !== undefined) return REFUSE_REASONS[HARD_LINE_ROWS.has(hardLine) ? hardLine : 'hard-line'];
+  if (rule === 'outside') return OUTSIDE_ROWS.has(outside) ? REFUSE_REASONS[`outside-${outside}`] : REFUSE_REASONS.outside;
+  return ['database', 'merge', 'push', 'tool'].includes(rule) ? REFUSE_REASONS[rule] : REFUSE_REASONS['hard-line'];
+}
+
+/** What the crew is told when Auto refuses a call on its card: reason is refuseReason's (the database row has its own ending). */
 export function refuseNote(rule, reason) {
-  if (rule === 'database') return `Auto refused this: ${PRODUCT} applies this job's migrations to Auto's own copy of the database when the job's turn to test comes. Don't run database commands. Carry on without it.`;
+  if (rule === 'database') return `Auto refused this: ${REFUSE_REASONS.database} Don't run database commands. Carry on without it.`;
   return ['Auto refused this:', String(reason ?? '').trim(), "Find another way inside the job's folders, or leave it for after PR #1."].filter(Boolean).join(' ');
 }
 

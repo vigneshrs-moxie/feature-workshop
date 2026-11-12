@@ -1150,7 +1150,7 @@ test('a database card is refused on the card with the database note before the A
   try {
     await raise(w);
     const line = await refusedOnCard(w, outcomes, DB_NOTE, 'database');
-    assert.equal(line.why, 'a database change needs you.');
+    assert.equal(line.why, 'Starbase applies this job\'s migrations to Auto\'s own copy of the database when the job\'s turn to test comes.');
     assert.equal((await waiting(w)).length, 0, 'nothing waits for the person');
     assert.equal((await w.record()).cards, 1, 'the refusal counts as a card');
     const [perm] = (await w.lines()).filter((l) => l.action === 'permission');
@@ -1172,7 +1172,7 @@ test('a push to a third remote is refused on the card although the stage is a PR
   const w = await world({ jobStatus: status(1, { stage: 'pr1', waiting_for: 'none', stage_state: 'in_progress' }), query: cardQuery([{ tool: 'Bash', input: { command: 'git push thirdparty feature/x' } }], outcomes) });
   try {
     await raise(w);
-    await refusedOnCard(w, outcomes, refusedNote('this would push somewhere other than your fork.'), 'push');
+    await refusedOnCard(w, outcomes, refusedNote('this would push somewhere other than the job\'s own branch on its fork.'), 'push');
   } finally { await clear(w); await w.stop(); }
 });
 
@@ -1503,8 +1503,8 @@ test('a card with a hard line that no fixed stop matches is never allowed: Auto 
   const w = await world({ jobStatus: MID_REPLY, query: cardQuery([{ tool: 'Bash', input: { command: 'gh pr create --fill' } }], outcomes), ask: () => allow() });
   try {
     await raise(w);
-    const line = await refusedOnCard(w, outcomes, refusedNote('gh pr create is a hard line: it asks you before it runs.'), 'blocked');
-    assert.equal(line.why, 'gh pr create is a hard line: it asks you before it runs.');
+    const line = await refusedOnCard(w, outcomes, refusedNote('gh pr create is a hard line, and Auto does not allow it here.'), 'blocked');
+    assert.equal(line.why, 'gh pr create is a hard line, and Auto does not allow it here.');
   } finally { await clear(w); await w.stop(); }
 });
 
@@ -1756,7 +1756,7 @@ test('J6: a gh pr create card on the same job is refused on the card with the ha
   });
   try {
     await raise(w);
-    await refusedOnCard(w, outcomes, refusedNote('gh pr create is a hard line: it asks you before it runs.'), 'blocked');
+    await refusedOnCard(w, outcomes, refusedNote('gh pr create is a hard line, and Auto does not allow it here.'), 'blocked');
   } finally { await clear(w); await w.stop(); }
 });
 
@@ -1772,7 +1772,7 @@ test('J6: a push with a gh call in the same command is not the plain push: Auto 
     w.git('remote', 'add', 'origin', 'https://github.com/me/app.git');
     await raise(w);
     // The Approver is never asked (refusedOnCard): an early pull request would end Auto with unreviewed work.
-    await refusedOnCard(w, outcomes, refusedNote('Pushing is a hard line: it asks you before it runs.'), 'blocked');
+    await refusedOnCard(w, outcomes, refusedNote('a push together with a gh call is a hard line, and Auto does not allow it.'), 'blocked');
   } finally { await clear(w); await w.stop(); }
 });
 
@@ -4301,7 +4301,7 @@ test('a refusal is a deny with the note: one refuse line, the card counted, fail
   const u = refuseUnit({ card: PSQL_CARD });
   await u.run();
   assert.deepEqual(u.sent.map((s) => [s.id, s.decision, s.note, s.by]), [['r1', 'deny', DB_NOTE, 'auto']]);
-  assert.deepEqual(u.lines.map((l) => ({ action: l.action, what: l.what, rule: l.rule, asked: l.asked, chose: l.chose, why: l.why })), [{ action: 'auto', what: 'refuse', rule: 'database', asked: 'Run psql', chose: 'Refused: Run psql', why: 'a database change needs you.' }]);
+  assert.deepEqual(u.lines.map((l) => ({ action: l.action, what: l.what, rule: l.rule, asked: l.asked, chose: l.chose, why: l.why })), [{ action: 'auto', what: 'refuse', rule: 'database', asked: 'Run psql', chose: 'Refused: Run psql', why: 'Starbase applies this job\'s migrations to Auto\'s own copy of the database when the job\'s turn to test comes.' }]);
   assert.equal(u.record().cards, 1);
   assert.deepEqual([u.record().failures, u.record().problem, u.record().stopped], [1, 'It ended with an error', null], 'failures untouched');
   assert.deepEqual([u.notes, u.told, u.asks], [[], [], []]);
@@ -4333,7 +4333,7 @@ test('a card whose folders cannot be read, or that the hook stopped, is refused 
   assert.equal(unread.lines[0].rule, 'tool');
   const hooked = refuseUnit({ card: { ...PSQL_CARD, toolName: 'WebFetch', input: { url: 'https://example.com' }, plain: { headline: 'Fetch' }, hookStop: { rule: 'push', reason: null } } });
   await hooked.run();
-  assert.deepEqual(hooked.sent.map((s) => [s.decision, s.note]), [['deny', refusedNote('this would push somewhere other than your fork.')]]);
+  assert.deepEqual(hooked.sent.map((s) => [s.decision, s.note]), [['deny', refusedNote('this would push somewhere other than the job\'s own branch on its fork.')]]);
   assert.equal(hooked.lines[0].rule, 'push');
   for (const u of [unread, hooked]) assert.deepEqual([u.asks, u.told, u.notes, u.record().stopped], [[], [], [], null]);
 });
@@ -4416,4 +4416,47 @@ test('he writes while the second ask thinks: nothing is sent and the step is his
     await w.told(1);
     assert.equal(w.notes.length, 1);
   } finally { await w.stop(); }
+});
+
+// ---------- Auto queue Task 5, fix round 1 ----------
+
+test('a refusal at the driver\'s door after Auto was switched off is refused as auto-gone: nothing sent, the card waits, one Permission notice, no refuse line', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const w = await world({ jobStatus: MID_REPLY, query: cardQuery([{ tool: 'Bash', input: { command: 'npm run db:migrate' } }], outcomes) });
+  const errors = [];
+  const error = console.error;
+  console.error = (...a) => { errors.push(a.join(' ')); error(...a); };
+  try {
+    let did = false;
+    w.hooks.atAutoDoor = async ({ kind }) => {
+      if (kind !== 'card' || did) return;
+      did = true;
+      await w.runner.handle({ type: 'auto', slug: w.slug, on: false }, { from: 'local' });
+    };
+    await raise(w);
+    await w.until(() => did, 'the door');
+    await w.until(async () => (await w.autoLines('off')).length === 1, 'the off line');
+    const notes = await w.told(1);
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(outcomes.length, 0, 'nothing reached the worker');
+    assert.equal((await waiting(w)).length, 1, 'the card waits for the person');
+    assert.equal((await w.lines()).filter((l) => l.action === 'permission').length, 0, 'nothing was sent');
+    assert.deepEqual(await w.autoLines('refuse'), []);
+    assert.equal(notes.filter((n) => /Permission: /.test(n.body ?? '')).length, 1, 'one Permission notice');
+    assert.equal(notes.length, 1);
+    assert.deepEqual(errors.filter((e) => e.startsWith('auto card')), [], 'refused as auto-gone (any other refusal is logged)');
+    await clear(w);
+    await w.until(() => outcomes.length === 1, 'the person\'s answer');
+  } finally { console.error = error; await w.stop(); }
+});
+
+test('an outside refusal tells the crew the row for the sentence that hit, never the owner\'s sentence', async () => {
+  const { OUTSIDE_REASONS } = await import('../lib/auto-rules.js');
+  const fetch = { ...PSQL_CARD, toolName: 'WebFetch', input: { url: 'https://example.com' }, plain: { headline: 'Fetch' } };
+  for (const [reason, crew] of [[OUTSIDE_REASONS.secret, 'this reads a place that holds secrets (keys, tokens or passwords).'], [OUTSIDE_REASONS.read, 'this reads in a way Auto cannot judge (another folder, a setting or a place it cannot work out).'], [null, 'this would change or delete something outside the job\'s own folders.']]) {
+    const u = refuseUnit({ card: { ...fetch, hookStop: { rule: 'outside', reason } } });
+    await u.run();
+    assert.deepEqual(u.sent.map((s) => [s.decision, s.note]), [['deny', refusedNote(crew)]]);
+    assert.equal(u.lines[0].why, crew);
+  }
 });

@@ -185,14 +185,14 @@ test('each entry says its kind and its step, and a stop is an entry that the cou
 });
 
 test('a refusal is an entry of kind refuse, its chose Refused: and the headline', () => {
-  const refuse = { at: at(11, 8, 15), action: 'auto', what: 'refuse', stage: 'implement', rule: 'database', asked: 'Run npm run db:migrate', chose: 'Refused: Run npm run db:migrate', why: 'a database change needs you.' };
+  const refuse = { at: at(11, 8, 15), action: 'auto', what: 'refuse', stage: 'implement', rule: 'database', asked: 'Run npm run db:migrate', chose: 'Refused: Run npm run db:migrate', why: 'Starbase applies this job\'s migrations to Auto\'s own copy of the database when the job\'s turn to test comes.' };
   const rec = autoLogRecord([...LINES, refuse], {});
   assert.deepEqual(rec.entries.map((e) => [e.kind, e.stop, e.chose]), [
     ['refuse', 'build', 'Refused: Run npm run db:migrate'],
     ['answer', 'build', 'Keep the column'],
     ['approve', 'plan', 'Approved the plan'],
   ]);
-  assert.deepEqual([rec.entries[0].asked, rec.entries[0].why], ['Run npm run db:migrate', 'a database change needs you.']);
+  assert.deepEqual([rec.entries[0].asked, rec.entries[0].why], ['Run npm run db:migrate', 'Starbase applies this job\'s migrations to Auto\'s own copy of the database when the job\'s turn to test comes.']);
   // A refusal is a decision: it is counted, and it can be the last one.
   assert.equal(rec.summary[0], 'Auto made 3 decisions on this job. The Approver cost $0.04.');
   assert.equal(rec.summary[2], `Last decision: ${autoTime(at(11, 8, 15))}, Build: Refused: Run npm run db:migrate.`);
