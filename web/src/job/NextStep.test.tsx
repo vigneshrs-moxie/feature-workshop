@@ -801,6 +801,52 @@ describe('the brief folded under the bar (foldCard)', () => {
     expect(await screen.findByRole('textbox', { name: /Your answers or a note/ })).toBeVisible();
   });
 
+  it('on the phone’s step screen the brief folds while a box is open', async () => {
+    for (const hosted of [false, true]) {
+      setup({ jobs: waiting(), gate: GATE, foldCard: true, hosted });
+      await gateShown();
+      expect(row()).toHaveAttribute('aria-expanded', 'true');
+      const reply = within(bar()).getByRole('button', { name: 'Reply' });
+      await waitFor(() => expect(reply).toBeEnabled());
+      fireEvent.click(reply);
+      const box = await screen.findByRole('textbox', { name: /Your answers or a note/ });
+      fireEvent.change(box, { target: { value: 'Keep the old column.' } });
+      // The row folds the brief, box and all; the box and its words stay for when it opens again.
+      expect(row()).toBeEnabled();
+      fireEvent.click(row());
+      expect(row()).toHaveAttribute('aria-expanded', 'false');
+      expect(body()).not.toBeVisible();
+      fireEvent.click(row());
+      expect(row()).toHaveAttribute('aria-expanded', 'true');
+      expect(screen.getByRole('textbox', { name: /Your answers or a note/ })).toHaveValue('Keep the old column.');
+      cleanup();
+      localStorage.clear();
+    }
+  });
+
+  it('with the conversation full screen the fold row is disabled while a box is open', async () => {
+    for (const hosted of [false, true]) {
+      setup({ jobs: waiting(), gate: GATE, foldHere: true, hosted });
+      await gateShown();
+      // One row each time over the conversation; the row opens it.
+      expect(row()).toHaveAttribute('aria-expanded', 'false');
+      expect(row()).toBeEnabled();
+      const back = within(bar()).getByRole('button', { name: /^No go: send back/ });
+      await waitFor(() => expect(back).toBeEnabled());
+      fireEvent.click(back);
+      await screen.findByRole('textbox', { name: /What should change\?/ });
+      // The open box keeps the brief open: the row can't fold it, so a press saves nothing.
+      await waitFor(() => expect(row()).toBeDisabled());
+      expect(row()).toHaveAttribute('aria-expanded', 'true');
+      fireEvent.click(row());
+      expect(row()).toHaveAttribute('aria-expanded', 'true');
+      expect(body()).toBeVisible();
+      fireEvent.click(within(document.querySelector<HTMLElement>('.job-gate-body .gate-note')!).getByRole('button', { name: 'Cancel' }));
+      await waitFor(() => expect(row()).toBeEnabled());
+      cleanup();
+    }
+  });
+
   it('Full: the brief starts open, and its row folds it', async () => {
     setup({ jobs: waiting(), gate: GATE, foldCard: true });
     await gateShown();

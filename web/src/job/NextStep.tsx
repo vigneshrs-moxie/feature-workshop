@@ -298,8 +298,11 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, foldHere = fa
   const folds = foldCard || foldHere;
   const body = useRef<HTMLDivElement>(null);
   const [go, setGo] = useState({ words: '', off: true, asks: false, backOff: false, replyOff: true, why: '', boxOpen: false });
-  // A box open in the card (What should change?, Reply) keeps it open: typed words are never out of sight.
-  const folded = folds && !cardShown && !go.boxOpen;
+  // Over the job page's conversation (foldHere) a box open in the card (What should change?, Reply)
+  // keeps it open, so typed words are never out of sight, and its row is off meanwhile. On the
+  // phone's screens (foldCard) the row folds the brief, box and all, as he asks.
+  const boxHolds = foldHere && go.boxOpen;
+  const folded = folds && !cardShown && !boxHolds;
   useLayoutEffect(() => {
     const el = body.current;
     if (!el) return;
@@ -381,7 +384,7 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, foldHere = fa
       </NextBar>
       {autoDeciding(job) && !stopped && !waits && <p className="job-go-auto muted">{AUTO_DECIDING_NOTE}</p>}
       {folds && (
-        <button type="button" className="desk-details-row stage-brief-row" aria-expanded={!folded} onClick={() => setCardShown(folded)} title={folded ? 'Show the brief’s questions and details here; Go sends the answers picked in it.' : 'Fold the brief back to this row.'}>
+        <button type="button" className="desk-details-row stage-brief-row" aria-expanded={!folded} disabled={boxHolds} onClick={() => setCardShown(folded)} title={folded ? 'Show the brief’s questions and details here; Go sends the answers picked in it.' : 'Fold the brief back to this row.'}>
           <Icon name="file" size={16} />
           <span className="desk-details-words"><b>The brief</b><span className="muted">{foldHere ? 'its questions and details; Go sends the answers picked in it' : 'its questions and details, also on the job’s page; Go sends the answers picked in it'}</span></span>
           <Icon name="chevron-down" size={14} className={`fold-chevron${folded ? '' : ' is-up'}`} />
