@@ -1,10 +1,15 @@
 // Nothing jumps when something folds, hides or opens (packet R, rule 2), checked in a real browser.
 //
-// On Jobs, a Job, the Desk, Telemetry and Settings → Look it presses every fold, hide and open
-// control on the page (a "Details" or "More" row, a <summary>, any button with aria-expanded, a
-// graph's Fold and Hide), once to change it and once to put it back. Each time, everything above
-// the control's own item and everything in another column must stay exactly where it was; only
-// the item itself and what is under it in its own column may move.
+// On Jobs, three job pages (customer-merge, bulk-archive, and nightly-export at its Test step), the
+// Desk, Telemetry and Settings → Look it presses every fold, hide and open control on the page (a
+// "Details" or "More" row, a <summary>, any button with aria-expanded, a graph's Fold and Hide),
+// once to change it and once to put it back. Each time, everything above the control's own item and
+// everything in another column must stay exactly where it was; only the item itself and what is
+// under it in its own column may move.
+//
+// On a job page, picking a step is a toggle too: each of the seven steps is picked, then the step
+// that was open is picked again. Each time the header, the overview, the bar, the steps row and the
+// conversation column must stay exactly where they were; only the open step under the row changes.
 //
 // Run it against a running app (the demo is best):
 //   PORT=4493 STARBASE_DEMO=1 node dashboard/demo/run-demo.js      # in one terminal
@@ -23,13 +28,24 @@ const THEME = process.env.THEME || 'light';
 const SCREENS = [
   ['Jobs', '#/'],
   ['Job', '#/job/customer-merge'],
+  ['Job bulk-archive', '#/job/bulk-archive'],
+  ['Job nightly-export at Test', '#/job/nightly-export/stage/test'],
   ['Desk', '#/desk'],
   ['Telemetry', '#/telemetry'],
   ['Settings', '#/settings/look'],
 ];
 const TOGGLES = '.more-head, details > summary, button[aria-expanded]:not([aria-haspopup]):not([role="combobox"]), [data-fold], [data-hide]';
 const ITEM = '.more, details, .tele-card, .hidden-slot, .fold, .job-card, .thread, li, section';
-const LANDMARKS = '.page-title, .next-bar, .lane-head, .job-card, .more-head, details > summary, .tele-card, .hidden-slot, .desk-console, .job-convo, .settings-rail, .look-heading, .btn';
+const LANDMARKS = '.page-title, .next-bar, .lane-head, .job-card, .more-head, details > summary, .tele-card, .hidden-slot, .desk-console, .job-convo, .settings-rail, .look-heading, .btn, .sb-steps, .sb-job-top, .sb-convo';
+/** On a job page, what a step's pick must leave where it was. */
+const PICK_STAYS = [
+  ['the header', '.sb-job-top'],
+  ['the overview', '.sb-job-work > .sb-job-part'],
+  ['the bar', '.sb-job-bar'],
+  ['the steps row', '.sb-steps'],
+  ['the conversation column', '.sb-job-talk'],
+];
+const STEP_TABS = '.sb-steps [role="tab"]';
 
 const browser = await chromium.launch();
 
@@ -40,7 +56,7 @@ async function runAt(WIDTH) {
   await page.addInitScript((t) => {
     try {
       localStorage.setItem('workshop.theme', t);
-      localStorage.setItem('gc.guide.seen', JSON.stringify(['jobs', 'desk', 'stage', 'job', 'inbox', 'telemetry', 'stack', 'stacks', 'review', 'review-round']));
+      localStorage.setItem('gc.guide.seen', JSON.stringify(['jobs', 'desk', 'stage', 'job', 'job-page-2', 'inbox', 'telemetry', 'stack', 'stacks', 'review', 'review-round']));
     } catch { /* storage off */ }
   }, THEME);
 
@@ -88,6 +104,42 @@ async function runAt(WIDTH) {
         }
         pressed += 1;
         await page.keyboard.press('Escape').catch(() => {});
+      }
+    }
+    // A job page: pick each step, then pick back the one that was open.
+    const tabs = page.locator(STEP_TABS);
+    const steps = await tabs.count();
+    if (steps && await tabs.first().isVisible().catch(() => false)) {
+      const places = () => page.evaluate((STAYS) => {
+        const o = (document.querySelector('.page-inner') ?? document.body).getBoundingClientRect();
+        return STAYS.map(([what, sel]) => {
+          const el = document.querySelector(sel);
+          if (!el || !el.getClientRects().length) return { what, x: null, y: null };
+          const r = el.getBoundingClientRect();
+          return { what, x: r.left - o.left, y: r.top - o.top };
+        });
+      }, PICK_STAYS);
+      /** Which step is open now: its place in the row. */
+      const openAt = async () => (await tabs.evaluateAll((ts) => ts.map((t) => t.getAttribute('aria-selected') === 'true'))).indexOf(true);
+      for (let i = 0; i < steps; i++) {
+        const was = await openAt();
+        if (i === was) continue;
+        for (const [round, at] of [['pick', i], ['pick back', was]]) {
+          if (at < 0) continue;
+          const before = await places();
+          await tabs.nth(at).click().catch(() => {});
+          await page.waitForTimeout(400);
+          const after = await places();
+          for (const b of before) {
+            const a = after.find((p) => p.what === b.what);
+            if (b.x === null || !a || a.x === null) continue;
+            if (Math.abs(a.x - b.x) > 0.5 || Math.abs(a.y - b.y) > 0.5) {
+              const step = ((await tabs.nth(at).getAttribute('id')) ?? `step ${at}`).replace(/^sb-step-/, '');
+              problems.push(`${name}: ${round} ${step} moved ${b.what} from ${Math.round(b.x)},${Math.round(b.y)} to ${Math.round(a.x)},${Math.round(a.y)}`);
+            }
+          }
+          pressed += 1;
+        }
       }
     }
   }

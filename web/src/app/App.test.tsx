@@ -1,7 +1,8 @@
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../api/client';
-import type { Snapshot } from '../api/types';
+import type { Gate, Snapshot, StageView, StopId } from '../api/types';
+import { STOPS } from '../components/stops/stops';
 import type { EventSourceLike } from '../state/live';
 import { ev, job, permission, snapshot } from '../state/test-fixtures';
 import { App } from './App';
@@ -15,19 +16,53 @@ class FakeStream implements EventSourceLike {
   close() { this.readyState = 2; }
 }
 
+/** One step's view, as GET /api/job/:slug/stage/:stop answers it. */
+const stageView = (slug: string, stop: StopId): StageView => ({
+  slug, stop, label: STOPS.find((s) => s.id === stop)!.label, state: 'done', stateWords: 'Done', since: null, stages: [],
+  agents: [], finished: [], terminalApp: null, terminalApps: [], docs: [], checks: null, handTest: null, plan: null, prs: [], review: { reviewers: [] },
+});
+
+/**
+ * What the test's dashboard answers, by route: the job page asks for a step's view, the evidence,
+ * the documents and the commits as well as the job's details. `detail` adds to a job's details.
+ */
+function serverGet(detail: (slug: string) => Record<string, unknown> = () => ({}), notes = '') {
+  return vi.fn(async (path: string): Promise<unknown> => {
+    const stage = /^\/api\/job\/([^/]+)\/stage\/([a-z]+)$/.exec(path);
+    if (stage) return stageView(decodeURIComponent(stage[1]), stage[2] as StopId);
+    if (path.endsWith('/evidence')) return { evidence: null, commit: null, wanted: false, why: '', recording: false, problem: null, folder: '/tmp/evidence', folderUrl: 'file:///tmp/evidence' };
+    if (path.endsWith('/docs')) return { docs: [] };
+    if (path.endsWith('/commits')) return { commits: [] };
+    if (path.endsWith('/decisions')) return { decisions: [] };
+    if (path.endsWith('/notes')) return { text: notes, updatedAt: null };
+    if (path.endsWith('/local')) return null;
+    const slug = decodeURIComponent(path.split('/')[3] ?? '');
+    return { slug, thread: [], threadMore: false, options: null, ...detail(slug) };
+  });
+}
+
 function renderApp(snap: Snapshot | Error) {
   const streams: FakeStream[] = [];
   const api = {
     snapshot: vi.fn(async () => { if (snap instanceof Error) throw snap; return snap; }),
     setToken: vi.fn(),
-    get: vi.fn(async () => ({ slug: 'beta', thread: [], threadMore: false })),
+    get: serverGet(),
   } as unknown as ApiClient;
   const openStream = (_url: string) => { const s = new FakeStream(); streams.push(s); return s; };
   render(<App api={api} openStream={openStream} />);
   return { streams };
 }
 
-afterEach(() => { window.location.hash = ''; localStorage.clear(); });
+// A laptop's window, 1280 px wide (jsdom has no matchMedia): the job page shows the conversation
+// column beside the steps, as it does from 1100 px.
+beforeEach(() => {
+  vi.stubGlobal('matchMedia', (q: string) => {
+    const min = /min-width:\s*(\d+)px/.exec(q);
+    const max = /max-width:\s*(\d+)px/.exec(q);
+    return { matches: (!min || 1280 >= Number(min[1])) && (!max || 1280 <= Number(max[1])), media: q, addEventListener() {}, removeEventListener() {} };
+  });
+});
+afterEach(() => { window.location.hash = ''; localStorage.clear(); vi.unstubAllGlobals(); });
 
 describe('App shell', () => {
   it('shows a job full width: the Job page with its seven stops, no Jobs or Preview pane', async () => {
@@ -35,7 +70,8 @@ describe('App shell', () => {
     renderApp(snapshot({ jobs: [job('alpha', 'needs-you'), job('beta', 'running'), job('gamma', 'done')] }));
     const page = await screen.findByRole('main', { name: 'Job' });
     expect(within(page).getByRole('heading', { name: 'Job beta' })).toBeInTheDocument();
-    expect(within(page).getAllByRole('link').filter((a) => a.getAttribute('href')?.startsWith('#/job/beta/stage/'))).toHaveLength(7);
+    // The seven stops are the job page's seven steps (a pick moves the address to #/job/beta/stage/<stop>).
+    expect(within(within(page).getByRole('tablist', { name: 'The job’s seven steps' })).getAllByRole('tab')).toHaveLength(7);
     expect(screen.queryByRole('navigation', { name: 'Jobs' })).toBeNull();
     expect(screen.queryByRole('complementary', { name: 'Preview' })).toBeNull();
     // The top bar: the product's name, the five pages (the Desk with what waits for you), and the gear.
@@ -85,7 +121,8 @@ describe('App shell', () => {
     window.location.hash = '#/job/beta';
     renderApp(snapshot());
     expect(await screen.findByRole('heading', { name: 'Job beta' })).toBeInTheDocument();
-    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Brief', 'Spec', 'Plan', 'Code', 'Tests', 'Review', 'Decisions', 'Ship']);
+    // The job page: its seven steps, in order.
+    expect(within(screen.getByRole('tablist', { name: 'The job’s seven steps' })).getAllByRole('tab').map((t) => t.id)).toEqual(STOPS.map((s) => `sb-step-${s.id}`));
     // Not in the page, the gear, the job menu, the keys sheet or any hover text.
     const said = () => [document.body.textContent ?? '', ...[...document.querySelectorAll('[title], [aria-label], [data-tip]')].map((e) => `${e.getAttribute('title') ?? ''} ${e.getAttribute('aria-label') ?? ''} ${e.getAttribute('data-tip') ?? ''}`)].join(' ');
     fireEvent.click(screen.getByRole('button', { name: 'Settings and more' }));
@@ -116,7 +153,7 @@ describe('App shell', () => {
     expect(screen.getByRole('region', { name: 'Next step' })).toHaveTextContent('needs you');
   });
 
-  it('shows a job’s screens full width at #/job/<slug>/screens, with Back to the job; the Spec tab links to them', async () => {
+  it('shows a job’s screens full width at #/job/<slug>/screens, with Back to the job; the Spec step links to them', async () => {
     window.location.hash = '#/job/beta/screens';
     renderApp(snapshot({ jobs: [job('alpha', 'needs-you'), job('beta', 'running', { wireframes: { version: '2' } })] }));
     const view = await screen.findByRole('main', { name: 'Screens' });
@@ -128,13 +165,16 @@ describe('App shell', () => {
     expect(view.querySelector('iframe.screens-frame')).toHaveAttribute('src', 'http://127.0.0.1:4478/job/beta/wireframes');
     expect(within(view).getByRole('button', { name: 'Copy feedback' })).toBeInTheDocument();
     expect(within(view).queryByRole('link', { name: 'Open full screen' })).toBeNull();
-    // Back on the job: its Spec tab links to the screens; a job without screens has no link.
+    // Back on the job: its Spec step links to the screens; a job without screens has no link.
     act(() => { window.location.hash = '#/job/beta'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
-    fireEvent.click(await screen.findByRole('tab', { name: 'Spec' }));
-    expect(screen.getByRole('link', { name: /Review the screens/ })).toHaveAttribute('href', '#/job/beta/screens');
+    await screen.findByRole('heading', { name: 'Job beta' });
+    fireEvent.click(document.getElementById('sb-step-spec')!);
+    expect(await screen.findByRole('link', { name: /Review the screens/ })).toHaveAttribute('href', '#/job/beta/screens');
     act(() => { window.location.hash = '#/job/alpha'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
     await screen.findByRole('heading', { name: 'Job alpha' });
-    fireEvent.click(screen.getByRole('tab', { name: 'Spec' }));
+    fireEvent.click(document.getElementById('sb-step-spec')!);
+    const spec = await screen.findByRole('tabpanel', { name: 'Spec' });
+    await waitFor(() => expect(spec.querySelector('.sb-step-body')).not.toBeNull());
     expect(screen.queryByRole('link', { name: /Review the screens/ })).toBeNull();
     // A job without screens at the screens address says so.
     act(() => { window.location.hash = '#/job/alpha/screens'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
@@ -261,13 +301,146 @@ describe('App shell', () => {
   });
 });
 
+// Part 3, Task 17: the new job page is the job page, at a job's address and at each step's. A pick
+// moves the address in place (job to stage, stage to stage) and a link moves it with a hashchange;
+// either way the page stays mounted (one key, the job's), so words typed in What should change? stay.
+describe('the job page at a job’s and a step’s address', () => {
+  const GATE: Gate = {
+    briefNumber: 2, briefFile: 'briefs/002-plan.md', headline: 'Plan v2 ready', stage: 'plan', nextStage: 'implement', nextProposed: 'Build step 1',
+    questions: [], decided: [], versions: null, raisedVersions: null, stale: false, waitingSince: '2026-10-21T09:00:00Z', runActive: false, parked: false,
+    level: 1, suggestedLevel: null, levelReason: null, usage: null,
+  };
+  const WAITING = job('alpha', 'needs-you', { stage: 'plan', lane: 'needs-you', waitingFor: 'approval', headline: 'The plan is ready. Start building?' });
+
+  function renderJob(jobs = [WAITING]) {
+    const get = serverGet((slug) => ({ gate: slug === 'alpha' ? GATE : null, answeredBriefs: [], heldReply: null, options: { level: 1 }, auto: null, drive: null }));
+    const api = { snapshot: vi.fn(async () => snapshot({ jobs })), setToken: vi.fn(), get, post: vi.fn(async () => ({ ok: true })), put: vi.fn() } as unknown as ApiClient;
+    render(<App api={api} openStream={() => new FakeStream()} />);
+    return { get };
+  }
+  const openTab = () => screen.getByRole('tab', { selected: true, hidden: true });
+  const tabOf = (stop: StopId) => document.getElementById(`sb-step-${stop}`) as HTMLElement;
+  /** No go: send back, then words typed into What should change? */
+  async function typeAChange(words: string) {
+    fireEvent.click(await screen.findByRole('button', { name: /^No go: send back/ }));
+    const box = await screen.findByRole('textbox', { name: /What should change\?/ });
+    box.focus();
+    fireEvent.change(box, { target: { value: words } });
+    expect(box).toHaveValue(words);
+    return box;
+  }
+
+  it('a job’s address shows the new page', async () => {
+    window.location.hash = '#/job/alpha';
+    renderApp(snapshot({ jobs: [job('alpha', 'running', { stage: 'plan', lane: 'working' }), job('beta', 'idle')] }));
+    const page = await screen.findByRole('main', { name: 'Job' });
+    // The new page: its header, the seven steps with one open, and the conversation.
+    expect(page).toHaveClass('sb-job-page');
+    expect(within(page.querySelector<HTMLElement>('.sb-job-top')!).getByRole('heading', { name: 'Job alpha' })).toBeInTheDocument();
+    expect(within(page).getAllByRole('tab', { hidden: true })).toHaveLength(7);
+    expect(openTab().id).toBe('sb-step-plan');
+    expect(page.querySelectorAll('.sb-convo')).toHaveLength(1);
+    // The job's conversation address gives the conversation the page (the route's view reaches it).
+    cleanup();
+    window.location.hash = '#/job/alpha/conversation';
+    renderApp(snapshot({ jobs: [job('alpha', 'running', { stage: 'plan', lane: 'working' })] }));
+    expect(await screen.findByRole('main', { name: 'Job' })).toHaveAttribute('data-view', 'conversation');
+    expect(screen.getByRole('main', { name: 'Job' })).toHaveClass('is-talk');
+  });
+
+  it('a step’s address shows the job page on that step', async () => {
+    window.location.hash = '#/job/alpha/stage/review';
+    renderJob([job('alpha', 'running', { stage: 'plan', lane: 'working' })]);
+    const page = await screen.findByRole('main', { name: 'Job' });
+    expect(page).toHaveClass('sb-job-page');
+    expect(openTab().id).toBe('sb-step-review');
+    expect(within(page).getByRole('tabpanel', { name: 'Review', hidden: true })).toBeInTheDocument();
+    // The browser tab still names the step and the job.
+    expect(document.title).toContain('Review · Job alpha');
+  });
+
+  it('typing in What should change? then picking another step keeps the words', async () => {
+    window.location.hash = '#/job/alpha';
+    renderJob();
+    const page = await screen.findByRole('main', { name: 'Job' });
+    const box = await typeAChange('Use the small table.');
+    // From the job's address to a step's (the pick rewrites the address in place).
+    fireEvent.click(tabOf('spec'));
+    await act(async () => {});
+    expect(window.location.hash).toBe('#/job/alpha/stage/spec');
+    expect(openTab().id).toBe('sb-step-spec');
+    expect(screen.getByRole('main', { name: 'Job' })).toBe(page);
+    expect(screen.getByRole('textbox', { name: /What should change\?/ })).toBe(box);
+    expect(box).toHaveValue('Use the small table.');
+    // And from one step's address to another's.
+    fireEvent.click(tabOf('build'));
+    await act(async () => {});
+    expect(window.location.hash).toBe('#/job/alpha/stage/build');
+    expect(openTab().id).toBe('sb-step-build');
+    expect(screen.getByRole('main', { name: 'Job' })).toBe(page);
+    expect(screen.getByRole('textbox', { name: /What should change\?/ })).toBe(box);
+    expect(box).toHaveValue('Use the small table.');
+  });
+
+  it('going from the job’s address to a step’s address keeps the words', async () => {
+    window.location.hash = '#/job/alpha';
+    renderJob();
+    const page = await screen.findByRole('main', { name: 'Job' });
+    const box = await typeAChange('Keep the old export.');
+    // A link (a hashchange) to one of the job's steps, then to another.
+    act(() => { window.location.hash = '#/job/alpha/stage/test'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    await waitFor(() => expect(openTab().id).toBe('sb-step-test'));
+    expect(screen.getByRole('main', { name: 'Job' })).toBe(page);
+    expect(screen.getByRole('textbox', { name: /What should change\?/ })).toBe(box);
+    expect(box).toHaveValue('Keep the old export.');
+    act(() => { window.location.hash = '#/job/alpha/stage/ship'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    await waitFor(() => expect(openTab().id).toBe('sb-step-ship'));
+    expect(screen.getByRole('main', { name: 'Job' })).toBe(page);
+    expect(screen.getByRole('textbox', { name: /What should change\?/ })).toBe(box);
+    expect(box).toHaveValue('Keep the old export.');
+  });
+});
+
+// Review Focus 1: a step view from an older laptop, or a half-written answer, never takes the page down.
+describe('a step view with missing parts', () => {
+  it('a step view with no agents shows the step with nobody working, and the page is whole', async () => {
+    window.location.hash = '#/job/alpha/stage/build';
+    const get = serverGet();
+    const answer = get.getMockImplementation()!;
+    // No agents, no finished, documents that are not a list, no terminal apps. Done, so whether the
+    // step is live is read from its agents.
+    // At Test: agents that are not a list, and a finished row with a hole before it and no terminal.
+    const tester = { who: 'feature-tester', role: 'Tester', model: null, doing: null, since: null, lastAt: null, status: 'done', ref: '7' };
+    get.mockImplementation(async (path: string) => (/\/stage\/test$/.test(path)
+      ? { slug: 'alpha', stop: 'test', label: 'Test', state: 'done', stateWords: 'Done', since: null, agents: 'nobody', finished: [null, tester] }
+      : /\/stage\/[a-z]+$/.test(path)
+        ? { slug: 'alpha', stop: path.split('/').pop(), label: 'Build', state: 'done', stateWords: 'Done', since: null, docs: {} }
+        : answer(path)));
+    const api = { snapshot: vi.fn(async () => snapshot({ jobs: [job('alpha', 'running', { stage: 'implement', lane: 'working' })] })), setToken: vi.fn(), get, post: vi.fn(async () => ({ ok: true })), put: vi.fn() } as unknown as ApiClient;
+    render(<App api={api} openStream={() => new FakeStream()} />);
+    const page = await screen.findByRole('main', { name: 'Job' });
+    const panel = within(page).getByRole('tabpanel', { name: 'Build' });
+    expect(await within(panel).findByText('Nobody is working here now.')).toBeInTheDocument();
+    expect(within(panel).getByText('No documents from this step yet.')).toBeInTheDocument();
+    // The page is whole: the header, the seven steps, the bar and the conversation are all there.
+    expect(within(page.querySelector<HTMLElement>('.sb-job-top')!).getByRole('heading', { name: 'Job alpha' })).toBeInTheDocument();
+    expect(within(within(page).getByRole('tablist', { name: 'The job’s seven steps' })).getAllByRole('tab')).toHaveLength(7);
+    expect(within(page).getByRole('region', { name: 'Next step' })).toBeInTheDocument();
+    expect(within(page).getByRole('textbox', { name: /Your message to the Foreman/ })).toBeInTheDocument();
+    // Another step with the same answer: still whole.
+    fireEvent.click(document.getElementById('sb-step-test')!);
+    const test = await screen.findByRole('tabpanel', { name: 'Test' });
+    expect(await within(test).findByRole('heading', { name: 'Three kinds of test' })).toBeInTheDocument();
+    // The Tester's row shows; with no terminal facts its button rests.
+    expect(within(test).getByText('Finished its part')).toBeInTheDocument();
+    expect(screen.getByRole('main', { name: 'Job' })).toBe(page);
+  });
+});
+
 describe('Job drawer in the shell', () => {
   function renderWithJob() {
     window.location.hash = '#/job/alpha';
-    const get = vi.fn(async (path: string) => {
-      if (path === '/api/job/alpha/notes') return { text: 'Keep it small.', updatedAt: null };
-      return { slug: 'alpha', thread: [], threadMore: false, options: null };
-    });
+    const get = serverGet(undefined, 'Keep it small.');
     const api = { snapshot: vi.fn(async () => snapshot({ jobs: [job('alpha', 'idle')] })), setToken: vi.fn(), get, post: vi.fn(), put: vi.fn() } as unknown as ApiClient;
     render(<App api={api} openStream={() => new FakeStream()} />);
     return { get };
@@ -324,7 +497,7 @@ describe('Keys through the registry', () => {
 
   it('on a job: n opens Notes and options, i puts the cursor in the message box', async () => {
     window.location.hash = '#/job/alpha';
-    const get = vi.fn(async (path: string) => (path === '/api/job/alpha/notes' ? { text: '', updatedAt: null } : { slug: 'alpha', thread: [], threadMore: false, options: null }));
+    const get = serverGet();
     const api = { snapshot: vi.fn(async () => snapshot({ jobs: [job('alpha', 'idle')] })), setToken: vi.fn(), get, post: vi.fn(), put: vi.fn() } as unknown as ApiClient;
     render(<App api={api} openStream={() => new FakeStream()} />);
     await screen.findByRole('heading', { name: 'Job alpha' });

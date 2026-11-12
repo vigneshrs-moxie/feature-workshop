@@ -1,5 +1,5 @@
-// The new job page (Part 3, design 3.1 to 3.5). Not routed yet: App still mounts JobPage for
-// #/job/<slug>. JobScreen holds what every layout needs (the job's conversation, the shell's current
+// The job page (Part 3, design 3.1 to 3.5): App and the website mount it for #/job/<slug> and for
+// a step's address, with the job as the key, so a pick never remounts it. JobScreen holds what every layout needs (the job's conversation, the shell's current
 // job, the sent line and the clock); LaptopJob is the laptop's layout and everything only it uses
 // (the evidence, the open step, the keys, the requests), so none of that runs on a phone.
 //

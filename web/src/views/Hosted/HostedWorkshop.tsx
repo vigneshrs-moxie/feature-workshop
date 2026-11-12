@@ -1,8 +1,8 @@
-// The laptop app's own pages on the hosted site (packet 2B): the Desk, a job, its Stage, Stacks and
-// a part, drawn from the full mirror. The store is the laptop app's (state/store.ts), kept in step
-// by the same live sync (state/live.ts) over the site's snapshot and its live stream
-// (hostedStream.ts: each stream ends before the site's time limit and the next carries on without a
-// sign; every 5 seconds by polling when a stream can't be had).
+// The laptop app's own pages on the hosted site (packet 2B): the Desk, a job (the job page, at the
+// job's address and at each step's), Stacks and a part, drawn from the full mirror. The store is the
+// laptop app's (state/store.ts), kept in step by the same live sync (state/live.ts) over the site's
+// snapshot and its live stream (hostedStream.ts: each stream ends before the site's time limit and
+// the next carries on without a sign; every 5 seconds by polling when a stream can't be had).
 //
 // What is decided here waits for the laptop when it is off (QueuedDecision.tsx says so on the card),
 // and above every page a line says how the laptop is, in words.
@@ -12,8 +12,7 @@ import { useKeyListener } from '../../app/keyRegistry';
 import { UiProvider } from '../../app/ui';
 import { TooltipLayer } from '../../components/Tooltip';
 import { DeskPage } from '../../home/DeskPage';
-import { JobPage } from '../../job/JobPage';
-import { StagePage } from '../../job/StagePage';
+import { NewJobPage } from '../../job/page/NewJobPage';
 import { useNow } from '../../lib/time';
 import { useDelayedFlag } from '../../lib/useDelayedFlag';
 import { PlayLedgerProvider } from '../../play/PlayLedger';
@@ -74,8 +73,9 @@ function Body({ route }: { route: MirrorRoute }) {
   let page: ReactNode;
   switch (route.name) {
     case 'desk': page = <DeskPage />; break;
-    case 'job': page = <JobPage key={route.slug} slug={route.slug} />; break;
-    case 'stage': page = <StagePage key={`${route.slug}/${route.stop}`} slug={route.slug} stop={route.stop} />; break;
+    // The job page at a job's address and at each step's: the same key, so it stays mounted between them.
+    case 'job': page = <NewJobPage key={route.slug} slug={route.slug} view={route.view} />; break;
+    case 'stage': page = <NewJobPage key={route.slug} slug={route.slug} step={route.stop} />; break;
     case 'stacks': page = <StacksPage />; break;
     case 'stack': page = <StackPage key={route.slug} slug={route.slug} />; break;
     default: page = <PartPage key={`${route.slug}/${route.n}`} slug={route.slug} n={route.n} />;

@@ -1,12 +1,15 @@
 // Auto runs a demo job to PR #1 with no click, and stops on a database change, checked in a real browser.
 //
-// The demo seeds two jobs in Auto at their quick-plan gate (dashboard/demo/run-demo.js):
-//   "Auto demo"          Auto answers every step and card with the demo's stand-in Approver until PR #1 is open.
-//   "Auto demo: migrate" its description is a database change, so Auto stops at once.
+// The demo seeds three jobs in Auto at their quick-plan gate (dashboard/demo/run-demo.js):
+//   "Auto demo"               Auto answers every step and card with the demo's stand-in Approver until PR #1 is open.
+//   "Auto demo: migrate"      its description is a database change, so Auto stops at once.
+//   "Ticket count in the tab" (auto-yours) he wrote to it while the step waited, so Auto leaves the
+//                             step to him. This script does not check it; its title never matches
+//                             "Auto demo", so there is still exactly one "Auto demo" card.
 // This script only looks. It refuses every request that is not a GET, so nothing on the page can answer
 // a step for Auto: if "Auto demo" gets to PR #1, Auto did it. It checks that
 //   1. "Auto demo" shows PR #1 open within 120 s, with no click and no request that changes anything,
-//      and its job page has the Auto switch and "What Auto decided" in its head;
+//      and its job page has the Auto switch and "What Auto decided" in its header (.sb-job-top);
 //   2. "What Auto decided" on its card lists one entry per approval (the summary counts them), each
 //      with the Approver's reason, and says Auto finished;
 //   3. "Auto demo: migrate" is in the Needs you group with "Auto stopped: a database change needs you."
@@ -36,7 +39,7 @@ const page = await browser.newPage({ viewport: { width: WIDTH, height: 1000 } })
 await page.addInitScript((t) => {
   try {
     localStorage.setItem('workshop.theme', t);
-    localStorage.setItem('gc.guide.seen', JSON.stringify(['jobs', 'desk', 'stage', 'job', 'inbox', 'telemetry', 'stack', 'stacks', 'review', 'review-round']));
+    localStorage.setItem('gc.guide.seen', JSON.stringify(['jobs', 'desk', 'stage', 'job', 'job-page-2', 'inbox', 'telemetry', 'stack', 'stacks', 'review', 'review-round']));
   } catch { /* storage off */ }
 }, THEME);
 let refused = 0;
@@ -63,13 +66,13 @@ try {
   else fail(`Auto demo did not show "PR #1 open" within ${WAIT_MS / 1000} s`);
   if (refused) fail(`${refused} request(s) that change something were refused: ${refusedWhat.join(', ')}`);
 
-  // 1b. The job page itself has the Auto switch and What Auto decided, before we leave it. (Auto goes
-  // off by itself once PR #1 is open, so the switch is there but not ticked now.)
-  const pageSwitch = page.locator('main .page-head').getByRole('checkbox', { name: /Auto: run to PR #1/ });
-  if ((await pageSwitch.count()) !== 1) fail(`the job page has ${await pageSwitch.count()} Auto switches in its head, expected 1`);
+  // 1b. The job page itself has the Auto switch and What Auto decided in its header, before we leave
+  // it. (Auto goes off by itself once PR #1 is open, so the switch is there but not ticked now.)
+  const pageSwitch = page.locator('main .sb-job-top').getByRole('checkbox', { name: /Auto: run to PR #1/ });
+  if ((await pageSwitch.count()) !== 1) fail(`the job page has ${await pageSwitch.count()} Auto switches in its header, expected 1`);
   else ok('the job page has the Auto switch');
-  const pageWhat = page.locator('main .page-head').getByRole('button', { name: 'What Auto decided' });
-  if ((await pageWhat.count()) !== 1) fail(`the job page has ${await pageWhat.count()} "What Auto decided" buttons in its head, expected 1`);
+  const pageWhat = page.locator('main .sb-job-top').getByRole('button', { name: 'What Auto decided' });
+  if ((await pageWhat.count()) !== 1) fail(`the job page has ${await pageWhat.count()} "What Auto decided" buttons in its header, expected 1`);
   else ok('the job page has What Auto decided');
 
   // 2. What Auto decided, on the Jobs page card.

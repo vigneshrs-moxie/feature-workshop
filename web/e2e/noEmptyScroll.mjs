@@ -1,9 +1,12 @@
 // No scroll past the end of a page (spec 1.10), checked in a real browser.
 //
 // On every screen (Jobs, Table, Map, the Desk, Inbox, Stacks, Telemetry, Settings and its
-// Workflow section, each job's page and one step page) it checks the screen as it opens, then
-// opens every fold on the page one after another and checks again after each; on a job page it
-// also opens the level menu in Details (opening it sends nothing; no level is picked), checks, and
+// Workflow section, each job's page, the first job's page at each of its seven steps' addresses,
+// and nightly-export's Test step, conversation and overview addresses when the app has that job)
+// it checks the screen as it opens, then opens every fold on the page one after another and checks
+// again after each: the overview, a "Details" or "More" row, a <summary>, and on the Test step the
+// evidence fold ("Each line and its video"), Try it and Watch. On a job page it also opens the
+// level menu in the page's header (opening it sends nothing; no level is picked), checks, and
 // closes it. A check fails when:
 //   1. the document itself scrolls, down or sideways (the app's own scroll areas do the scrolling);
 //   2. a scroll area ends in empty space: it scrolls more than 48 px (plus its own bottom padding)
@@ -11,7 +14,8 @@
 //   3. something is cut off sideways: main or a scroll area is wider inside than it shows, or a
 //      box with text in a card runs past its own edge without an ellipsis or a sideways scroll;
 //   4. on a job page the conversation's message list is under 160 px tall in a window 800 px tall
-//      or more;
+//      or more (only while it is shown: under 1100 px it is behind the Conversation button, and the
+//      phone layout, 760 px and under, has its own conversation screen);
 //   5. the screen is not there: the address could not be opened, or the page has no main, or its
 //      main has no text (a blank page or a crashed route never passes).
 // The check only reads: it refuses every request that is not a GET.
@@ -41,7 +45,13 @@ const WIDTHS = (process.env.WIDTH || process.env.WIDTHS || '1280,1512,1920')
 const HEIGHT = 820;
 // "dark" is the dark theme's own id, default (web/src/theme/theme.ts THEME_PAIRS).
 const THEME = ({ dark: 'default' })[process.env.THEME || 'light'] ?? (process.env.THEME || 'light');
-const FOLDS = 'main .more-head, main details > summary';
+// Every fold: a "Details" or "More" row, a <summary> (the job page's overview is one), and on the
+// Test step the evidence fold, Try it and Watch (each opens something in the page).
+const FOLDS = 'main .more-head, main details > summary, main .sb-test-link[aria-expanded], main .sb-test-action > button';
+/** A fold is open: a <summary>'s details is, an aria-expanded control says so, Watch reads Stop watching. */
+const isOpen = (el) => (el.tagName === 'SUMMARY' ? el.parentElement.open
+  : el.hasAttribute('aria-expanded') ? el.getAttribute('aria-expanded') === 'true'
+    : /Stop watching/.test(el.textContent || ''));
 const MAX_FOLDS = 60;
 
 /** The jobs to visit, from the app's own snapshot. */
@@ -53,6 +63,10 @@ async function jobSlugs() {
 }
 
 const slugs = await jobSlugs();
+/** The job's seven steps, in order (web/src/components/stops/stops.ts). */
+const STEPS = ['spec', 'investigate', 'plan', 'build', 'test', 'review', 'ship'];
+/** The demo's job with a recording under way: its Test step, its conversation and its overview. */
+const RECORDING_JOB = 'nightly-export';
 const SCREENS = [
   ['Jobs', '#/'],
   ['Table', '#/table'],
@@ -64,7 +78,12 @@ const SCREENS = [
   ['Settings', '#/settings'],
   ['Settings → Workflow', '#/settings/workflow'],
   ...slugs.map((s) => [`Job ${s}`, `#/job/${s}`]),
-  ...(slugs.length ? [[`Step page ${slugs[0]} → Build`, `#/job/${slugs[0]}/stage/build`]] : []),
+  ...(slugs.length ? STEPS.map((stop) => [`Job ${slugs[0]} at ${stop}`, `#/job/${slugs[0]}/stage/${stop}`]) : []),
+  ...(slugs.includes(RECORDING_JOB) ? [
+    [`Job ${RECORDING_JOB} at test`, `#/job/${RECORDING_JOB}/stage/test`],
+    [`Job ${RECORDING_JOB}: conversation`, `#/job/${RECORDING_JOB}/conversation`],
+    [`Job ${RECORDING_JOB}: overview`, `#/job/${RECORDING_JOB}/overview`],
+  ] : []),
 ];
 
 /** Runs in the page: every failure on the screen as it stands now, as short lines. */
@@ -166,7 +185,7 @@ function check() {
   // Only text counts: a key hint, a tooltip or a menu placed on a box's corner on purpose is
   // positioned absolutely, so text inside such a piece is left out; so is anything inside a box
   // that scrolls sideways or ends in an ellipsis.
-  const CARD = '[class*="card"], .more, .job-side-card, .job-convo, .job-details, .desk-console';
+  const CARD = '[class*="card"], .more, .job-side-card, .job-convo, .job-details, .desk-console, .sb-job-top, .fold, .sb-panel, .sb-convo';
   const placed = (t, box) => {
     for (let p = t.parentElement; p && p !== box; p = p.parentElement) {
       const s = getComputedStyle(p);
@@ -198,8 +217,8 @@ function check() {
     out.push(`${name(e)} in ${name(e.parentElement.closest(CARD))} runs out sideways: ${e.scrollWidth} wide in ${e.clientWidth} ("${e.textContent.trim().slice(0, 40)}")`);
   }
 
-  // 4. A squeezed conversation on a job page.
-  const thread = document.querySelector('.job-convo-thread');
+  // 4. A squeezed conversation on a job page: its message list, while it is shown.
+  const thread = document.querySelector('.sb-convo-list');
   if (thread && shown(thread) && innerHeight >= 800 && thread.clientHeight < 160) out.push(`the conversation's message list is ${thread.clientHeight} px tall in a ${innerHeight} px window`);
   return out;
 }
@@ -256,15 +275,15 @@ async function runAt(WIDTH) {
       if (i >= (await folds.count())) break;
       const fold = folds.nth(i);
       if (!(await fold.isVisible().catch(() => false))) continue;
-      const open = await fold.evaluate((el) => (el.tagName === 'SUMMARY' ? el.parentElement.open : el.getAttribute('aria-expanded') === 'true'));
+      const open = await fold.evaluate(isOpen);
       if (open) continue;
       const label = ((await fold.textContent().catch(() => '')) || '').trim().replace(/\s+/g, ' ').slice(0, 40);
       await fold.click({ timeout: 2000 }).catch(() => {});
       await page.waitForTimeout(250);
       await record(screen, `with "${label}" open`);
     }
-    // The level menu in Details: open, check, close. Opening sends nothing.
-    const chip = page.locator('main .job-details .level-chip:enabled');
+    // The level menu in the job page's header: open, check, close. Opening sends nothing.
+    const chip = page.locator('main .sb-job-top .level-chip:enabled');
     if (await chip.count() && await chip.first().isVisible().catch(() => false)) {
       await chip.first().click({ timeout: 2000 }).catch(() => {});
       await page.waitForTimeout(250);

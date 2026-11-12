@@ -33,8 +33,7 @@ import { StacksPage } from '../views/Stack/StacksPage';
 import { InboxView } from '../views/Inbox';
 import { DeskPage } from '../home/DeskPage';
 import { JobsPage } from '../home/JobsPage';
-import { JobPage } from '../job/JobPage';
-import { StagePage } from '../job/StagePage';
+import { NewJobPage } from '../job/page/NewJobPage';
 import { TelemetryView } from '../views/Telemetry';
 import { PlayLedgerProvider } from '../play/PlayLedger';
 import { PlayEggs, usePaletteEggs } from '../play/PlayEggs';
@@ -205,11 +204,13 @@ function Shell({ onRetry }: { onRetry: () => void }) {
       </div>
     );
   }
-  // Every page is full width: a job is the Job page (and its stops' Stages); there are no panes.
+  // Every page is full width; there are no panes. A job is the job page, at its own address and at
+  // each step's: one key (the job's) on both routes, so a pick (which moves the address in place) or
+  // a link to another step never draws the page again from scratch.
   const page = route.name === 'gallery' ? <GalleryView />
     : route.name === 'screens' ? <ScreensView key={route.slug} slug={route.slug} />
-    : route.name === 'job' ? <JobPage key={route.slug} slug={route.slug} />
-      : route.name === 'stage' ? <StagePage key={`${route.slug}/${route.stop}`} slug={route.slug} stop={route.stop} />
+    : route.name === 'job' ? <NewJobPage key={route.slug} slug={route.slug} view={route.view} />
+      : route.name === 'stage' ? <NewJobPage key={route.slug} slug={route.slug} step={route.stop} />
       : route.name === 'stacks' ? <StacksPage />
       : route.name === 'stack' ? <StackPage key={route.slug} slug={route.slug} />
       : route.name === 'stack-part' ? <PartPage key={`${route.slug}/${route.n}`} slug={route.slug} n={route.n} />

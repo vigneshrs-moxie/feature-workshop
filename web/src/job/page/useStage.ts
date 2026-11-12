@@ -5,7 +5,7 @@
 // (job.updatedAt). It stops asking when the step changes or the component goes; an answer for
 // another step is never drawn into this one.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { StageView, StopId } from '../../api/types';
+import type { StageAgent, StageView, StopId } from '../../api/types';
 import { lastKnown, remember } from '../../lib/lastKnown';
 import { jobBySlug } from '../../state/reducer';
 import { useWorkshop, useWorkshopState } from '../../state/store';
@@ -16,7 +16,15 @@ type Load = { state: 'loading' } | { state: 'error'; message: string } | { state
 export const STAGE_LIVE_MS = 5_000;
 export const STAGE_QUIET_MS = 30_000;
 
-const live = (view: StageView | null) => Boolean(view) && (view!.state === 'now' || view!.state === 'waiting' || view!.agents.some((a) => a.status === 'working' || a.status === 'waiting'));
+/**
+ * A step view's list (its agents, finished, documents): a missing one, one that is not a list (an
+ * older laptop, a half-written answer) and any hole in it count as none, never as a crash.
+ */
+export function listOf<T extends object>(v: unknown): T[] {
+  return Array.isArray(v) ? v.filter((x): x is T => x !== null && typeof x === 'object') : [];
+}
+
+const live = (view: StageView | null) => Boolean(view) && (view!.state === 'now' || view!.state === 'waiting' || listOf<StageAgent>(view!.agents).some((a) => a.status === 'working' || a.status === 'waiting'));
 
 export function useStage(slug: string, stop: StopId): { view: StageView | null; error: string | null; reload(): void } {
   const { api } = useWorkshop();
