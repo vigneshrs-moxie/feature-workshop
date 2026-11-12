@@ -667,18 +667,24 @@ export async function createRunner(config) {
   // (lib/job-page.js planDone). The review's rows from review.md (lib/play.js reviewRows); the PRs
   // from status.json and the flow map's lane. A part that fails is null, so an older job still has
   // a whole page.
+  // A branch Starbase only guessed (lib/locate.js branchGuessed) may be another job's: the page's facts
+  // read nothing from it, its worktree or its pull requests, as for a job with no branch.
+  const ownBranch = (f) => (f.locate?.branchGuessed ? null : f.branch ?? null);
+  const ownLane = (f) => (f.locate?.branchGuessed ? null : flowLanes.get(f.slug) ?? null);
+  const codeDirOf = (f) => (f.worktree && !guessedWorktree(f) && fs.existsSync(f.worktree) ? f.worktree : f.repoPath);
   const PLAN_COMMITS_KEPT = 50; // the most branches whose commits are kept, the oldest out first
   const planCommitsCache = new Map(); // codeDir|branch|base -> { head, commits: [{ step }] }
   async function planCommitsOf(f) {
     const base = f.baseSha ?? f.baseBranch;
-    const codeDir = f.worktree && fs.existsSync(f.worktree) ? f.worktree : f.repoPath;
-    if (!codeDir || !f.branch || !base) return [];
-    const head = await git.headOf(codeDir, f.branch);
+    const branch = ownBranch(f);
+    const codeDir = codeDirOf(f);
+    if (!codeDir || !branch || !base) return [];
+    const head = await git.headOf(codeDir, branch);
     if (!head) return [];
-    const key = `${codeDir}|${f.branch}|${base}`;
+    const key = `${codeDir}|${branch}|${base}`;
     const hit = planCommitsCache.get(key);
     if (hit && hit.head === head) return hit.commits;
-    const commits = (await git.commits(codeDir, { base, head: f.branch, limit: 500 })).map((c) => ({ step: c.step }));
+    const commits = (await git.commits(codeDir, { base, head: branch, limit: 500 })).map((c) => ({ step: c.step }));
     keepLatest(planCommitsCache, key, { head, commits }, PLAN_COMMITS_KEPT);
     return commits;
   }
@@ -691,7 +697,7 @@ export async function createRunner(config) {
         return planView({
           text, version: docVersion(f.dir, file, f.recordedArtifacts), stage: f.stage,
           building: stopOf(f.stage) === 'build' && f.stageState === 'working' && !closedOff(f),
-          finished: planDone({ closed: closedOff(f) ? f.closed : null, prs: f.prs, lane: flowLanes.get(f.slug) ?? null }),
+          finished: planDone({ closed: closedOff(f) ? f.closed : null, prs: f.prs, lane: ownLane(f) }),
           readCommits: () => planCommitsOf(f),
         });
       }
@@ -949,7 +955,8 @@ export async function createRunner(config) {
     const workedSinceMark = f.closed && running.some((a) => a.lastAt && a.lastAt > f.closed.at);
     const off = Boolean(f.closed) && !active && !workedSinceMark && !(f.updatedAt && f.updatedAt > f.closed.at);
     // The finish line (lib/finish.js): crossed or not, by what, and where the work has landed.
-    const lane = flowLanes.get(f.slug) ?? null;
+    // Not a lane the map still has from before the branch was only a guess (ownLane).
+    const lane = ownLane(f);
     // An Auto job's finish line is PR #1 open, whatever Settings says (lib/auto.js: ran stays true).
     const finish = finishLineReached({ prs: f.prs, closed: off ? f.closed : null }, lane, f.auto?.ran === true ? 'pr1-open' : finishLineNow);
     return {
@@ -1207,8 +1214,10 @@ export async function createRunner(config) {
       // The proof stamp: the commit the test report checked, and whether the branch moved on since.
       const reportText = await readInside(f.dir, 'test-report.md');
       if (reportText) {
+        // Not against a branch Starbase only guessed: its head says nothing of this job's commits.
         const where = f.worktree ?? f.repoPath;
-        const head = where && f.branch ? await git.headOf(where, f.branch) : null;
+        const branch = ownBranch(f);
+        const head = where && branch ? await git.headOf(where, branch) : null;
         const reportAt = await fsp.stat(path.join(f.dir, 'test-report.md')).then((st) => st.mtime.toISOString(), () => null);
         gate = { ...gate, proof: proofStamp({ reportText, reportAt, head }) };
       }
@@ -1239,7 +1248,7 @@ export async function createRunner(config) {
         ...(await testFacts(f)),
         plan: await planFacts(f),
         review: await reviewFacts(f),
-        prs: prRows(f.prs, flowLanes.get(f.slug) ?? null),
+        prs: prRows(f.prs, ownLane(f)),
       },
       // policy: the setting in force for this job; policyOverride: the job's own (null: it follows yours).
       // While Auto is on, 'auto' (lib/state.js policyFor), the job's own setting kept as it was.
@@ -1833,8 +1842,8 @@ export async function createRunner(config) {
         triggers: suggestLevel({ description: f.description, paths: [...(f.predictedPaths ?? []), ...((await autoChangedPaths(f, { worktrees, repo: mainCheckout ?? verifiedRepo }).catch(() => null)) ?? [])] }).triggers,
         statusCard: driver.pendingPermissions().some((p) => p.featureDir === f.dir && p.statusCard === true),
         // PR #1 open by status.json or by the flow map: the same sources the ordinary Done notice reads (flowNotices).
-        // With a branch Starbase only guessed (lib/locate.js), the map's lane may be another job's: status.json alone.
-        prOpen: finishLineReached({ prs: f.prs, closed: null }, f.locate?.branchGuessed ? null : flowLanes.get(f.slug) ?? null, 'pr1-open').reached,
+        // With a branch Starbase only guessed (lib/locate.js), the map's lane may be another job's: status.json alone (ownLane).
+        prOpen: finishLineReached({ prs: f.prs, closed: null }, ownLane(f), 'pr1-open').reached,
         gate: g ? { ...g, briefNumber: cb?.number ?? null, headline: cb?.headline ?? null } : null,
         // All of the job's lines: a long reply after the person's own answer must not push it out of view.
         answered: answeredBriefs(await state.auditFor(f.dir, Infinity), cb),
@@ -2576,7 +2585,8 @@ export async function createRunner(config) {
 
     async 'fetch-diff'(body) {
       const f = await jobOf(body.slug);
-      const codeDir = f.worktree && fs.existsSync(f.worktree) ? f.worktree : f.repoPath;
+      // Never in a worktree found only through a guessed branch (codeDirOf): the repository instead.
+      const codeDir = codeDirOf(f);
       if (!codeDir) throw new HttpError(404, 'No repository for this job.');
       return { dir: codeDir, ...(await git.show(codeDir, body.commit)) };
     },
@@ -3343,10 +3353,12 @@ export async function createRunner(config) {
     localView: async (slug, { fresh = false } = {}) => local.view(await jobOf(slug), { fresh }),
     async commits(slug) {
       const f = await jobOf(slug);
-      const codeDir = f.worktree && fs.existsSync(f.worktree) ? f.worktree : f.repoPath;
-      if (!codeDir || !f.branch || !(await git.isGitRepo(codeDir))) return { dir: codeDir, commits: [], note: 'No feature branch yet. Commits show up here once building starts.' };
+      // A branch Starbase only guessed is read as no branch (ownBranch).
+      const codeDir = codeDirOf(f);
+      const branch = ownBranch(f);
+      if (!codeDir || !branch || !(await git.isGitRepo(codeDir))) return { dir: codeDir, commits: [], note: 'No feature branch yet. Commits show up here once building starts.' };
       try {
-        return { dir: codeDir, base: f.baseSha ?? null, head: f.branch, commits: await git.commitsWithFiles(codeDir, { base: f.baseSha ?? null, head: f.branch }) };
+        return { dir: codeDir, base: f.baseSha ?? null, head: branch, commits: await git.commitsWithFiles(codeDir, { base: f.baseSha ?? null, head: branch }) };
       } catch (err) {
         return { dir: codeDir, commits: [], note: `Couldn’t read the branch: ${String(err.message).split('\n')[0]}` };
       }
@@ -3356,7 +3368,8 @@ export async function createRunner(config) {
     /** A job's screens or walkthrough page, for the screens server (lib/docs.js readWireframes, readWalkthrough). */
     async screen(slug, which, { forDownload = false } = {}) {
       const f = await jobOf(slug);
-      try { return which === 'walkthrough' ? await readWalkthrough(f, { forDownload }) : await readWireframes(f.dir); } catch (err) { throw err instanceof DocError ? new HttpError(err.status, err.message) : err; }
+      // A branch only guessed has no walkthrough of this job's (ownBranch): read as a job with no branch, so none.
+      try { return which === 'walkthrough' ? await readWalkthrough({ ...f, branch: ownBranch(f) }, { forDownload }) : await readWireframes(f.dir); } catch (err) { throw err instanceof DocError ? new HttpError(err.status, err.message) : err; }
     },
     /** A job's screens PDF pack (lib/docs.js readWireframesPack): { bytes }, or 404. */
     async wireframesPack(slug) {
