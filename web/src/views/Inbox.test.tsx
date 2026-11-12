@@ -13,6 +13,9 @@ import { InboxView, tagMatches, suggestNote, levelWord, nextTicket, shownPicks, 
 import { OrbitTokenSettings } from './Settings/OrbitTokenSettings';
 import { setGuideFirstVisit } from '../components/page/Page';
 import { pickOption } from '../components/Select.testing';
+import type { AutoQueue } from '../api/types';
+import { jobHref } from '../app/router';
+import { HostedInboxPage } from './Hosted/HostedInboxPage';
 
 // Invented tickets only.
 const NOW = new Date();
@@ -628,6 +631,112 @@ describe('Auto start on the Inbox', () => {
     expect(tagMatches({ tags: ['automatic'] }, 'auto')).toBe(false);
     expect(tagMatches({ tags: [], title: 'auto' } as never, 'auto')).toBe(false);
     expect(tagMatches({ tags: ['auto'] }, '  ')).toBe(false);
+  });
+});
+
+// Task 16: the Inbox's Auto tab and Mine's marks, from the snapshot's Auto queue: on the laptop from
+// the store, on the site from the site's own snapshot (HostedInboxPage reads /api/snapshot).
+describe.each(['laptop', 'hosted'] as const)('the Inbox’s Auto tab (%s)', (mode) => {
+  const ticket = (key: string, title: string, group: AutoQueue['tickets'][number]['group'], extra: Partial<AutoQueue['tickets'][number]> = {}) => ({ key, title, group, slug: null, reason: null, ...extra });
+  const QUEUE: AutoQueue = {
+    on: true, tag: 'auto', max: 3, working: 1, unfinished: 2, ceiling: 10, paused: null, testing: null,
+    tickets: [
+      ticket('ORBIT-21', 'Waiting ticket', 'next'),
+      ticket('ORBIT-22', 'Busy ticket', 'working', { slug: 'orbit-22-busy' }),
+      ticket('ORBIT-23', 'Big ticket', 'too-big', { slug: 'orbit-23-big', reason: 'The brief says it needs a stack.' }),
+      ticket('ORBIT-24', 'Failed ticket', 'failed', { reason: 'This laptop has no repository for it.' }),
+    ],
+  };
+  const SETTING = { on: true, tag: 'auto', max: 3 };
+  const ITEMS = [item(21, { tags: ['auto'] }), item(22, { tags: ['auto'], job: { slug: 'orbit-22-busy', title: 'Busy' } })];
+
+  /** The Inbox on this mode, with this queue (null: an older laptop sent none). */
+  async function mount({ queue = QUEUE, setting = SETTING, items = ITEMS }: { queue?: AutoQueue | null; setting?: { on: boolean; tag: string; max?: number }; items?: InboxItem[] } = {}) {
+    const answer: InboxAnswer = { ...STATUS, autoStart: { ...setting, paused: null }, tagsShown: true, items };
+    if (mode === 'laptop') {
+      const { store, wrap } = setup({ answer });
+      store.dispatch({ type: 'snapshot', snapshot: snapshot({ meta: { token: 't', levels: LEVELS }, ...(queue ? { autoQueue: queue } : {}) }) });
+      wrap(<InboxView openStream={() => null} />);
+    } else {
+      const get = vi.fn(async (path: string) => {
+        if (path === '/api/orbit/inbox' || path === '/api/orbit/inbox?refresh=1') return answer;
+        if (path === '/api/snapshot') return { meta: { settings: { workflow: { finishLine: 'pr1-merged', autoStart: setting } } }, ...(queue ? { autoQueue: queue } : {}) };
+        throw new ApiError(404, 'Not found');
+      });
+      const api = { get, post: vi.fn(), del: vi.fn(), hosted: () => true } as unknown as ApiClient;
+      render(<UiProvider><HostedInboxPage api={api} onSignedOut={() => {}} person={{ id: 1, name: 'Olive Owner', email: 'olive@example.test', role: 'owner' }} /></UiProvider>);
+    }
+    await screen.findAllByRole('table');
+  }
+  const tabNames = () => screen.getAllByRole('tab').map((t) => t.querySelector('.seg-name')?.textContent);
+  const autoTab = () => screen.getByRole('tab', { name: 'Auto' });
+
+  it('the Auto tab lists next up, working, too big and couldn\'t start, from the queue', async () => {
+    await mount();
+    // Mine, Auto, then the saved views (the laptop only); the count is the queue's tickets.
+    await waitFor(() => expect(tabNames()).toEqual(mode === 'laptop' ? ['Mine', 'Auto', 'Critical, mine'] : ['Mine', 'Auto']));
+    await waitFor(() => expect(autoTab().querySelector('.seg-count')).toHaveTextContent('4'));
+    fireEvent.click(autoTab());
+    expect(autoTab()).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(['Next up', 'Auto is working on these', 'Too big for Auto', 'Couldn’t start']);
+    const next = screen.getByRole('region', { name: 'Next up' });
+    expect(next).toHaveTextContent('ORBIT-21');
+    expect(next).toHaveTextContent('Waiting ticket');
+    expect(within(next).queryByRole('link')).toBeNull();
+    const working = screen.getByRole('region', { name: 'Auto is working on these' });
+    expect(within(working).getByRole('link', { name: /Busy ticket/ })).toHaveAttribute('href', jobHref('orbit-22-busy'));
+    const big = screen.getByRole('region', { name: 'Too big for Auto' });
+    expect(big).toHaveTextContent('The brief says it needs a stack.');
+    expect(within(big).getByRole('link', { name: /Big ticket/ })).toHaveAttribute('href', jobHref('orbit-23-big'));
+    const failed = screen.getByRole('region', { name: 'Couldn’t start' });
+    expect(failed).toHaveTextContent('ORBIT-24');
+    expect(failed).toHaveTextContent('This laptop has no repository for it.');
+    expect(within(failed).queryByRole('link')).toBeNull();
+    // Mine's table and its bar are not on this tab.
+    expect(screen.queryByRole('table')).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Start ORBIT/ })).toBeNull();
+    // Back to Mine: its table again.
+    fireEvent.click(screen.getByRole('tab', { name: 'Mine' }));
+    expect(await screen.findAllByRole('table')).not.toHaveLength(0);
+  });
+
+  it('an empty group has no heading', async () => {
+    await mount({ queue: { ...QUEUE, tickets: QUEUE.tickets.filter((t) => t.group === 'next' || t.group === 'working') } });
+    fireEvent.click(await waitFor(() => autoTab()));
+    expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(['Next up', 'Auto is working on these']);
+    expect(screen.queryByText('Too big for Auto')).toBeNull();
+    expect(screen.queryByText('Couldn’t start')).toBeNull();
+  });
+
+  it('with no queue from an older laptop there is no Auto tab', async () => {
+    await mount({ queue: null });
+    if (mode === 'laptop') await waitFor(() => expect(tabNames()).toEqual(['Mine', 'Critical, mine']));
+    else expect(tabNames()).toEqual(['Mine']);
+    expect(screen.queryByRole('tab', { name: 'Auto' })).toBeNull();
+  });
+
+  it('the paused line as on Jobs', async () => {
+    await mount({ queue: { ...QUEUE, paused: 'limit' } });
+    fireEvent.click(await waitFor(() => autoTab()));
+    expect(screen.getByText('Auto is paused: the usage limit is near')).toBeInTheDocument();
+  });
+
+  it('Mine marks a ticket Auto is working on', async () => {
+    await mount();
+    const row = (key: string) => screen.getAllByRole('row').find((r) => r.getAttribute('data-ticket') === key)!;
+    await waitFor(() => expect(within(row('ORBIT-22')).getByText('Auto is working on this')).toBeInTheDocument());
+    expect(within(row('ORBIT-22')).queryByText('Starts by itself')).toBeNull();
+    expect(within(row('ORBIT-21')).getByText('Starts by itself')).toBeInTheDocument();
+    expect(within(row('ORBIT-21')).queryByText('Auto is working on this')).toBeNull();
+  });
+
+  it('the Auto start line says N', async () => {
+    await mount();
+    expect(await screen.findByText('Auto start is on: tickets tagged "auto" start by themselves, up to 3 at a time.')).toBeInTheDocument();
+    cleanup();
+    // A setting with no max (an older laptop): 5.
+    await mount({ setting: { on: true, tag: 'auto' }, queue: null });
+    expect(await screen.findByText('Auto start is on: tickets tagged "auto" start by themselves, up to 5 at a time.')).toBeInTheDocument();
   });
 });
 

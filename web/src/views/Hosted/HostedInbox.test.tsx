@@ -27,7 +27,7 @@ const ticket = (n: number, extra: Partial<InboxItem> = {}): InboxItem => ({
 const REPOS = [{ name: 'orbit', default: true }, { name: 'starbase', default: false }];
 const lap = (id: number, name: string, online: boolean): Laptop => ({ id, name, os: 'macOS', version: '0.1.0', pairedAt: ago(86_400_000 * 5), lastSeenAt: ago(online ? 5_000 : 3_600_000), online });
 
-interface Site { suggest?: InboxSuggestion | null; status: OrbitStatus; items: InboxItem[]; filter?: InboxFilter; laptops: Laptop[]; repos?: { name: string; default: boolean }[]; calls: { method: string; path: string; body?: Record<string, unknown> }[]; startFails?: string; /** What the laptop's settings (mirrored) say about Auto start. */ autoStart?: { on: boolean; tag: string }; /** What the laptop mirrors after an Auto start change: what was sent (default), nothing yet (false), or something else. */ autoTakes?: false | { on: boolean; tag: string }; /** Start answers only once this settles. */ hold?: Promise<void> }
+interface Site { suggest?: InboxSuggestion | null; status: OrbitStatus; items: InboxItem[]; filter?: InboxFilter; laptops: Laptop[]; repos?: { name: string; default: boolean }[]; calls: { method: string; path: string; body?: Record<string, unknown> }[]; startFails?: string; /** What the laptop's settings (mirrored) say about Auto start. */ autoStart?: { on: boolean; tag: string; max?: number }; /** What the laptop mirrors after an Auto start change: what was sent (default), nothing yet (false), or something else. */ autoTakes?: false | { on: boolean; tag: string }; /** Start answers only once this settles. */ hold?: Promise<void> }
 
 function site(over: Partial<Site> = {}) {
   const s: Site = { status: STATUS, items: [ticket(12), ticket(13, { severity: 'low' })], laptops: [lap(7, 'Olive’s Mac', true)], calls: [], ...over };
@@ -43,7 +43,7 @@ function site(over: Partial<Site> = {}) {
     if (path === '/api/snapshot') return json(200, { meta: { settings: { workflow: { finishLine: 'pr1-merged', ...(s.autoStart ? { autoStart: s.autoStart } : {}) } } } });
     if (path === '/api/orbit/auto-start' && method === 'POST') {
       // As hosted/site/routes-orbit.js answers: queued for the laptop, with whether it is there.
-      if (s.autoTakes !== false) s.autoStart = s.autoTakes ?? { on: body?.on as boolean, tag: String(body?.tag).trim() };
+      if (s.autoTakes !== false) s.autoStart = s.autoTakes ?? { on: body?.on as boolean, tag: String(body?.tag).trim(), ...(typeof body?.max === 'number' ? { max: body.max } : {}) };
       const l = s.laptops[0];
       return json(200, { ok: true, queued: true, sent: false, commandId: 5, laptop: { id: l.id, name: l.name, online: l.online } });
     }
@@ -367,7 +367,7 @@ describe('Auto start on the website', () => {
     const group = await screen.findByRole('group', { name: 'Auto start' });
     const box = within(group).getByRole('checkbox', { name: 'Start a job by itself for tickets with this tag' });
     expect(within(group).getByLabelText('Orbit tag')).toHaveAttribute('placeholder', 'auto');
-    expect(group).toHaveTextContent('Only tickets assigned to you. Up to 5 jobs at a time, in Inbox order. Nothing starts while the Claude limit warning shows.');
+    expect(group).toHaveTextContent('Only tickets assigned to you, in Inbox order. Nothing starts while the Claude limit warning shows.');
     fireEvent.click(box);
     expect(await within(group).findByText('Write a tag’s name to turn this on.')).toBeInTheDocument();
     expect(s.calls.some((c) => c.path === '/api/orbit/auto-start')).toBe(false);
@@ -441,6 +441,23 @@ describe('Auto start on the website', () => {
     render(<HostedApp api={api} />);
     const group = await screen.findByRole('group', { name: 'Auto start' });
     expect(await within(group).findByText('Orbit doesn’t show tags to your token, so nothing starts by itself.')).toBeInTheDocument();
+  });
+
+  it('Settings → Orbit: Up to N jobs at a time goes to the laptop as max, and the line stays until the laptop has it', async () => {
+    go('#/settings/orbit');
+    const { s, api } = site({ autoStart: { on: true, tag: 'auto', max: 3 }, autoTakes: false });
+    render(<HostedApp api={api} />);
+    const group = await screen.findByRole('group', { name: 'Auto start' });
+    const box = within(group).getByRole('spinbutton', { name: 'Jobs at a time' });
+    await waitFor(() => expect(box).toHaveValue('3'));
+    fireEvent.change(box, { target: { value: '6' } });
+    await waitFor(() => expect(s.calls.find((c) => c.path === '/api/orbit/auto-start')?.body).toEqual({ on: true, tag: 'auto', max: 6 }));
+    expect(await within(group).findByText('Sent to your laptop. It takes effect there.')).toBeInTheDocument();
+    // The laptop still says 3: the change is not there yet, so the line stays.
+    await new Promise((r) => setTimeout(r, 100));
+    expect(within(group).getByText('Sent to your laptop. It takes effect there.')).toBeInTheDocument();
+    s.autoStart = { on: true, tag: 'auto', max: 6 };
+    await waitFor(() => expect(within(group).queryByText('Sent to your laptop. It takes effect there.')).toBeNull(), { timeout: 5000 });
   });
 });
 

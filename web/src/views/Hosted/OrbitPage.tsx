@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useId, useState, type FormEvent } from 'react';
 import type { AutoStartSetting, InboxAnswer, OrbitStatus, Snapshot } from '../../api/types';
 import { AutoStartGroup } from '../Settings/AutoStartGroup';
+import { AUTO_MAX } from '../../home/autoTab';
 import { Button } from '../../components/Button';
 import { Segmented } from '../../components/Choice';
 import { TextInput } from '../../components/Field';
@@ -45,7 +46,9 @@ export const AUTO_START_KEPT = 'Your laptop has not answered. The change is kept
 const AUTO_LOOK_MS = 3000;
 const AUTO_TAKE_MS = 60_000;
 const AUTO_WAIT_MS = 10 * 60_000;
-const sameAuto = (a: AutoStartSetting | undefined, b: AutoStartSetting | undefined) => (a?.on === true) === (b?.on === true) && (a?.tag ?? '') === (b?.tag ?? '');
+// N counts too (5 when a side has none), so a change of N alone waits for the laptop like any other.
+const sameAuto = (a: AutoStartSetting | undefined, b: AutoStartSetting | undefined) => (a?.on === true) === (b?.on === true) && (a?.tag ?? '') === (b?.tag ?? '')
+  && (a?.max ?? AUTO_MAX.default) === (b?.max ?? AUTO_MAX.default);
 
 export function OrbitPage({ api, onSignedOut }: HostedProps) {
   const id = useId();

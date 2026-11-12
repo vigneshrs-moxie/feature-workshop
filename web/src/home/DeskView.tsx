@@ -224,6 +224,11 @@ function DeskAutoLine({ job }: { job: Job }) {
   );
 }
 
+/** A Needs you row's mark when the job is one of Auto's (a stopped Auto job): the word, never colour alone. */
+function AutoMark({ item }: { item: DeskEntry }) {
+  return item.kind === 'gate' && item.auto ? <Chip tone="accent" className="sb-desk-auto" title="One of Auto's jobs: it is under Auto on the Jobs page.">Auto</Chip> : null;
+}
+
 /** The queue's rows: one button each, the current one marked (the drawer, and the column from 1280 px). */
 function QueueItems({ items, index, now, onPick }: { items: DeskEntry[]; index: number; now: Date; onPick(key: string): void }) {
   return (
@@ -233,6 +238,7 @@ function QueueItems({ items, index, now, onPick }: { items: DeskEntry[]; index: 
           <button type="button" className={`desk-item${i === index ? ' is-current' : ''}${isShipping(it) ? ' is-shipping' : ''}`} aria-current={i === index ? 'true' : undefined} onClick={() => onPick(it.key)}>
             <span className="desk-item-top">
               <span className="desk-item-title">{it.title}</span>
+              <AutoMark item={it} />
               {it.since && it.kind !== 'nudge' && <span className="desk-item-since muted num" title={`Waiting ${relativeTime(it.since, now)}.`}>{relativeTime(it.since, now)}</span>}
             </span>
             <span className="desk-item-what">{it.what}</span>
@@ -616,6 +622,7 @@ export function DeskView({ items: decisions, now, layout = 'columns' }: { items:
                 <span className="desk-item-top">
                   <span className="hue-dot" style={jobHueStyle(it.slug)} aria-hidden="true" />
                   <span className="desk-item-title">{it.title}</span>
+                  <AutoMark item={it} />
                 </span>
                 <span className="desk-item-what">{it.what}</span>
                 {it.since && it.kind !== 'nudge' && <span className="desk-item-since muted">waiting {relativeTime(it.since, now)}</span>}

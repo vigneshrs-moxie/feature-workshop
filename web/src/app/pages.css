@@ -541,3 +541,13 @@ a.map-pr { min-height: 30px; }
   .text-input, .answer-other .text-input { min-height: 40px; }
   .settings-rail-row { min-height: 40px; justify-content: center; }
 }
+
+/* ---------- The Inbox's Auto tab (views/Inbox.tsx InboxAuto), the Desk's Auto mark, and Auto start's N ---------- */
+.sb-inbox-auto { display: flex; flex-direction: column; gap: var(--space-5); }
+.sb-inbox-auto-head { margin: 0; font: inherit; }
+.sb-inbox-auto-rows { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--space-2); }
+.sb-inbox-auto-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-3); padding: var(--space-2) var(--space-3); border: 1px solid var(--border-2); border-radius: var(--radius-md); background: var(--surface-1); }
+.sb-inbox-auto-row .ticket-title { min-width: 0; overflow-wrap: anywhere; }
+.sb-inbox-auto-reason { flex-basis: 100%; font-size: var(--text-sm); color: var(--text-2); line-height: 1.4; }
+.desk-item-top .sb-desk-auto { flex: none; }
+.sb-auto-start-max { display: flex; align-items: center; gap: var(--space-2); }

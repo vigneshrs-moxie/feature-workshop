@@ -3,9 +3,21 @@
 // from the server (dashboard/lib/auto.js autoGroup, on the card as job.auto.group): the page never
 // works it out. A job with no group (Auto never touched it, it is in Yours, or an older laptop sent
 // no group) is under Yours. Tasks 16 and 17 read riskyWords, inAuto and AUTO_PAUSED_LINE from here.
+// Auto's words the Inbox shares (AUTO_PAUSED, TOO_BIG) live here too, so this file imports nothing
+// from the Inbox.
 import type { AutoGroup, AutoQueue, Job } from '../api/types';
+import { BRAND } from '../app/brand';
 import { useStored } from '../lib/stored';
-import { AUTO_PAUSED } from '../views/Inbox';
+
+/** Why Auto start is paused, in the Inbox's words (also the Auto tabs' line for Orbit and memory). */
+export const AUTO_PAUSED = { limit: 'Auto start is paused: the Claude limit warning is showing.', orbit: 'Auto start is paused: Orbit can\'t be reached.',
+  'limit-reading': `Auto start is paused: ${BRAND.name} can't read your Claude limit right now.`, memory: `Auto start is paused: ${BRAND.name} couldn't read its list of started tickets.` } as const;
+
+/** A ticket or job set aside because its first brief says it needs a stack. */
+export const TOO_BIG = 'Too big for Auto';
+
+/** How many Auto jobs work at once (Settings, Auto start): 1 to 10, 5 when the setting has none. */
+export const AUTO_MAX = Object.freeze({ min: 1, max: 10, default: 5 });
 
 export type JobsTab = 'yours' | 'auto';
 export const JOBS_TAB_KEY = 'gc.jobs.tab';
