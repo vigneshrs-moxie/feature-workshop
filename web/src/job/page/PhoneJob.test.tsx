@@ -367,7 +367,7 @@ describe('the phone’s step screen', () => {
     const next = bar();
     const row = screen.getByRole('button', { name: /^The brief/ });
     expect(follows(next, row)).toBe(true);
-    expect(follows(row, screen.getByRole('tabpanel', { name: 'Plan' }))).toBe(true);
+    expect(follows(row, screen.getByRole('region', { name: 'Plan' }))).toBe(true);
     go('#/job/alpha/stage/spec');
     expect(await screen.findByRole('heading', { level: 1, name: 'Spec' })).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Next step' })).toBeNull();
@@ -376,10 +376,25 @@ describe('the phone’s step screen', () => {
     expect(screen.queryByRole('button', { name: /^Go: / })).toBeNull();
   });
 
+  it('the step screen’s panel is a region named by the screen’s heading, not a tab panel', async () => {
+    for (const hosted of [false, true]) {
+      setup({ jobs: [working('implement')], at: '#/job/alpha/stage/build', hosted });
+      const heading = await screen.findByRole('heading', { level: 1, name: 'Build' });
+      const panel = await screen.findByRole('region', { name: 'Build' });
+      expect(panel).toHaveClass('sb-panel');
+      expect(panel.getAttribute('aria-labelledby')).toBe(heading.id);
+      expect(heading.id).not.toBe('');
+      // No tab row on the phone, so no tab panel.
+      expect(screen.queryByRole('tabpanel')).toBeNull();
+      expect(document.querySelector('[role="tabpanel"]')).toBeNull();
+      cleanup();
+    }
+  });
+
   // The 3D bay is the laptop's (StepPanel draws it in Play full); the phone's screens stay simple, as drawn.
   it('in Play full the phone’s step screen has no bay', async () => {
     setup({ jobs: [working('implement')], at: '#/job/alpha/stage/build', play: 'full' });
-    const panel = await screen.findByRole('tabpanel', { name: 'Build' });
+    const panel = await screen.findByRole('region', { name: 'Build' });
     await waitFor(() => expect(panel.querySelector('.sb-step-body')).not.toBeNull());
     expect(screen.queryByRole('region', { name: 'The bay at this stop' })).toBeNull();
   });
@@ -388,7 +403,7 @@ describe('the phone’s step screen', () => {
     let release = () => {};
     server.stageHold = new Promise<void>((r) => { release = r; });
     setup({ jobs: [working('implement')], at: '#/job/alpha/stage/build' });
-    const panel = await screen.findByRole('tabpanel', { name: 'Build' });
+    const panel = await screen.findByRole('region', { name: 'Build' });
     expect(within(panel).getByText('Loading who worked on it…')).toBeInTheDocument();
     expect(panel.querySelector('.sb-step-body')).toBeNull();
     // The head says the step's state all the same.
@@ -397,7 +412,7 @@ describe('the phone’s step screen', () => {
     // The held answer comes in: the body comes, in the same panel.
     await act(async () => { release(); });
     await waitFor(() => expect(panel.querySelector('.sb-step-body')).not.toBeNull());
-    expect(screen.getByRole('tabpanel', { name: 'Build' })).toBe(panel);
+    expect(screen.getByRole('region', { name: 'Build' })).toBe(panel);
   });
 
   it('after Go the chip reads Sent and the step’s row and screen read Approved', async () => {
@@ -419,7 +434,7 @@ describe('the phone’s step screen', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Plan: / }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Plan' })).toBeInTheDocument();
     expect(screen.getByText('Approved', { selector: '.sb-phone-facts .chip' })).toBeInTheDocument();
-    expect(screen.getByRole('tabpanel', { name: 'Plan' }).querySelector('.sb-panel-head .sb-step-chip')).toHaveTextContent('Approved');
+    expect(screen.getByRole('region', { name: 'Plan' }).querySelector('.sb-panel-head .sb-step-chip')).toHaveTextContent('Approved');
   });
 });
 
@@ -501,7 +516,7 @@ describe('the phone’s bar when no gate waits', () => {
 describe('a document link on the phone', () => {
   const PLAN_DOCS: JobDetail['page'] = { docs: { plan: [entryOf('implementation-plan.md', 'plan')], test: [entryOf('test-report.md', 'test')], none: [] } };
   function Asks({ file }: { file: string }) { const ui = useUi(); return <button type="button" onClick={() => ui.openDocs(file)}>open {file}</button>; }
-  const reader = async (stop: string, name: string) => within(await screen.findByRole('tabpanel', { name: stop })).findByRole('article', { name });
+  const reader = async (stop: string, name: string) => within(await screen.findByRole('region', { name: stop })).findByRole('article', { name });
 
   it('on a phone a document link in the conversation opens the document under the step that owns it', async () => {
     const thread: ThreadItem[] = [{ id: 'reply:1', kind: 'reply', at: NOW, html: '<p>Read <a href="implementation-plan.md">the plan</a> first.</p>' }];

@@ -2061,7 +2061,8 @@ describe('a narrow window', () => {
     await act(async () => {});
     fireEvent.click(screen.getByRole('button', { name: 'the plan' }));
     expect(window.location.hash).toBe('#/job/alpha/stage/plan');
-    const reader = await within(await screen.findByRole('tabpanel', { name: 'Plan' })).findByRole('article', { name: 'Implementation plan' });
+    // The phone's step screen: its panel is a region named by the screen's heading.
+    const reader = await within(await screen.findByRole('region', { name: 'Plan' })).findByRole('article', { name: 'Implementation plan' });
     expect(await within(reader).findByText('implementation-plan.md body')).toBeInTheDocument();
   });
 

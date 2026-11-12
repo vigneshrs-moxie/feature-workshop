@@ -74,7 +74,7 @@ function statusOf(a: StageAgent, { job, stop, rows }: { job: Job; stop: StopId; 
   return a.since ? { cls: 'is-stopped', words: 'Stopped' } : { cls: 'is-stopped', words: 'Not started' };
 }
 
-export function StepPanel({ job, stop, view, error, onRetry, now, extraAgents, sent = null, docRequest, bodyFirst = false, children }: {
+export function StepPanel({ job, stop, view, error, onRetry, now, extraAgents, sent = null, docRequest, bodyFirst = false, regionOf, children }: {
   job: Job;
   stop: StopId;
   /** useStage's answer for this step; null while it loads or when it failed. */
@@ -90,6 +90,8 @@ export function StepPanel({ job, stop, view, error, onRetry, now, extraAgents, s
   docRequest?: { n: number; file: string | null };
   /** The step's body right under the head (and the not-yet line), above who worked on it (the Test step). */
   bodyFirst?: boolean;
+  /** The phone's step screen has no tab row: the panel is a region named by that screen's heading (its id). */
+  regionOf?: string;
   children?: ReactNode;
 }) {
   const play = usePlay();
@@ -112,7 +114,7 @@ export function StepPanel({ job, stop, view, error, onRetry, now, extraAgents, s
   const box = useRef<HTMLElement>(null);
   const minHeight = useHeldHeight(box, stop, view === null && error === null, !narrow);
   return (
-    <section className="sb-panel" id={STEP_PANEL_ID} role="tabpanel" aria-labelledby={title} ref={box} style={minHeight ? { minHeight } : undefined}>
+    <section className="sb-panel" id={STEP_PANEL_ID} role={regionOf ? 'region' : 'tabpanel'} aria-labelledby={regionOf ?? title} ref={box} style={minHeight ? { minHeight } : undefined}>
       <header className="sb-panel-head">
         <span className="sb-panel-icon" aria-hidden="true"><Icon name={here.icon} size={24} /></span>
         <h2 className="sb-panel-name" id={title}>{here.label}</h2>
