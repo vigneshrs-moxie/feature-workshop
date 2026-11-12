@@ -268,3 +268,101 @@ test('cost: calibration and CSV safety', () => {
   const csv = toCsv(['name', 'usd'], [['=HYPERLINK("x")', 1.5], ['a, "b"', null]]);
   assert.equal(csv, 'name,usd\n"\'=HYPERLINK(""x"")",1.5\n"a, ""b""",\n');
 });
+
+// ---------- the crew's last actions (the job page's live feed) ----------
+
+const at = (s) => `2026-11-10T09:${String(s).padStart(2, '0')}:00Z`;
+const call = (id, name, input, when) => JSON.stringify({
+  type: 'assistant', timestamp: when, message: { id: `m-${id}`, model: 'claude-opus-5-5', stop_reason: 'tool_use', content: [{ type: 'tool_use', id, name, input }] },
+});
+const answer = (id, content, when) => JSON.stringify({ type: 'user', timestamp: when, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content }] } });
+
+test('the session log keeps the last six actions in words, oldest first', () => {
+  const lines = [];
+  for (let i = 1; i <= 8; i++) {
+    lines.push(call(`r${i}`, 'Read', { file_path: `/repo/f${i}.md` }, at(i * 2)), answer(`r${i}`, 'file contents', at(i * 2 + 1)));
+  }
+  const p = parseSessionLog(lines.join('\n'));
+  assert.equal(p.recent.length, 6);
+  assert.deepEqual(p.recent.map((r) => r.text), ['Reading f3.md', 'Reading f4.md', 'Reading f5.md', 'Reading f6.md', 'Reading f7.md', 'Reading f8.md']);
+  assert.deepEqual(p.recent[0], { text: 'Reading f3.md', at: at(6) });
+  assert.equal(p.recent.at(-1).text, p.lastAction.text);
+  assert.equal(p.recent.at(-1).at, p.lastAction.at);
+  // An unknown tool still reads as a line, and a cut-off last line is skipped.
+  const odd = parseSessionLog([...lines, call('x1', 'Mystery', {}, at(30)), '{"type":"assistant","timest'].join('\n'));
+  assert.equal(odd.recent.at(-1).text, 'Using Mystery');
+  assert.equal(odd.recent.length, 6);
+  assert.deepEqual(parseSessionLog('').recent, [], 'no actions yet: an empty feed');
+});
+
+test('two same actions in a row are one line', () => {
+  const p = parseSessionLog([
+    call('a', 'Read', { file_path: '/r/a.md' }, at(1)), answer('a', 'ok', at(2)),
+    call('b', 'Read', { file_path: '/r/a.md' }, at(3)), answer('b', 'ok', at(4)),
+    call('c', 'Read', { file_path: '/r/b.md' }, at(5)), answer('c', 'ok', at(6)),
+    call('d', 'Read', { file_path: '/r/a.md' }, at(7)),
+  ].join('\n'));
+  assert.deepEqual(p.recent, [{ text: 'Reading a.md', at: at(1) }, { text: 'Reading b.md', at: at(5) }, { text: 'Reading a.md', at: at(7) }]);
+});
+
+test('the last command keeps its last 12 lines of output', () => {
+  const output = Array.from({ length: 40 }, (_, i) => `line ${i + 1}`).join('\n');
+  const run = call('b1', 'Bash', { command: 'npm test', description: 'Run the unit tests' }, at(1));
+  const p = parseSessionLog([run, answer('b1', `${output}\n`, at(2)), call('r1', 'Read', { file_path: '/r/a.md' }, at(3))].join('\n'));
+  assert.deepEqual(p.lastCommand, { command: 'npm test', at: at(1), tail: Array.from({ length: 12 }, (_, i) => `line ${i + 29}`).join('\n') });
+  // Not answered yet: no output.
+  assert.deepEqual(parseSessionLog(run).lastCommand, { command: 'npm test', at: at(1), tail: null });
+  // The output as text blocks; a long command is cut at 200 characters, long output at 1,200.
+  const long = call('b2', 'Bash', { command: `echo ${'x'.repeat(300)}` }, at(4));
+  const wide = Array.from({ length: 12 }, () => 'y'.repeat(300)).join('\n');
+  const q = parseSessionLog([run, answer('b1', 'ok', at(2)), long, answer('b2', [{ type: 'text', text: wide }], at(5))].join('\n'));
+  assert.equal(q.lastCommand.command.length, 200);
+  assert.ok(q.lastCommand.command.startsWith('echo xxx'));
+  assert.equal(q.lastCommand.at, at(4));
+  assert.equal(q.lastCommand.tail.length, 1200);
+  assert.ok(wide.endsWith(q.lastCommand.tail));
+  // Only a Bash call is a command; none yet is null.
+  assert.equal(parseSessionLog(call('r', 'Read', { file_path: '/r/a.md' }, at(1))).lastCommand, null);
+});
+
+test('a long session log keeps only its last actions', () => {
+  const lines = [];
+  for (let i = 0; i < 5000; i++) {
+    lines.push(call(`t${i}`, i % 2 ? 'Bash' : 'Grep', i % 2 ? { command: `step ${i}` } : { pattern: `p${i}` }, at(i % 60)), answer(`t${i}`, `out ${i}`, at(i % 60)));
+  }
+  const p = parseSessionLog(lines.join('\n'));
+  assert.equal(p.recent.length, 6);
+  assert.equal(p.recent.at(-1).text, 'Running step 4999');
+  assert.deepEqual(p.lastCommand, { command: 'step 4999', at: at(4999 % 60), tail: 'out 4999' });
+});
+
+// ---------- Fix round 1: secrets are hidden before a command is cut; cuts keep characters whole ----------
+
+const loneSurrogate = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+test('a secret that straddles the cut is hidden before the command is cut', () => {
+  const token = `ghp_${'Q7w8'.repeat(9)}`;
+  // The token starts at character 190 of the command (the 200 cut), and at 40 of the feed line's 50.
+  const long = call('s1', 'Bash', { command: `${'x'.repeat(189)} ${token} done` }, at(1));
+  const p = parseSessionLog(long);
+  assert.equal(p.lastCommand.command.length <= 200, true);
+  assert.equal(p.lastCommand.command.includes('ghp_'), false, p.lastCommand.command);
+  assert.equal(p.lastCommand.command.includes('Q7w8'), false);
+  const short = parseSessionLog(call('s2', 'Bash', { command: `echo ${'y'.repeat(35)} ${token}` }, at(2)));
+  assert.equal(short.recent[0].text.includes('ghp_'), false, short.recent[0].text);
+  assert.equal(short.lastAction.text.includes('ghp_'), false);
+  assert.equal(describeTool('Bash', { command: `curl -u admin:hunter2pass ${'z'.repeat(80)}` }).includes('hunter2pass'), false);
+  assert.equal(describeTool('Bash', { description: `Log in with ${token}` }).includes('ghp_'), false, 'a description is scrubbed too');
+});
+
+test('cuts never split a character in two', () => {
+  const smile = '😀';
+  const cmd = parseSessionLog(call('e1', 'Bash', { command: `${'a'.repeat(198)}${smile}${'b'.repeat(20)}` }, at(1))).lastCommand.command;
+  assert.equal(loneSurrogate.test(cmd), false, 'the command');
+  assert.ok(cmd.length <= 200);
+  const out = `${smile}${'c'.repeat(1199)}`; // 1,201 units: the 1,200 cut lands inside the smile
+  const tail = parseSessionLog([call('e2', 'Bash', { command: 'run' }, at(1)), answer('e2', out, at(2))].join('\n')).lastCommand.tail;
+  assert.equal(loneSurrogate.test(tail), false, 'the output');
+  assert.ok(tail.length <= 1200);
+  assert.equal(loneSurrogate.test(describeTool('Bash', { command: `${'d'.repeat(48)}${smile}${'e'.repeat(10)}` })), false, 'a feed line');
+});

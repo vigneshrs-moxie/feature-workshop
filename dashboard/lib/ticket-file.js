@@ -11,6 +11,8 @@
 //   description, stepsToReproduce, expectedBehavior, actualBehavior,
 //   timeline (comment entries: comment.body, comment.visibility, comment.createdAt, at),
 //   references (shared, not removed: kind, label, url, purpose, createdAt, removedAt).
+// Two more are picked for the job page and never written to the file (ticketFacts below):
+//   submitter.fullName and createdAt.
 
 export const TICKET_FILE = 'ticket.md';
 export const DESCRIPTION_MAX = 6000;
@@ -200,11 +202,54 @@ export function ticketFile(detail, { key, url = null, readAt = new Date() } = {}
 }
 
 /**
- * Reads the ticket through `client.getTicket` and returns the ticket.md text, or null when Orbit
- * can't be read: no client, an error, nothing back, or no answer within timeoutMs. It never throws
- * and never logs the ticket's text.
+ * Who filed the ticket and when, for the job page's overview: { filedBy, filedAt }, each null when
+ * Orbit gives none. Picked by name as the file's fields are: submitter.fullName (one line, 80
+ * characters at most) and createdAt. Nothing else is read. These never go into ticket.md: Starbase
+ * keeps them in its own record (state.setSession), outside the job folder.
  */
-export async function readTicketFile(client, ticket, { timeoutMs = TICKET_READ_MS, now = () => new Date() } = {}) {
+export function ticketFacts(detail) {
+  const { pick } = fieldsOf(detail);
+  const submitter = pick('submitter');
+  const raw = isObject(submitter) && typeof submitter.fullName === 'string' ? submitter.fullName : '';
+  const filedBy = cleanTicketText(raw.slice(0, 400)).replace(/\s+/g, ' ').trim().slice(0, 80).trim();
+  const created = pick('createdAt');
+  const at = typeof created === 'string' ? Date.parse(created) : Number.NaN;
+  return { filedBy: filedBy || null, filedAt: Number.isNaN(at) ? null : new Date(at).toISOString() };
+}
+
+/**
+ * The ticket's own description from a ticket.md: the text inside the fenced block under
+ * `## Description`, or null when there is none ("No description."). Lines inside the ticket's own
+ * fences are skipped, so a title that reads "## Description" is not taken for the heading.
+ */
+export function ticketDescription(md) {
+  if (typeof md !== 'string') return null;
+  const lines = md.split('\n');
+  const fenceOf = (l) => /^\s*(`{3,})\s*$/.exec(l)?.[1] ?? null;
+  for (let i = 0; i < lines.length; i++) {
+    const open = fenceOf(lines[i]);
+    if (open) {
+      while (i + 1 < lines.length && fenceOf(lines[i + 1]) !== open) i++;
+      i++;
+      continue;
+    }
+    if (lines[i] !== '## Description') continue;
+    const fence = fenceOf(lines[i + 1] ?? '');
+    if (!fence) return null;
+    const end = lines.findIndex((l, j) => j > i + 1 && fenceOf(l) === fence);
+    if (end < 0) return null;
+    const text = lines.slice(i + 2, end).join('\n');
+    return text.trim() ? text : null;
+  }
+  return null;
+}
+
+/**
+ * Reads the ticket through `client.getTicket` once: { md, facts } (the ticket.md text and
+ * ticketFacts), or null when Orbit can't be read: no client, an error, nothing back, or no answer
+ * within timeoutMs. It never throws and never logs the ticket's text.
+ */
+export async function readTicket(client, ticket, { timeoutMs = TICKET_READ_MS, now = () => new Date() } = {}) {
   if (!client || typeof client.getTicket !== 'function' || !ticket?.key) return null;
   let timer;
   try {
@@ -212,10 +257,15 @@ export async function readTicketFile(client, ticket, { timeoutMs = TICKET_READ_M
     answer.catch?.(() => {}); // a late failure after the timeout is not news
     const detail = await Promise.race([answer, new Promise((resolve) => { timer = setTimeout(() => resolve(null), timeoutMs); })]);
     if (!isObject(detail) || typeof fieldsOf(detail).pick('subject') !== 'string') return null;
-    return ticketFile(detail, { key: ticket.key, url: ticket.url ?? null, readAt: now() });
+    return { md: ticketFile(detail, { key: ticket.key, url: ticket.url ?? null, readAt: now() }), facts: ticketFacts(detail) };
   } catch {
     return null;
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** The ticket.md text alone (readTicket's md), or null when Orbit can't be read. */
+export async function readTicketFile(client, ticket, opts = {}) {
+  return (await readTicket(client, ticket, opts))?.md ?? null;
 }

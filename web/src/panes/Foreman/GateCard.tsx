@@ -333,7 +333,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
     if (problem) throw new Error(problem);
     const body = gateRequest(kind, gate, c, views, { ...(noTerminal ? { confirmNoTerminal: true } : {}), ...extra });
     try {
-      return await decision.send(api, body, gateKey(gate));
+      return await decision.send(api, body, gateKey(gate), { next: gate.nextProposed ?? null });
     } catch (err) {
       const held = lockFromError(err);
       if (held) setRefused(held);

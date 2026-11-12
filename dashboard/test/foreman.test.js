@@ -10,6 +10,7 @@ import { locateJob, pathsIn, branchesIn } from '../lib/locate.js';
 import { parseBrief, overviewFromRecord, buildOverview } from '../lib/overview.js';
 import { parseEvents, summariseSessions } from '../lib/hook-events.js';
 import { parsePs } from '../lib/live.js';
+import { startDashboard } from './helpers/dashboard.js';
 
 // ---------- routine steps ----------
 
@@ -187,4 +188,58 @@ test('process list: only interactive Claude Code terminals', () => {
     ' 70003 Mon Oct 12 16:00:00 2026     node server.js',
   ].join('\n');
   assert.deepEqual(parsePs(out).map((p) => p.pid), [6076, 70002]);
+});
+
+// ---------- the board card's now-doing line ----------
+
+test('now-doing names the model', async () => {
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'fw-now-model-')));
+  const dirs = { features: path.join(root, 'feature-work'), projects: path.join(root, 'projects'), agents: path.join(root, 'agents'), skills: path.join(root, 'skills'), state: path.join(root, 'state'), home: path.join(root, 'home'), repo: path.join(root, 'repo') };
+  for (const d of Object.values(dirs)) await fs.mkdir(d, { recursive: true });
+  // Lines from the last few minutes: a log silent for 30 minutes, with no run on record, reads as stopped.
+  const R = (m) => new Date(Date.now() - (10 - m) * 60_000).toISOString();
+  const jsonl = (rows) => `${rows.map((r) => JSON.stringify(r)).join('\n')}\n`;
+  // Two jobs: one whose Foreman reads a file itself (Fable 5.2), one whose Builder is at work (Opus 5.5).
+  for (const [slug, sessionId, stage] of [['foreman-job', 'sess-now-f', 'plan'], ['builder-job', 'sess-now-b', 'implement']]) {
+    const jobDir = path.join(dirs.features, slug);
+    await fs.mkdir(jobDir, { recursive: true });
+    await fs.writeFile(path.join(jobDir, 'status.json'), JSON.stringify({
+      schema_version: 1, slug, title: slug, route: 'small', stage, stage_state: 'working', session_id: sessionId, repo: { path: dirs.repo, base_branch: 'main' }, updated_at: R(0),
+    }));
+    const proj = path.join(dirs.projects, '-tmp-now-repo');
+    const line = (d) => ({ sessionId, cwd: dirs.repo, ...d });
+    const first = line({ type: 'user', timestamp: R(1), message: { role: 'user', content: `/feature ${slug}. Private folder: ${jobDir}` } });
+    if (slug === 'foreman-job') {
+      await fs.mkdir(proj, { recursive: true });
+      await fs.writeFile(path.join(proj, `${sessionId}.jsonl`), jsonl([first,
+        line({ type: 'assistant', timestamp: R(2), message: { id: 'f1', model: 'claude-fable-5-2', stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'tf1', name: 'Read', input: { file_path: `${dirs.repo}/plan.md` } }], usage: { input_tokens: 10, output_tokens: 100 } } }),
+      ]));
+    } else {
+      const subs = path.join(proj, sessionId, 'subagents');
+      await fs.mkdir(subs, { recursive: true });
+      await fs.writeFile(path.join(proj, `${sessionId}.jsonl`), jsonl([first,
+        line({ type: 'assistant', timestamp: R(2), message: { id: 'b1', model: 'claude-fable-5-2', stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'tb1', name: 'Agent', input: { subagent_type: 'feature-implementer', description: 'Build it', prompt: `Private folder: ${jobDir}` } }], usage: { input_tokens: 10, output_tokens: 100 } } }),
+      ]));
+      await fs.writeFile(path.join(subs, 'agent-w1.meta.json'), JSON.stringify({ agentType: 'feature-implementer', description: 'Build it', toolUseId: 'tb1' }));
+      await fs.writeFile(path.join(subs, 'agent-w1.jsonl'), jsonl([
+        line({ agentId: 'w1', isSidechain: true, type: 'user', timestamp: R(3), message: { role: 'user', content: 'Build it' } }),
+        line({ agentId: 'w1', isSidechain: true, type: 'assistant', timestamp: R(4), message: { id: 'w1m', model: 'claude-opus-5-5', stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'tw1', name: 'Edit', input: { file_path: `${dirs.repo}/app.js` } }], usage: { input_tokens: 5, output_tokens: 50 } } }),
+      ]));
+    }
+  }
+  const dashboard = await startDashboard({
+    env: {
+      HOME: dirs.home, STARBASE_DEMO: '1', STARBASE_FEATURES_DIR: dirs.features, STARBASE_PROJECTS_DIR: dirs.projects,
+      STARBASE_AGENTS_DIR: dirs.agents, STARBASE_SKILLS_DIR: dirs.skills, STARBASE_STATE_DIR: dirs.state,
+    },
+  });
+  try {
+    const snap = await (await fetch(`${dashboard.base}/api/snapshot`)).json();
+    const card = (slug) => snap.jobs.find((j) => j.slug === slug);
+    assert.deepEqual(card('foreman-job').nowDoing.map((d) => [d.who, d.doing, d.model]), [['conductor', 'Reading plan.md', 'Fable 5.2']]);
+    assert.deepEqual(card('builder-job').nowDoing.map((d) => [d.who, d.doing, d.model]), [['feature-implementer', 'Editing app.js', 'Opus 5.5']]);
+  } finally {
+    await dashboard.stop();
+    await fs.rm(root, { recursive: true, force: true });
+  }
 });

@@ -350,3 +350,59 @@ describe('the Stage routes', () => {
     assert.equal((await post('/api/job/stage-job/stage/nowhere/terminal', { ref: 'foreman' })).status, 400);
   });
 });
+
+test('the stage view carries the step’s times and documents', () => {
+  const planDoc = { file: 'implementation-plan.md', name: 'Implementation plan', group: 'plan', version: '1', updatedAt: T(30), size: 900, type: 'md' };
+  const page = {
+    times: { spec: { startedAt: T(1), endedAt: T(10) }, plan: { startedAt: T(10), endedAt: null } },
+    docs: { spec: [], plan: [planDoc], build: [planDoc] },
+  };
+  const at = job({ stage: 'plan', history: [{ stage: 'plan', date: T(12) }], page });
+  const plan = stageView(at, 'plan', MAC);
+  assert.deepEqual(plan.time, { startedAt: T(10), endedAt: null });
+  assert.deepEqual(plan.docs, [planDoc]);
+  assert.equal(plan.since, T(12), 'since stays when the job reached the stop by its history');
+  assert.deepEqual(stageView(at, 'spec', MAC).time, { startedAt: T(1), endedAt: T(10) });
+  assert.deepEqual(stageView(at, 'spec', MAC).docs, []);
+  // A job answer from an older Starbase has no page: the view leaves both out (not known).
+  const old = stageView(job({ stage: 'plan' }), 'plan', MAC);
+  assert.equal('time' in old, false);
+  assert.equal('docs' in old, false);
+});
+
+test('each agent carries its feed', () => {
+  const feed = (...texts) => texts.map((text, i) => ({ text, at: T(10 + i) }));
+  const activity = [
+    conductor({ recent: feed('Reading plan.md', 'Sending work to feature-reviewer') }),
+    crew('feature-reviewer', { recent: feed('Reading app.js', 'Searching the code for “hours”') }),
+    crew('feature-review-ui', { state: 'finished', recent: feed('Reading Hours.tsx') }),
+    crew('feature-review-tests'), // an older Starbase's activity: no feed known
+  ];
+  const v = stageView(job({ activity }), 'review', MAC);
+  const by = (list, who) => list.find((a) => a.who === who);
+  assert.deepEqual(by(v.agents, 'conductor').feed, activity[0].recent);
+  assert.deepEqual(by(v.agents, 'feature-reviewer').feed, activity[1].recent);
+  assert.deepEqual(by(v.finished, 'feature-review-ui').feed, activity[2].recent, 'a finished agent keeps its last actions');
+  assert.equal('feed' in by(v.agents, 'feature-review-tests'), false, 'not known: left out');
+  // On a stop it went through, the Foreman's feed (what it does now) isn't that stop's: left out.
+  const plan = stageView(job({ activity, costDetail: { agents: [{ agentType: 'conductor', model: 'claude-opus-5-5', stage: 'plan', usd: 1 }] } }), 'plan', MAC);
+  assert.equal('feed' in plan.finished[0], false);
+});
+
+test('only the Tester at Test carries its command', () => {
+  const command = { command: 'npm test', at: T(20), tail: 'ℹ tests 12\nℹ pass 12' };
+  const activity = [
+    conductor({ lastCommand: { command: 'git status', at: T(5), tail: 'clean' } }),
+    crew('feature-tester', { lastCommand: command }),
+    crew('feature-implementer', { state: 'finished', lastCommand: { command: 'npm run build', at: T(2), tail: 'ok' } }),
+  ];
+  const v = stageView(job({ stage: 'test', activity }), 'test', MAC);
+  const tester = v.agents.find((a) => a.who === 'feature-tester');
+  assert.deepEqual(tester.command, command);
+  assert.equal('command' in v.agents.find((a) => a.who === 'conductor'), false, 'the Foreman has none');
+  const build = stageView(job({ stage: 'test', activity }), 'build', MAC);
+  assert.equal('command' in build.finished.find((a) => a.who === 'feature-implementer'), false, 'nor the Builder at Build');
+  // A Tester that hasn't run a command yet: null.
+  const fresh = stageView(job({ stage: 'test', activity: [conductor(), crew('feature-tester', { lastCommand: null })] }), 'test', MAC);
+  assert.equal(fresh.agents.find((a) => a.who === 'feature-tester').command, null);
+});

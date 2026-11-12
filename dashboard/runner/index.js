@@ -30,7 +30,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { loadFeatures, loadGateStates, SessionIndex } from '../lib/features.js';
 import { STAGES, AGENTS } from '../lib/stages.js';
-import { PRICES, PRICES_AS_OF, whatIfConductor, costCsv, costMarkdown } from '../lib/cost.js';
+import { PRICES, PRICES_AS_OF, whatIfConductor, costCsv, costMarkdown, modelLabel } from '../lib/cost.js';
 import { OLD_STATE_FOLDER, State, WORKFLOW_CHOICES, restartTimes } from '../lib/state.js';
 import { Driver, Busy } from '../lib/driver.js';
 import { renderMarkdown, indexIds } from '../lib/markdown.js';
@@ -83,7 +83,9 @@ import { Integrator, IntegrateError } from '../lib/integrate.js';
 import { MCP_NAME, OrbitError, OrbitInbox, canonicalKey, clearToken, jobsByTicket, removeMcpEntry, sessionEnv, normalizeOrbitUrl, orbitClient, setToken } from '../lib/orbit.js';
 import { tokenStore } from '../lib/orbit-token.js';
 import { InboxSuggester, SUGGEST_MODEL, askHaiku, demoAsk, suggestPrompt } from '../lib/inbox-suggest.js';
-import { TICKET_FILE, readTicketFile } from '../lib/ticket-file.js';
+import { TICKET_FILE, readTicket, ticketDescription } from '../lib/ticket-file.js';
+import { readAcceptance, stepDocs, stepTimes } from '../lib/job-page.js';
+import { checkCounts } from '../lib/job-page.js';
 import { writeFileAtomic } from '../lib/atomic-write.js';
 import { UsageLog, TurnMeter, turnLines, usageDir, starbaseUser, claudeAccountId } from '../lib/usage-log.js';
 import { statusTicketKey, slugTicketKey } from '../lib/orbit.js';
@@ -881,9 +883,11 @@ export async function createRunner(config) {
     const nowDoing = running.map((a) => ({
       who: a.who, name: a.name, doing: a.doing, quietMs: a.quiet?.quietMs ?? null,
       since: a.who === 'conductor' ? a.since : a.startedAt ?? a.since, lastAt: a.lastAt,
+      // The model's label (Fable 5.2, Opus 5.5…); null when its log doesn't say.
+      model: a.model ? modelLabel(a.model) : null,
     }));
     if (active && !nowDoing.length) {
-      nowDoing.push({ who: 'conductor', name: 'Foreman', doing: active.lastAction ?? 'Reading your message', since: active.startedAt });
+      nowDoing.push({ who: 'conductor', name: 'Foreman', doing: active.lastAction ?? 'Reading your message', since: active.startedAt, model: active.model ? modelLabel(active.model) : null });
     }
     // Marked done or dropped, and nothing has happened since: off the board. A crew member still
     // counted as running brings it back only if its log moved after the mark.
@@ -1017,6 +1021,81 @@ export async function createRunner(config) {
     return { items, more: page.more };
   }
 
+  // The job page's overview facts (design 3.1): the ticket with who filed it (Starbase's own record,
+  // written at the start) and its description (ticket.md); what we're building (the spec's Key
+  // points, else the first brief's); the check lists (acceptance.md). A read that fails gives that
+  // part null, so a job from an older Starbase still has a page.
+  async function pageFacts(f) {
+    const part = (read) => read().catch(() => null);
+    const ticket = await part(async () => {
+      const t = f.options?.ticket;
+      if (!t || typeof t !== 'object' || typeof t.key !== 'string') return null;
+      const facts = (await state.sessionFor(f.dir).catch(() => null))?.ticketFacts ?? null;
+      const md = await readInside(f.dir, TICKET_FILE, { noLink: true });
+      const text = (v) => (typeof v === 'string' ? v : null);
+      return {
+        key: t.key, title: text(t.title), url: text(t.url),
+        filedBy: text(facts?.filedBy), filedAt: text(facts?.filedAt), description: md ? ticketDescription(md) : null,
+      };
+    });
+    const building = await part(async () => {
+      const spec = await readSummary(f.dir, 'spec', f.spec?.version ?? null).catch(() => null);
+      const first = f.briefs[0]?.file;
+      const s = spec ?? (first ? await readSummary(f.dir, first, null).catch(() => null) : null);
+      return s ? { from: spec ? 'spec' : 'brief', version: s.version ?? null, outcome: s.outcome, risks: s.risks } : null;
+    });
+    const check = await part(async () => {
+      const text = await readInside(f.dir, 'acceptance.md', { noLink: true });
+      const lists = text === null ? null : readAcceptance(text);
+      return lists ? { version: docVersion(f.dir, 'acceptance.md', f.recordedArtifacts), ...lists } : null;
+    });
+    return { ticket, building, check };
+  }
+
+  // Each step's time and documents (design 3.2, lib/job-page.js): when it ran by its briefs, from
+  // the job's start (its new-job audit line, null when Starbase did not start it), and the Docs
+  // list sorted by step. A read that fails gives that part null.
+  async function stepFacts(f, audit) {
+    const part = (read) => read().catch(() => null);
+    const times = await part(async () => stepTimes({
+      briefs: f.briefs, startedAt: audit.find((e) => e.action === 'new-job')?.at ?? null, stage: f.stage, kind: f.kind, skipped: f.skipped,
+      // Marked done or dropped with nothing since (closedOff): its last step has ended.
+      closed: closedOff(f) ? f.closed : null,
+    }));
+    const docs = await part(async () => {
+      const specPath = await shownSpec(f);
+      return stepDocs(await listJobDocs(f.dir, { spec: specPath ? { path: specPath, version: f.spec?.version ?? null } : null, recorded: f.recordedArtifacts }), f.kind);
+    });
+    return { times, docs };
+  }
+
+  // The Test step's own facts (design 3.5): the Tester's check counts from test-report.md, with the
+  // report's time (null: no report, or no line marked), and the owner's hand test: when Try it's app
+  // was last started from the page (Starbase's own record, tryStartedAt; null: not started). The
+  // hand test stores no result: his Go or Send back at the Test step is the result. A read that
+  // fails gives that part null.
+  async function testFacts(f) {
+    const part = (read) => read().catch(() => null);
+    const checks = await part(async () => {
+      const text = await readInside(f.dir, 'test-report.md', { noLink: true });
+      const counts = text === null ? null : checkCounts(text);
+      if (!counts) return null;
+      const at = await fsp.stat(path.join(f.dir, 'test-report.md')).then((st) => st.mtime.toISOString(), () => null);
+      return { ...counts, at };
+    });
+    const handTest = await part(async () => {
+      const at = (await state.sessionFor(f.dir))?.tryStartedAt;
+      return { startedAt: typeof at === 'string' ? at : null };
+    });
+    return { checks, handTest };
+  }
+
+  // Try it's app started from the page (the try-it command's start) is the hand test starting. The
+  // evidence recorder starts the app itself (runner/evidence.js), never through here.
+  async function markHandTestStarted(f) {
+    try { await state.setSession(f.dir, { tryStartedAt: new Date().toISOString() }); } catch { /* the page shows it as not started */ }
+  }
+
   async function jobDetail(f) {
     const run = runFor(f);
     const latestPath = f.latestBrief?.path ?? f.briefs.at(-1)?.file ?? null;
@@ -1080,7 +1159,7 @@ export async function createRunner(config) {
       }
     }
 
-    const page = await threadPage(f, audit);
+    const threadPart = await threadPage(f, audit);
     const card = boardCard(f, run);
     return {
       ...card,
@@ -1096,7 +1175,8 @@ export async function createRunner(config) {
       latestBrief, briefs: f.briefs, approvals: f.approvals, history: f.history, artifacts: f.artifacts, recordedArtifacts: f.recordedArtifacts,
       costDetail: { ...f.cost, whatIf: whatIfConductor(f.cost.agents) },
       activity: f.activity.map((a) => (a.state === 'running' && !stillRunning(f, a, run && ACTIVE_RUN.has(run.status) ? run : null) ? { ...a, state: 'stopped' } : a)),
-      drive, run, runs: runsOf(f), overview, thread: page.items, threadMore: page.more, locate: f.locate,
+      drive, run, runs: runsOf(f), overview, thread: threadPart.items, threadMore: threadPart.more, locate: f.locate,
+      page: { ...(await pageFacts(f)), ...(await stepFacts(f, audit)), ...(await testFacts(f)) },
       // policy: the setting in force for this job; policyOverride: the job's own (null: it follows yours).
       // While Auto is on, 'auto' (lib/state.js policyFor), the job's own setting kept as it was.
       policy: await state.policyFor(f.dir), policyOverride: settings.jobPolicy?.[f.dir] ?? null, globalPolicy: settings.policy, autoMode: settings.autoMode,
@@ -2321,9 +2401,13 @@ export async function createRunner(config) {
         // Orbit being slow or down never stops a start: no file, and the message says so.
         let detailsRead = false;
         if (ticket) {
-          const md = await readTicketFile(orbit, ticket);
-          if (md) {
-            try { await fsp.mkdir(featureDir, { recursive: true }); await writeFileAtomic(path.join(featureDir, TICKET_FILE), md, { mode: 0o600 }); detailsRead = true; } catch { /* the job starts without it */ }
+          const read = await readTicket(orbit, ticket);
+          if (read?.md) {
+            try { await fsp.mkdir(featureDir, { recursive: true }); await writeFileAtomic(path.join(featureDir, TICKET_FILE), read.md, { mode: 0o600 }); detailsRead = true; } catch { /* the job starts without it */ }
+          }
+          // Who filed it and when, for the job page: kept in Starbase's own record, never in the job folder.
+          if (read?.facts) {
+            try { await state.setSession(featureDir, { ticketFacts: read.facts }); } catch { /* the page shows them as not known */ }
           }
         }
         // A ticket's job starts with a status.json of schema version 2 holding the ticket block.
@@ -2554,10 +2638,17 @@ export async function createRunner(config) {
         let out;
         let policyCleared = false;
         let boundary = false;
+        // Who filed the ticket stays in Starbase's own record: the copy of the record kept with the archived folder
+        // goes without it, and a restart that is put back writes it back. The new start reads it from Orbit again.
+        let ticketFacts;
         try {
           out = await restartJob(job, {
             model: body.model,
-            session: { read: (dir) => state.sessionFor(dir), clear: (dir) => state.clearSession(dir), write: (dir, record) => state.setSession(dir, record) },
+            session: {
+              read: async (dir) => { const record = await state.sessionFor(dir); if (!record) return record; const { ticketFacts: facts, ...rest } = record; ticketFacts = facts; return rest; },
+              clear: (dir) => state.clearSession(dir),
+              write: (dir, record) => state.setSession(dir, ticketFacts ? { ...record, ticketFacts } : record),
+            },
             parked: { read: async (dir) => limits.entriesFor(dir), forget: (dir) => limits.forget(dir) },
             // The old job's own permission setting, pause and run end are cleared before the new job starts, so its
             // first tool call never runs under them; put back when the restart is undone.
@@ -2707,7 +2798,7 @@ export async function createRunner(config) {
       const audit = (extra = {}) => state.audit({ action: 'local', featureDir: f.dir, slug: f.slug, what: action, ...extra });
       try {
         if (action === 'env') { const r = await local.setupEnv(f); await audit({ changed: r.changed }); return r; }
-        if (action === 'start') { const r = await local.startServer(f); await audit({ port: r.port }); return r; }
+        if (action === 'start') { const r = await local.startServer(f); await audit({ port: r.port }); await markHandTestStarted(f); return r; }
         if (action === 'stop') return { ok: local.stopServer(f.slug) };
         if (action === 'run') {
           const preset = body.preset || null;

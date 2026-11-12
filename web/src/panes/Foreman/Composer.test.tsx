@@ -19,12 +19,12 @@ const DETAIL: JobDetail = {
 };
 const RUNNING: Run = { id: 'run-1', slug: 'alpha', status: 'running' };
 
-function setup({ run = null, detail = DETAIL, post = vi.fn(async () => ({})) }: { run?: Run | null; detail?: JobDetail | null; post?: ReturnType<typeof vi.fn> } = {}) {
+function setup({ run = null, detail = DETAIL, post = vi.fn(async () => ({})), modelLine }: { run?: Run | null; detail?: JobDetail | null; post?: ReturnType<typeof vi.fn>; modelLine?: string | null } = {}) {
   const store: Store = createStore();
   store.dispatch({ type: 'snapshot', snapshot: snapshot({ meta: { token: 't', models: MODELS }, jobs: [job('alpha', 'idle'), job('beta', 'idle')] }) });
   const api = { post, get: vi.fn() } as unknown as ApiClient;
   const ui = (slug: string, r: Run | null) => (
-    <WorkshopContext.Provider value={{ store, api }}><Composer key={slug} slug={slug} detail={detail} run={r} /></WorkshopContext.Provider>
+    <WorkshopContext.Provider value={{ store, api }}><Composer key={slug} slug={slug} detail={detail} run={r} modelLine={modelLine} /></WorkshopContext.Provider>
   );
   const utils = render(ui('alpha', run));
   return { ...utils, store, post, rerenderWith: (slug: string, r: Run | null) => utils.rerender(ui(slug, r)) };
@@ -59,6 +59,102 @@ describe('Composer', () => {
     expect(screen.queryByText('Foreman model')).toBeNull();
     setup({ detail: { ...DETAIL, drive: { mode: 'none', model: null } } });
     expect(screen.queryByRole('combobox')).toBeNull();
+  });
+
+  // Its size by hand (jsdom lays nothing out): 20 px lines and 8 px of padding above and below,
+  // border-box as the app's stylesheet sets every box. A text box's content height comes from its
+  // text (one line per line written); `onLayout` runs at each such read, as a browser lays out then.
+  function textHeights(onLayout = () => {}) {
+    Object.defineProperty(HTMLTextAreaElement.prototype, 'scrollHeight', {
+      configurable: true,
+      get(this: HTMLTextAreaElement) { onLayout(); return 20 * (this.value ? this.value.split('\n').length : 0) + 16; },
+    });
+    return () => { Reflect.deleteProperty(HTMLTextAreaElement.prototype, 'scrollHeight'); };
+  }
+  function sized() {
+    const b = box() as HTMLTextAreaElement;
+    b.style.boxSizing = 'border-box';
+    b.style.lineHeight = '20px';
+    b.style.paddingTop = '8px';
+    b.style.paddingBottom = '8px';
+    const write = (lines: number) => fireEvent.change(b, { target: { value: Array.from({ length: lines }, (_, i) => `Line ${i + 1}`).join('\n') } });
+    return { b, write };
+  }
+
+  it('the message box grows to eight lines and then scrolls', () => {
+    const undo = textHeights();
+    try {
+      setup();
+      const { b, write } = sized();
+      write(1);
+      // Three lines or fewer: the box as it always was, three rows high.
+      expect(b).toHaveAttribute('rows', '3');
+      expect(b.style.height, 'three lines at least').toBe('');
+      expect(b.style.overflowY).toBe('');
+      write(5);
+      expect(b.style.height, 'it grows with its text').toBe('116px');
+      expect(b.style.overflowY).toBe('hidden');
+      write(8);
+      expect(b.style.height).toBe('176px');
+      write(12);
+      expect(b.style.height, 'eight lines at most').toBe('176px');
+      expect(b.style.overflowY, 'then it scrolls').toBe('auto');
+      write(2);
+      expect(b.style.height, 'and shrinks back').toBe('');
+      expect(b.style.overflowY).toBe('');
+      expect(b).toHaveValue('Line 1\nLine 2');
+    } finally {
+      undo();
+    }
+  });
+
+  // Fix round 1: measuring the text never shrinks the box itself, so a scrolled parent that sits at
+  // its bottom is not pulled up while the box is measured.
+  it('typing a fourth and fifth line does not change a scrolled parent’s scrollTop', () => {
+    let parent: HTMLElement | null = null;
+    let b: HTMLTextAreaElement | null = null;
+    const height = () => b?.style.height;
+    let top = 0;
+    // The parent: 1000 px of other things, then the box; a 500 px window. A layout clamps its scrollTop.
+    const boxHeight = () => parseFloat(b?.style.height ?? '') || 76;
+    const parentHeight = () => 1000 + boxHeight();
+    const layout = () => { if (parent) top = Math.min(top, parentHeight() - 500); };
+    const undo = textHeights(layout);
+    try {
+      const { container } = setup();
+      parent = container;
+      Object.defineProperty(parent, 'scrollHeight', { configurable: true, get: () => parentHeight() });
+      Object.defineProperty(parent, 'clientHeight', { configurable: true, value: 500 });
+      Object.defineProperty(parent, 'scrollTop', { configurable: true, get: () => top, set: (v: number) => { top = Math.max(0, Math.min(parentHeight() - 500, v)); } });
+      const sizedBox = sized();
+      b = sizedBox.b;
+      sizedBox.write(3);
+      parent.scrollTop = 10_000; // at its bottom
+      const atBottom = parent.scrollTop;
+      sizedBox.write(4);
+      expect(height()).toBe('96px');
+      expect(parent.scrollTop, 'a fourth line: the parent stays where it was').toBe(atBottom);
+      parent.scrollTop = 10_000; // at its bottom again, with the taller box
+      const lower = parent.scrollTop;
+      sizedBox.write(5);
+      expect(height()).toBe('116px');
+      expect(parent.scrollTop, 'a fifth line: the parent stays where it was').toBe(lower);
+    } finally {
+      undo();
+    }
+  });
+
+  it('the Foreman model shows under the box with a lock when given', () => {
+    setup({ modelLine: 'Opus 5.5' });
+    const line = screen.getByText('Foreman model: Opus 5.5');
+    expect(line.querySelector('svg.icon')).not.toBeNull();
+    expect(line).toHaveAttribute('title', 'Fixed once the job starts. Change model… in the gear menu starts it again.');
+    expect(box()).toHaveAttribute('placeholder', 'Write to the Foreman…');
+    // Under the box: after it in the composer.
+    expect(box().compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Send… is off with nothing written, and says why.
+    expect(screen.getByRole('button', { name: 'Send…' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Send…' })).toHaveAttribute('title', 'Write something first.');
   });
 
   it('keeps each job’s draft across job switches', () => {

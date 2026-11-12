@@ -42,12 +42,13 @@ export interface JobAuto {
   /** Why it stopped and waits for you ({ reason, rule, at } as the record keeps it), or null. */
   stopped?: { reason?: string; rule?: string | null; at?: string } | string | null;
   step?: string | null;
+  /** The board card's only: he wrote to the job while this step waited, so the step is his to decide, not Auto's (Task 6b); missing: not known. */
+  yours?: boolean;
   failures?: number;
   lastBrief?: string | null;
   /** The board card's view only: whether the job's level allows Auto, and the sentence when it doesn't. */
   allowed?: boolean;
   why?: string | null;
-  yours?: boolean; // the board card's only: he wrote while its step waited, so the step is his, not Auto's
 }
 
 /** GET /api/job/:slug/auto: the three lines and every decision Auto made on the job. */
@@ -145,6 +146,8 @@ export interface NowDoing {
   since?: string | null;
   lastAt?: string | null;
   quietMs?: number | null;
+  /** The model's label (Fable 5.2, Opus 5.5…); null or missing: not known. */
+  model?: string | null;
 }
 
 /** Who holds a job elsewhere (dashboard/lib/lock.js; a refused send's 409 carries the same). */
@@ -1049,7 +1052,77 @@ export interface JobDetail {
   answeredBriefs?: number[];
   /** A gate reply held until Claude's usage limit resets ("Approve, start after reset"), or null. */
   heldReply?: { kind: GateKind; gateBrief: number | null; at: string } | null;
+  /** The job page's overview facts; missing from an older Starbase's answer (not known). */
+  page?: JobPageFacts;
   [key: string]: unknown;
+}
+
+/**
+ * The job page's overview facts (dashboard/runner/index.js pageFacts). Every part may be missing
+ * (an older Starbase) or null (nothing to show): both read as not known.
+ * ticket: the Orbit ticket the job started from (null: none); filedBy and filedAt from Starbase's
+ * own record of the start, description from ticket.md.
+ * building: the spec's Key points, else the first brief's (null: neither has any).
+ * check: the numbered lines of acceptance.md, without their (FR-…) brackets (null: no such file).
+ */
+export interface JobPageFacts {
+  ticket?: {
+    key?: string;
+    title?: string | null;
+    url?: string | null;
+    filedBy?: string | null;
+    filedAt?: string | null;
+    description?: string | null;
+  } | null;
+  building?: {
+    from?: 'spec' | 'brief';
+    version?: string | null;
+    outcome?: string[];
+    risks?: string[];
+  } | null;
+  check?: {
+    version?: string | null;
+    worksWhen?: string[];
+    mustNot?: string[];
+  } | null;
+  /** When each step ran, by its briefs (dashboard/lib/job-page.js stepTimes); null: not read. */
+  times?: Partial<Record<StopId, StepTime>> | null;
+  /** The job's documents by step, none: the rest (dashboard/lib/job-page.js stepDocs); null: not read. */
+  docs?: Partial<Record<StopId | 'none', JobDocEntry[]>> | null;
+  /** The Tester's check counts from test-report.md (dashboard/lib/job-page.js checkCounts); null: no report, or no line marked. */
+  checks?: TestChecks | null;
+  /** The owner's hand test: when Try it's app was last started from the page; null: not read. */
+  handTest?: HandTest | null;
+}
+
+/**
+ * How the Tester's checks came out: one count per acceptance line (AC-<n>) test-report.md marks
+ * PASS, FAIL or NOT RUN (its last mention wins). at: the report's time.
+ */
+export interface TestChecks {
+  passed?: number;
+  failed?: number;
+  notRun?: number;
+  at?: string | null;
+}
+
+/**
+ * The owner's hand test at the Test step (Try it). startedAt: when Try it's app was last started
+ * from the page (never by the evidence recorder); null: not started. It stores no result: his Go
+ * or Send back at the Test step is the result.
+ */
+export interface HandTest {
+  startedAt?: string | null;
+}
+
+/**
+ * A step's span by its briefs: it ended at its last brief, and started where the step before it
+ * that ran ended (the first one when the job started). endedAt null: the current step. Both null:
+ * not reached, skipped, or not known.
+ */
+export interface StepTime {
+  startedAt?: string | null;
+  endedAt?: string | null;
 }
 
 /** POST /api/job/:slug/gate: a decision from the gate card (dashboard/server.js). */
@@ -1894,6 +1967,23 @@ export interface StageAgent {
   terminal: { kind: 'continue' | 'watch'; ready: boolean; why: string | null };
   /** Its index in the job's activity, which the terminal command names. */
   ref: string;
+  /** Its last actions in plain words, oldest first (six at most); missing: not known. */
+  feed?: FeedLine[];
+  /** The Tester at Test only: its last command (null: none yet). The website's copy has no output (tail null). */
+  command?: StageCommand | null;
+}
+
+/** One line of an agent's live feed: what it did, and when. */
+export interface FeedLine {
+  text: string;
+  at: string | null;
+}
+
+/** A crew member's last command: cut at 200 characters, and the last 12 lines of its output (null until it answers, and on the website). */
+export interface StageCommand {
+  command: string;
+  at: string | null;
+  tail: string | null;
 }
 
 export interface StageView {
@@ -1910,6 +2000,17 @@ export interface StageView {
   /** The terminal app Open in terminal uses (Try it's choice), and the ones this computer has. */
   terminalApp: string | null;
   terminalApps: string[];
+  /**
+   * The step's span by its briefs (job.page.times for this step); missing: not known. `since` stays
+   * when the job reached the stop; the time words read `time` and fall back to `since` without a start.
+   */
+  time?: StepTime;
+  /** The step's documents (job.page.docs for this step); missing: not known. */
+  docs?: JobDocEntry[];
+  /** The Tester's check counts (job.page.checks), on the Test step only; missing: not known. */
+  checks?: TestChecks | null;
+  /** The owner's hand test (job.page.handTest), on the Test step only; missing: not known. */
+  handTest?: HandTest | null;
 }
 
 // ---------- Telemetry (packet P): GET /api/telemetry?window= (dashboard/lib/telemetry.js, lib/insights.js) ----------

@@ -100,3 +100,93 @@ test('a long Auto list is cut on the laptop to the site’s limits, so it is nev
   const small = { on: true, stopped: null, tag: null, summary: ['a', 'b', 'c'], entries: [{ at: 'x', stage: 'Plan', chose: 'c', asked: 'a', why: 'w' }] };
   assert.deepEqual(autoLogRecord(small), small);
 });
+
+test('the job record carries page', () => {
+  const page = {
+    ticket: { key: 'ORBIT-479', title: 'Feedback API', url: 'https://orbit.example.com/t/479', filedBy: 'Pat Reporter', filedAt: '2026-10-01T09:00:00.000Z', description: 'Read tickets and never write.' },
+    building: { from: 'spec', version: '0.3', outcome: ['Managers add notes.'], risks: ['Techs could see them.'] },
+    check: { version: '2', worksWhen: ['A manager can add a note.'], mustNot: ['Show notes to techs.'] },
+  };
+  const r = jobRecord({ slug: 'x', page });
+  assert.deepEqual(r.page, page);
+  assert.equal(makeEvent('record', { kind: 'job', key: 'x', value: r }).ok, true);
+  assert.deepEqual(jobRecord({ slug: 'y', page: { ticket: null, building: null, check: null } }).page, { ticket: null, building: null, check: null });
+});
+
+test('a command’s output never goes up', () => {
+  const entry = { who: 'feature-tester', state: 'running', doing: 'Run the tests', recent: [{ text: 'Run the tests', at: 'T1' }], lastCommand: { command: 'npm test', at: 'T1', tail: 'secret' } };
+  const r = jobRecord({ slug: 'x', thread: [], activity: [entry, { who: 'conductor', lastCommand: null }], costDetail: { totalUsd: 1, activity: [entry] } });
+  assert.equal(JSON.stringify(r).includes('secret'), false);
+  assert.deepEqual(r.activity[0].lastCommand, { command: 'npm test', at: 'T1', tail: null }, 'the command itself and when it ran go up');
+  assert.deepEqual(r.activity[0].recent, entry.recent, 'the feed goes up');
+  assert.equal(r.activity[1].lastCommand, null);
+  assert.equal('lastCommand' in r.costDetail.activity[0], false, 'the cost part carries no command (fix round 1)');
+  assert.equal(entry.lastCommand.tail, 'secret', 'the laptop’s own copy is untouched');
+  assert.equal(makeEvent('record', { kind: 'job', key: 'x', value: r }).ok, true);
+});
+
+// ---------- Fix round 1: a command line's secrets never go up, and the feed goes up once ----------
+
+// What the mirror sends for one crew member whose last command (and its feed line) is `command`.
+const sentFor = (command) => {
+  const entry = { who: 'feature-tester', state: 'running', doing: 'Run the checks', recent: [{ text: `Running ${command}`, at: 'T1' }], lastCommand: { command, at: 'T1', tail: null } };
+  const record = jobRecord({ slug: 'x', thread: [], activity: [entry], costDetail: { totalUsd: 1, activity: [entry] } });
+  const made = makeEvent('record', { kind: 'job', key: 'x', value: record });
+  assert.equal(made.ok, true);
+  return { record, wire: JSON.stringify(made.event.data), mirror: JSON.stringify(record) };
+};
+
+const SECRET_COMMANDS = [
+  ['an Authorization header (Bearer)', 'curl -H "Authorization: Bearer abc123def456ghi789" https://api.example.com/x', 'abc123def456ghi789'],
+  ['an Authorization header (Basic)', "curl -H 'Authorization: Basic dXNlcjpwYXNzd29yZA==' https://api.example.com", 'dXNlcjpwYXNzd29yZA'],
+  ['an Authorization header (token)', 'curl -H "Authorization: token q1w2e3r4t5y6u7i8" https://api.example.com', 'q1w2e3r4t5y6u7i8'],
+  ['curl -u user:pass', 'curl -u admin:hunter2pass https://api.example.com', 'hunter2pass'],
+  ['curl --user user:pass', 'curl --user admin:hunter2pass https://api.example.com', 'hunter2pass'],
+  ['a name and password in an https address', 'git clone https://me:s3cretpass@github.com/me/app.git', 's3cretpass'],
+  ['a name and password in a postgres address', 'psql postgres://app:dbpass99@db.internal:5432/app', 'dbpass99'],
+  ['--password with a space', 'mysql --password Sup3rSecret -h db app', 'Sup3rSecret'],
+  ['--password=', 'mysqldump --password=Sup3rSecret app', 'Sup3rSecret'],
+  ['-pSECRET (mysql)', 'mysql -u root -pSup3rSecret app', 'Sup3rSecret'],
+  ['--token', 'deploy --token tk_9f8e7d6c5b4a app', 'tk_9f8e7d6c5b4a'],
+  ['--api-key', 'tool --api-key=key-1234567890abcd run', 'key-1234567890abcd'],
+  ['--secret', 'tool --secret "moon base 42" run', 'moon base 42'],
+  ['an AWS access key', 'aws configure set aws_access_key_id AKIAIOSFODNN7EXAMPLE', 'AKIAIOSFODNN7EXAMPLE'],
+  ['an AWS session key', 'export AWS_ID=ASIAIOSFODNN7EXAMPLE', 'ASIAIOSFODNN7EXAMPLE'],
+  ['aws_secret_access_key=', 'aws_secret_access_key=wJalrXUtnFEMIK7MDENGbPxRfiCYEXAMPLEKEY aws s3 ls', 'wJalrXUtnFEMIK7MDENG'],
+  ['a Slack token', 'curl -d token=xoxb-123456789012-abcdefABCDEF https://slack.com/api/chat.postMessage', 'xoxb-123456789012'],
+  ['a Stripe live key', 'stripe charges list --api-base x sk_' + 'live_4eC39HqLyjWDarjtT1zdp7dc', 'sk_' + 'live_4eC39HqLyjWDarjtT1zdp7dc'],
+  ['a Stripe restricted key', 'echo rk_' + 'live_4eC39HqLyjWDarjtT1zdp7dc', 'rk_' + 'live_4eC39HqLyjWDarjtT1zdp7dc'],
+  ['a Stripe test key', 'echo sk_' + 'test_4eC39HqLyjWDarjtT1zdp7dc', 'sk_' + 'test_4eC39HqLyjWDarjtT1zdp7dc'],
+  ...['ghp', 'gho', 'ghu', 'ghs', 'ghr'].map((p) => [`a GitHub token (${p}_)`, `gh auth login --with-token ${p}_${'A1b2'.repeat(9)}`, `${p}_A1b2`]),
+  ['a GitHub fine-grained token', `echo github_pat_${'11ABCDEFG0'.repeat(4)}`, 'github_pat_11ABCDEFG0'],
+  ['an Anthropic key', `curl -H "x-api-key: sk-ant-api03-${'a1B2'.repeat(10)}" https://api.anthropic.com`, 'sk-ant-api03'],
+  ['an OpenAI key', `echo sk-proj-${'Z9y8X7w6'.repeat(5)}`, 'Z9y8X7w6Z9y8'],
+  ['a JWT', 'curl -H "x-session: eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U" https://x', 'dozjgNryP4J3jVmNHl0w5N'],
+  ['a private key', "printf '-----BEGIN OPENSSH PRIVATE KEY-----\\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQ\\n-----END OPENSSH PRIVATE KEY-----' > id", 'b3BlbnNzaC1rZXktdjEAAAAABG5vbmU'],
+];
+for (const [what, command, secret] of SECRET_COMMANDS) {
+  test(`a command line’s secret never goes up: ${what}`, () => {
+    const { record, wire, mirror } = sentFor(command);
+    assert.equal(mirror.includes(secret), false, `the mirror’s record: ${record.activity[0].lastCommand.command}`);
+    assert.equal(wire.includes(secret), false, 'what the event carries');
+    assert.match(record.activity[0].lastCommand.command, /hidden\]/);
+  });
+}
+
+test('ordinary commands go up as they are', () => {
+  for (const command of ['git commit -m "fix -p flag"', 'npm test -- -p 3', 'psql -p 5432', 'ssh -p 22 host', 'mkdir -p a/b', 'git push -u origin feature/job-page', 'curl http://localhost:4477/api/x', 'git clone git@github.com:me/app.git', 'node --test dashboard/test/parsers.test.js']) {
+    const { record } = sentFor(command);
+    assert.equal(record.activity[0].lastCommand.command, command);
+    assert.equal(record.activity[0].recent[0].text, `Running ${command}`);
+  }
+});
+
+test('the feed and the command go up once: the cost part has none of them', () => {
+  const { record, mirror } = sentFor('npm test');
+  assert.equal(mirror.split('Running npm test').length - 1, 1, 'the feed line once');
+  assert.deepEqual(record.activity[0].recent, [{ text: 'Running npm test', at: 'T1' }]);
+  const cost = record.costDetail.activity[0];
+  assert.equal('recent' in cost, false);
+  assert.equal('lastCommand' in cost, false);
+  assert.equal(cost.doing, 'Run the checks', 'the rest of the entry still goes up');
+});
