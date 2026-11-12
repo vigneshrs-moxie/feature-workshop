@@ -153,6 +153,30 @@ describe('OverviewCard', () => {
     expect(within(t).queryByText('keep')).toBeNull();
   });
 
+  it('the ticket is a link only when its address is http or https; otherwise its number shows as text', () => {
+    for (const url of ['javascript:alert(1)', 'data:text/html,hi', '/tickets/ORBIT-900', 'orbit.example/tickets/ORBIT-900', ' JavaScript:alert(1)']) {
+      const view = show({ ...FULL, ticket: { ...TICKET, url } });
+      open();
+      const t = column('The ticket');
+      expect(within(t).queryByRole('link')).toBeNull();
+      expect(t.querySelector('a')).toBeNull();
+      expect(within(t).getByText('ORBIT-900 · filed by Dana Whitfield on Nov 3')).toBeInTheDocument();
+      view.unmount();
+    }
+    for (const url of ['http://orbit.example/t/1', 'https://orbit.example/t/1', 'HTTPS://orbit.example/t/1']) {
+      const view = show({ ...FULL, ticket: { ...TICKET, url } });
+      expect(within(column('The ticket')).getByRole('link', { name: 'Open ORBIT-900 in Orbit' })).toHaveAttribute('href', url);
+      view.unmount();
+    }
+  });
+
+  it('a description written with \\r\\n line ends splits into paragraphs as one with \\n does', () => {
+    show({ ...FULL, ticket: { ...TICKET, description: 'When a customer goes away we cancel.\r\nThat loses their slot.\r\n\r\nCan we pause it instead?\r\n \r\nThanks.\r\n' } });
+    open();
+    const paras = within(column('The ticket')).getAllByText(/./, { selector: 'p' }).map((p) => p.textContent);
+    expect(paras).toEqual(['When a customer goes away we cancel.\r\nThat loses their slot.', 'Can we pause it instead?', 'Thanks.']);
+  });
+
   it('the website shows the same card', () => {
     const api = { get: vi.fn(), post: vi.fn(), hosted: () => true } as unknown as ApiClient;
     show(FULL, { wrap: (n) => <WorkshopContext.Provider value={{ store: createStore(), api }}>{n}</WorkshopContext.Provider> });
