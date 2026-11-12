@@ -863,7 +863,7 @@ async function autoWorld({ slugs = ['auto-job'], auto = { on: true }, original =
     env: { STARBASE_PLAYWRIGHT: pw },
     onAutoDbProblem: (f, err) => { sends.push({ slug: f.slug, kind: 'auto-migration', err }); },
     stopAuto: async (f, reason) => { stops.push({ slug: f.slug, reason }); return true; },
-    autoTimes: { connectEveryMs: 100, connectForMs: 1500, lookAgainMs: 400, ...times },
+    autoTimes: { connectEveryMs: 100, connectForMs: 1500, lookAgainMs: 400, sessionsSettleMs: 0, ...times },
   });
   const log = async () => (await fs.readFile(logFile, 'utf8')).split('\n').filter(Boolean).map((l) => JSON.parse(l));
   const pg = async () => JSON.parse(await fs.readFile(stateFile, 'utf8')).databases;
@@ -1171,7 +1171,7 @@ test('R6: a session that opens and closes on his database between two looks is c
   } finally { await w.done(); }
 });
 
-test('R6: Starbase\'s own read of his database during the window waits for its end and is never taken for the app\'s', { timeout: 60_000 }, async () => {
+test('R6: Starbase\'s own read of his database during the window is never taken for the app\'s', { timeout: 60_000 }, async () => {
   const w = await autoWorld({ times: { lookAgainMs: 600_000 } });
   try {
     let read = null;
@@ -1179,7 +1179,7 @@ test('R6: Starbase\'s own read of his database during the window waits for its e
     const r = await w.door.record('auto-job', { waitMs: 50_000 });
     assert.equal(r.evidence.commit, 'abc1234def5');
     assert.ok(read, 'the read was asked for during the window');
-    assert.equal((await read).name, 'app', 'and answered after it');
+    assert.equal((await read).name, 'app', 'and answered');
   } finally { await w.done(); }
 });
 
@@ -1237,4 +1237,27 @@ test('R8: on a job whose Auto already stopped, a migration that did not land sti
     await settle(100);
     assert.equal(w.sends[0]?.err.code, 'not-landed', 'passed on: the runner stops Auto, or tells him when there is nothing to stop');
   } finally { delete process.env.FAKE_PG_SILENT; await w.done(); }
+});
+
+// ---------- Task 9 fix round 3 ----------
+
+test('9. during an Auto recording Try it\'s panel answers without reading his database, and from the recording\'s finally on it reads again', { timeout: 60_000 }, async () => {
+  const w = await autoWorld({ times: { lookAgainMs: 600_000 } });
+  try {
+    const hisReads = async () => (await w.log()).filter((e) => e.tool === 'psql' && e.args[e.args.indexOf('-d') + 1] === 'app').length;
+    let during = null;
+    atLook(w, async (n) => {
+      if (n !== 3) return;
+      const before = await hisReads();
+      const view = await w.local.dbView(w.list[0], { fresh: true }); // answered at once: the window is still open
+      during = { view, read: (await hisReads()) - before };
+    });
+    const r = await w.door.record('auto-job', { waitMs: 50_000 });
+    assert.equal(r.evidence.commit, 'abc1234def5');
+    assert.ok(during, 'asked during the window');
+    assert.equal(during.read, 0, 'his database was not read during the recording');
+    const n = await hisReads();
+    await w.local.dbView(w.list[0], { fresh: true });
+    assert.ok(await hisReads() > n, 'released in the recording\'s finally');
+  } finally { await w.done(); }
 });

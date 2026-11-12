@@ -77,7 +77,7 @@ export const AUTO_DB_TAKEN_STOP = "Something stayed connected to Auto's copy of 
 /** A migration that exited well but isn't in Auto's copy: Auto stops on the job with this reason (lead's words). */
 export const AUTO_NOT_LANDED_STOP = 'A migration from this job did not land on Auto\'s copy of the database. It may have run on yours. Check your database before this job goes on.';
 /** How the recording waits for the app to connect to Auto's database, and when a waiting job is looked at again. */
-export const AUTO_DB_TIMES = Object.freeze({ connectEveryMs: 500, connectForMs: 30_000, lookAgainMs: 60_000 });
+export const AUTO_DB_TIMES = Object.freeze({ connectEveryMs: 500, connectForMs: 30_000, lookAgainMs: 60_000, sessionsSettleMs: 1100 });
 
 /** The message to the job's Foreman for a migration that failed on Auto's database (plan's words; the skills name its first and last words). */
 export function autoMigrationMessage(err) {
@@ -248,6 +248,7 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
    */
   function serverFor(f, { onAutoDb = false, copied = () => {} } = {}) {
     let startedHere = false;
+    let releaseHis = () => {};
     let handed = false;
     const tryItRuns = () => { const r = local.jobs.get(f.slug)?.server; return Boolean(r && ['starting', 'running'].includes(r.status)); };
     return {
@@ -267,41 +268,40 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
         const runs = Boolean(running && ['starting', 'running'].includes(running.status));
         let databaseUrl = null;
         let his = null;
-        let releaseHis = () => {};
+        if (onAutoDb) {
+          if (runs) throw new EvidenceError(409, AUTO_TRY_IT_RUNNING);
+          databaseUrl = (await local.autoDatabase(f, { env })).url; // before the app starts
+          // A fresh copy has nobody on it: anything there now (an old app reconnecting) would pass the check below.
+          if ((await local.autoConnections(f)) > 0) throw new EvidenceError(409, AUTO_DB_TAKEN, { code: 'auto-db-retry' });
+          // Held until the recording's finally (releaseHis); Postgres counts sessions up to a second late.
+          releaseHis = await local.holdHisReads(f);
+          await settleSessions();
+          his = { backends: new Set(await local.hisBackends(f)), sessions: await local.hisSessions(f) };
+          copied();
+        }
+        if (onAutoDb || !runs) {
+          try { await local.startServer(f, ...(onAutoDb ? [{ databaseUrl }] : [])); } catch (err) { throw new EvidenceError(409, err.message); }
+          startedHere = true;
+        }
         try {
-          if (onAutoDb) {
-            if (runs) throw new EvidenceError(409, AUTO_TRY_IT_RUNNING);
-            databaseUrl = (await local.autoDatabase(f)).url; // before the app starts
-            // A fresh copy has nobody on it: anything there now (an old app reconnecting) would pass the check below.
-            if ((await local.autoConnections(f)) > 0) throw new EvidenceError(409, AUTO_DB_TAKEN, { code: 'auto-db-retry' });
-            // From here to the window's end, Starbase's own reads of his database wait (they'd look like the app's).
-            releaseHis = await local.holdHisReads(f);
-            his = { backends: new Set(await local.hisBackends(f)), sessions: await local.hisSessions(f) };
-            copied();
+          const until = Date.now() + SERVER_WAIT_MS;
+          for (;;) {
+            const s = local.jobs.get(f.slug)?.server;
+            if (s?.status === 'running') break;
+            if (!s || !['starting', 'running'].includes(s.status)) throw new EvidenceError(409, 'The app stopped before it was ready. Its output is in Try it.');
+            if (Date.now() > until) throw new EvidenceError(504, 'The app didn’t answer within 3 minutes, so nothing was recorded. Its output is in Try it.');
+            await new Promise((r) => setTimeout(r, 500));
           }
-          if (onAutoDb || !runs) {
-            try { await local.startServer(f, ...(onAutoDb ? [{ databaseUrl }] : [])); } catch (err) { throw new EvidenceError(409, err.message); }
-            startedHere = true;
-          }
-          try {
-            const until = Date.now() + SERVER_WAIT_MS;
-            for (;;) {
-              const s = local.jobs.get(f.slug)?.server;
-              if (s?.status === 'running') break;
-              if (!s || !['starting', 'running'].includes(s.status)) throw new EvidenceError(409, 'The app stopped before it was ready. Its output is in Try it.');
-              if (Date.now() > until) throw new EvidenceError(504, 'The app didn’t answer within 3 minutes, so nothing was recorded. Its output is in Try it.');
-              await new Promise((r) => setTimeout(r, 500));
-            }
-            const baseURL = fillPattern(w.tryIt.url, { port });
-            if (onAutoDb) await usesAutoDb(f, baseURL, his);
-            return { baseURL, startedHere, cwd: w.root };
-          } catch (err) {
-            // The app on Auto's database goes with the refusal (the recording's finally never runs for a start that failed).
-            if (onAutoDb && startedHere && !handed) await local.stopServerAndWait(f.slug).catch(() => {});
-            throw err;
-          }
-        } finally { releaseHis(); }
+          const baseURL = fillPattern(w.tryIt.url, { port });
+          if (onAutoDb) await usesAutoDb(f, baseURL, his);
+          return { baseURL, startedHere, cwd: w.root };
+        } catch (err) {
+          // The app on Auto's database goes with the refusal (the recording's finally never runs for a start that failed).
+          if (onAutoDb && startedHere && !handed) await local.stopServerAndWait(f.slug).catch(() => {});
+          throw err;
+        }
       },
+      releaseHis: () => releaseHis(),
       stop: async () => { if (startedHere && !handed) await local.stopServerAndWait(f.slug); },
       // A branch only guessed (lib/locate.js): Try it's where() refuses it with these words, so say them before the start.
       cannotStart: () => (f.worktree && guessedWorktree(f) ? guessWords(f) : onAutoDb && tryItRuns() ? AUTO_TRY_IT_RUNNING : null),
@@ -317,6 +317,7 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
    * app's (AUTO_DB_HIS_NEW, and it is tried again). He may have connected himself in those seconds:
    * that only puts the recording off.
    */
+  const settleSessions = () => (autoTimes.sessionsSettleMs > 0 ? new Promise((r) => { setTimeout(r, autoTimes.sessionsSettleMs); }) : Promise.resolve());
   async function usesAutoDb(f, baseURL, his) {
     const before = his.backends;
     await fetch(baseURL, { signal: AbortSignal.timeout(SERVER_WAIT_MS), redirect: 'manual' }).then((r) => r.arrayBuffer()).catch(() => {});
@@ -330,6 +331,7 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
     }
     // Every session his database had, however short (none of Starbase's own: those wait, holdHisReads).
     if (his.sessions !== null) {
+      await settleSessions();
       const now = await local.hisSessions(f);
       if (now !== null && now > his.sessions) hisNew = true;
     }
@@ -455,6 +457,7 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
     } finally {
       holding.delete(f.slug);
       autoHolding.delete(f.slug);
+      server.releaseHis(); // Starbase's own reads of his database go again
       // However it ended (recorded, refused, Playwright dead part way), the card and the page stop saying a line runs.
       if (progress.delete(f.slug)) events.emit('evidence', f.slug, { slug: f.slug, outcome: 'progress', at: new Date().toISOString(), progress: null });
     }

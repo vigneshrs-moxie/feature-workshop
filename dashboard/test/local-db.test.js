@@ -399,7 +399,8 @@ test('only Auto\'s database reaches the migrate script and the app: an inherited
     await seenByBoth(ctx);
     await ctx.local.startServer(ctx.f, { databaseUrl: AUTO_URL });
     try {
-      assert.equal(JSON.parse(await appGet(ctx, '/env')).TEST_HIS_DB_URL, undefined, 'left out');
+      // Fix round 3 (S3.6): one that can be pointed at Auto's copy is, rather than left out.
+      assert.equal(JSON.parse(await appGet(ctx, '/env')).TEST_HIS_DB_URL, 'postgresql://u:p@localhost/app__auto', 'rewritten');
     } finally { await stopApp(ctx); }
   } finally { delete process.env.PGDATABASE; delete process.env.TEST_HIS_DB_URL; await ctx.done(); }
 });
@@ -700,11 +701,13 @@ const ROUND2 = {
   PGSQL_URL: 'pgsql://localhost/app__auto', // #4
   PG_NAME: 'app__auto', // #11, a bare name under a key that looks like a database's
   POSTGRES_NAME: 'app__auto', // #11
-  EXPANDED_URL: 'postgres://u@localhost/app__auto', // #12, ${PG_NAME}
+  // #12, ${PG_NAME}: fix round 3 sets PG_NAME itself (Auto's name), so the app's own expansion gives Auto's;
+  // Starbase sets EXPANDED_URL only when its filled-in value still names his database.
+  EXPANDED_URL: undefined,
   PRISMA_DIRECT_URL: 'postgres://u:p@localhost:5432/app__auto', // #13, app/prisma/.env
   COLON_URL: 'postgres://u:p@localhost/app__auto', // #16, KEY: value
   REMOTE_URL: AUTO_URL, // his name on a remote host: Auto's own address, never the remote one
-  PGSERVICE: '', // #19, in a .env file
+  PGSERVICE: undefined, // #19, in a .env file: never passed on (fix round 3, S7)
   PGSERVICEFILE: '/dev/null',
   ...REWRITTEN,
 };
@@ -726,7 +729,7 @@ function seenRound2() {
   return seenOnce;
 }
 for (const [key, want] of Object.entries(ROUND2)) {
-  test(`every settings file is read the way dotenv reads it: ${key} reaches the migrate script and the app as ${want === '' ? 'empty' : want}`, async () => {
+  test(`every settings file is read the way dotenv reads it: ${key} reaches the migrate script and the app as ${want === undefined ? 'nothing Starbase set' : want}`, async () => {
     const seen = await seenRound2();
     assert.equal(seen.migrated[key], want, `the migrate script: ${key}`);
     assert.equal(seen.app[key], want, `the app: ${key}`);
@@ -751,9 +754,9 @@ for (const [fixture, key, row] of [
   test(`a setting Starbase can't point at Auto's copy refuses the turn before anything runs: ${row}`, async () => {
     const ctx = await turnWith(fixture);
     try {
-      await assert.rejects(ctx.local.autoDatabase(ctx.f), (err) => err instanceof AutoDbError && err.code === 'no-database' && err.message === R4('app/.env', key));
+      await assert.rejects(ctx.local.autoDatabase(ctx.f), (err) => err instanceof AutoDbError && err.code === 'no-database' && err.message === R4('the job\'s app/.env', key));
       assert.deepEqual(changes(await ctx.log()), [], 'no copy, no migration');
-      await assert.rejects(ctx.local.startServer(ctx.f, { databaseUrl: AUTO_URL }), (err) => err.message === R4('app/.env', key));
+      await assert.rejects(ctx.local.startServer(ctx.f, { databaseUrl: AUTO_URL }), (err) => err.message === R4('the job\'s app/.env', key));
       assert.equal(ctx.local.jobs.get(ctx.f.slug)?.server ?? null, null, 'no app started');
     } finally { await ctx.done(); }
   });
@@ -773,7 +776,7 @@ test('a settings file Starbase can\'t read refuses the turn', async () => {
   const file = path.join(ctx.f.worktree, 'app', '.env');
   try {
     await fs.chmod(file, 0o000);
-    await assert.rejects(ctx.local.autoDatabase(ctx.f), (err) => err.code === 'no-database' && err.message === 'Auto could not read app/.env, so it made no recording.');
+    await assert.rejects(ctx.local.autoDatabase(ctx.f), (err) => err.code === 'no-database' && err.message === 'Auto could not read the job\'s app/.env, so it made no recording.');
     assert.deepEqual(changes(await ctx.log()), []);
   } finally { await fs.chmod(file, 0o600); await ctx.done(); }
 });
@@ -783,8 +786,8 @@ test('C2 #11, the decision: an app set up by parts (DB_HOST, DB_NAME) with no da
   const ctx = await turnWith('parts/dot-env', { profile: noKey, settings: 'OTHER=1\n', appSettings: 'X=1\n' });
   try {
     assert.equal(await ctx.local.namesADatabase(ctx.f, {}), true);
-    await assert.rejects(ctx.local.autoDatabase(ctx.f), (err) => err.code === 'no-database'
-      && err.message === 'This job’s app looks like it uses a database (app/.env, DB_HOST), but Starbase does not know which one, so Auto made no recording.');
+    await assert.rejects(ctx.local.autoDatabase(ctx.f, { env: {} }), (err) => err.code === 'no-database'
+      && err.message === 'This job’s app looks like it uses a database (the job\'s app/.env, DB_HOST), but Starbase does not know which one, so Auto made no recording.');
     assert.deepEqual(await ctx.log(), [], 'nothing ran');
   } finally { await ctx.done(); }
 });
@@ -828,4 +831,75 @@ test('NB5: stopAll ends Auto\'s database steps still running', async () => {
     assert.ok(await goneSoon(pid), 'createdb was ended');
     await turn;
   } finally { delete process.env.FAKE_PG_HANG; await ctx.done(); }
+});
+
+// ---------- Task 9 fix round 3: the judge reads raw lines ----------
+
+test('8. filesToCopy from app/local.env: its keys are set, and its lines are judged', async () => {
+  const profile = { ...APP_PROFILE, filesToCopy: [{ from: '{app}/local.env', to: '{app}/local.env' }] };
+  const ctx = await setup({ fixture: true, profile });
+  try {
+    await fs.writeFile(path.join(ctx.f.repoPath, 'app', 'local.env'), `DATABASE_URL=${HIS_URL}\nPRISMA_DIRECT=postgres://u:p@localhost:5432/app\n`);
+    const r = await ctx.local.autoDatabase(ctx.f);
+    assert.deepEqual(r.added, ['0002_b']);
+    await ctx.local.startServer(ctx.f, { databaseUrl: r.url });
+    try { assert.equal(JSON.parse(await appGet(ctx, '/env')).PRISMA_DIRECT, 'postgres://u:p@localhost:5432/app__auto'); } finally { await stopApp(ctx); }
+    await fs.writeFile(path.join(ctx.f.repoPath, 'app', 'local.env'), `DATABASE_URL=${HIS_URL}\nPG_SOCKET=socket:/tmp?db=app\n`);
+    await assert.rejects(ctx.local.autoDatabase(ctx.f), (err) => err.code === 'no-database'
+      && err.message === 'A setting in your main folder\'s app/local.env (PG_SOCKET) may point at your database, and Auto could not point it at its own copy, so it made no recording.');
+  } finally { await ctx.done(); }
+});
+
+test('9. the hold: Try it\'s panel answers at once from the last facts; past 2 minutes it still holds; the 10-minute cap lets go', { timeout: 20_000 }, async (t) => {
+  const ctx = await setup();
+  try {
+    const before = await ctx.local.dbView(ctx.f, { fresh: true });
+    assert.equal(before.available, true);
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const release = await ctx.local.holdHisReads(ctx.f);
+    const reads = async () => (await ctx.log()).filter((e) => e.tool === 'psql' && e.args.includes('app')).length;
+    const n = await reads();
+    t.mock.timers.tick(180_000);
+    const view = await ctx.local.dbView(ctx.f, { fresh: true });
+    assert.deepEqual(view, before, 'the last facts, in today\'s shape');
+    assert.equal(await reads(), n, 'his database was not read');
+    t.mock.timers.tick(600_000);
+    await ctx.local.dbView(ctx.f, { fresh: true });
+    assert.ok(await reads() > n, 'after the cap it reads again');
+    release();
+    t.mock.timers.reset();
+  } finally { await ctx.done(); }
+});
+
+test('9. the hold with nothing read yet: Try it\'s panel answers as a failed read does, without waiting', { timeout: 20_000 }, async () => {
+  const ctx = await setup();
+  try {
+    const release = await ctx.local.holdHisReads(ctx.f);
+    const view = await ctx.local.dbView(ctx.f, { fresh: true });
+    assert.equal(view.available, false);
+    assert.match(view.reason, /^Couldn’t read the local database: /);
+    release();
+    assert.equal((await ctx.local.dbView(ctx.f, { fresh: true })).available, true, 'released, it reads again');
+  } finally { await ctx.done(); }
+});
+
+test('11. PGUSER and PGPASSWORD named like his database reach the migrate step unchanged', async () => {
+  const ctx = await setup({ fixture: true, settings: 'DATABASE_URL=postgres://localhost:5432/app\n' });
+  Object.assign(process.env, { PGUSER: 'app', PGPASSWORD: 'app' });
+  try {
+    await ctx.local.autoDatabase(ctx.f);
+    const migrated = JSON.parse(await fs.readFile(path.join(ctx.f.worktree, 'app', 'migrate-env.json'), 'utf8'));
+    assert.equal(migrated.PGUSER, 'app');
+    assert.equal(migrated.PGPASSWORD, 'app');
+    assert.equal(migrated.PGDATABASE, 'app__auto');
+  } finally { delete process.env.PGUSER; delete process.env.PGPASSWORD; await ctx.done(); }
+});
+
+test('14. his database named postgres: refused up front with its line, nothing copied', async () => {
+  const ctx = await setup({ settings: 'DATABASE_URL=postgres://u:p@localhost:5432/postgres\n' });
+  try {
+    await assert.rejects(ctx.local.autoDatabase(ctx.f), (err) => err.code === 'no-database'
+      && err.message === 'Your database is named postgres, which Starbase\'s own reads use, so Auto made no recording.');
+    assert.deepEqual(changes(await ctx.log()), []);
+  } finally { await ctx.done(); }
 });

@@ -20,7 +20,7 @@ import { GENERAL, GENERAL_FILE_RULE, devCommand, fillPattern, tryItRules } from 
 import { openRegistry } from './repos.js';
 import { guessedWorktree, guessWords } from './locate.js';
 import { PRODUCT } from './brand.js';
-import { autoDbEnvParts, dbHint, leftover, readSettingsFiles } from './db-settings.js';
+import { autoDbEnvParts, dbHint, leftover, readSettings } from './db-settings.js';
 
 const OUTPUT_MAX = 200_000; // characters kept per output box
 const PRESETS = [
@@ -219,6 +219,7 @@ const sameServer = (a, b) => (isLocalHost(a.hostname) ? isLocalHost(b.hostname) 
 const AUTO_DB_WAIT_MS = 120_000; // how long Auto waits for another database switch to end
 const AUTO_STEP_MS = 600_000; // how long one of Auto's database steps may run before it is stopped
 const PSQL_MS = 30_000; // how long a psql read may run (Try it's and Auto's)
+const HOLD_MAX_MS = 600_000; // the longest an Auto recording holds his database's reads (holdHisReads), if its finally never runs
 const lastLines = (text, n) => String(text).replace(/\s+$/, '').split('\n').slice(-n).join('\n');
 /** A time limit in words: "10 minutes", "30 seconds", "1 second", "200 milliseconds". */
 const spanWords = (ms) => {
@@ -267,6 +268,7 @@ export class LocalRunner extends EventEmitter {
   #autoStepMs;
   #starts = new Map(); // slug -> the start under way (startServer)
   #hisHeld = new Map(); // his database's name -> { promise }: Starbase's own reads of it wait (holdHisReads)
+  #lastFacts = new Map(); // his database's name -> the last facts read (#dbFacts), answered while it is held
   #fileCopy = new Map(); // server and createdb -> a promise: whether createdb's file copy can be used (read once)
 
   /**
@@ -668,18 +670,13 @@ export class LocalRunner extends EventEmitter {
   }
 
   /**
-   * Every settings file of both checkouts (his main checkout and the job's worktree), as
-   * lib/db-settings.js reads them: { files: [{ rel, pairs, loose }], unreadable: [rel] }. The text
-   * stays on the server.
+   * Every settings file of both checkouts (the job's worktree and his main folder) and the profile's
+   * files to copy (each from in the main folder, each to in the worktree, whatever their names), as
+   * lib/db-settings.js reads them: { files, unreadable }. The text stays on the server.
    */
   async #settingsFiles(w) {
-    const out = { files: [], unreadable: [] };
-    for (const root of [...new Set([w.mainRoot, w.root].filter(Boolean))]) {
-      const r = await readSettingsFiles(root);
-      out.files.push(...r.files);
-      out.unreadable.push(...r.unreadable);
-    }
-    return out;
+    const extra = (w.files ?? []).flatMap((r) => [w.mainRoot && path.join(w.mainRoot, r.from), w.root && path.join(w.root, r.to)]).filter(Boolean);
+    return readSettings({ job: w.root, main: w.mainRoot && w.mainRoot !== w.root ? w.mainRoot : null, extra });
   }
 
   /**
@@ -703,8 +700,8 @@ export class LocalRunner extends EventEmitter {
   async #autoEnvFor(w, db, base, refuse) {
     const settings = await this.#settingsFiles(w);
     if (settings.unreadable.length) throw refuse(`Auto could not read ${settings.unreadable[0]}, so it made no recording.`);
-    const { env, set } = autoDbEnvParts(db, settings.files, base);
-    const left = leftover(settings.files, set, db);
+    const { env, set } = autoDbEnvParts(db, settings, base);
+    const left = leftover(settings, set, db, base);
     if (left) throw refuse(`A setting in ${left.file} (${left.key}) may point at your database, and Auto could not point it at its own copy, so it made no recording.`);
     return env;
   }
@@ -727,24 +724,44 @@ export class LocalRunner extends EventEmitter {
   }
 
   // timeout: Auto's reads pass the lower of this and its step limit. A read stopped by it throws with timedOut.
-  async #psql(db, sql, { timeout = PSQL_MS } = {}) {
-    // A read of his database waits while an Auto recording watches it for new sessions (holdHisReads).
+  async #psql(db, sql, { timeout = PSQL_MS, held = 'wait' } = {}) {
+    // A read of his database waits while an Auto recording watches it for new sessions (holdHisReads),
+    // or, for Try it's panel (held: 'fail'), doesn't go at all.
     const target = db.dbName ?? db.name;
-    while (target !== 'postgres' && this.#hisHeld.has(target)) await this.#hisHeld.get(target).promise;
+    while (target !== 'postgres' && this.#hisHeld.has(target)) {
+      if (held === 'fail') throw Object.assign(new Error('held'), { held: true });
+      await this.#hisHeld.get(target).promise;
+    }
     const r = await sh(await this.#pgTool('psql'), ['-X', '-A', '-t', '-q', '-v', 'ON_ERROR_STOP=1', '-d', db.dbName ?? db.name, '-c', sql], { env: childEnv(db.env), timeout });
     if (r.killed) throw Object.assign(new Error(`psql took longer than ${spanWords(timeout)} and was stopped.`), { timedOut: true });
     if (!r.ok) throw new Error(r.stderr.trim().split('\n')[0] || 'psql failed');
     return r.stdout.trim();
   }
 
-  async #dbFacts(db) {
+  /**
+   * cached: a read for Try it's panel or the stage (dbView). While an Auto recording holds his
+   * database (holdHisReads) it never waits: the last facts read, else it fails as a read does.
+   */
+  async #dbFacts(db, { cached = false } = {}) {
+    const fromLast = () => {
+      const last = this.#lastFacts.get(db.name);
+      if (last) return last;
+      throw new Error('Auto is recording on its own copy of the database; this is read again when it ends.');
+    };
+    let facts;
+    try { facts = await this.#dbFactsNow(db, cached ? 'fail' : 'wait'); } catch (err) { if (err.held) return fromLast(); throw err; }
+    this.#lastFacts.set(db.name, facts);
+    return facts;
+  }
+
+  async #dbFactsNow(db, held) {
     const onAdmin = { ...db, dbName: 'postgres' };
     const rows = (await this.#psql(onAdmin, `select datname from pg_database where datname in ('${db.name}', '${db.original}')`)).split('\n').filter(Boolean);
     const facts = { exists: rows.includes(db.name), originalExists: rows.includes(db.original), ledger: null, connections: 0 };
     if (!facts.exists) return facts;
     facts.connections = Number(await this.#psql(onAdmin, `select count(*) from pg_stat_activity where datname = '${db.name}' and pid <> pg_backend_pid()`)) || 0;
-    const hasLedger = (await this.#psql(db, "select to_regclass('public.applied_migrations') is not null")) === 't';
-    facts.ledger = hasLedger ? (await this.#psql(db, 'select name from applied_migrations order by name')).split('\n').filter(Boolean) : null;
+    const hasLedger = (await this.#psql(db, "select to_regclass('public.applied_migrations') is not null", { held })) === 't';
+    facts.ledger = hasLedger ? (await this.#psql(db, 'select name from applied_migrations order by name', { held })).split('\n').filter(Boolean) : null;
     return facts;
   }
 
@@ -763,7 +780,7 @@ export class LocalRunner extends EventEmitter {
     const db = await this.#database(w);
     if (!db.url) return db.reason ? { available: false, reason: db.reason } : null;
     let facts;
-    try { facts = await this.#dbFacts(db); } catch (err) { return { available: false, name: db.name, reason: `Couldn’t read the local database: ${err.message}` }; }
+    try { facts = await this.#dbFacts(db, { cached: true }); } catch (err) { return { available: false, name: db.name, reason: `Couldn’t read the local database: ${err.message}` }; }
     const saved0 = (await this.#settings()).db?.[db.name] ?? {};
     if (!facts.exists && facts.originalExists) return { available: true, gone: true, name: db.name, busy: this.dbBusy, original: { exists: true, savedAt: saved0.originalAt ?? null }, matches: saved0.matches ?? null, missing: [], extra: [], connections: 0 };
     if (!facts.exists) return { available: false, name: db.name, reason: `The database ${db.name} doesn’t exist on this computer.` };
@@ -914,7 +931,7 @@ export class LocalRunner extends EventEmitter {
    * connected to his database and no Try it app runs (createdb never overwrites a database).
    * One switch at a time: it waits up to waitMs for another to end. Throws AutoDbError.
    */
-  async autoDatabase(f, { waitMs = AUTO_DB_WAIT_MS } = {}) {
+  async autoDatabase(f, { waitMs = AUTO_DB_WAIT_MS, env: ownEnv = process.env } = {}) {
     if (this.demo) throw new Error('Demo mode: nothing real runs.');
     const until = Date.now() + waitMs;
     while (this.dbBusy) {
@@ -929,11 +946,13 @@ export class LocalRunner extends EventEmitter {
       const db = w.app ? await this.#database(w) : { reason: w.reason };
       if (!db.url) {
         // The profile names no database key, but the app looks like it uses one: say where (a file and a key, never a value).
-        const hint = !(w.profile && w.tryIt?.dbUrlKey) && w.root ? dbHint(await this.#settingsFiles(w), process.env) : null;
+        const hint = !(w.profile && w.tryIt?.dbUrlKey) && w.root ? dbHint(await this.#settingsFiles(w), ownEnv) : null;
         if (hint?.unreadable) throw new AutoDbError('no-database', `Auto could not read ${hint.file}, so it made no recording.`);
         if (hint) throw new AutoDbError('no-database', `This job’s app looks like it uses a database (${hint.file ?? `${PRODUCT}’s own environment`}, ${hint.key}), but ${PRODUCT} does not know which one, so Auto made no recording.`);
         throw new AutoDbError('no-database', db.reason ?? `This job’s app has no database ${PRODUCT} can copy for Auto.`);
       }
+      // His database named postgres: Starbase's own reads go there, so its sessions can't be watched (S8, lead's words).
+      if (db.name === 'postgres') throw new AutoDbError('no-database', `Your database is named postgres, which ${PRODUCT}'s own reads use, so Auto made no recording.`);
       // Every error's words with the addresses and the password blanked (no address leaves the laptop).
       const secrets = (() => { const p = new URL(db.url).password; try { return [p, decodeURIComponent(p)]; } catch { return [p]; } })();
       const fail = (code, message, extra = {}) => new AutoDbError(code, blankAddresses(message, secrets), { ...extra, ...(extra.tail ? { tail: blankAddresses(extra.tail, secrets) } : {}) });
@@ -1040,10 +1059,12 @@ export class LocalRunner extends EventEmitter {
   }
 
   /**
-   * While an Auto recording watches his database for new sessions, Starbase's own reads of it (Try
-   * it's panel) wait, so they are never taken for the app's. Returns the release; held at most maxMs.
+   * While an Auto recording watches his database for new sessions, Starbase's own reads of it never
+   * reach it: Try it's panel and the stage answer from the last facts (#dbFacts), his own switch waits.
+   * Returns the release, which the recording's finally calls; a safety cap of maxMs (10 minutes) for
+   * a finally that never runs.
    */
-  async holdHisReads(f, maxMs = 120_000) {
+  async holdHisReads(f, maxMs = HOLD_MAX_MS) {
     const w = await this.where(f);
     const db = w.app ? await this.#database(w) : {};
     if (!db.name) return () => {};
