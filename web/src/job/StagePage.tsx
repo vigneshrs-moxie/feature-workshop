@@ -8,7 +8,7 @@
 // job's folder in a terminal, and the terminal app. Finished here (n) folds those done; then the
 // conversation at this stop, folded, and the message box (c). Crew faces show only in Play full;
 // subtle and off show the role's initials.
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import type { Job, StageAgent, StageView, StopId } from '../api/types';
 import { useKeyScope } from '../app/keyRegistry';
 import { jobHref, navigate, stageHref } from '../app/router';
@@ -18,7 +18,7 @@ import { Fold, FoldShow, Page, type GuideSpec } from '../components/page/Page';
 import { StopMap } from '../components/stops/StopMap';
 import { STOPS, stagesOf } from '../components/stops/stops';
 import { useNow } from '../lib/time';
-import { lastKnown, remember } from '../lib/lastKnown';
+import { useStage } from './page/useStage';
 import { Pending, Skeleton } from '../components/Pending';
 import { Composer } from '../panes/Foreman/Composer';
 import { Button } from '../components/Button';
@@ -72,8 +72,6 @@ export function forHowLong(iso: string | null | undefined, now: Date): string | 
   return `${Math.floor(h / 24)} days`;
 }
 
-type Load<T> = { state: 'loading' } | { state: 'error'; message: string } | { state: 'ready'; value: T };
-
 export function StagePage({ slug, stop }: { slug: string; stop: StopId }) {
   const state = useWorkshopState();
   const job = jobBySlug(state, slug);
@@ -88,30 +86,13 @@ export function StagePage({ slug, stop }: { slug: string; stop: StopId }) {
 }
 
 function StageBody({ job, stop }: { job: Job; stop: StopId }) {
-  const { api } = useWorkshop();
   const now = useNow();
   const play = usePlay();
   const conversation = useJobConversation(job);
   useCurrentJob(job, conversation);
   const { thread, run } = conversation;
-  const path = `/api/job/${encodeURIComponent(job.slug)}/stage/${stop}`;
-  // Back on a stop seen before: what it showed last time, at once; the fresh answer fills in.
-  const [load, setLoad] = useState<Load<StageView>>(() => {
-    const known = lastKnown<StageView>(api, path);
-    return known ? { state: 'ready', value: known } : { state: 'loading' };
-  });
-  const [tries, setTries] = useState(0);
-  useEffect(() => {
-    let off = false;
-    const get = () => api.get<StageView>(path).then(
-      (value) => { if (!off) setLoad({ state: 'ready', value: remember(api, path, value) }); },
-      (err) => { if (!off) setLoad((l) => (l.state === 'ready' ? l : { state: 'error', message: err instanceof Error ? err.message : String(err) })); },
-    );
-    void get();
-    // While someone works here, what they are doing changes without the job changing.
-    const id = setInterval(() => void get(), 10_000);
-    return () => { off = true; clearInterval(id); };
-  }, [api, path, tries, job.updatedAt]);
+  // Back on a stop seen before: what it showed last time, at once; the fresh answer fills in (useStage).
+  const { view, error, reload } = useStage(job.slug, stop);
 
   const i = STOPS.findIndex((s) => s.id === stop);
   const here = STOPS[i];
@@ -124,7 +105,6 @@ function StageBody({ job, stop }: { job: Job; stop: StopId }) {
     'stage-next': () => { if (next) navigate({ name: 'stage', slug: job.slug, stop: next.id }); },
   });
 
-  const view = load.state === 'ready' ? load.value : null;
   const ticket = ticketOf(job);
   const stagesHere = view?.stages?.length ? view.stages : stagesOf(stop, job.kind);
   const messages = thread.items.length;
@@ -160,11 +140,11 @@ function StageBody({ job, stop }: { job: Job; stop: StopId }) {
       {play.full && <StageStrip job={job} stop={stop} agents={view?.agents ?? null} />}
       <NextStep job={job} conversation={conversation} now={now} foldCard />
       {stop === 'ship' && <ReviewPanel slug={job.slug} line />}
-      <Pending loading={load.state === 'loading'} say="Reading who’s on this stop…" skeleton={<Skeleton rows={4} className="stage-who-skeleton" />}>
-        {load.state === 'error' && (
+      <Pending loading={!view && !error} say="Reading who’s on this stop…" skeleton={<Skeleton rows={4} className="stage-who-skeleton" />}>
+        {!view && error && (
           <div>
-            <p className="thread-error" role="alert">Couldn’t read this stop: {load.message}</p>
-            <Button onClick={() => setTries((n) => n + 1)} title={`Ask ${BRAND.name} for this stop again.`}>Try again</Button>
+            <p className="thread-error" role="alert">Couldn’t read this stop: {error}</p>
+            <Button onClick={reload} title={`Ask ${BRAND.name} for this stop again.`}>Try again</Button>
           </div>
         )}
         {view && <WhoIsOn job={job} view={view} now={now} faces={play.full} finishedOpen={finishedOpen} setFinishedOpen={setFinishedOpen} />}

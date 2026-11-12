@@ -1446,11 +1446,15 @@ export async function createRunner(config) {
   // Every job's card, most urgent first (jobs being started from here come first).
   async function boardCards(list) {
     // A step the person wrote to while it waited is theirs at once (lib/auto.js wroteWhileWaiting), before Auto's pass writes the
-    // stop: auto.yours. Only a card with Auto on, not stopped and a gate waiting reads the job's audit lines.
-    const yours = async (f) => f.auto?.on === true && !f.auto.stopped && isGateWaiting(f) && !closedOff(f)
-      && wroteWhileWaiting(await state.auditFor(f.dir, Infinity), { briefAt: f.currentBrief?.at, since: f.auto.since });
+    // stop: auto.yours. Only a card with Auto on, not stopped and a gate waiting reads the job's audit lines, one job after
+    // another, so the shared audit file is parsed once (state.auditAll keeps the parse) however many such jobs there are.
+    const yours = new Set();
+    for (const f of list) {
+      if (f.auto?.on !== true || f.auto.stopped || !isGateWaiting(f) || closedOff(f)) continue;
+      if (wroteWhileWaiting(await state.auditFor(f.dir, Infinity).catch(() => []), { briefAt: f.currentBrief?.at, since: f.auto.since })) yours.add(f.dir);
+    }
     const withYours = (c, mine) => ({ ...c, auto: { ...c.auto, yours: mine } });
-    const cards = [...startingCards(list).map((c) => withYours(c, false)), ...await Promise.all(list.map(async (f) => withYours(boardCard(f, runFor(f)), await yours(f))))];
+    const cards = [...startingCards(list).map((c) => withYours(c, false)), ...list.map((f) => withYours(boardCard(f, runFor(f)), yours.has(f.dir)))];
     const rank = (c) => (c.needsYou ? 0 : c.working || c.stageState === 'working' ? 1 : c.stageState === 'done' ? 3 : 2);
     cards.sort((a, b) => rank(a) - rank(b) || (a.needsYou ? String(a.waitingSince ?? '').localeCompare(String(b.waitingSince ?? '')) : 0));
     // Each card's lane on Jobs and the reason in words (lib/snapshot.js laneFor, packet M).
