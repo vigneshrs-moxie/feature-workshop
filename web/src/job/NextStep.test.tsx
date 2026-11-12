@@ -461,7 +461,7 @@ describe('the bar: Auto’s go, the Foreman among the crew, and the small words'
   it('a brief Auto approved is not said to be your go; one you approved still is after a reload', async () => {
     const { store } = setup({ jobs: waiting({ auto }), gate: GATE, answered: [2], thread: [autoGo] });
     act(() => { store.dispatch({ type: 'event', event: ev(20, 'run', 'alpha', { id: 'r_auto', slug: 'alpha', status: 'running' }) }); });
-    await waitFor(() => expect(bar()).toHaveTextContent(SENT_WORDS));
+    await waitFor(() => expect(bar()).toHaveTextContent('Sent by Auto. Waiting for the Foreman to start.'));
     expect(bar()).not.toHaveTextContent('Your go');
     expect(shownKind()).toBe('none');
     cleanup();
@@ -554,5 +554,75 @@ describe('the bar: Auto’s go, the Foreman among the crew, and the small words'
       expect(bar().querySelector('.next-head')).toHaveTextContent(new RegExp(`^${say}$`));
       cleanup();
     }
+  });
+});
+
+// Task 8, fix round 1 (M2): Cancel gives focus back to the bar's call that opened the box.
+describe('Cancel under the bar', () => {
+  it('Cancel gives focus back to No go: send back or Reply', async () => {
+    setup({ jobs: waiting(), gate: GATE, post: sentPost() });
+    await gateShown();
+    for (const [name, box] of [[/^No go: send back/, /What should change\?/], ['Reply', /Your answers or a note/]] as const) {
+      const call = within(bar()).getByRole('button', { name });
+      await waitFor(() => expect(call).toBeEnabled());
+      call.focus();
+      fireEvent.click(call);
+      expect(await screen.findByRole('textbox', { name: box })).toHaveFocus();
+      fireEvent.click(within(document.querySelector<HTMLElement>('.job-gate-body .gate-note')!).getByRole('button', { name: 'Cancel' }));
+      expect(screen.queryByRole('textbox', { name: box })).toBeNull();
+      expect(call).toHaveFocus();
+    }
+    // The three calls stay on.
+    for (const b of threeCalls()) await waitFor(() => expect(b).toBeEnabled());
+  });
+});
+
+// Task 7 follow-up: the sent line never names the step you are at; a permission is not a question; Auto's send says so.
+describe('the sent line names the step that comes next, never the one you are at', () => {
+  const autoOn = { on: true, by: 'you' as const, ran: true };
+  async function goAt(gate: Gate, extra: Partial<Job> = {}) {
+    setup({ jobs: waiting({ stage: gate.stage ?? 'plan', ...extra }), gate, post: sentPost({ runEvent: false }) });
+    await gateShown();
+    const go = within(bar()).getByRole('button', { name: /^Go: / });
+    await waitFor(() => expect(go).toBeEnabled());
+    fireEvent.click(go);
+    await within(bar()).findByText(SENT_WORDS);
+    const line = bar().querySelector('.next-sub')?.textContent;
+    cleanup();
+    clearAllSent();
+    clearGateSent();
+    return line;
+  }
+
+  it('a next stage in the step you are at names no step; one in the next step still does', async () => {
+    const atSpec = await goAt({ ...GATE, stage: 'spec', nextStage: 'refine', nextProposed: 'Refine the spec' }, { auto: autoOn });
+    expect(atSpec).toBe('Your go reached the Foreman. Auto carries on from the next step.');
+    expect(atSpec).not.toMatch(/Spec starts next|Auto carries on from Spec/);
+    expect(await goAt({ ...GATE, stage: 'spec', nextStage: 'wireframe', nextProposed: 'Draw the screens' })).toBe('Your go reached the Foreman.');
+    expect(await goAt({ ...GATE, stage: 'pr1', nextStage: 'pr2', nextProposed: 'PR #2' })).toBe('Your go reached the Foreman.');
+    // The Foreman's own words name the step you are at: no step either.
+    expect(await goAt({ ...GATE, stage: 'investigate', nextStage: null, nextProposed: 'Investigate' } as unknown as Gate)).toBe('Your go reached the Foreman.');
+    expect(await goAt({ ...GATE, stage: 'spec', nextStage: 'plan', nextProposed: 'Plan the work' })).toBe('Your go reached the Foreman. Plan starts next.');
+    expect(await goAt({ ...GATE, stage: 'spec', nextStage: 'plan', nextProposed: 'Plan the work' }, { auto: autoOn })).toBe('Your go reached the Foreman. Plan starts next. Auto carries on from Plan.');
+  });
+
+  it('a permission that waits is not a question: the crew’s bar shows while the details load or fail', async () => {
+    const crew = [{ who: 'feature-implementer', name: 'Builder', doing: 'Building step 3 of 6: the Pause dialog', model: 'Sonnet 5.5', since: ago(12) }];
+    for (const details of ['loading', 'fails'] as const) {
+      setup({ jobs: [job('alpha', 'running', { stage: 'implement', lane: 'working', needsYou: true, waitingFor: 'permission', nowDoing: crew })], details });
+      await act(async () => {});
+      expect(bar(), details).not.toHaveTextContent('The Foreman asked you something');
+      expect(bar()).toHaveTextContent('The Builder is building step 3 of 6: the Pause dialog');
+      cleanup();
+    }
+  });
+
+  it('a brief Auto approved says Sent by Auto, and is never his', async () => {
+    const autoGo = { id: 'you-auto', kind: 'you', at: NOW, text: 'Approved.', sendKind: 'approve', gateBrief: 2, by: 'auto' } as ThreadItem;
+    const { store } = setup({ jobs: waiting({ auto: autoOn }), gate: GATE, answered: [2], thread: [autoGo] });
+    act(() => { store.dispatch({ type: 'event', event: ev(20, 'run', 'alpha', { id: 'r_auto', slug: 'alpha', status: 'running' }) }); });
+    await waitFor(() => expect(bar().querySelector('.next-head')).toHaveTextContent(/^Sent by Auto\. Waiting for the Foreman to start\.$/));
+    expect(live()).toHaveTextContent('Sent by Auto. Waiting for the Foreman to start.');
+    expect(shownKind()).toBe('none');
   });
 });

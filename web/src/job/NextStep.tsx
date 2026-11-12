@@ -411,8 +411,9 @@ function StateBar({ job, now, checks, onShip, onWatch, hosted, after }: { job: J
     action = prs;
   } else if (lane === 'resting') {
     icon = 'moon'; say = 'Nothing happening'; sub = 'It waits for your next message.'; action = write;
-  } else if (job.needsYou === true) {
-    // The card says it waits for him but no gate shows (its details are loading, or did not come):
+  } else if (job.waitingFor === 'approval' || job.waitingFor === 'answers') {
+    // The card says a go-ahead or answers wait for him but no gate shows (its details are loading, or did not come;
+    // a permission never draws a gate, so it is not counted here):
     // as for the needs-you lane, never the crew's words or "Nothing for you to do".
     asked();
   } else if (testing) {

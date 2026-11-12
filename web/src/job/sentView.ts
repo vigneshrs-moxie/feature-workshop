@@ -20,6 +20,8 @@ import type { AcceptedDecision, GateSent } from '../panes/Foreman/gateSent';
 import { isActiveRun } from '../panes/Foreman/thread';
 
 export const SENT_WORDS = 'Sent. Waiting for the Foreman to start.';
+/** The same, on a brief Auto answered (the thread says Auto sent it), so it never reads as his. */
+export const AUTO_SENT_WORDS = 'Sent by Auto. Waiting for the Foreman to start.';
 export const STUCK_WORDS = 'Nothing has moved yet.';
 /** The words the gate card already uses for a reply held until the limit resets (GateCard.tsx). */
 export const HELD_WORDS = 'Held until Claude’s usage limit resets.';
@@ -58,13 +60,14 @@ function moreFor(kind: GateKind, kept: Pick<AcceptedDecision, 'answers' | 'next'
 
 /**
  * The step that comes next, by its own name (lib/stops: "Build", "Review"): the gate's next stage,
- * else the Foreman's words when they are a step's name. Null when it names no step ("Run the tests").
+ * else the Foreman's words when they are a step's name. Null when it names no step ("Run the tests"),
+ * or names the step the gate is at (several stages share a step: Spec's refine, Ship's PR #2).
  */
-export function nextStepOf(gate: Pick<Gate, 'nextStage' | 'nextProposed'>): string | null {
-  const stop = stopOf(gate.nextStage);
-  if (stop) return STOPS.find((s) => s.id === stop)?.label ?? null;
+export function nextStepOf(gate: Pick<Gate, 'nextStage' | 'nextProposed'> & { stage?: string | null }): string | null {
   const words = gate.nextProposed?.trim().replace(/[.\s]+$/, '').toLowerCase();
-  return STOPS.find((s) => s.label.toLowerCase() === words)?.label ?? null;
+  const stop = stopOf(gate.nextStage) ?? STOPS.find((s) => s.label.toLowerCase() === words)?.id ?? null;
+  if (!stop || stop === stopOf(gate.stage)) return null;
+  return STOPS.find((s) => s.id === stop)?.label ?? null;
 }
 
 /**
@@ -129,7 +132,7 @@ export function sentView(job: SentJob, detail: JobDetail | null | undefined, run
   // This page's own answer names what it kept; after a reload the thread still gives its kind.
   const kept = a && (thisGate || replying) ? a : null;
   const kind = kept?.kind ?? answeredKind(detail, decision);
-  return { words: SENT_WORDS, more: kind ? moreFor(kind, kept, job) : null };
+  return { words: !kept && autoAnswered(detail, decision) ? AUTO_SENT_WORDS : SENT_WORDS, more: kind ? moreFor(kind, kept, job) : null };
 }
 
 /** A stalled answered brief with no decision on this page to send again (M2: the box is not always below). */
@@ -169,7 +172,7 @@ export function useSentView(job: Job, detail: JobDetail | null | undefined, run:
   const mine = a !== null && gate !== null && a.gate === gateKey(gate);
   const endedAt = run?.endedAt;
   const working = isActiveRun(run);
-  const resting = view !== null && view.words === SENT_WORDS && !working;
+  const resting = view !== null && (view.words === SENT_WORDS || view.words === AUTO_SENT_WORDS) && !working;
   const ended = !working && typeof endedAt === 'string' ? Date.parse(endedAt) : NaN;
   const due = resting ? Math.max(mine ? a.at : 0, Number.isFinite(ended) ? ended : 0) + STUCK_AFTER_MS : null;
   const [, tick] = useState(0);

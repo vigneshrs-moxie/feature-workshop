@@ -559,6 +559,31 @@ test('the website keeps what the laptop sends of a long Auto list: the laptop an
   assert.equal(wide.entries[0].answers.length, L.answers);
 });
 
+test('the website keeps the start time, the ticket and each entry’s kind and step, and cleans them', async () => {
+  const { cleanAutoLog } = await import('../lib/records.js');
+  const { AUTO_LOG_LIMITS: L } = await import('../../dashboard/lib/auto-log.js');
+  const rec = {
+    on: true, stopped: 'A migration needs you.', tag: 'auto-ok', summary: ['a', 'b', 'c'], startedAt: '2026-11-11T08:00:00.000Z', ticket: 'ORBIT-479',
+    entries: [
+      { at: '2026-11-11T08:09:00.000Z', stage: 'Build', chose: 'A migration needs you.', asked: '', why: '', kind: 'stop', stop: 'build' },
+      { at: '2026-11-11T08:05:00.000Z', stage: 'Plan', chose: 'Approved', asked: 'Brief 1', why: 'It matches.', kind: 'approve', stop: 'plan' },
+      { at: '2026-11-11T08:04:00.000Z', stage: 'Plan', chose: 'Yes', asked: 'Keep it?', why: 'Safer.', kind: 'answer', stop: null },
+    ],
+  };
+  assert.deepEqual(cleanAutoLog(rec), rec, 'a record with the new fields comes out with them');
+  // A record from an older laptop comes out as before: no new key is added.
+  const old = { on: true, stopped: null, tag: null, summary: ['a', 'b', 'c'], entries: [{ at: 'x', stage: 'Plan', chose: 'c', asked: 'a', why: 'w' }] };
+  assert.deepEqual(cleanAutoLog(old), old);
+  // A kind that is not one of the four is left out; a step that is not one is null; the two facts are cleaned like the others.
+  const bad = cleanAutoLog({
+    ...rec, startedAt: 5, ticket: 'T'.repeat(500),
+    entries: [{ ...rec.entries[0], kind: 'merge', stop: 'deploy' }, { ...rec.entries[1], kind: 7, stop: 3 }, { ...rec.entries[2], kind: 'allow', stop: 'test' }],
+  });
+  assert.equal(bad.startedAt, null);
+  assert.equal(bad.ticket.length, L.tag);
+  assert.deepEqual(bad.entries.map((e) => ['kind' in e ? e.kind : 'none', e.stop]), [['none', null], ['none', null], ['allow', 'test']]);
+});
+
 test('Auto on the website: another person’s job is a 404 and a flag that is not true or false is a 400, and nothing is queued either way', async () => {
   const { s, olive, l, runner } = await setUp();
   try {

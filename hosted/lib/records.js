@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import { canonicalKey } from '../../dashboard/lib/orbit.js';
 import { fromWire } from '../../dashboard/runner/mirror.js';
 import { AUTO_LOG_LIMITS } from '../../dashboard/lib/auto-log.js';
+import { STOP_IDS } from '../../dashboard/lib/stage-view.js';
 import { iso } from '../site/sessions.js';
 
 /** The parts a laptop may send, and whether each is about one job (its key is the slug, or starts with it). */
@@ -47,10 +48,14 @@ export function cleanSuggestion(v, now = Date.now()) {
 
 // The laptop cuts to these same numbers before it sends (dashboard/lib/auto-log.js).
 const { summary: AUTO_SUMMARY, entries: AUTO_ENTRIES, answers: AUTO_ANSWERS, line: AUTO_LINE, text: AUTO_TEXT } = AUTO_LOG_LIMITS;
+// What an entry may be (a go-ahead, an answer, a permission, Auto stopping); anything else is left out.
+const AUTO_KINDS = ['approve', 'answer', 'allow', 'stop'];
 
 /**
  * A job's Auto record as the site keeps and shows it, or null when it isn't the right shape:
- * { on, stopped, tag, summary: 3 short strings, entries: up to 200 { at, stage, chose, asked, why, risk?, answers? } }.
+ * { on, stopped, tag, summary: 3 short strings, entries: up to 200 { at, stage, chose, asked, why, risk?, answers?, kind?, stop? }, startedAt?, ticket? }.
+ * kind, stop, startedAt and ticket are kept only when the laptop sent them (an older laptop's record is unchanged): kind
+ * one of the four or left out, stop a step id or null.
  * Every string came from an agent's words on the laptop: plain text, cut, and only the known keys kept.
  */
 export function cleanAutoLog(v) {
@@ -66,11 +71,14 @@ export function cleanAutoLog(v) {
     if (Array.isArray(e.answers) && e.answers.length) {
       one.answers = e.answers.slice(0, AUTO_ANSWERS).filter((a) => a && typeof a === 'object').map((a) => ({ question: cut(a.question, AUTO_TEXT), choice: cut(a.choice, AUTO_TEXT), reason: cut(a.reason, AUTO_TEXT) }));
     }
+    if (AUTO_KINDS.includes(e.kind)) one.kind = e.kind;
+    if ('stop' in e) one.stop = STOP_IDS.includes(e.stop) ? e.stop : null;
     entries.push(one);
   }
   const summary = v.summary.slice(0, AUTO_SUMMARY).map((x) => cut(x, AUTO_LINE));
   while (summary.length < AUTO_SUMMARY) summary.push('');
-  return { on: v.on, stopped: orNull(v.stopped, AUTO_LOG_LIMITS.stopped), tag: orNull(v.tag, AUTO_LOG_LIMITS.tag), summary, entries };
+  const facts = { ...('startedAt' in v ? { startedAt: orNull(v.startedAt, AUTO_LOG_LIMITS.at) } : {}), ...('ticket' in v ? { ticket: orNull(v.ticket, AUTO_LOG_LIMITS.tag) } : {}) };
+  return { on: v.on, stopped: orNull(v.stopped, AUTO_LOG_LIMITS.stopped), tag: orNull(v.tag, AUTO_LOG_LIMITS.tag), summary, entries, ...facts };
 }
 
 /** A part from outside as the site keeps it: through its own check, or null when it has none (the part is kept as sent). */
