@@ -61,7 +61,7 @@ const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
  * button goes to the Job page. While a permission card has the bar's place the gate card stays
  * mounted, only hidden, so a box opened in it and the words typed there are still there after.
  */
-export function NextStep({ job, conversation, now, onShip, onWatch, foldCard = false, evidence }: { job: Job; conversation: Conversation; now: Date; onShip?: () => void; /** Shows the evidence being recorded (laptop only). */ onWatch?: () => void; /** A stop's page: the brief under the bar folds to one row (the Job page has it in full). */ foldCard?: boolean; /** The page's own evidence view for the gate card's strip (left out: the strip asks for itself). */ evidence?: EvidenceView | null }) {
+export function NextStep({ job, conversation, now, onShip, onWatch, foldCard = false, foldHere = false, evidence }: { job: Job; conversation: Conversation; now: Date; onShip?: () => void; /** Shows the evidence being recorded (laptop only). */ onWatch?: () => void; /** A stop's page: the brief under the bar folds to one row (the Job page has it in full). */ foldCard?: boolean; /** The job page while its conversation takes the screen: the brief is one row each time, whatever the Detail setting, and open only while a box in it is open or he opens the row (not remembered for any other page). */ foldHere?: boolean; /** The page's own evidence view for the gate card's strip (left out: the strip asks for itself). */ evidence?: EvidenceView | null }) {
   const state = useWorkshopState();
   const play = usePlay();
   const review = useReview(job.slug);
@@ -78,7 +78,7 @@ export function NextStep({ job, conversation, now, onShip, onWatch, foldCard = f
   const problem = after.problem && <p ref={after.problemRef} className="field-problem" role="alert" tabIndex={-1}>{after.problem}</p>;
   const alert = perms.length > 0 ? <PermissionAlert permissions={perms} now={now} /> : null;
   // The gate's bar and card stay in one place whether or not a permission card is up: hidden under it.
-  const gate = thread.detail?.gate ? <GoBar job={job} detail={thread.detail} now={now} reload={thread.reload} call={play.on} foldCard={foldCard} after={after} sent={sent} run={run} evidence={evidence} hidden={alert !== null} /> : null;
+  const gate = thread.detail?.gate ? <GoBar job={job} detail={thread.detail} now={now} reload={thread.reload} call={play.on} foldCard={foldCard} foldHere={foldHere} after={after} sent={sent} run={run} evidence={evidence} hidden={alert !== null} /> : null;
   // Neither: the review round's bar, else what is happening in words.
   const bar: ReactNode = alert || gate ? null
     : review.view ? <ReviewBar view={review.view} act={review.act} problem={review.problem} />
@@ -283,11 +283,23 @@ function TryAgain({ after }: { after: AfterSend }) {
  * the decisions made for you, a stale plan, the evidence); its own row of buttons is hidden, and
  * the bar's three calls press them (Reply opens the message box). Go is off while the card asks a question: a never answers one.
  */
-function GoBar({ job, detail, now, reload, call, foldCard = false, after, sent, run, evidence, hidden = false }: { job: Job; detail: NonNullable<ReturnType<typeof useJobConversation>['thread']['detail']>; now: Date; reload(): void; call: boolean; foldCard?: boolean; after: AfterSend; sent: SentShown | null; run: Run | null; evidence?: EvidenceView | null; /** A permission card has the bar's place: kept, not shown, its keys at rest. */ hidden?: boolean }) {
-  const [cardShown, setCardShown] = useShown('stage', 'brief');
-  const folded = foldCard && !cardShown;
+function GoBar({ job, detail, now, reload, call, foldCard = false, foldHere = false, after, sent, run, evidence, hidden = false }: { job: Job; detail: NonNullable<ReturnType<typeof useJobConversation>['thread']['detail']>; now: Date; reload(): void; call: boolean; foldCard?: boolean; /** See NextStep. */ foldHere?: boolean; after: AfterSend; sent: SentShown | null; run: Run | null; evidence?: EvidenceView | null; /** A permission card has the bar's place: kept, not shown, its keys at rest. */ hidden?: boolean }) {
+  // A stop's page remembers the brief open or folded (useShown); over the job page's conversation
+  // it starts as one row each time and is opened there only.
+  const [stageShown, setStageShown] = useShown('stage', 'brief');
+  const [shownHere, setShownHere] = useState(false);
+  const [wasHere, setWasHere] = useState(foldHere);
+  if (wasHere !== foldHere) {
+    setWasHere(foldHere);
+    if (foldHere) setShownHere(false);
+  }
+  const cardShown = foldHere ? shownHere : stageShown;
+  const setCardShown = foldHere ? setShownHere : setStageShown;
+  const folds = foldCard || foldHere;
   const body = useRef<HTMLDivElement>(null);
-  const [go, setGo] = useState({ words: '', off: true, asks: false, backOff: false, replyOff: true, why: '' });
+  const [go, setGo] = useState({ words: '', off: true, asks: false, backOff: false, replyOff: true, why: '', boxOpen: false });
+  // A box open in the card (What should change?, Reply) keeps it open: typed words are never out of sight.
+  const folded = folds && !cardShown && !go.boxOpen;
   useLayoutEffect(() => {
     const el = body.current;
     if (!el) return;
@@ -297,8 +309,8 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, after, sent, 
       // Off whenever the card's button can't be pressed: disabled, aria-disabled, or busy.
       const reply = el.querySelector<HTMLButtonElement>('[data-gate="guidance"]');
       // The card's own reason when Go must wait for something on it (words typed for a send back).
-      const next = { words: wordsOf(b), off: !isPressable(b), asks: Boolean(el.querySelector('.gate-question')), backOff: !isPressable(back), replyOff: !isPressable(reply), why: b?.dataset.offWhy ?? '' };
-      setGo((was) => (was.words === next.words && was.off === next.off && was.asks === next.asks && was.backOff === next.backOff && was.replyOff === next.replyOff && was.why === next.why ? was : next));
+      const next = { words: wordsOf(b), off: !isPressable(b), asks: Boolean(el.querySelector('.gate-question')), backOff: !isPressable(back), replyOff: !isPressable(reply), why: b?.dataset.offWhy ?? '', boxOpen: Boolean(el.querySelector('.gate-note')) };
+      setGo((was) => (was.words === next.words && was.off === next.off && was.asks === next.asks && was.backOff === next.backOff && was.replyOff === next.replyOff && was.why === next.why && was.boxOpen === next.boxOpen ? was : next));
     };
     read();
     const watch = new MutationObserver(read);
@@ -359,10 +371,10 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, after, sent, 
         </>}
       </NextBar>
       {autoDeciding(job) && !stopped && !waits && <p className="job-go-auto muted">{AUTO_DECIDING_NOTE}</p>}
-      {foldCard && (
+      {folds && (
         <button type="button" className="desk-details-row stage-brief-row" aria-expanded={!folded} onClick={() => setCardShown(folded)} title={folded ? 'Show the brief’s questions and details here; Go sends the answers picked in it.' : 'Fold the brief back to this row.'}>
           <Icon name="file" size={16} />
-          <span className="desk-details-words"><b>The brief</b><span className="muted">its questions and details, also on the job’s page; Go sends the answers picked in it</span></span>
+          <span className="desk-details-words"><b>The brief</b><span className="muted">{foldHere ? 'its questions and details; Go sends the answers picked in it' : 'its questions and details, also on the job’s page; Go sends the answers picked in it'}</span></span>
           <Icon name="chevron-down" size={14} className={`fold-chevron${folded ? '' : ' is-up'}`} />
         </button>
       )}

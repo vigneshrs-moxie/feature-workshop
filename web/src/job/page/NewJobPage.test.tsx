@@ -15,6 +15,7 @@ import { useRoute, type JobView } from '../../app/router';
 import { UiProvider, useUi } from '../../app/ui';
 import { STOPS } from '../../components/stops/stops';
 import { clearAllSent } from '../../lib/sentState';
+import { writeStored } from '../../lib/stored';
 import { clearGateSent } from '../../panes/Foreman/gateSent';
 import { createStore, WorkshopContext, type Store } from '../../state/store';
 import { ev, job, permission, snapshot } from '../../state/test-fixtures';
@@ -450,22 +451,26 @@ describe('the Test step and the evidence', () => {
   });
 
   it('Watch on the bar opens the Test step watching; it is off again once the recording ends', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
+    // Only the test moves the clock (no real time slips in under load); each step lets every answer in.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404, blob: async () => new Blob([]) })));
+    const settle = async (ms = 0) => { await act(async () => { await vi.advanceTimersByTimeAsync(ms); }); for (let i = 0; i < 5; i++) await act(async () => {}); };
     const { get } = setup({ jobs: [RECORDING_JOB()], evidence: RECORDING });
     pick('spec');
-    await waitFor(() => expect(evidenceCalls(get)).toBeGreaterThan(0));
-    fireEvent.click(await within(bar()).findByRole('button', { name: 'Watch' }));
+    await settle();
+    expect(evidenceCalls(get)).toBeGreaterThan(0);
+    fireEvent.click(within(bar()).getByRole('button', { name: 'Watch' }));
     expect(openStop()).toBe('test');
-    const row = await screen.findByRole('article', { name: 'Recorded evidence' });
-    expect(await within(row).findByRole('button', { name: 'Stop watching' })).toBeInTheDocument();
+    await settle();
+    const row = screen.getByRole('article', { name: 'Recorded evidence' });
+    expect(within(row).getByRole('button', { name: 'Stop watching' })).toBeInTheDocument();
     // The recording ends (the next ask, 3 s on), then another starts: it starts unwatched.
     server.evidence = EVIDENCE;
-    act(() => { vi.advanceTimersByTime(3_000); });
-    await waitFor(() => expect(within(row).queryByRole('button', { name: /Stop watching|Watch/ })).toBeNull());
+    await settle(3_000);
+    expect(within(row).queryByRole('button', { name: /Stop watching|Watch/ })).toBeNull();
     server.evidence = RECORDING;
-    act(() => { vi.advanceTimersByTime(30_000); });
-    expect(await within(row).findByRole('button', { name: 'Watch' })).toBeInTheDocument();
+    await settle(30_000);
+    expect(within(row).getByRole('button', { name: 'Watch' })).toBeInTheDocument();
     expect(within(row).queryByRole('button', { name: 'Stop watching' })).toBeNull();
   });
 });
@@ -491,6 +496,78 @@ async function expectTheThreeCalls() {
 const simple = () => localStorage.setItem(DETAIL_KEY, 'simple');
 /** The brief under the bar folded to one row. */
 const briefRow = () => screen.getByRole('button', { name: /^The brief/ });
+/** The conversation takes the page: Widen from 1100 px, the Conversation button under it. */
+type Takes = 'widened' | 'full screen';
+function takePage(how: Takes) {
+  fireEvent.click(screen.getByRole('button', { name: how === 'widened' ? 'Widen' : /^Conversation/ }));
+  expect(page()).toHaveClass(how === 'widened' ? 'is-wide' : 'is-full');
+}
+const ASK: Permission = { ...permission('p1', 'alpha'), createdAt: '2026-10-21T10:00:00Z', input: { command: 'npm test' } };
+/** A job Auto stopped with no gate (a status card): the bar has Reply only. */
+const STOPPED_NO_GATE = () => [job('alpha', 'needs-you', { stage: 'build', lane: 'needs-you', level: 1, laneReason: 'Auto stopped: a database change needs you.', headline: 'Which table?', auto: STOPPED })];
+
+/** The full-screen and widened cases each layout test runs. */
+function layoutCases(how: Takes) {
+  const width = how === 'widened' ? LAPTOP : 1024;
+  it(`${how}: with Detail set to Full the card is still one row, and its row does not send you to the job’s page`, async () => {
+    windowWidth(width);
+    setup({ jobs: waiting(), gate: GATE });
+    await screen.findByRole('button', { name: /^Go: approve/ });
+    takePage(how);
+    expect(briefRow()).toHaveAttribute('aria-expanded', 'false');
+    expect(document.querySelector('.job-gate-body')).toHaveAttribute('hidden');
+    expect(briefRow()).toHaveTextContent('its questions and details; Go sends the answers picked in it');
+    expect(briefRow()).not.toHaveTextContent('also on the job’s page');
+    // Opened here, it is open here only: the stop pages' remembered choice is not touched.
+    fireEvent.click(briefRow());
+    expect(document.querySelector('.job-gate-body')).not.toHaveAttribute('hidden');
+    expect(localStorage.getItem('workshop.shown.stage')).toBeNull();
+    await expectTheThreeCalls();
+  });
+
+  it(`${how} with What should change? open keeps the box and its words in sight`, async () => {
+    windowWidth(width);
+    simple();
+    setup({ jobs: waiting(), gate: GATE });
+    fireEvent.click(await screen.findByRole('button', { name: /^No go: send back/ }));
+    const box = await screen.findByRole('textbox', { name: /What should change\?/ });
+    fireEvent.change(box, { target: { value: 'Use the small table.' } });
+    takePage(how);
+    expect(shown(box)).toBe(true);
+    expect(box).toHaveValue('Use the small table.');
+    expect(briefRow()).toHaveAttribute('aria-expanded', 'true');
+    // Cancel: no words wait now, and the card is one row again.
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(briefRow()).toHaveAttribute('aria-expanded', 'false'));
+  });
+
+  it(`${how}: a permission card takes the bar’s place above the conversation, and the three calls come back once it is answered`, async () => {
+    windowWidth(width);
+    const { move, post } = setup({ jobs: waiting(), gate: GATE });
+    await screen.findByRole('button', { name: /^Go: approve/ });
+    takePage(how);
+    move(waiting(), [ASK]);
+    const alert = screen.getByRole('region', { name: 'Permission: Run a command' });
+    expect(shown(alert)).toBe(true);
+    expect(alert.compareDocumentPosition(convo()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(within(alert).getByRole('button', { name: /^Allow once/ }));
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/api/permissions/p1', expect.objectContaining({ decision: 'allow' })));
+    move(waiting(), []);
+    await expectTheThreeCalls();
+    expect(shown(convo())).toBe(true);
+  });
+
+  it(`${how}: a stopped job with no gate keeps its bar above the conversation, with Reply only`, async () => {
+    windowWidth(width);
+    setup({ jobs: STOPPED_NO_GATE() });
+    await screen.findByText('Overview');
+    takePage(how);
+    expect(shown(bar())).toBe(true);
+    expect(within(bar()).getAllByRole('button').map(words)).toEqual([expect.stringMatching(/^Reply/)]);
+    expect(within(bar()).getByRole('button', { name: /^Reply/ })).toBeEnabled();
+    expect(shown(convo())).toBe(true);
+  });
+}
 const QUEUED: QueuedView = { id: 'd_abcdefgh1234', kind: 'approve', state: 'waiting', words: 'Go: waiting for your laptop. It runs when the laptop is back.', at: NOW, expiresAt: null, waiting: true, canCancel: true, permissionId: null };
 const at = (m: number) => new Date(Date.now() - (60 - m) * 60_000).toISOString();
 const THREAD: ThreadItem[] = [
@@ -554,7 +631,7 @@ describe('the page’s keys and requests', () => {
 
   // The job menu has no Review the screens of its own; the request is the one the gear's neighbours
   // send (a screens chip, the wireframes page in a list): ui.openScreens for this job.
-  it('Review the screens from the gear goes to the Screens page', () => {
+  it('a request to review this job’s screens goes to the Screens page', () => {
     function Screens() { const ui = useUi(); return <button type="button" onClick={() => ui.openScreens('alpha')}>review the screens</button>; }
     function Other() { const ui = useUi(); return <button type="button" onClick={() => ui.openScreens('beta')}>another job’s screens</button>; }
     setup({ jobs: [working('spec')], extra: <><Screens /><Other /></> });
@@ -645,6 +722,21 @@ describe('Widen', () => {
     }
   });
 
+  layoutCases('widened');
+
+  it('Widen and Back to the job keep the focus on the button you pressed', async () => {
+    setup({ jobs: waiting(), gate: GATE });
+    await screen.findByRole('button', { name: /^Go: approve/ });
+    const widen = screen.getByRole('button', { name: 'Widen' });
+    widen.focus();
+    fireEvent.click(widen);
+    expect(document.activeElement).toBe(widen);
+    expect(widen).toHaveTextContent('Back to the job');
+    fireEvent.click(widen);
+    expect(document.activeElement).toBe(widen);
+    expect(widen).toHaveTextContent('Widen');
+  });
+
   it('widened, a job that does not wait for you shows only the conversation', () => {
     setup({ jobs: [working('plan')] });
     fireEvent.click(screen.getByRole('button', { name: 'Widen' }));
@@ -662,14 +754,12 @@ describe('Widen', () => {
     fireEvent.change(message, { target: { value: 'And keep the icon.' } });
     const list = convo().querySelector('.sb-convo-list')!;
     fireEvent.click(screen.getByRole('button', { name: 'Widen' }));
-    // The same box, with its words (folded with the card while widened), and the same message box.
-    expect(box.isConnected).toBe(true);
+    // The same box, in sight with its words (an open box keeps the card open), and the same message box.
+    expect(shown(box)).toBe(true);
     expect(box).toHaveValue('Use the small table.');
     expect(messageBox()).toBe(message);
     expect(message).toHaveValue('And keep the icon.');
-    // Typing goes on while widened: the brief's row opens the card with the box.
-    fireEvent.click(briefRow());
-    expect(shown(box)).toBe(true);
+    // Typing goes on while widened.
     fireEvent.change(box, { target: { value: 'Use the small table. Two columns.' } });
     fireEvent.click(screen.getByRole('button', { name: 'Back to the job' }));
     await act(async () => {});
@@ -712,10 +802,10 @@ describe('a window under 1100 px', () => {
   });
 
   it('under 1100 px the full-screen conversation keeps the three calls', async () => {
-    for (const [, j] of AUTO_STATES) {
+    for (const [, j] of [['Not Auto', waiting()[0]] as [string, Job], ...AUTO_STATES]) {
       windowWidth(1024);
       simple();
-      setup({ jobs: [j], gate: GATE, auto: { on: true, tag: null } });
+      setup({ jobs: [j], gate: GATE, auto: { on: Boolean(j.auto?.on), tag: null } });
       await screen.findByRole('button', { name: /^Go: approve/ });
       fireEvent.click(screen.getByRole('button', { name: /^Conversation/ }));
       expect(convo()).toHaveClass('is-full');
@@ -730,6 +820,43 @@ describe('a window under 1100 px', () => {
     }
   });
 
+  layoutCases('full screen');
+
+  it('opening the full screen puts the focus on Back to the job; closing it puts it on the Conversation button', async () => {
+    windowWidth(1024);
+    setup({ jobs: waiting(), gate: GATE });
+    await screen.findByRole('button', { name: /^Go: approve/ });
+    const open = screen.getByRole('button', { name: /^Conversation/ });
+    open.focus();
+    fireEvent.click(open);
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Back to the job' })));
+    fireEvent.click(screen.getByRole('button', { name: 'Back to the job' }));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: /^Conversation/ })));
+  });
+
+  it('the full-screen conversation counts only what is new since you last read it, the second time too', async () => {
+    windowWidth(1024);
+    localStorage.setItem(seenKey('alpha'), at(1));
+    const { store } = setup({ jobs: [working('plan')], thread: THREAD });
+    const button = () => screen.getByRole('button', { name: /^Conversation/ });
+    await waitFor(() => expect(button()).toHaveTextContent('2 new'));
+    fireEvent.click(button());
+    expect(within(convo()).getByText(/4 messages · 2 new/)).toBeInTheDocument();
+    // He reads them: the visible panel writes the newest message's time as his last look.
+    act(() => { writeStored(seenKey('alpha'), at(4)); });
+    fireEvent.click(screen.getByRole('button', { name: 'Back to the job' }));
+    expect(button()).not.toHaveTextContent('new');
+    // One message arrives, and he opens it again.
+    server.thread = [...THREAD, { id: 'reply:5', kind: 'reply', at: at(5), html: '<p>One more thing.</p>' }];
+    act(() => { store.dispatch({ type: 'event', event: ev(400, 'thread', 'alpha', {}) }); });
+    await waitFor(() => expect(button()).toHaveTextContent('1 new'));
+    fireEvent.click(button());
+    const head = convo().querySelector('.sb-convo-head')!;
+    expect(head).toHaveTextContent('5 messages · 1 new');
+    // The new line sits above the one new message only.
+    expect(within(convo()).getByRole('separator', { name: '1 new since you last looked' })).toBeInTheDocument();
+  });
+
   it('what you typed stays through the full-screen conversation, a resize across 1100 px and Widen', async () => {
     windowWidth(1280);
     setup({ jobs: waiting(), gate: GATE, thread: THREAD });
@@ -739,9 +866,11 @@ describe('a window under 1100 px', () => {
     const message = messageBox();
     fireEvent.change(message, { target: { value: 'And keep the icon.' } });
     const panel = convo();
+    const list = convo().querySelector('.sb-convo-list');
     const theBar = bar();
     const keep = () => {
       expect(convo()).toBe(panel);
+      expect(convo().querySelector('.sb-convo-list')).toBe(list);
       expect(bar()).toBe(theBar);
       expect(screen.getByRole('textbox', { name: /What should change\?/, hidden: true })).toBe(box);
       expect(box).toHaveValue('Use the small table.');
@@ -753,6 +882,13 @@ describe('a window under 1100 px', () => {
     keep();
     fireEvent.click(screen.getByRole('button', { name: /^Conversation/ }));
     expect(shown(message)).toBe(true);
+    keep();
+    // Closed with its own Back to the job, and opened again.
+    fireEvent.click(screen.getByRole('button', { name: 'Back to the job' }));
+    expect(page()).not.toHaveClass('is-full');
+    keep();
+    expect(shown(box)).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: /^Conversation/ }));
     keep();
     // Wider again with the conversation open: it is the widened conversation now.
     resizeTo(1280);

@@ -24,7 +24,7 @@
 //
 // One clock, one sent line (useSentShown) and one evidence view (useJobEvidence) for the whole page.
 // The open step's body is StepBody; the phone's step screen draws the same one.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import type { Job, JobDetail, JobPageFacts, StageAgent, StopId } from '../../api/types';
 import { BRAND } from '../../app/brand';
 import { useKeyScope } from '../../app/keyRegistry';
@@ -127,6 +127,17 @@ function LaptopJob({ job, conversation, now, step, view, sent }: {
   useEffect(() => { if (view === 'overview') writeStored(OVERVIEW_FOLD, 'open'); }, [view]);
   const wide = column && talk;
   const full = !column && talk;
+  // The full screen's own buttons come and go with it: the focus goes to Back to the job as it
+  // opens, and back to the Conversation button as it closes (Widen's button stays where it is).
+  const focusTo = useRef<'back' | 'talk' | null>(null);
+  const backRef = useRef<HTMLDivElement>(null);
+  const talkRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const to = focusTo.current;
+    if (!to) return;
+    focusTo.current = null;
+    (to === 'back' ? backRef : talkRef).current?.querySelector<HTMLButtonElement>('button')?.focus();
+  });
   const leaveTalk = useCallback(() => {
     setTalk(false);
     // The conversation's own address would open it again: the job's address instead.
@@ -211,8 +222,8 @@ function LaptopJob({ job, conversation, now, step, view, sent }: {
       <div className="sb-job-cols">
         <div className="sb-job-work" hidden={talk && !barShown && !full}>
           {full && (
-            <div className="sb-job-back">
-              <Button kind="quiet" icon="chevron-left" onClick={leaveTalk} title="Give the page back to the job: its steps, with the conversation one button away.">Back to the job</Button>
+            <div className="sb-job-back" ref={backRef}>
+              <Button kind="quiet" icon="chevron-left" onClick={() => { focusTo.current = 'talk'; leaveTalk(); }} title="Give the page back to the job: its steps, with the conversation one button away.">Back to the job</Button>
             </div>
           )}
           <div className="sb-job-part" hidden={talk}>
@@ -226,7 +237,7 @@ function LaptopJob({ job, conversation, now, step, view, sent }: {
               now={now}
               onShip={() => toStep('ship')}
               onWatch={() => { toStep('test'); setWatching(true); }}
-              foldCard={talk}
+              foldHere={talk}
               evidence={evidence.view}
             />
           </div>
@@ -258,7 +269,7 @@ function LaptopJob({ job, conversation, now, step, view, sent }: {
           <ConversationPanel job={job} conversation={conversation} now={now} wide={wide} full={full} onWide={(on) => (on ? setTalk(true) : leaveTalk())} />
         </div>
       </div>
-      {!column && !talk && <TalkButton job={job} conversation={conversation} onOpen={() => setTalk(true)} />}
+      {!column && !talk && <TalkButton job={job} conversation={conversation} barRef={talkRef} onOpen={() => { focusTo.current = 'back'; setTalk(true); }} />}
     </main>
   );
 }
@@ -278,11 +289,11 @@ function TheOverview({ job, detail, thread }: { job: Job; detail: JobDetail | nu
 }
 
 /** Under 1100 px: the conversation behind one button at the foot of the page, with what is new. */
-function TalkButton({ job, conversation, onOpen }: { job: Job; conversation: Conversation; onOpen(): void }) {
+function TalkButton({ job, conversation, barRef, onOpen }: { job: Job; conversation: Conversation; barRef: RefObject<HTMLDivElement | null>; onOpen(): void }) {
   const [seen] = useStored(seenKey(job.slug));
   const fresh = newCount(conversation.thread.items, seen);
   return (
-    <div className="sb-job-talkbar">
+    <div className="sb-job-talkbar" ref={barRef}>
       <Button size="lg" icon="message" className="sb-job-talkbutton" onClick={onOpen} title="Open the conversation with the Foreman, full screen.">
         Conversation{fresh > 0 && <Chip tone="accent">{`${fresh} new`}</Chip>}
       </Button>
