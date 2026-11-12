@@ -49,3 +49,14 @@ test('his own level stands: the latest level line is his options change, made af
   assert.equal(ownLevelStands([auto(3), { action: 'options', options: { flow: 'small' } }]), false, 'an options line with no level is not a level line');
   assert.equal(ownLevelStands([auto(3), his(2), { action: 'send', kind: 'approve' }]), true, 'other lines after it change nothing');
 });
+
+test('his own level stands only for a save that changed the level (was), from the options editor or a gate chip', async () => {
+  const { ownLevelStands } = await import('../lib/auto-level.js');
+  const auto = (level) => ({ action: 'auto-level', level });
+  const his = (level, was, extra = {}) => ({ action: 'options', options: { level, notes: 'x' }, was, ...extra });
+  assert.equal(ownLevelStands([auto(2), his(2, 2)]), false, 'a save that keeps the level (a note, reviewers, a chip) is not a level choice');
+  assert.equal(ownLevelStands([auto(3), his(2, 3)]), true, 'a save that changes the level is');
+  assert.equal(ownLevelStands([auto(3), his(2, 3, { via: 'gate' })]), true, 'the gate card\'s level chip counts as his change');
+  assert.equal(ownLevelStands([auto(3), his(2, 3), his(2, 2)]), true, 'a later save that keeps his level leaves it standing');
+  assert.equal(ownLevelStands([auto(3), his(3, 3, { via: 'gate' })]), false, 'a skip or Fable chip on a gate he answers by hand is not a level choice');
+});

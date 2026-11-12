@@ -211,9 +211,10 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     // A reply cut off by a Starbase crash or restart waits for Resume, which only the person presses: no ten minutes for that.
     if (job.cutOff) { await stop(job, { rule: 'blocked', reason: CUT_OFF }); return null; }
     // A suggested L1, L2 or L3 above the job's level is applied before the gate is answered (the higher one wins, never lowered),
-    // unless the job's latest level line is his own change after an automatic level: his choice stands (the same 400 lines checkLevelsNow reads).
+    // unless the job's latest level line is his own change after an automatic level: his choice stands. All of the job's lines: on a long
+    // job the automatic level line would drop out of a window first (one cached parse of the file serves both, as at youWroteWhileWaiting).
     const suggested = job.suggestedLevel;
-    if ((suggested === 1 || suggested === 2 || suggested === 3) && !(job.level >= suggested) && !ownLevelStands(await state.auditFor(job.dir, 400))) {
+    if ((suggested === 1 || suggested === 2 || suggested === 3) && !(job.level >= suggested) && !ownLevelStands(await state.auditFor(job.dir, Infinity))) {
       try { await raiseLevel(job, suggested); job.level = suggested; } catch (err) { console.error(`auto level (${job.slug}):`, err.message); return null; }
     }
     const gate = job.gate && !job.gate.stale && job.gate.briefNumber !== null && !job.answered.includes(job.gate.briefNumber) && job.gate.briefNumber !== job.auto.lastBrief ? job.gate : null;

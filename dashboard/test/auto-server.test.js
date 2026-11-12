@@ -4094,3 +4094,57 @@ test('a pause from the plan-usage meters alone sends one queue change; a meters 
     assert.equal(seen.length, n0 + 1, 'still the same reason: nothing more');
   } finally { await w.stop(); }
 });
+
+// ---------- Auto queue Task 4, fix round 2: his level stands on a long job; only a level change is his choice ----------
+
+test('N1: on a long job his level still stands when more than 400 lines come after his change', { timeout: 30_000 }, async () => {
+  const w = await world({ jobStatus: status(1, { suggested_level: 3 }), options: { level: 2, flow: 'small', title: 'Visit audit columns' } });
+  try {
+    await auditLine(w, { at: AT(1), action: 'auto-level', level: 3, was: 1 });
+    await auditLine(w, { at: AT(2), action: 'options', options: { level: 2 }, was: 3, overrode: 'auto' });
+    const filler = Array.from({ length: 450 }, (_, i) => JSON.stringify({ featureDir: w.dir, slug: w.slug, at: AT(3), action: 'test-filler', n: i })).join('\n');
+    await fs.appendFile(path.join(w.dirs.state, 'audit.jsonl'), `${filler}\n`);
+    await w.pass();
+    assert.equal((await w.ownOptions()).level, 2, 'his level stands');
+    assert.equal((await w.lines()).filter((l) => l.action === 'auto-level').length, 1, 'no auto-level line is added');
+    assert.equal(w.asks[0].task.job.level, 2, 'the gate is answered at L2');
+  } finally { await w.stop(); }
+});
+
+test('N2: a save in the options editor that keeps the level does not stop a raise', { timeout: 30_000 }, async () => {
+  const w = await world({ jobStatus: status(1, { suggested_level: 3 }), options: { level: 2, flow: 'small', title: 'Visit audit columns' } });
+  try {
+    await auditLine(w, { at: AT(1), action: 'auto-level', level: 2, was: 1 });
+    // A note saved in the options editor: the whole options go on the line, level 2 unchanged.
+    await w.runner.handle({ type: 'options', slug: w.slug, options: { level: 2, flow: 'small', notes: 'Keep the column names short.' } }, { from: 'local' });
+    const saved = (await w.lines()).filter((l) => l.action === 'options').at(-1);
+    assert.deepEqual([saved.options.level, saved.was], [2, 2], 'the save kept the level');
+    await w.pass();
+    assert.equal((await w.ownOptions()).level, 3, 'raised by the suggestion');
+    assert.equal((await w.lines()).filter((l) => l.action === 'auto-level').at(-1).level, 3);
+    assert.equal(w.asks[0].task.job.level, 3, 'asked at L3');
+  } finally { await w.stop(); }
+});
+
+test('N2: a level he sets with the gate card\'s level chip stands over a later suggestion', { timeout: 30_000 }, async () => {
+  const w = await world({ auto: null, jobStatus: status(1, { suggested_level: 3 }), options: { level: 3, flow: 'large', title: 'Visit audit columns' } });
+  try {
+    await auditLine(w, { at: AT(1), action: 'auto-level', level: 3, was: 1 });
+    // He answers brief 1 by hand with the level chip at L2.
+    await w.runner.handle({ type: 'approve', slug: w.slug, briefNumber: 1, chips: [{ kind: 'level', level: 2 }] }, { from: 'local' });
+    await w.idle();
+    const chip = (await w.lines()).filter((l) => l.action === 'options').at(-1);
+    assert.deepEqual([chip.via, chip.options.level, chip.was], ['gate', 2, 3], 'the chip wrote his level');
+    // Then Auto is switched on, and the Foreman's next brief still suggests L3.
+    await w.runner.handle({ type: 'auto', slug: w.slug, on: true }, { from: 'local' });
+    await new Promise((r) => setTimeout(r, 50));
+    await fs.writeFile(path.join(w.dir, 'briefs', '002-plan.md'), '**Visit audit · plan v2 ready**\n');
+    await w.writeStatus(status(2, { suggested_level: 3 }));
+    await new Promise((r) => setTimeout(r, 1700)); // the job list is cached for 1.5 seconds
+    await w.pass();
+    assert.equal((await w.ownOptions()).level, 2, 'his chip level stands');
+    assert.equal((await w.lines()).filter((l) => l.action === 'auto-level').length, 1, 'no auto-level line is added');
+    assert.equal(w.asks.at(-1).task.job.level, 2, 'the gate is answered at L2');
+    assert.deepEqual((await w.sends()).filter((s) => s.by === 'auto').map((s) => s.gateBrief), [2]);
+  } finally { await w.stop(); }
+});
