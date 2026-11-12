@@ -291,12 +291,26 @@ export function useKeptBoxWords(job: Job, detail: JobDetail | null) {
  */
 function moveKeptWords(slug: string, kept: KeptBox) {
   writeStored(gateBoxKey(slug), null);
-  const words = [kept.notes.changes, kept.notes.message].map((w) => w.trim()).filter(Boolean).join('\n\n');
-  if (!words) return;
+  const text = addToDraft(slug, kept.notes);
+  if (text !== null) writeStored(gateMovedKey(slug), JSON.stringify({ brief: kept.brief, draft: text, ...(kept.mine ? { mine: true } : {}) } satisfies MovedWords));
+}
+
+/**
+ * A failed send's words, handed to whichever card for that brief is mounted now (fix round 2, item 3):
+ * the card that pressed may have been drawn again since (the phone changed screen and came back),
+ * and the new one's box must get them back, not an empty box his next key would store over them.
+ */
+interface GivenBack { slug: string; gate: string; session: string | null; notes: Notes }
+const givenBack = new Set<(g: GivenBack) => void>();
+
+/** Both boxes' words added after the message box's draft, a blank line between; the new draft, or null when there were none. */
+function addToDraft(slug: string, notes: Notes): string | null {
+  const words = [notes.changes, notes.message].map((w) => w.trim()).filter(Boolean).join('\n\n');
+  if (!words) return null;
   const draft = (readStored(draftKey(slug)) ?? '').replace(/\s+$/, '');
   const text = draft ? `${draft}\n\n${words}` : words;
   writeStored(draftKey(slug), text);
-  writeStored(gateMovedKey(slug), JSON.stringify({ brief: kept.brief, draft: text, ...(kept.mine ? { mine: true } : {}) } satisfies MovedWords));
+  return text;
 }
 
 function GateCard({ job, detail, gate, now, reload, report, running, callsOutside = false, extrasTo = null, onOpenBox, evidence, keysOff = false, answerKeysOff = false }: {
@@ -353,6 +367,21 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   // card mounts, and written where he types, opens or closes a box, never in an effect after the
   // render (that second commit, on every key, also drew the whole job page again through its
   // subscription to the store) and never back into a box.
+  // Words of a failed send made from another drawing of this card come back into an empty box (item 3).
+  const latest = useRef({ mode, notes, keep });
+  latest.current = { mode, notes, keep };
+  useEffect(() => {
+    const take = (g: GivenBack) => {
+      if (g.slug !== slug || g.gate !== thisGate || g.session !== session) return;
+      const { mode: m, notes: n, keep: k } = latest.current;
+      const next: Notes = { changes: n.changes.trim() ? n.changes : g.notes.changes, message: n.message.trim() ? n.message : g.notes.message };
+      if (next.changes === n.changes && next.message === n.message) return;
+      setNotes(next);
+      k(m, next);
+    };
+    givenBack.add(take);
+    return () => { givenBack.delete(take); };
+  }, [slug, thisGate, session]);
   const note = mode === 'changes' || mode === 'message' ? notes[mode] : '';
   const setNote = (words: string) => {
     if (mode !== 'changes' && mode !== 'message') return;
@@ -507,6 +536,35 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   }
 
   /** What happened, said in the slot; a reply given back (the Foreman is working) waits in the composer. */
+  /** The slot holds this card's words now (read from the store at this moment, never from a value drawn earlier). */
+  const slotIsOurs = () => ours(readKeptBox(readStored(gateBoxKey(slug))));
+
+  /**
+   * A send failed. While the slot is still this card's, everything is kept again, as the box still
+   * shows it. If it is not (fix round 2, R1): the other box's words were moved already and are not
+   * written again; the words that were sent are never lost: back in the empty slot for this brief
+   * (the page moves them once), or, when another brief's words hold the slot, added to the message
+   * box's draft. Another brief's words are never moved or overwritten from here.
+   */
+  function keepAfterFailure(kind: GateKind, carries: Partial<GateRequest>) {
+    answeredHere.current = false;
+    const left = leftAfter(kind, carries);
+    const sent: Notes = { changes: left.changes === '' ? notes.changes : '', message: left.message === '' ? notes.message : '' };
+    if (slotIsOurs()) {
+      keep(mode, notes);
+      // A card for this brief drawn again meanwhile gets the sent words back in its own boxes.
+      for (const give of [...givenBack]) give({ slug, gate: thisGate, session, notes: sent });
+      return;
+    }
+    if (!sent.changes.trim() && !sent.message.trim()) return;
+    if (readStored(gateBoxKey(slug)) === null) {
+      writeStored(gateBoxKey(slug), JSON.stringify({ gate: thisGate, session, brief: gate.briefNumber ?? null, mode: null, notes: sent } satisfies KeptBox));
+      reload();
+      return;
+    }
+    addToDraft(slug, sent);
+  }
+
   /** The words left in the boxes once a decision of this kind goes out with what it carries. */
   function leftAfter(kind: GateKind, carries: Partial<GateRequest>): Notes {
     return {
@@ -523,7 +581,10 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
       const open = mode === kind || (kind === 'approve' && mode === 'message') ? null : mode;
       setNotes(went);
       setMode(open);
-      keep(open, went);
+      // Only while the slot is still this card's (fix round 2, R1): if the page has moved the other
+      // box's words already (the brief showed answered before this answer) or another brief's card
+      // has the slot, there is nothing left here to keep.
+      if (slotIsOurs()) keep(open, went);
     }
     const dropped = r.chipsDropped ? ` ${r.chipsDropped} option ${plural(r.chipsDropped, 'change didn’t', 'changes didn’t')} apply and ${plural(r.chipsDropped, 'was', 'were')} left out.` : '';
     const lines = r.summary?.length ? r.summary : undefined;
@@ -576,9 +637,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
     try {
       done(kind, await post(kind, extra), extra);
     } catch (err) {
-      // Nothing went: the words are kept again, as the box still shows them.
-      answeredHere.current = false;
-      keep(mode, notes);
+      keepAfterFailure(kind, extra);
       if (isStale(err)) return; // said in the slot; the card is refetched
       if (err instanceof ApiError && err.body.code === 'terminal-open') setAskTerminal(true);
       setError(err instanceof ApiError && err.body.code === 'terminal'
@@ -1054,7 +1113,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
           submit={async (text, { confirmNoTerminal }) => {
             answeredHere.current = true;
             keep(mode, notes);
-            try { edited.current = await post('approve', { text, ...(confirmNoTerminal ? { confirmNoTerminal } : {}) }); } catch (err) { answeredHere.current = false; keep(mode, notes); throw err; }
+            try { edited.current = await post('approve', { text, ...(confirmNoTerminal ? { confirmNoTerminal } : {}) }); } catch (err) { keepAfterFailure('approve', {}); throw err; }
           }}
           onClose={closeEdit}
           onSent={() => { setEditing(null); if (edited.current) done('approve', edited.current); }}

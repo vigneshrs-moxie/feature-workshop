@@ -1100,6 +1100,22 @@ describe('the fold after a box closes, with the conversation full screen', () =>
     }
   });
 
+  // Fix round 2, item 2: the same on the widened laptop.
+  it.each(MODES)('after a refused Go on the widened laptop, Send back on the bar shows its box (%s)', async (_where, hosted) => {
+    simple();
+    const post = vi.fn(async (p: string): Promise<unknown> => { if (p === '/api/job/alpha/gate') throw new ApiError(503, 'The laptop is away.'); return { ok: true }; });
+    setup({ jobs: waiting(), gate: GATE, hosted, post });
+    const go = await screen.findByRole('button', { name: /^Go: approve/ });
+    takePage('widened');
+    await waitFor(() => expect(go).toBeEnabled());
+    fireEvent.click(go);
+    await waitFor(() => expect(screen.getByText('The laptop is away.')).toBeVisible());
+    fireEvent.click(screen.getByRole('button', { name: /^No go: send back/ }));
+    const box = await screen.findByRole('textbox', { name: /What should change\?/ });
+    await act(async () => {});
+    expect(box).toBeVisible();
+  });
+
   it.each(MODES)('a card he unfolded himself stays unfolded after Cancel (%s)', async (_where, hosted) => {
     windowWidth(1024);
     simple();
@@ -1837,6 +1853,85 @@ describe('after a click on the go / no go bar', () => {
     post.mockImplementation(async (p: string) => { if (p.endsWith('/gate')) throw new ApiError(503, 'The laptop is away.'); return { ok: true }; });
     fireEvent.click(screen.getByRole('button', { name: 'Send back' }));
     expect(await screen.findByText('The laptop is away.')).toBeInTheDocument();
+  });
+
+  // Fix round 2, item 1 (R1): after the press, a card writes to the slot only while it is still its own.
+  const composerBox = () => document.querySelector<HTMLTextAreaElement>('[data-composer-input]')!;
+  const times = (text: string, words: string) => text.split(words).length - 1;
+  /** Change words held in What should change?, then Reply words, then Go: Go carries the Reply words. */
+  async function bothBoxesThenGo(change: string, reply: string) {
+    await sendBack(change);
+    fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
+    fireEvent.change(await screen.findByRole('textbox', { name: /Your answers or a note/ }), { target: { value: reply } });
+    const go = screen.getByRole('button', { name: /^Go: approve/ });
+    await waitFor(() => expect(go).toBeEnabled());
+    fireEvent.click(go);
+  }
+
+  it('words in both boxes, the details arrive before the send’s answer: the other box’s words are in the message box once', async () => {
+    const { post, answer } = held();
+    const { store } = setup({ jobs: waiting(), gate: GATE, post });
+    await bothBoxesThenGo('Use the small table.', 'Keep the icon small.');
+    await waitFor(() => expect(gatePosts(post)).toHaveLength(1));
+    await answeredBeforeTheReply(store);
+    await waitFor(() => expect(composerBox()).toHaveValue('Use the small table.'));
+    await answer();
+    await act(async () => {});
+    await act(async () => {});
+    expect(composerBox()).toHaveValue('Use the small table.');
+    expect(screen.getByText('Your unsent words are in the message box.')).toBeVisible();
+  });
+
+  it('words in both boxes, the details arrive before the send fails: each box’s words are in the message box once', async () => {
+    let refuse: (e: unknown) => void = () => {};
+    const post = vi.fn((p: string): Promise<unknown> => (p.endsWith('/gate') ? new Promise((_res, rej) => { refuse = rej; }) : Promise.resolve({ ok: true })));
+    const { store } = setup({ jobs: waiting(), gate: GATE, post });
+    await bothBoxesThenGo('Use the small table.', 'Keep the icon small.');
+    await waitFor(() => expect(gatePosts(post)).toHaveLength(1));
+    await answeredBeforeTheReply(store);
+    await waitFor(() => expect(composerBox()).toHaveValue('Use the small table.'));
+    await act(async () => { refuse(new ApiError(503, 'The laptop is away.')); });
+    // The sent words that did not go come to the message box once; the other box's are not added again.
+    await waitFor(() => expect(times(composerBox().value, 'Keep the icon small.')).toBe(1));
+    await act(async () => {});
+    expect(times(composerBox().value, 'Use the small table.')).toBe(1);
+    expect(times(composerBox().value, 'Keep the icon small.')).toBe(1);
+  });
+
+  it('a late answer for brief 2 leaves brief 3’s words in his box and in the store', async () => {
+    const { post, answer } = held();
+    const { store } = setup({ jobs: waiting(), gate: GATE, post });
+    await bothBoxesThenGo('Old change.', 'A note.');
+    await waitFor(() => expect(gatePosts(post)).toHaveLength(1));
+    // Brief 2 is answered and brief 3 is raised before the Go's answer comes back.
+    server.answered = [2];
+    server.gate = { ...GATE, briefNumber: 3, headline: 'Tests ready' };
+    act(() => { store.dispatch({ type: 'event', event: ev(250, 'thread', 'alpha', {}) }); });
+    await waitFor(() => expect(bar()).toHaveTextContent('Tests ready'));
+    await waitFor(() => expect(composerBox()).toHaveValue('Old change.'));
+    // While brief 2's Go is out this page's calls rest, so brief 3's words are typed elsewhere (the
+    // Desk, another tab) and kept in the job's one slot.
+    act(() => { writeStored('fw.gateBox.alpha', JSON.stringify({ gate: '#3', session: null, brief: 3, mode: 'changes', notes: { changes: 'Brief three words.', message: '' } })); });
+    await answer();
+    await act(async () => {});
+    expect(localStorage.getItem('fw.gateBox.alpha')).toContain('Brief three words.');
+    expect(composerBox()).toHaveValue('Old change.');
+    // Drawn again, brief 3's card has his words in its box.
+    cleanup();
+    setup({ jobs: waiting(), gate: { ...GATE, briefNumber: 3, headline: 'Tests ready' } });
+    expect(await screen.findByRole('textbox', { name: /What should change\?/ })).toHaveValue('Brief three words.');
+    expect(composerBox()).toHaveValue('Old change.');
+  });
+
+  it('after his own Send back the unsent Reply words move to the message box with a line that says so', async () => {
+    setup({ jobs: waiting(), gate: GATE, post: sentPost() });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Reply' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
+    fireEvent.change(await screen.findByRole('textbox', { name: /Your answers or a note/ }), { target: { value: 'A question for later.' } });
+    fireEvent.click(await sendBack('Use the small table.'));
+    await waitFor(() => expect(composerBox()).toHaveValue('A question for later.'));
+    expect(screen.getByText('Your unsent words are in the message box.')).toBeVisible();
+    expect(times(composerBox().value, 'Use the small table.')).toBe(0);
   });
 
   it('a send that fails puts the words back in the box and in the store', async () => {

@@ -949,7 +949,9 @@ describe('the brief folded under the bar (foldCard)', () => {
     expect(await screen.findByRole('textbox', { name: /Your answers or a note/ })).toBeVisible();
   });
 
-  it('on the phone’s step screen the brief folds while a box is open', async () => {
+  // Fix round 2, item 2: on the phone's step screen too, an open box keeps the brief shown (it used
+  // to fold box and all); the row is off while a box is open, and Cancel gives the fold back.
+  it('on the phone’s step screen the brief stays shown while a box is open', async () => {
     for (const hosted of [false, true]) {
       setup({ jobs: waiting(), gate: GATE, foldCard: true, hosted });
       await gateShown();
@@ -959,14 +961,11 @@ describe('the brief folded under the bar (foldCard)', () => {
       fireEvent.click(reply);
       const box = await screen.findByRole('textbox', { name: /Your answers or a note/ });
       fireEvent.change(box, { target: { value: 'Keep the old column.' } });
-      // The row folds the brief, box and all; the box and its words stay for when it opens again.
-      expect(row()).toBeEnabled();
-      fireEvent.click(row());
-      expect(row()).toHaveAttribute('aria-expanded', 'false');
-      expect(body()).not.toBeVisible();
+      await waitFor(() => expect(row()).toBeDisabled());
       fireEvent.click(row());
       expect(row()).toHaveAttribute('aria-expanded', 'true');
-      expect(screen.getByRole('textbox', { name: /Your answers or a note/ })).toHaveValue('Keep the old column.');
+      expect(box).toBeVisible();
+      expect(box).toHaveValue('Keep the old column.');
       cleanup();
       localStorage.clear();
     }
