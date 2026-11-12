@@ -25,7 +25,7 @@
 // the site, which refuses a record that fails.
 
 import { NEVER_CARRIED } from '../lib/protocol.js';
-import { scrubCommand } from '../lib/orbit.js';
+import { scrub } from '../lib/orbit.js';
 import { capAutoLog } from '../lib/auto-log.js';
 
 /** The largest one part may be on the wire (a batch is at most 256 KB). */
@@ -76,6 +76,20 @@ export function runState(run) {
   };
 }
 
+/** As far as the laptop's card shows a command (lib/permissions.js describePermission cuts it here too). */
+const SHELL_PREVIEW_MAX = 4000;
+
+/**
+ * A shell card's preview for the website: the whole raw command scrubbed first, then cut, so a secret
+ * across the cut is still hidden. The laptop's own card keeps the raw command. Without the command,
+ * the laptop's preview as it is (makeEvent scrubs it).
+ */
+function shellPreview(p, plain) {
+  if (typeof p.input?.command !== 'string') return { preview: plain.preview ?? null, previewCut: plain.previewCut ?? null };
+  const whole = scrub(p.input.command);
+  return whole.length > SHELL_PREVIEW_MAX ? { preview: `${whole.slice(0, SHELL_PREVIEW_MAX)}…`, previewCut: SHELL_PREVIEW_MAX } : { preview: whole, previewCut: null };
+}
+
 /** A permission card as the site shows it. */
 export function permissionCard(p) {
   if (!isPlain(p)) return null;
@@ -90,7 +104,7 @@ export function permissionCard(p) {
     createdAt: p.createdAt ?? null, expiresAt: p.expiresAt ?? null, agentType: p.agentType ?? null, input,
     plain: {
       headline: plain.headline ?? 'The Foreman asks for permission', detail: plain.detail ?? null, blockedPath: plain.blockedPath ?? null,
-      risk: plain.risk ?? null, preview: shell ? plain.preview ?? null : null, previewCut: shell ? plain.previewCut ?? null : null,
+      risk: plain.risk ?? null, ...(shell ? shellPreview(p, plain) : { preview: null, previewCut: null }),
       ...(shell || question ? {} : { previewNote: 'What it would write shows on your laptop.' }),
     },
     decisionReason: p.decisionReason ?? null, defaultToNo: Boolean(p.defaultToNo), canAllowForRun: Boolean(p.canAllowForRun),
@@ -129,7 +143,7 @@ export function boardRecord(snap) {
 
 /**
  * The crew's activity as it goes up: a command's output stays on the laptop; the command, when it ran
- * and the feed's lines go up scrubbed of secrets (lib/orbit.js scrubCommand; the laptop parsed them scrubbed
+ * and the feed's lines go up scrubbed of secrets (lib/orbit.js scrub; the laptop parsed them scrubbed
  * already, and this holds for a record from anywhere).
  */
 function activityUp(list) {
@@ -137,8 +151,8 @@ function activityUp(list) {
   return list.map((a) => {
     if (!isPlain(a)) return a;
     const out = { ...a };
-    if (isPlain(a.lastCommand)) out.lastCommand = { ...a.lastCommand, command: scrubCommand(a.lastCommand.command), tail: null };
-    if (Array.isArray(a.recent)) out.recent = a.recent.map((r) => (isPlain(r) ? { ...r, text: scrubCommand(r.text) } : r));
+    if (isPlain(a.lastCommand)) out.lastCommand = { ...a.lastCommand, command: scrub(a.lastCommand.command), tail: null };
+    if (Array.isArray(a.recent)) out.recent = a.recent.map((r) => (isPlain(r) ? { ...r, text: scrub(r.text) } : r));
     return out;
   });
 }

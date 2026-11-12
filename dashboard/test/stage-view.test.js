@@ -406,3 +406,62 @@ test('only the Tester at Test carries its command', () => {
   const fresh = stageView(job({ stage: 'test', activity: [conductor(), crew('feature-tester', { lastCommand: null })] }), 'test', MAC);
   assert.equal(fresh.agents.find((a) => a.who === 'feature-tester').command, null);
 });
+
+// ---------- Plan, Build, Review and Ship facts (Part 3, Task 4) ----------
+
+test('Plan and Build carry the plan’s steps, Ship the three pull requests', () => {
+  const plan = { version: '1', steps: [{ id: 'S1', name: 'The form', state: 'done' }, { id: 'S2', name: 'The list', state: 'now' }] };
+  const notStarted = (n) => ({ n, number: null, title: null, url: null, state: 'not-started', review: null, checks: null, openedAt: null, updatedAt: null });
+  const prs = [{ ...notStarted(1), number: 7, state: 'open', review: 'waiting', checks: 'running' }, notStarted(2), notStarted(3)];
+  const at = job({ stage: 'implement', page: { plan, prs, review: null } });
+  assert.deepEqual(stageView(at, 'plan', MAC).plan, plan);
+  assert.deepEqual(stageView(at, 'build', MAC).plan, plan);
+  assert.deepEqual(stageView(at, 'ship', MAC).prs, prs);
+  for (const stop of ['spec', 'investigate', 'test', 'review', 'ship']) assert.equal('plan' in stageView(at, stop, MAC), false, stop);
+  for (const stop of ['spec', 'investigate', 'plan', 'build', 'test', 'review']) assert.equal('prs' in stageView(at, stop, MAC), false, stop);
+  // A plan with no steps is null on the page: the view says so too.
+  assert.equal(stageView(job({ stage: 'plan', page: { plan: null } }), 'plan', MAC).plan, null);
+  // A job answer from an older Starbase has no page: none of them (not known).
+  for (const stop of ['plan', 'build', 'review', 'ship']) {
+    const v = stageView(job({ stage: 'implement' }), stop, MAC);
+    for (const key of ['plan', 'prs', 'review']) assert.equal(key in v, false, `${stop} ${key}`);
+  }
+});
+
+test('Review lists every reviewer that ran, one with no findings included', () => {
+  const activity = [
+    conductor(),
+    crew('feature-review-ui', { state: 'finished' }),
+    crew('feature-review-errors', { state: 'finished' }),
+    crew('feature-reviewer', { state: 'finished' }),
+    crew('feature-reviewer', { state: 'finished', startedAt: T(20) }), // a second round: one entry
+    crew('feature-implementer', { state: 'finished' }), // Build's, not a reviewer
+  ];
+  const agents = [
+    { agentType: 'feature-reviewer', model: 'claude-opus-5-5', stage: 'review', usd: 2 },
+    { agentType: 'feature-review-errors', model: 'claude-sonnet-5-5', stage: 'review', usd: 1 },
+  ];
+  const row = (lens, text, status = 'open') => ({ lens, severity: 'major', text, status });
+  const rows = [row('feature-review-errors', 'A failed save is silent', 'fixed'), row(null, 'A note with no lens'), row('feature-reviewer', 'Misses a case'), row('feature-review-db', 'An index is missing')];
+  const v = stageView(job({ activity, costDetail: { agents }, page: { review: { at: T(30), rows } } }), 'review', MAC);
+  assert.equal(v.review.at, T(30));
+  assert.deepEqual(v.review.reviewers, [
+    { lens: 'feature-reviewer', name: 'Head inspector', model: 'Opus 5.5', rows: [rows[2]] },
+    { lens: 'feature-review-errors', name: 'Fuse', model: 'Sonnet 5.5', rows: [rows[0]] },
+    // A lens the table names whose run isn't in the activity: still listed, its model not known.
+    { lens: 'feature-review-db', name: 'Mason', model: null, rows: [rows[3]] },
+    { lens: 'feature-review-ui', name: 'Painter', model: null, rows: [] },
+    { lens: null, name: 'Other findings', model: null, rows: [rows[1]] },
+  ]);
+  // No review.md yet: the reviewers that ran, with no findings.
+  const none = stageView(job({ activity, costDetail: { agents }, page: { review: null } }), 'review', MAC);
+  assert.deepEqual(none.review, {
+    at: null,
+    reviewers: [
+      { lens: 'feature-reviewer', name: 'Head inspector', model: 'Opus 5.5', rows: [] },
+      { lens: 'feature-review-errors', name: 'Fuse', model: 'Sonnet 5.5', rows: [] },
+      { lens: 'feature-review-ui', name: 'Painter', model: null, rows: [] },
+    ],
+  });
+  assert.equal('review' in stageView(job({ activity, page: { review: null } }), 'build', MAC), false, 'only the Review step');
+});

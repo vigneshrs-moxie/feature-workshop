@@ -22,6 +22,7 @@ import { fileURLToPath } from 'node:url';
 import { agentInfo, detectStage, stagesFor } from './stages.js';
 import { modelLabel } from './cost.js';
 import { describeTool } from './session-log.js';
+import { REVIEWERS } from './options.js';
 
 /** This file: what the follow script runs. */
 export const FOLLOW_SCRIPT = fileURLToPath(import.meta.url);
@@ -256,6 +257,22 @@ function foremanRow(job, state, { activity, agents, pending, platform, stop }) {
   return row({ model, doing, since: now?.since ?? own?.since ?? null, lastAt: now?.lastAt ?? own?.lastAt ?? null, status, ...feedOf(own) });
 }
 
+// The Review step's findings by reviewer (Part 3 Task 4): one entry per reviewer that ran at the
+// step (its name from REVIEWERS, its model from its row), and one per lens the findings name whose
+// run isn't known, in REVIEWERS' order, each with its rows; then `Other findings` for rows with no lens.
+const REVIEWER_IDS = REVIEWERS.map((r) => r.id);
+function reviewByReviewer(review, rowsHere) {
+  const rows = Array.isArray(review?.rows) ? review.rows : [];
+  const ran = new Map(); // lens -> its model
+  for (const r of rowsHere) if (REVIEWER_IDS.includes(r.who) && !ran.get(r.who)) ran.set(r.who, r.model ?? null);
+  const named = new Set([...ran.keys(), ...rows.map((x) => x?.lens)]);
+  const reviewers = REVIEWERS.filter((r) => named.has(r.id))
+    .map((r) => ({ lens: r.id, name: r.label, model: ran.get(r.id) ?? null, rows: rows.filter((x) => x?.lens === r.id) }));
+  const other = rows.filter((x) => !REVIEWER_IDS.includes(x?.lens));
+  if (other.length) reviewers.push({ lens: null, name: 'Other findings', model: null, rows: other });
+  return { at: typeof review?.at === 'string' ? review.at : null, reviewers };
+}
+
 const byRole = (a, b) => {
   const ra = ROLE_ORDER.indexOf(a.who);
   const rb = ROLE_ORDER.indexOf(b.who);
@@ -307,6 +324,9 @@ export function stageView(job, stop, { activity = job.activity ?? [], agents = j
   // stepTimes, stepDocs); left out when the answer has none (an older Starbase: not known).
   const time = job.page?.times?.[stop];
   const docs = job.page?.docs?.[stop];
+  // Plan and Build: the plan's steps; Ship: the three pull requests; Review: its findings by reviewer
+  // (job.page.plan, .prs, .review). Left out when the answer has none of them (an older Starbase).
+  const page = job.page && typeof job.page === 'object' ? job.page : {};
   // The Test step's check counts and hand test, as the job answer's page has them; on no other step,
   // and left out when the answer has none (an older Starbase: not known).
   const testOwn = stop === 'test' && job.page ? Object.fromEntries(['checks', 'handTest'].filter((k) => Object.hasOwn(job.page, k)).map((k) => [k, job.page[k]])) : {};
@@ -326,6 +346,9 @@ export function stageView(job, stop, { activity = job.activity ?? [], agents = j
     terminalApps: apps,
     ...(time ? { time } : {}),
     ...(Array.isArray(docs) ? { docs } : {}),
+    ...((stop === 'plan' || stop === 'build') && page.plan !== undefined ? { plan: page.plan } : {}),
+    ...(stop === 'ship' && Array.isArray(page.prs) ? { prs: page.prs } : {}),
+    ...(stop === 'review' && page.review !== undefined ? { review: reviewByReviewer(page.review, [...agentsHere, ...finished]) } : {}),
     ...testOwn,
   };
 }

@@ -30,7 +30,7 @@ function When({ at, now }: { at: string | null | undefined; now: Date }) {
   return <time className="doc-time num" dateTime={at} title={`Last changed ${fullTime(at)}`}>{ago}{/^\d+[mhd]$/.test(ago) ? ' ago' : ''}</time>;
 }
 
-function DocItem({ d, now, onPick, itemRef }: { d: JobDocEntry; now: Date; onPick: (file: string) => void; itemRef?: RefObject<HTMLButtonElement | null> }) {
+export function DocItem({ d, now, onPick, itemRef }: { d: JobDocEntry; now: Date; onPick: (file: string) => void; itemRef?: RefObject<HTMLButtonElement | null> }) {
   const pinned = d.file === 'acceptance.md' || d.file === 'dev-tests.md';
   return (
     <li>
@@ -88,7 +88,7 @@ function DocList({ shown, more, section, now, onPick, pickedRef }: { shown: JobD
 /** The groups whose documents the Foreman summarises (not your notes or the workflow's own logs). */
 const SUMMARISED = new Set(['plan', 'briefs', 'review']);
 
-function DocReader({ slug, entry, file, now, onBack }: { slug: string; entry: JobDocEntry | null; file: string; now: Date; onBack: () => void }) {
+export function DocReader({ slug, entry, file, now, onBack }: { slug: string; entry: JobDocEntry | null; file: string; now: Date; onBack: () => void }) {
   const { api } = useWorkshop();
   const [load, setLoad] = useState<Load<JobDoc>>({ state: 'loading' });
   const [tries, setTries] = useState(0);

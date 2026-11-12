@@ -11,6 +11,8 @@ import {
   PAGE_SECRETS, SECRET_IDS, TEAPOT, THEME_IDS, BOSS_WEIGHTS, bossHp, crewHeaders, crewType, hexCommit, buildLedger, jobKey, ledgerView, lensType, newlyDefeated, newlyDone, newlyUnlocked, parseReviewFindings, playSettings, reviewsChanged,
   themeUnlocked, unlocksOf, validatePlayPatch,
 } from '../lib/play.js';
+import { reviewRows } from '../lib/play.js';
+import { FINDING_TEXT_MAX, FINDING_ROWS_MAX } from '../lib/play.js';
 import { parseSessionLog } from '../lib/session-log.js';
 
 const DIR = '/tmp/fw-play/feature-work';
@@ -1068,4 +1070,152 @@ test('PlayBook: the finish line changed while a refresh is reading: that refresh
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
+});
+
+// ---------- The review's findings, row by row (Part 3, Task 4) ----------
+
+test('reviewRows gives each finding with its lens and whether it was fixed', () => {
+  const text = [
+    '# Review',
+    '',
+    '| Severity | Lens | Finding | Status |',
+    '|---|---|---|---|',
+    '| Major | errors | A failed save is silent | Fixed in 3f2a |',
+    '| Minor | Painter | The button says “Ok” | Dropped |',
+    '| Blocker | **Locksmith** | Techs can read notes via `a \\| b` | |',
+    '| Minor | db | An index is missing | Deferred to ORBIT-12 |',
+    '| Major | perf | Slow list | won’t fix |',
+    '| Minor | Stickler | A naming slip | not doing |',
+    '| Minor | tests | Flaky test | **Resolved** |',
+    '| Major | spec | Misses a case | false positive |',
+    '| Note | ui | A severity the table doesn’t know: minor | |',
+  ].join('\n');
+  assert.deepEqual(reviewRows(text), [
+    { lens: 'feature-review-errors', severity: 'major', text: 'A failed save is silent', status: 'fixed' },
+    { lens: 'feature-review-ui', severity: 'minor', text: 'The button says “Ok”', status: 'not-doing' },
+    { lens: 'feature-review-permissions', severity: 'blocker', text: 'Techs can read notes via `a | b`', status: 'open' },
+    { lens: 'feature-review-db', severity: 'minor', text: 'An index is missing', status: 'not-doing' },
+    { lens: 'feature-review-performance', severity: 'major', text: 'Slow list', status: 'not-doing' },
+    { lens: 'feature-review-conventions', severity: 'minor', text: 'A naming slip', status: 'not-doing' },
+    { lens: 'feature-review-tests', severity: 'minor', text: 'Flaky test', status: 'fixed' },
+    { lens: 'feature-reviewer', severity: 'major', text: 'Misses a case', status: 'not-doing' },
+    { lens: 'feature-review-ui', severity: 'minor', text: 'A severity the table doesn’t know: minor', status: 'open' },
+  ]);
+  // Columns in another order, no Lens and no Status column, bold marks in the cells.
+  assert.deepEqual(reviewRows('| # | Issue | Severity |\n|--|--|--|\n| 1 | **Crash** on an empty list | **Blocker** |\n'), [
+    { lens: null, severity: 'blocker', text: 'Crash on an empty list', status: 'open' },
+  ]);
+  assert.deepEqual(reviewRows('| Description | Severity | Reviewer |\n|-|-|-|\n| Leaks a token | major | Fuse |\n'), [
+    { lens: 'feature-review-errors', severity: 'major', text: 'Leaks a token', status: 'open' },
+  ]);
+  // No findings table: no rows.
+  assert.deepEqual(reviewRows('# Review\n\nResult: 0 blockers, 0 majors, 0 minors.\n'), []);
+  assert.deepEqual(reviewRows('| Name | Value |\n|--|--|\n| a | b |\n'), []);
+  assert.deepEqual(reviewRows(''), []);
+  assert.deepEqual(reviewRows(null), []);
+});
+
+test('a later round replaces the first', () => {
+  const text = [
+    '# Review',
+    '## Round 1',
+    '| Severity | Lens | Finding | Status |',
+    '|---|---|---|---|',
+    '| Major | errors | A failed save is silent | |',
+    '| Minor | ui | A typo | |',
+    '## Round 2',
+    '| Severity | Lens | Summary | Status |',
+    '|---|---|---|---|',
+    '| Major | errors | A failed save is silent | Fixed |',
+  ].join('\n');
+  assert.deepEqual(reviewRows(text), [{ lens: 'feature-review-errors', severity: 'major', text: 'A failed save is silent', status: 'fixed' }]);
+  // A later round with nothing found has no rows, not the first round's.
+  assert.deepEqual(reviewRows(`${text}\n## Round 3\nResult: no findings.\n`), []);
+});
+
+// ---------- Fix round 1 (Part 3, Task 4): findings are never dropped or mis-marked, and their text has a cap ----------
+
+test('reviewRows: deferred, won’t fix and not doing are read from the Status cell only; dropped and false positive from any cell', () => {
+  const text = [
+    '| Severity | Finding | Where | Fix | Status |',
+    '|---|---|---|---|---|',
+    '| Major | A failed save is silent | `lib/deferred-jobs.js:3` | Use the deferred queue | |',
+    '| Minor | Not worth doing | app.js | won’t fix, says the Foreman | |',
+    '| Minor | Later | app.js | | Deferred |',
+    '| Minor | Wrong | app.js | | won\'t fix |',
+    '| Minor | Taken back | app.js (dropped) | | |',
+    '| Minor | Not real | app.js | false positive | |',
+  ].join('\n');
+  assert.deepEqual(reviewRows(text).map((r) => [r.text, r.status]), [
+    ['A failed save is silent', 'open'],
+    ['Not worth doing', 'open'],
+    ['Later', 'not-doing'],
+    ['Wrong', 'not-doing'],
+    ['Taken back', 'not-doing'],
+    ['Not real', 'not-doing'],
+  ]);
+});
+
+test('reviewRows: a finding’s text is cut at a word with …, and at most 150 rows are kept in the table’s order', () => {
+  assert.equal(FINDING_TEXT_MAX, 400);
+  assert.equal(FINDING_ROWS_MAX, 150);
+  const long = Array.from({ length: 120 }, (_, i) => `word${i}`).join(' ');
+  const [row] = reviewRows(`| Severity | Finding |\n|---|---|\n| Major | ${long} |\n`);
+  assert.ok(row.text.length <= FINDING_TEXT_MAX, String(row.text.length));
+  assert.ok(row.text.endsWith('…'));
+  assert.ok(long.startsWith(row.text.slice(0, -1)), 'the start of the words, unchanged');
+  assert.match(row.text, /word\d+…$/, 'cut at the end of a word');
+  const rows = Array.from({ length: 200 }, (_, i) => `| Minor | Finding ${i} |`).join('\n');
+  const many = reviewRows(`| Severity | Finding |\n|---|---|\n${rows}\n`);
+  assert.equal(many.length, 150);
+  assert.equal(many[0].text, 'Finding 0');
+  assert.equal(many[149].text, 'Finding 149');
+});
+
+test('reviewRows: a finding with words is never dropped: agent names and lists map to a lens, any severity maps', () => {
+  const text = [
+    '| Severity | Lens | Finding |',
+    '|---|---|---|',
+    '| **Critical** | feature-review-errors | One |',
+    '| 🔴 Blocker | bug-review-fix | Two |',
+    '| High | errors, db | Three |',
+    '| IMPORTANT | feature-reviewer | Four |',
+    '| major | Fuse | Five |',
+    '| Medium | ui | Six |',
+    '| low | | Seven |',
+    '| nit | tests | Eight |',
+    '| Suggestion | db / perf | Nine |',
+    '| | spec | Ten |',
+    '| Minor | | |',
+  ].join('\n');
+  assert.deepEqual(reviewRows(text).map((r) => [r.text, r.severity, r.lens]), [
+    ['One', 'blocker', 'feature-review-errors'],
+    ['Two', 'blocker', 'bug-review-fix'],
+    ['Three', 'major', 'feature-review-errors'],
+    ['Four', 'major', 'feature-reviewer'],
+    ['Five', 'major', 'feature-review-errors'],
+    ['Six', 'minor', 'feature-review-ui'],
+    ['Seven', 'minor', null],
+    ['Eight', 'minor', 'feature-review-tests'],
+    ['Nine', 'minor', 'feature-review-db'],
+    ['Ten', 'minor', 'feature-reviewer'],
+  ]);
+});
+
+test('reviewRows: only a heading that names a round is a later round, not any heading with v2 in it', () => {
+  const text = [
+    '# Review v1: Widget Export',
+    '## Round 1',
+    '| Severity | Finding |',
+    '|---|---|',
+    '| Major | The real finding |',
+    '## Review of the v2 API',
+    '| Severity | Finding |',
+    '|---|---|',
+    '| Minor | Notes on the API, same round |',
+  ].join('\n');
+  assert.deepEqual(reviewRows(text).map((r) => r.text), ['The real finding', 'Notes on the API, same round']);
+  // The title's version still names the round: "# Review v2" after a v1 part.
+  assert.deepEqual(reviewRows('# Review v1\n| Severity | Finding |\n|-|-|\n| Major | Old |\n# Review v2\n| Severity | Finding |\n|-|-|\n| Minor | New |\n').map((r) => r.text), ['New']);
+  assert.deepEqual(reviewRows('## First round\n| Severity | Finding |\n|-|-|\n| Major | Old |\n## Second round\n| Severity | Finding |\n|-|-|\n| Minor | New |\n').map((r) => r.text), ['New']);
 });

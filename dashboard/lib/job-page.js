@@ -122,6 +122,137 @@ export function stepDocs(docs = [], kind = null) {
   return out;
 }
 
+// ---------- Plan, Build and Ship facts (design 3.2, Part 3 Task 4) ----------
+
+// A plan step's heading: `### S3: The list` (an id as parseLog in lib/git.js reads it from a commit).
+const STEP_HEADING = /^###\s+(S\d+[a-z]?)\s*:\s*(.*\S)\s*$/;
+// A code fence's marker: it ends at a line of the same character, at least as long (``` inside ~~~ doesn't).
+const FENCE = /^\s*(`{3,}|~{3,})/;
+
+/**
+ * Every `### S<n>: <name>` heading of a plan (implementation-plan.md, else quick-plan.md), in the
+ * order written: [{ id, name }]. The name is everything after the first colon, without a closing
+ * run of #s. Headings inside a ``` or ~~~ code block don't count. None (a plan from before this
+ * change, or no text): []. Pure.
+ */
+export function planSteps(text) {
+  if (typeof text !== 'string') return [];
+  const out = [];
+  let fence = null; // the open block's marker
+  for (const line of text.split(/\r?\n/)) {
+    const f = FENCE.exec(line)?.[1];
+    if (f && !fence) { fence = f; continue; }
+    if (f && f[0] === fence[0] && f.length >= fence.length) { fence = null; continue; }
+    const m = fence ? null : STEP_HEADING.exec(line);
+    const name = m ? m[2].replace(/\s+#+\s*$/, '').trim() : '';
+    if (name) out.push({ id: m[1], name });
+  }
+  return out;
+}
+
+/**
+ * Each plan step's state: done when a commit's `step` is its id exactly; while `building` (the job
+ * is at Build and working) the first step not done is `now`; the rest `next`. Pure.
+ */
+export function stepStates(steps, commits, building) {
+  const built = new Set((Array.isArray(commits) ? commits : []).map((c) => c?.step).filter((s) => typeof s === 'string'));
+  let nowGiven = !building;
+  return (Array.isArray(steps) ? steps : []).filter((s) => typeof s?.id === 'string').map((s) => {
+    if (built.has(s.id)) return { id: s.id, name: s.name, state: 'done' };
+    if (!nowGiven) { nowGiven = true; return { id: s.id, name: s.name, state: 'now' }; }
+    return { id: s.id, name: s.name, state: 'next' };
+  });
+}
+
+/**
+ * The page's plan: { version, steps } with each step's state, or null when the plan has no steps.
+ * A finished job (planDone) has every step done, and reads no commits: once its commits reach the
+ * base branch, or its branch is deleted, the read would find none. Otherwise readCommits() (the
+ * branch's commits, each with its `step`) is called only for a job at Build or later; before Build
+ * every step is `next`. A read that fails counts as no commits.
+ */
+export async function planView({ text, version = null, stage = null, building = false, finished = false, readCommits = async () => [] } = {}) {
+  const steps = planSteps(text);
+  if (!steps.length) return null;
+  if (finished) return { version: version ?? null, steps: steps.map((s) => ({ id: s.id, name: s.name, state: 'done' })) };
+  const built = STOP_IDS.indexOf(stopOf(stage)) >= STOP_IDS.indexOf('build');
+  const commits = built ? await Promise.resolve().then(readCommits).catch(() => []) : [];
+  return { version: version ?? null, steps: stepStates(steps, commits, building) };
+}
+
+const PR_STATE = { open: 'open', draft: 'draft', merged: 'merged', closed: 'closed' };
+// status.json's word for a PR (lib/status-json.js PR_STATES): a review word means it is open.
+const STATUS_PR_STATE = { not_started: 'not-started', open: 'open', changes_requested: 'open', approved: 'open', merged: 'merged', closed: 'closed' };
+const STATUS_REVIEW = { open: 'waiting', changes_requested: 'changes', approved: 'approved' };
+const LANE_REVIEW = { approved: 'approved', changes_requested: 'changes', review_required: 'waiting' };
+const LANE_CHECKS = { passing: 'passed', pending: 'running', failing: 'failed' };
+const str = (v) => (typeof v === 'string' && v ? v : null);
+// A word's entry in a map, or null (never one of Object's own names).
+const wordIn = (map, word) => (typeof word === 'string' && Object.hasOwn(map, word) ? map[word] : null);
+const prNumber = (url) => {
+  const m = /\/pull\/(\d{1,9})(?:[/?#]|$)/.exec(String(url ?? ''));
+  return m ? Number(m[1]) : null;
+};
+
+/**
+ * The job's three pull requests, always three: [{ n: 1 | 2 | 3, number, title, url, state, review,
+ * checks, openedAt, updatedAt }]. status.json's entry (`prs`, by its `number` 1 to 3), overlaid
+ * with the flow lane's pr1 and pr2 (lib/flow.js laneOf; PR #3, the release, is status.json's only).
+ * The lane's review: approved, changes, or waiting (review_required or none) on an open pull
+ * request, null on one not open; its checks: passed, running, failed or null. An unknown word is
+ * null. Without the lane, status.json's word gives the state and review. Pure.
+ */
+export function prRows(prs, lane) {
+  const list = Array.isArray(prs) ? prs : [];
+  const laneOf = (n) => {
+    const p = n === 1 ? lane?.pr1 : n === 2 ? lane?.pr2 : null;
+    return p && typeof p === 'object' ? p : null;
+  };
+  return [1, 2, 3].map((n) => {
+    const s = list.find((p) => p && typeof p === 'object' && Number(p.number) === n) ?? null;
+    const word = String(s?.state ?? '').toLowerCase();
+    // An older record with only a url counts as open (lib/finish.js).
+    let state = wordIn(STATUS_PR_STATE, word) ?? (str(s?.url) ? 'open' : 'not-started');
+    let review = state === 'open' ? wordIn(STATUS_REVIEW, word) ?? 'waiting' : null;
+    let checks = null;
+    const p = laneOf(n);
+    if (p) {
+      state = wordIn(PR_STATE, String(p.state ?? '').toLowerCase()) ?? state;
+      review = state !== 'open' ? null : p.review == null ? 'waiting' : wordIn(LANE_REVIEW, p.review);
+      checks = wordIn(LANE_CHECKS, p.checks);
+    }
+    const url = str(p?.url) ?? str(s?.url);
+    return {
+      n,
+      number: Number.isInteger(p?.number) ? p.number : prNumber(url),
+      title: str(p?.title),
+      url,
+      state,
+      review,
+      checks,
+      openedAt: str(p?.createdAt),
+      updatedAt: str(p?.updatedAt),
+    };
+  });
+}
+
+/**
+ * Whether a job's plan is all built: it was closed as done (`closed`: the session's { as, at } mark,
+ * passed only while it holds, the runner's closedOff), or its PR #1 is merged (status.json or the
+ * flow lane, as prRows reads them). A job closed as dropped is not. Pure.
+ */
+export function planDone({ closed = null, prs = null, lane = null } = {}) {
+  return closed?.as === 'done' || prRows(prs, lane)[0].state === 'merged';
+}
+
+/** Set `key` in a Map as its newest entry, then drop the oldest until at most `max` are left. */
+export function keepLatest(map, key, value, max) {
+  map.delete(key);
+  map.set(key, value);
+  while (map.size > max) map.delete(map.keys().next().value);
+  return value;
+}
+
 // ---------- The Tester's check counts (design 3.5) ----------
 
 // An acceptance line's id (AC-1, AC-01) and the Tester's mark on the same line of test-report.md.

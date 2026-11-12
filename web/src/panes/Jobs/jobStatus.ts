@@ -54,6 +54,14 @@ const closedAs = (job: Job): string | null => {
   return c && typeof c === 'object' ? (c.as === 'dropped' ? 'dropped' : 'done') : null;
 };
 
+/** Groups with a status of their own; any other job is idle. */
+const NOT_IDLE: readonly JobGroup[] = ['needs-you', 'running', 'paused', 'shipping', 'done'];
+
+/** You stopped the last reply: the job is idle and waits for your next message (its status reads Stopped). */
+export function stoppedByYou(job: Pick<Job, 'group' | 'stageState'>): boolean {
+  return !NOT_IDLE.includes(job.group) && job.stageState === 'paused';
+}
+
 export function jobStatus(job: Job, now: Date = new Date()): JobStatus {
   const group = job.group;
   const glyph = GROUP_GLYPHS[group] ?? GROUP_GLYPHS.idle;
@@ -87,7 +95,7 @@ export function jobStatus(job: Job, now: Date = new Date()): JobStatus {
         ? { group, glyph: '–', label: 'Dropped', hint: 'You dropped this job. Its conversation stays readable, and you can reopen it.' }
         : { group, glyph, label: 'Done', hint: 'This job is finished. Its conversation stays readable, and you can reopen it.' };
     default:
-      return job.stageState === 'paused'
+      return stoppedByYou(job)
         ? { group: 'idle', glyph, label: 'Stopped', hint: 'You stopped the last reply. The job waits for your next message.' }
         : { group: 'idle', glyph, label: 'Idle', hint: 'Nothing is happening and nothing is asked of you. Send a message to carry on.' };
   }

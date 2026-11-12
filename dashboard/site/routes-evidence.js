@@ -12,7 +12,8 @@
 //   GET  /api/job/:slug/evidence/live            Watch: the hidden browser's newest picture (JPEG, never
 //                                                kept by the browser) while the job records, else 404;
 //                                                each ask keeps the pictures coming for 5 s. Laptop only:
-//                                                it is never mirrored or uploaded
+//                                                it is never mirrored or uploaded; only this page
+//                                                (Sec-Fetch-Site same-origin) or a non-browser client asks
 //   POST /api/job/:slug/evidence/record          record again for the commit the report names now
 //                                                (token-checked like every write; 409 "Already
 //                                                recorded for abc1234"); 202 when it carries on by
@@ -74,10 +75,15 @@ export default function evidenceRoutes({ local, needJob, sendJson, SECURITY_HEAD
     },
     {
       method: 'GET', path: LIVE,
-      run: async ({ res, m }) => {
+      run: async ({ req, res, m }) => {
+        // Asking starts the screenshots, so only this page (same-origin) or a client on this computer
+        // that isn't a browser (no header) may ask: another site's page, or the app under test on
+        // another port, gets the 404 and marks nothing.
+        const site = req.headers['sec-fetch-site'];
+        if (site !== undefined && site !== 'same-origin') throw new HttpError(404, NO_LIVE);
         const frame = await door().live(await slugOf(m));
-        // Read whole: the next picture is renamed over this one, so its size is the one read now.
-        const bytes = await fs.promises.readFile(frame.abs).catch(() => null);
+        // The bytes the door read from the one file it opened, with their real length.
+        const bytes = frame.bytes;
         if (!bytes?.length) throw new HttpError(404, NO_LIVE);
         res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': frame.type, 'Content-Length': String(bytes.length), 'Cache-Control': 'no-store' });
         return res.end(bytes);

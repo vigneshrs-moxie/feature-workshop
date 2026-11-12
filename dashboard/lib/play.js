@@ -214,8 +214,10 @@ const NO_FINDINGS = /\b(no|zero) findings\b|\bnothing (was )?found\b/i;
 const TAKEN_BACK = /\b(dropped|false[ -]positives?)\b/i;
 // A findings-table Status cell for a finding a fix round dealt with.
 const FIXED_STATUS = /^[\s*_`]*(fixed|resolved)\b/i;
-// A heading that names a review round: "## Round 2", "## Second round", "# Review v3".
-const ROUND_HEADING = /\bround\s*#?\s*(\d{1,3}|one|two|three|four|five)\b|\b(first|second|third|fourth|fifth)\s+(?:review\s+)?round\b|\bv(\d{1,3})\b/i;
+// A heading that names a review round: "## Round 2", "## Second round", "# Review v3" (also
+// "# Review v1: Widget Export"). A version counts only straight after "Review", so "## Review of
+// the v2 API" names no round.
+const ROUND_HEADING = /\bround\s*#?\s*(\d{1,3}|one|two|three|four|five)\b|\b(first|second|third|fourth|fifth)\s+(?:review\s+)?round\b|^#+\s*(?:[\w-]+\s+)?review\s+v(\d{1,3})\b/i;
 
 /**
  * The findings a combined lens review (review.md) reports: { blockers, majors, minors, total, byLens }
@@ -333,6 +335,133 @@ export function reviewRound(lines, text) {
   for (const m of text.matchAll(/\bround\s*#?\s*(\d{1,3}|one|two|three|four|five)\b/gi)) saw(/^\d/.test(m[1]) ? Number(m[1]) : ROUND_WORDS[m[1].toLowerCase()]);
   for (const m of text.matchAll(/\b(first|second|third|fourth|fifth)\s+(?:review\s+)?round\b/gi)) saw(ROUND_WORDS[m[1].toLowerCase()]);
   return { round, laterRound: (round ?? 1) > 1 || /\bfixed\b/i.test(text) };
+}
+
+// ---------- The review's findings, row by row (the job page's Review step, Part 3 Task 4) ----------
+
+// A findings-table row marked as not being done, in its Status cell (dropped and false positive, TAKEN_BACK, in any cell).
+const NOT_DOING = /\b(dropped|false[ -]positives?|won[’']?t fix|will not fix|not fixing|not doing|deferred)\b/i;
+/** The longest a finding's words may be, and the most rows kept: what goes up to the website stays small. */
+export const FINDING_TEXT_MAX = 400;
+export const FINDING_ROWS_MAX = 150;
+// A Lens cell holding the agent's own name: feature-review-errors, bug-review-fix.
+const AGENT_PREFIX = /^(feature-review-|bug-review-)/;
+const FINDING_COL = /^(findings?|issues?|summary|description)\b/;
+const LENS_COL = /^(lens|lenses|reviewer)\b/;
+const STATUS_COL = /^(status|resolution|outcome)\b/;
+const RULE_CELL = /^:?-+:?$/;
+
+/** One table line's cells: split on pipes not escaped (\|) or inside `code`, bold marks dropped. */
+function tableCells(line, inCode = true) {
+  const t = line.trim().replace(/^\|/, '');
+  const cells = [];
+  let cur = '';
+  let code = false;
+  for (let i = 0; i < t.length; i++) {
+    const ch = t[i];
+    if (ch === '\\' && t[i + 1] === '|') { cur += '|'; i++; continue; }
+    if (ch === '`' && inCode) code = !code;
+    if (ch === '|' && !code) { cells.push(cur); cur = ''; continue; }
+    cur += ch;
+  }
+  // An unclosed backtick would swallow the rest of the row: split it again without minding code.
+  if (code) return tableCells(line, false);
+  if (cur.trim()) cells.push(cur);
+  return cells.map((c) => c.replace(/\*\*/g, '').trim());
+}
+
+/** A header row's columns (-1: none), or null when it has no Severity column (not a findings table). */
+function findingColumns(cells) {
+  const names = cells.map((c) => c.toLowerCase().replace(/[`*_:]/g, '').trim());
+  const sev = names.indexOf('severity');
+  if (sev < 0) return null;
+  const at = (re) => names.findIndex((n) => re.test(n));
+  return { sev, lens: at(LENS_COL), status: at(STATUS_COL), text: at(FINDING_COL) };
+}
+
+/** Where the finding's words are: its Finding, Issue, Summary or Description cell, else the longest other cell (-1: none). */
+function findingTextAt(cells, cols) {
+  if (cols.text >= 0) return cols.text;
+  const used = new Set([cols.sev, cols.lens, cols.status]);
+  let best = -1;
+  cells.forEach((c, i) => { if (!used.has(i) && !/^#?\d*$/.test(c) && (best < 0 || c.length > cells[best].length)) best = i; });
+  return best;
+}
+
+function findingStatus(cells, cols) {
+  const status = cols.status >= 0 ? cells[cols.status] ?? '' : '';
+  if (FIXED_STATUS.test(status)) return 'fixed';
+  if (NOT_DOING.test(status) || cells.some((c) => TAKEN_BACK.test(c))) return 'not-doing';
+  return 'open';
+}
+
+/** A Lens cell's lens: an agent's own name, or a word lensType knows; of a list ("errors, db"), the first that maps. */
+function findingLens(cell) {
+  for (const part of String(cell ?? '').split(/[,;/&+]|\band\b/i)) {
+    const w = part.trim().toLowerCase().replace(/[`*_]/g, '');
+    if (!w) continue;
+    if (REVIEWERS.some((r) => r.id === w)) return w;
+    const lens = lensType(w.replace(AGENT_PREFIX, ''));
+    if (lens) return lens;
+  }
+  return null;
+}
+
+/** Any severity word: critical or blocker is a blocker; high, major or important a major; anything else a minor. */
+function findingSeverity(cell) {
+  const s = String(cell ?? '').toLowerCase();
+  if (/\b(critical|blocker)/.test(s)) return 'blocker';
+  if (/\b(high|major|important)/.test(s)) return 'major';
+  return 'minor';
+}
+
+/** The words cut at FINDING_TEXT_MAX characters, at the end of a word, with …. */
+function cutFinding(text) {
+  if (text.length <= FINDING_TEXT_MAX) return text;
+  const room = text.slice(0, FINDING_TEXT_MAX - 1);
+  const wordStart = room.search(/\s\S*$/);
+  return `${(wordStart > FINDING_TEXT_MAX / 2 ? room.slice(0, wordStart) : room).trimEnd()}…`;
+}
+
+/** Every row of the findings tables in these lines: { lens, severity, text, status }. */
+function findingRows(lines) {
+  const out = [];
+  let cols;
+  let header = true;
+  for (const line of lines) {
+    if (!line.trim().startsWith('|')) { header = true; continue; }
+    const cells = tableCells(line);
+    if (header) { cols = findingColumns(cells); header = false; continue; }
+    if (!cols || cells.every((c) => RULE_CELL.test(c))) continue;
+    const textAt = findingTextAt(cells, cols);
+    const text = textAt >= 0 ? cells[textAt] ?? '' : '';
+    // A finding with words is never dropped: any severity maps, any lens word lensType knows maps.
+    if (!text) continue;
+    out.push({ lens: cols.lens >= 0 ? findingLens(cells[cols.lens]) : null, severity: findingSeverity(cells[cols.sev]), text: cutFinding(text), status: findingStatus(cells, cols) });
+  }
+  return out;
+}
+
+/**
+ * The review's findings (review.md), one row each, from the latest round's findings tables:
+ * [{ lens, severity: 'blocker' | 'major' | 'minor', text, status: 'fixed' | 'not-doing' | 'open' }].
+ * A findings table has a Severity column; the words come from its Finding, Issue, Summary or
+ * Description column (a row with none is left out), the lens through lensType (an agent's own
+ * name, or the first of a list, maps too; null without a Lens column). Critical or blocker is a
+ * blocker, high, major or important a major, anything else a minor. Status fixed or resolved is
+ * fixed; a Status of deferred, won't fix or not doing, or a row marked dropped or false positive
+ * in any cell, is not-doing; the rest open. A later round ("## Round 2") replaces the earlier
+ * ones, and one that says nothing was found has no rows. The words are cut at FINDING_TEXT_MAX
+ * and the first FINDING_ROWS_MAX rows kept. No findings table: []. Pure.
+ */
+export function reviewRows(text) {
+  if (typeof text !== 'string' || !text.trim()) return [];
+  const lines = text.split('\n');
+  for (const part of roundParts(lines)) {
+    const rows = findingRows(part);
+    if (rows.length || countFindings(part)) return rows.slice(0, FINDING_ROWS_MAX);
+  }
+  return findingRows(lines).slice(0, FINDING_ROWS_MAX);
 }
 
 // ---------- Building the ledger (pure) ----------

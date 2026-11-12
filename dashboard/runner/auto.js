@@ -241,9 +241,15 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     // The person wrote to this job while this step waited: the step is theirs, and the stop is written here, in the pass's first
     // round, before any job's Approver is asked (attend checks again, for a message sent while the Approver thinks).
     if (await youWroteWhileWaiting(job)) {
-      held.delete(job.dir); refused.delete(job.dir);
-      await stop(job, { rule: 'blocked', reason: YOURS_NOW });
-      return null;
+      // The pass read this job a while ago: his own Go or Send back since then is a send too. Read it again, as attend does: a step
+      // he has answered (or that moved on), or a reply now running, is not one he wrote to while it waited. The next pass looks again.
+      const fresh = await look(job, gate.briefNumber);
+      if (!fresh || notNow(fresh)) return null;
+      if (await youWroteWhileWaiting(fresh)) {
+        held.delete(job.dir); refused.delete(job.dir);
+        await stop(fresh, { rule: 'blocked', reason: YOURS_NOW });
+        return null;
+      }
     }
     return gate;
   }

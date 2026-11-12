@@ -473,3 +473,104 @@ test('evidence server: nobody watching, no frame is written', async () => {
   }
   await viewWhen('unwatched-job', (v) => v.evidence && !v.recording, 'the recording never ended');
 });
+
+// ---------- Watch, hardened (Task 6 fix round 1) ----------
+
+/** GET the live picture as a browser page would, with its Sec-Fetch-Site (none: no header, as a terminal). */
+const liveAs = (slug, site) => new Promise((resolve, reject) => {
+  const req = http.get(base + liveUrl(slug), { headers: site ? { 'Sec-Fetch-Site': site } : {} }, (res) => {
+    const chunks = [];
+    res.on('data', (c) => chunks.push(c));
+    res.on('end', () => resolve({ status: res.statusCode, type: res.headers['content-type'], body: Buffer.concat(chunks) }));
+  });
+  req.on('error', reject);
+});
+const mtimeOf = async (f) => (await fs.lstat(f)).mtimeMs;
+const backdate = async (f, ms) => { const t = new Date(Date.now() - ms); await fs.utimes(f, t, t); };
+/** A held recording of a new job, part way; done() lets it finish and waits for its end. */
+async function heldRecording(slug) {
+  await fs.rm(hold, { force: true });
+  await writeJob(slug, { level: 2 });
+  await viewWhen(slug, runningFirst, 'no recording part way');
+  return async () => {
+    await setHold('go');
+    await viewWhen(slug, (v) => !v.recording && v.progress == null, 'the recording never ended');
+  };
+}
+
+test('evidence server: a later ask keeps it watched past the mark’s first 5 seconds; another site’s page can’t start it', async () => {
+  const done = await heldRecording('rewatched-job');
+  try {
+    const mark = path.join(runDirOf('rewatched-job'), 'watching');
+    assert.equal((await liveAs('rewatched-job')).status, 404, 'the first ask: no picture yet');
+    assert.ok(await there(mark));
+    // The mark is older than 5 seconds (nobody asked for a while): the next ask makes it fresh again.
+    await backdate(mark, 6000);
+    await liveAs('rewatched-job', 'same-origin');
+    assert.ok(Date.now() - (await mtimeOf(mark)) < 3000, 'touched again by the later ask');
+    let got = null;
+    for (let i = 0; i < 40 && got?.status !== 200; i++) { got = await liveAs('rewatched-job', 'same-origin'); if (got.status !== 200) await pause(250); }
+    assert.equal(got.status, 200, 'pictures come again');
+    assert.equal(got.type, 'image/jpeg');
+    // Another site's page (an <img> or a no-cors fetch), or the app under test on another port: a 404, and the mark is left as it was.
+    await backdate(mark, 6000);
+    const before = await mtimeOf(mark);
+    for (const site of ['cross-site', 'same-site', 'none']) {
+      const r = await liveAs('rewatched-job', site);
+      assert.equal(r.status, 404, site);
+      assert.equal(JSON.parse(r.body).error, 'No live picture right now.');
+    }
+    assert.equal(await mtimeOf(mark), before, 'not touched');
+  } finally {
+    await done();
+  }
+});
+
+test('evidence server: a link at run/watching or run/live.jpg is refused and what it points at is untouched', async () => {
+  const done = await heldRecording('linked-job');
+  try {
+    const run = runDirOf('linked-job');
+    const target = path.join(root, 'linked-target.jpg');
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 9, 9, 0xff, 0xd9]);
+    await fs.writeFile(target, jpeg);
+    await backdate(target, 60_000);
+    const targetTime = await mtimeOf(target);
+    // A link where the watch mark goes.
+    await fs.symlink(target, path.join(run, 'watching'));
+    assert.equal((await liveAs('linked-job')).status, 404);
+    assert.equal(await mtimeOf(target), targetTime, 'its times are left alone');
+    assert.ok((await fs.lstat(path.join(run, 'watching'))).isSymbolicLink());
+    await fs.rm(path.join(run, 'watching'));
+    // A link where the picture goes, pointing at a fresh file. A folder where the fake writes beside
+    // it keeps the fake from saving a real picture over the link.
+    await fs.mkdir(path.join(run, 'live.jpg.part'));
+    await fs.utimes(target, new Date(), new Date());
+    const fresh = await mtimeOf(target);
+    await fs.symlink(target, path.join(run, 'live.jpg'));
+    for (let i = 0; i < 3; i++) {
+      const r = await liveAs('linked-job');
+      assert.equal(r.status, 404, 'never served through the link');
+      assert.equal(r.type, 'application/json; charset=utf-8');
+      await pause(300);
+    }
+    assert.ok((await fs.lstat(path.join(run, 'live.jpg'))).isSymbolicLink());
+    assert.deepEqual(await fs.readFile(target), jpeg, 'its words are left alone');
+    assert.equal(await mtimeOf(target), fresh);
+  } finally {
+    await done();
+  }
+});
+
+test('evidence server: run/ already gone while the run is still listed answers 404 and makes nothing', async () => {
+  const done = await heldRecording('gone-run-job');
+  try {
+    await fs.rm(runDirOf('gone-run-job'), { recursive: true, force: true });
+    const r = await liveAs('gone-run-job');
+    assert.equal(r.status, 404);
+    assert.equal(JSON.parse(r.body).error, 'No live picture right now.');
+    assert.equal(await there(runDirOf('gone-run-job')), false, 'no folder is made for the mark');
+    assert.equal((await getJson('/api/job/gone-run-job/evidence')).recording, true, 'the run is still listed');
+  } finally {
+    await done();
+  }
+});

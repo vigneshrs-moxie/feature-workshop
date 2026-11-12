@@ -27,6 +27,7 @@
 // own pinned Playwright (package.json), with every page stopped from going anywhere but this
 // computer. Nothing here signs in, reads a settings file or talks to the network.
 
+import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { evidenceOn, evidenceWhy, isLevel } from './options.js';
@@ -219,10 +220,50 @@ export const LIVE_EVERY_MS = 500;
 export const LIVE_FRESH_MS = 5000;
 export const NO_LIVE = 'No live picture right now.';
 
+/** The most one live picture may be (a 1280×800 JPEG at quality 60 is far less). */
+export const LIVE_MAX_BYTES = 5 * 1024 * 1024;
+
 /** A recording's live picture and watch mark, from the server's own paths: { runDir, liveFile, watchFile }. */
 export function liveFiles(evidenceDir, commit) {
   const runDir = path.join(evidenceDir, commit, 'run');
   return { runDir, liveFile: path.join(runDir, LIVE_FILE), watchFile: path.join(runDir, WATCH_FILE) };
+}
+
+/**
+ * Mark a recording watched: the watch file made (only where its folder is, and never through an
+ * entry already there) or its times set (lutimes: on the file itself, never what a link points at).
+ * true when marked; false when anything but a plain file is there, or its folder is gone.
+ */
+export async function markWatched(watchFile) {
+  const st = await fsp.lstat(watchFile).catch((err) => (err?.code === 'ENOENT' ? null : false));
+  if (st === false) return false;
+  if (!st) return fsp.writeFile(watchFile, '', { flag: 'wx' }).then(() => true, () => false);
+  if (!st.isFile()) return false;
+  const t = new Date();
+  return fsp.lutimes(watchFile, t, t).then(() => true, () => false);
+}
+
+/**
+ * A live picture's bytes, or null: opened without following a link (O_NOFOLLOW), and only when that
+ * open file is a plain file of 1 byte to LIVE_MAX_BYTES saved under LIVE_FRESH_MS ago. The bytes come
+ * from that same open file, so a picture renamed over it meanwhile can't change what is sent.
+ */
+export async function readLiveFrame(liveFile, { now = Date.now() } = {}) {
+  const before = await fsp.lstat(liveFile).catch(() => null);
+  if (!before?.isFile()) return null; // where O_NOFOLLOW isn't known (Windows), a link is still refused here
+  let fh;
+  try {
+    fh = await fsp.open(liveFile, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
+    const st = await fh.stat();
+    if (!st.isFile() || st.size < 1 || st.size > LIVE_MAX_BYTES || now - st.mtimeMs >= LIVE_FRESH_MS) return null;
+    const bytes = Buffer.alloc(st.size);
+    const { bytesRead } = await fh.read(bytes, 0, st.size, 0);
+    return bytesRead > 0 ? bytes.subarray(0, bytesRead) : null;
+  } catch {
+    return null;
+  } finally {
+    await fh?.close().catch(() => {});
+  }
 }
 
 /**

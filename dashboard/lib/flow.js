@@ -80,7 +80,7 @@ export function checksOf(rollup) {
   return 'passing';
 }
 
-const PR_FIELDS = 'number,title,state,isDraft,headRefName,baseRefName,headRepositoryOwner,url,reviewDecision,mergedAt,mergeCommit,statusCheckRollup,updatedAt';
+const PR_FIELDS = 'number,title,state,isDraft,headRefName,baseRefName,headRepositoryOwner,url,reviewDecision,mergedAt,mergeCommit,statusCheckRollup,updatedAt,createdAt';
 
 /** One PR from gh's JSON, trimmed to what the map shows. */
 export function prOf(p) {
@@ -91,6 +91,7 @@ export function prOf(p) {
     review: p.reviewDecision ? String(p.reviewDecision).toLowerCase() : null, // approved | changes_requested | review_required
     checks: checksOf(p.statusCheckRollup), mergedAt: p.mergedAt ?? null, mergeCommit: p.mergeCommit?.oid ?? null,
     updatedAt: p.updatedAt ?? null,
+    createdAt: p.createdAt ?? null, // when it was opened
   };
 }
 

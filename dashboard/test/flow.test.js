@@ -192,3 +192,15 @@ test('the demo\'s pretend map gives a job in Auto no draft pull request at Revie
   assert.deepEqual(await at(false), ['draft'], 'the ordinary demo job keeps its draft');
   assert.deepEqual(await at(true), [], 'none for a job in Auto');
 });
+
+test('a pull request carries when it was opened', async () => {
+  assert.equal(prOf({ number: 3, state: 'OPEN', createdAt: '2026-11-10T09:00:00Z' }).createdAt, '2026-11-10T09:00:00Z');
+  assert.equal(prOf({ number: 3, state: 'OPEN' }).createdAt, null, 'not read: not known');
+  // The org's PRs are read with createdAt among their fields (no real git or GitHub: both pretend).
+  const asked = [];
+  const gh = async (args) => { asked.push(args); return { ok: true, out: JSON.stringify([{ number: 7, state: 'OPEN', headRefName: 'feature/x', baseRefName: 'feature/x', createdAt: '2026-11-10T09:00:00Z' }]), err: null }; };
+  const facts = await gatherRepo({ repo: '/nowhere', jobs: [], fetch: true, git: async () => ({ ok: true, out: '', err: null }), gh, profileFor: async () => ({ github: 'o/r' }) });
+  const fields = asked[0][asked[0].indexOf('--json') + 1].split(',');
+  assert.ok(fields.includes('createdAt'), fields.join(','));
+  assert.equal(facts.prs[0].createdAt, '2026-11-10T09:00:00Z');
+});
