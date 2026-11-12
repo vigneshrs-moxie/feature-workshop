@@ -207,3 +207,33 @@ describe('the Desk', () => {
     expect(within(items[1]).queryByText('Auto')).toBeNull();
   });
 });
+
+// Task 16 fix round 1 (M2, M7): One at a time marks the console's title too, and the website shows the
+// same marks (HostedWorkshop mounts this DeskView with api.hosted).
+describe.each(['laptop', 'hosted'] as const)('the Desk’s Auto mark (%s)', (mode) => {
+  const STOPPED = job('auto-one', 'needs-you', { waitingFor: 'approval', stage: 'plan', waitingSince: '2026-10-21T08:00:00Z', auto: { on: true, ran: true, stopped: { reason: 'the Foreman says it is blocked' }, group: 'needs-you' } });
+  function mount(jobs: Job[], layout: 'one' | 'columns') {
+    const store: Store = createStore();
+    store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs, meta: { token: 't' } }) });
+    const api = { get: vi.fn(async (p: string) => detail(p.split('/')[3])), post: vi.fn(), ...(mode === 'hosted' ? { hosted: () => true } : {}) } as unknown as ApiClient;
+    render(<WorkshopContext.Provider value={{ store, api }}><DeskView items={deskQueue(jobs, [])} now={NOW} layout={layout} /></WorkshopContext.Provider>);
+  }
+  const consoleHead = () => document.querySelector<HTMLElement>('.desk-console-head')!;
+
+  it('One at a time: the console’s title carries the Auto mark when its job is one of Auto’s', () => {
+    mount([STOPPED, ALPHA], 'one');
+    expect(within(consoleHead()).getByText('Auto')).toHaveClass('chip');
+    expect(consoleHead().querySelector('.desk-console-title')).toHaveTextContent(STOPPED.title);
+    cleanup();
+    mount([ALPHA], 'one');
+    expect(consoleHead().querySelector('.desk-console-title')).toHaveTextContent(ALPHA.title);
+    expect(within(consoleHead()).queryByText('Auto')).toBeNull();
+  });
+
+  it('the Auto chip on the row', () => {
+    mount([STOPPED, ALPHA], 'columns');
+    const rows = within(queue()).getAllByRole('button').filter((b) => b.classList.contains('desk-item'));
+    expect(within(rows[0]).getByText('Auto')).toHaveClass('chip');
+    expect(within(rows[1]).queryByText('Auto')).toBeNull();
+  });
+});

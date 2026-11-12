@@ -43,7 +43,9 @@ function site(over: Partial<Site> = {}) {
     if (path === '/api/snapshot') return json(200, { meta: { settings: { workflow: { finishLine: 'pr1-merged', ...(s.autoStart ? { autoStart: s.autoStart } : {}) } } } });
     if (path === '/api/orbit/auto-start' && method === 'POST') {
       // As hosted/site/routes-orbit.js answers: queued for the laptop, with whether it is there.
-      if (s.autoTakes !== false) s.autoStart = s.autoTakes ?? { on: body?.on as boolean, tag: String(body?.tag).trim(), ...(typeof body?.max === 'number' ? { max: body.max } : {}) };
+      // A command with no max keeps the laptop's N, as the laptop's settings route does.
+      const keptMax = typeof body?.max === 'number' ? body.max : s.autoStart?.max;
+      if (s.autoTakes !== false) s.autoStart = s.autoTakes ?? { on: body?.on as boolean, tag: String(body?.tag).trim(), ...(typeof keptMax === 'number' ? { max: keptMax } : {}) };
       const l = s.laptops[0];
       return json(200, { ok: true, queued: true, sent: false, commandId: 5, laptop: { id: l.id, name: l.name, online: l.online } });
     }
@@ -444,20 +446,77 @@ describe('Auto start on the website', () => {
   });
 
   it('Settings → Orbit: Up to N jobs at a time goes to the laptop as max, and the line stays until the laptop has it', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      go('#/settings/orbit');
+      const { s, api } = site({ autoStart: { on: true, tag: 'auto', max: 3 }, autoTakes: false });
+      render(<HostedApp api={api} />);
+      const group = await screen.findByRole('group', { name: 'Auto start' });
+      const box = await within(group).findByRole('spinbutton', { name: 'Jobs at a time' });
+      await waitFor(() => expect(box).toHaveValue('3'));
+      fireEvent.change(box, { target: { value: '6' } });
+      fireEvent.focusOut(box);
+      await waitFor(() => expect(s.calls.find((c) => c.path === '/api/orbit/auto-start')?.body).toEqual({ on: true, tag: 'auto', max: 6 }));
+      expect(await within(group).findByText('Sent to your laptop. It takes effect there.')).toBeInTheDocument();
+      // The laptop still says 3: the change is not there yet, so the line stays after a look.
+      await act(async () => { vi.advanceTimersByTime(3_100); });
+      expect(within(group).getByText('Sent to your laptop. It takes effect there.')).toBeInTheDocument();
+      s.autoStart = { on: true, tag: 'auto', max: 6 };
+      await act(async () => { vi.advanceTimersByTime(3_100); });
+      await waitFor(() => expect(within(group).queryByText('Sent to your laptop. It takes effect there.')).toBeNull());
+    } finally { vi.useRealTimers(); }
+  });
+});
+
+// Task 16 fix round 1: I1 (typing queues one command), M4 (the switch sends no max) and M5 (no box
+// while the laptop's setting has no N) on the website.
+describe('Up to N jobs at a time on the website', () => {
+  const autoCalls = (s: Site) => s.calls.filter((c) => c.method === 'POST' && c.path === '/api/orbit/auto-start');
+
+  it('typing 1 then 0 and leaving the box queues exactly one command, for 10', async () => {
     go('#/settings/orbit');
     const { s, api } = site({ autoStart: { on: true, tag: 'auto', max: 3 }, autoTakes: false });
     render(<HostedApp api={api} />);
     const group = await screen.findByRole('group', { name: 'Auto start' });
-    const box = within(group).getByRole('spinbutton', { name: 'Jobs at a time' });
+    const box = await within(group).findByRole('spinbutton', { name: 'Jobs at a time' });
     await waitFor(() => expect(box).toHaveValue('3'));
-    fireEvent.change(box, { target: { value: '6' } });
-    await waitFor(() => expect(s.calls.find((c) => c.path === '/api/orbit/auto-start')?.body).toEqual({ on: true, tag: 'auto', max: 6 }));
+    fireEvent.change(box, { target: { value: '1' } });
+    fireEvent.change(box, { target: { value: '10' } });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(autoCalls(s)).toHaveLength(0);
+    fireEvent.focusOut(box);
     expect(await within(group).findByText('Sent to your laptop. It takes effect there.')).toBeInTheDocument();
-    // The laptop still says 3: the change is not there yet, so the line stays.
-    await new Promise((r) => setTimeout(r, 100));
-    expect(within(group).getByText('Sent to your laptop. It takes effect there.')).toBeInTheDocument();
-    s.autoStart = { on: true, tag: 'auto', max: 6 };
-    await waitFor(() => expect(within(group).queryByText('Sent to your laptop. It takes effect there.')).toBeNull(), { timeout: 5000 });
+    expect(autoCalls(s).map((c) => c.body)).toEqual([{ on: true, tag: 'auto', max: 10 }]);
+  });
+
+  it('the switch sends no max, and the line goes once the laptop has the change with its own N', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      go('#/settings/orbit');
+      const { s, api } = site({ autoStart: { on: true, tag: 'auto', max: 3 } });
+      render(<HostedApp api={api} />);
+      const group = await screen.findByRole('group', { name: 'Auto start' });
+      const box = within(group).getByRole('checkbox', { name: 'Start a job by itself for tickets with this tag' });
+      await waitFor(() => expect(box).toBeChecked());
+      fireEvent.click(box);
+      await waitFor(() => expect(autoCalls(s).map((c) => c.body)).toEqual([{ on: false, tag: 'auto' }]));
+      // The laptop keeps N = 3 and mirrors the switch off: that is what was asked, so the line goes.
+      await act(async () => { vi.advanceTimersByTime(3_100); });
+      await waitFor(() => expect(box).not.toBeChecked());
+      await waitFor(() => expect(within(group).queryByText('Sent to your laptop. It takes effect there.')).toBeNull());
+      expect(within(group).queryByText('Your laptop did not take this change.')).toBeNull();
+      expect(within(group).getByRole('spinbutton', { name: 'Jobs at a time' })).toHaveValue('3');
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('with a laptop that has no N yet there is no box', async () => {
+    go('#/settings/orbit');
+    const { api } = site({ autoStart: { on: true, tag: 'auto' } });
+    render(<HostedApp api={api} />);
+    const group = await screen.findByRole('group', { name: 'Auto start' });
+    await waitFor(() => expect(within(group).getByLabelText('Orbit tag')).toHaveValue('auto'));
+    expect(within(group).queryByRole('spinbutton', { name: 'Jobs at a time' })).toBeNull();
+    expect(group).not.toHaveTextContent('jobs at a time');
   });
 });
 

@@ -1,5 +1,7 @@
 // Home (the flow map, the Table and the Desk): what each view shows, worked out from the snapshot's
-// jobs and permissions and the flow map (GET /api/flow, dashboard/lib/flow.js). Pure: no React.
+// jobs and permissions and the flow map (GET /api/flow, dashboard/lib/flow.js). Pure functions, with no
+// components or hooks of their own; React still comes in through autoTab.ts (imported for inAuto), which
+// holds a hook beside its pure helpers.
 //
 // The map is rows (Light, round 3): one row per job with its ship track (worktree · fork · Moxie
 // branch · staging · main), one line of words, the counts as a muted suffix and one "what to do

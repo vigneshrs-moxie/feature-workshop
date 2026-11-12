@@ -182,7 +182,9 @@ export function OrbitPage({ api, onSignedOut }: HostedProps) {
           const r = await api.post<{ laptop?: { online?: boolean } } | undefined>('/api/orbit/auto-start', next);
           const online = r?.laptop?.online === true;
           setAutoNote(online ? AUTO_START_SENT : AUTO_START_WAITING);
-          setAutoSent({ want: next, was: auto, online, at: Date.now() });
+          // Only the number box sends max; any other change keeps the laptop's N, so that is what to wait for.
+          const want = next.max === undefined && auto?.max !== undefined ? { ...next, max: auto.max } : next;
+          setAutoSent({ want, was: auto, online, at: Date.now() });
         }}
       />
     </HostedSettings>

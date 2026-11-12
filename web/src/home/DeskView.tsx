@@ -571,6 +571,7 @@ export function DeskView({ items: decisions, now, layout = 'columns' }: { items:
             <>
               <header className="desk-console-head">
                 <span className="desk-console-title">{current.title}</span>
+                <AutoMark item={current} />
                 {typeof job?.ticket === 'object' && job?.ticket && 'key' in job.ticket && <Chip className="num">{String((job.ticket as { key: unknown }).key)}</Chip>}
                 <span className="spacer" />
                 {current.since && current.kind !== 'nudge' && <span className="muted desk-waiting">waiting {relativeTime(current.since, now)}</span>}

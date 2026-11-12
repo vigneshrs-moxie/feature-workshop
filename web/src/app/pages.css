@@ -548,5 +548,9 @@ a.map-pr { min-height: 30px; }
 .sb-inbox-auto-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-3); padding: var(--space-2) var(--space-3); border: 1px solid var(--border-2); border-radius: var(--radius-md); background: var(--surface-1); }
 .sb-inbox-auto-row .ticket-title { min-width: 0; overflow-wrap: anywhere; }
 .sb-inbox-auto-reason { flex-basis: 100%; font-size: var(--text-sm); color: var(--text-2); line-height: 1.4; }
+/* On a phone the job links get the same tap room as the other links (above), given back so nothing moves. */
+@media (max-width: 760px) {
+  .sb-inbox-auto-row a.ticket-title { padding-block: 11px; margin-block: -11px; }
+}
 .desk-item-top .sb-desk-auto { flex: none; }
 .sb-auto-start-max { display: flex; align-items: center; gap: var(--space-2); }

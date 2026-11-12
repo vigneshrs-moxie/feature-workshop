@@ -1,8 +1,9 @@
 // Auto start (Settings → Workflow on the laptop, Settings → Orbit on the site): a switch, the Orbit
 // tag, and Up to N jobs at a time (1 to 10, 5 when the setting has none). Tickets assigned to you with
 // that tag start by themselves with Auto on, up to N at a time. This only writes the setting; the
-// laptop's own starter (dashboard/lib/auto-start.js) does the starting. Every save sends the whole
-// setting, with max when it is known, so a change of the switch or the tag never loses N.
+// laptop's own starter (dashboard/lib/auto-start.js) does the starting. Every save sends the switch and
+// the tag; only the number box sends max (the server keeps the saved N when a save leaves it out). The
+// box saves when he leaves it or presses Enter, and at once for a step (− or +, or an arrow key).
 import { useEffect, useId, useRef, useState } from 'react';
 import type { AutoStartSetting } from '../../api/types';
 import { Choice } from '../../components/Choice';
@@ -56,16 +57,24 @@ export function AutoStartGroup({ setting, tagsShown, tokenSet, busy = false, onS
   const known = typeof setting?.max === 'number' ? setting.max : undefined;
   const max = known ?? AUTO_MAX.default;
   const [maxDraft, setMaxDraft] = useState(String(max));
-  useEffect(() => { setMaxDraft(String(max)); }, [max]);
+  // Typed into since the box last showed a settled number: only then does leaving it save.
+  const maxEdited = useRef(false);
+  useEffect(() => { setMaxDraft(String(max)); maxEdited.current = false; }, [max]);
+  // The last N this page sent, until the setting shows it. A new N is weighed against this (else the
+  // setting's), never against the setting alone, which on the website lags behind what was sent.
+  const sentMax = useRef<number | null>(null);
+  useEffect(() => { if (sentMax.current === known) sentMax.current = null; }, [known]);
+  // On the website the box shows only when the laptop's setting has N: an older laptop refuses max.
+  const showMax = laptopNote === undefined || known !== undefined;
   useEffect(() => { if (on) setOffNote(false); }, [on]);
   // A press on the switch moves the focus off the tag box first: its blur then leaves the save to the
   // switch, so the tag and the switch go in one save (m10), not two.
   const switching = useRef(false);
 
-  async function save(given: AutoStartSetting) {
+  /** Saves the setting as given; false when it was refused (the reason is shown). */
+  async function save(next: AutoStartSetting): Promise<boolean> {
     setProblem(null);
-    const next = given.max === undefined && known !== undefined ? { ...given, max: known } : given;
-    try { await onSave(next); if (laptopNote === undefined) saved.mark('auto-start'); } catch (err) { setProblem(err instanceof Error ? err.message : String(err)); }
+    try { await onSave(next); if (laptopNote === undefined) saved.mark('auto-start'); return true; } catch (err) { setProblem(err instanceof Error ? err.message : String(err)); return false; }
   }
   const trimmed = draft.trim();
   const needsTag = on === false && !trimmed;
@@ -75,12 +84,35 @@ export function AutoStartGroup({ setting, tagsShown, tokenSet, busy = false, onS
     if (on && !trimmed) setOffNote(true);
     void save({ on: on && Boolean(trimmed), tag: trimmed });
   }
-  /** The number box: a whole number from 1 to 10 that differs is saved at once; anything else is not saved. */
-  function changeMax(raw: string) {
-    setMaxDraft(raw);
+  /** A whole number from 1 to 10, else null. */
+  const maxOf = (raw: string) => {
     const n = Number(raw);
-    if (!raw.trim() || !Number.isInteger(n) || n < AUTO_MAX.min || n > AUTO_MAX.max || n === max) return;
-    void save({ on: on && Boolean(trimmed), tag: trimmed, max: n });
+    return raw.trim() && Number.isInteger(n) && n >= AUTO_MAX.min && n <= AUTO_MAX.max ? n : null;
+  };
+  /** Sends N when it differs from the last N sent (else the setting's). */
+  async function saveMax(n: number) {
+    if (n === (sentMax.current ?? max)) return;
+    sentMax.current = n === known ? null : n;
+    const ok = await save({ on: on && Boolean(trimmed), tag: trimmed, max: n });
+    // Refused: the reason shows, and the box shows the saved number again.
+    if (!ok && sentMax.current === n) { sentMax.current = null; setMaxDraft(String(max)); }
+  }
+  /** Typing only changes the box; nothing is saved until he leaves it or presses Enter. */
+  function typeMax(raw: string) { setMaxDraft(raw); maxEdited.current = true; }
+  /** A step (− or +, or an arrow key) is one deliberate change: saved at once. */
+  function stepMax(raw: string) {
+    setMaxDraft(raw);
+    maxEdited.current = false;
+    const n = maxOf(raw);
+    if (n !== null) void saveMax(n);
+  }
+  /** Leaving the box or Enter: a typed whole number from 1 to 10 is saved; anything else shows the last one again. */
+  function commitMax() {
+    if (!maxEdited.current) return;
+    maxEdited.current = false;
+    const n = maxOf(maxDraft);
+    setMaxDraft(String(n ?? sentMax.current ?? max));
+    if (n !== null) void saveMax(n);
   }
   const latestSaveTag = useRef(saveTag);
   latestSaveTag.current = saveTag;
@@ -122,12 +154,18 @@ export function AutoStartGroup({ setting, tagsShown, tokenSet, busy = false, onS
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); saveTag(); } }}
         />
       </div>
-      {/* Leaving the box with a number that wasn't saved shows the saved one again. */}
-      <div className="check sb-auto-start-max" onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setMaxDraft(String(max)); }}>
-        <label htmlFor={`${id}-max`}>{AUTO_START_WORDS.maxBefore}</label>
-        <NumberInput id={`${id}-max`} value={maxDraft} min={AUTO_MAX.min} max={AUTO_MAX.max} onChange={changeMax} aria-label={AUTO_START_WORDS.maxLabel} />
-        <span>{AUTO_START_WORDS.maxAfter}</span>
-      </div>
+      {/* Leaving the box (not for its own − and +) or Enter saves what was typed, or shows the last number again. */}
+      {showMax && (
+        <div
+          className="check sb-auto-start-max"
+          onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) commitMax(); }}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commitMax(); } }}
+        >
+          <label htmlFor={`${id}-max`}>{AUTO_START_WORDS.maxBefore}</label>
+          <NumberInput id={`${id}-max`} value={maxDraft} min={AUTO_MAX.min} max={AUTO_MAX.max} onChange={typeMax} onStep={stepMax} aria-label={AUTO_START_WORDS.maxLabel} />
+          <span>{AUTO_START_WORDS.maxAfter}</span>
+        </div>
+      )}
       <p className="muted settings-note-under">{AUTO_START_WORDS.hint}</p>
       {needsTag && problem === AUTO_START_WORDS.needTag && <p className="field-problem" role="alert">{AUTO_START_WORDS.needTag}</p>}
       {on && tokenSet === false && <p className="field-problem" role="status">{AUTO_START_WORDS.needsToken}</p>}

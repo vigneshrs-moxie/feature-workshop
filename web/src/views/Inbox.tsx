@@ -425,7 +425,7 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
     <>
       <div className="seg" role="tablist" aria-label="Inbox lists">
         {lists.map((v) => {
-          const count = v.id === 'mine' ? ready?.items.length : v.id === 'auto' ? queue?.tickets?.length ?? 0 : v.id === tab && viewList?.state === 'ready' ? viewList.data.items.length : undefined;
+          const count = v.id === 'mine' ? ready?.items.length : v.id === 'auto' ? (queue ? autoTicketsShown(queue).length : 0) : v.id === tab && viewList?.state === 'ready' ? viewList.data.items.length : undefined;
           return (
             <button
               key={v.id}
@@ -434,7 +434,7 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
               className="tab seg-tab"
               aria-selected={tab === v.id}
               onClick={() => setTab(v.id)}
-              title={v.id === 'mine' ? 'Open tickets assigned to you.' : v.id === 'auto' ? 'Your tagged tickets that Auto starts and runs to PR #1.' : `Your saved view on Orbit: ${v.name}.`}
+              title={v.id === 'mine' ? 'Open tickets assigned to you.' : v.id === 'auto' ? 'Your tagged tickets: what Auto starts next, works on, or set aside.' : `Your saved view on Orbit: ${v.name}.`}
             >
               <span className="seg-name">{v.name}</span>
               {count !== undefined && <span className="seg-count" aria-hidden="true">{count > 99 ? '99+' : count}</span>}
@@ -692,8 +692,11 @@ const AUTO_TICKET_GROUPS: readonly { id: AutoTicket['group']; heading: string; i
   { id: 'failed', heading: 'Couldn’t start', icon: 'warn' },
 ];
 
-/** The words when the queue has no tickets (not in the design or the plan: Task 16's words). */
+/** The words when the tab shows no row (not in the design or the plan: Task 16's words). */
 export const AUTO_NONE = 'No tickets for Auto right now.';
+
+/** The queue's tickets the tab shows: those in one of its four groups. The tab's count is these rows. */
+const autoTicketsShown = (queue: AutoQueue) => (queue.tickets ?? []).filter((t) => AUTO_TICKET_GROUPS.some((g) => g.id === t.group));
 
 /**
  * The Inbox's Auto tab: the queue's tickets as the server grouped them, in Inbox order, with why Auto
@@ -701,7 +704,7 @@ export const AUTO_NONE = 'No tickets for Auto right now.';
  * couldn't start say why. The same simple list on a phone.
  */
 function InboxAuto({ queue }: { queue: AutoQueue }) {
-  const tickets = queue.tickets ?? [];
+  const tickets = autoTicketsShown(queue);
   const paused = autoPausedLine(queue.paused);
   return (
     <div className="sb-inbox-auto">
@@ -720,8 +723,9 @@ function InboxAuto({ queue }: { queue: AutoQueue }) {
               <span className="inbox-group-count num">{rows.length}</span>
             </div>
             <ul className="sb-inbox-auto-rows">
-              {rows.map((t) => (
-                <li key={t.key} className="sb-inbox-auto-row" data-ticket={t.key}>
+              {/* A ticket the server sends twice (one per job) still gets its own key. */}
+              {rows.map((t, i) => (
+                <li key={`${t.key}:${i}`} className="sb-inbox-auto-row" data-ticket={t.key}>
                   <span className="num ticket-key">{t.key}</span>
                   {linked && t.slug
                     ? <a className="ticket-title" href={jobHref(t.slug)} title={`Open the job on ${t.key}.`}>{t.title}</a>

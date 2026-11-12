@@ -222,8 +222,10 @@ describe('homeModel', () => {
       job('mine', 'needs-you', { waitingFor: 'approval', stage: 'plan' }),
       // Auto switched off on it (no group): it is his, under Yours, so no mark.
       job('off', 'needs-you', { waitingFor: 'reply', auto: { on: false, ran: true, group: null } }),
+      // Set aside as too big (off, with tooBig: the server's needs-you group): one of Auto's, so marked.
+      job('big', 'needs-you', { waitingFor: 'approval', stage: 'brief', auto: { on: false, ran: true, tooBig: { at: '2026-10-21T08:00:00Z', reason: 'It needs a stack.' }, group: 'needs-you' } }),
     ];
     const q = deskQueue(jobs, []);
-    expect(q.map((i) => [i.key, i.kind === 'gate' && i.auto])).toEqual([['gate:stopped', true], ['gate:mine', false], ['gate:off', false]]);
+    expect(q.map((i) => [i.key, i.kind === 'gate' && i.auto])).toEqual([['gate:stopped', true], ['gate:mine', false], ['gate:off', false], ['gate:big', true]]);
   });
 });

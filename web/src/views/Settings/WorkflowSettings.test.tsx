@@ -247,6 +247,8 @@ describe('Settings → Workflow', () => {
     const box = within(screen.getByRole('group', { name: 'Auto start' })).getByRole('spinbutton', { name: 'Jobs at a time' });
     expect(box).toHaveValue('3');
     fireEvent.change(box, { target: { value: '6' } });
+    // Typing saves on leaving the box (Task 16 fix round 1, I1).
+    fireEvent.focusOut(box);
     await waitFor(() => expect(post).toHaveBeenCalledWith('/api/settings', { workflow: { autoStart: { on: true, tag: 'auto', max: 6 } } }));
     await waitFor(() => expect(store.getState().meta?.settings?.workflow?.autoStart).toEqual({ on: true, tag: 'auto', max: 6 }));
   });

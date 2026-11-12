@@ -738,5 +738,40 @@ describe.each(['laptop', 'hosted'] as const)('the Inbox’s Auto tab (%s)', (mod
     await mount({ setting: { on: true, tag: 'auto' }, queue: null });
     expect(await screen.findByText('Auto start is on: tickets tagged "auto" start by themselves, up to 5 at a time.')).toBeInTheDocument();
   });
+
+  // Fix round 1 (M1): the count is the rows shown; a group the page doesn't know is neither counted nor shown.
+  it('a ticket with an unknown group is neither counted nor shown; with only such tickets the empty line shows', async () => {
+    const odd = ticket('ORBIT-25', 'Odd ticket', 'ready' as AutoQueue['tickets'][number]['group']);
+    // ORBIT-22 sent twice (ruling 5 lists by job): two rows, and no duplicate React key.
+    const twice = ticket('ORBIT-22', 'Busy ticket', 'working', { slug: 'orbit-22-again' });
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await mount({ queue: { ...QUEUE, tickets: [...QUEUE.tickets, odd, twice] } });
+    await waitFor(() => expect(autoTab().querySelector('.seg-count')).toHaveTextContent('5'));
+    fireEvent.click(autoTab());
+    expect(screen.queryByText('Odd ticket')).toBeNull();
+    expect(screen.queryByText('No tickets for Auto right now.')).toBeNull();
+    expect(within(screen.getByRole('region', { name: 'Auto is working on these' })).getAllByRole('link')).toHaveLength(2);
+    expect(errors.mock.calls.some((c) => String(c[0]).includes('same key'))).toBe(false);
+    errors.mockRestore();
+    cleanup();
+    await mount({ queue: { ...QUEUE, tickets: [odd] } });
+    await waitFor(() => expect(autoTab().querySelector('.seg-count')).toHaveTextContent('0'));
+    fireEvent.click(autoTab());
+    expect(screen.getByText('No tickets for Auto right now.')).toBeInTheDocument();
+    expect(screen.queryByText('Odd ticket')).toBeNull();
+  });
+
+  it('a working ticket with no job yet is plain text, not a link', async () => {
+    await mount({ queue: { ...QUEUE, tickets: [ticket('ORBIT-26', 'Starting ticket', 'working')] } });
+    fireEvent.click(await waitFor(() => autoTab()));
+    const working = screen.getByRole('region', { name: 'Auto is working on these' });
+    expect(working).toHaveTextContent('Starting ticket');
+    expect(within(working).queryByRole('link')).toBeNull();
+  });
+
+  it('the Auto tab says what it lists when hovered', async () => {
+    await mount();
+    expect(await waitFor(() => autoTab())).toHaveAttribute('title', 'Your tagged tickets: what Auto starts next, works on, or set aside.');
+  });
 });
 
