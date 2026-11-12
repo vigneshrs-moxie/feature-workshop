@@ -2888,12 +2888,12 @@ export async function createRunner(config) {
         } catch (err) { console.warn(`Auto: options.json for ${f.slug} not written now (the next pass puts it in line): ${err.message}`); }
         return { record: next, changed: true };
       });
-      if (!changed) return { ok: true, auto: { ...autoCardView(record, { level: f.level, suggestedLevel: f.suggestedLevel }), tag: record?.tag ?? null } };
+      if (!changed) return { ok: true, auto: { ...autoCardView(record, { level: f.level, suggestedLevel: f.suggestedLevel, closed: Boolean(f.closed) }), tag: record?.tag ?? null } };
       await driver.applyModes(); // a reply in progress switches mode now
       settingsChanged();
       invalidate();
       if (!body.on) runAutoStart(); // switched off: its Auto start place is free now
-      return { ok: true, auto: { ...autoCardView(record, { level: f.level, suggestedLevel: f.suggestedLevel }), tag: record.tag ?? null } };
+      return { ok: true, auto: { ...autoCardView(record, { level: f.level, suggestedLevel: f.suggestedLevel, closed: Boolean(f.closed) }), tag: record.tag ?? null } };
     },
 
     // POST /api/job/:slug/policy: one job's own permission setting; null clears it (the job follows your global setting again).

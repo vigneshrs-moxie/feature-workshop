@@ -144,6 +144,13 @@ export function autoRecord(prev, { on, by = 'you', tag = null, now = new Date().
   return { ...was, on: false, ran: was.ran === true };
 }
 
+const realString = (v) => typeof v === 'string' && v !== '';
+/** The record's too-big mark as { at, reason } when it is whole (both real strings), else null: no half mark reaches a page or a group. */
+const tooBigOf = (record) => {
+  const t = record?.tooBig;
+  return t && typeof t === 'object' && realString(t.at) && realString(t.reason) ? { at: t.at, reason: t.reason } : null;
+};
+
 /** Auto is on and has not stopped: the job takes one of Auto's places. */
 export const isWorking = (r) => r?.on === true && !r.stopped;
 
@@ -158,7 +165,7 @@ export const isUnfinished = (r) => r?.on === true;
 export function autoGroup(record, { closed = false } = {}) {
   if (closed || !record || typeof record !== 'object') return null;
   if (record.on === true) return record.stopped ? 'needs-you' : 'working';
-  if (record.tooBig) return 'needs-you';
+  if (tooBigOf(record)) return 'needs-you';
   if (record.finished && !record.acted) return 'ready';
   return null;
 }
@@ -176,13 +183,13 @@ export function autoOption(record, level = null) {
  * The board card's `auto`: { on, by, ran, stopped, deciding, allowed, why } (by: who turned it on; the tag is the job page's, added with it). deciding is false until
  * Auto answers gates (a later part); allowed and why are autoAllowed's (allowed at every level, why
  * null). The Auto queue adds began (beganOf), group (autoGroup; null when closed),
- * waitingToTest (the runner's: it waits for the test place), tooBig ({ at, reason } or null), risky
+ * waitingToTest (the runner's: it waits for the test place), tooBig ({ at, reason } when both are strings, else null), risky
  * (a count, 0 when not known) and finished (when PR #1 was seen open, else null).
  */
 export function autoCardView(sessionAuto, { level = null, suggestedLevel = null, closed = false, waitingToTest = false } = {}) {
   const on = sessionAuto?.on === true;
   const a = autoAllowed({ level, suggestedLevel });
-  const tooBig = sessionAuto?.tooBig && typeof sessionAuto.tooBig === 'object' ? { at: sessionAuto.tooBig.at ?? null, reason: sessionAuto.tooBig.reason ?? null } : null;
+  const tooBig = tooBigOf(sessionAuto);
   return {
     on, by: on ? (sessionAuto.by === 'tag' ? 'tag' : 'you') : null, ran: sessionAuto?.ran === true, stopped: on ? sessionAuto.stopped ?? null : null, deciding: false, allowed: a.ok, why: a.why,
     began: beganOf(sessionAuto), group: autoGroup(sessionAuto, { closed }), waitingToTest: waitingToTest === true, tooBig, risky: riskyOf(sessionAuto),

@@ -256,3 +256,38 @@ test('no refusal note can carry a path, an address or a command\'s arguments', (
     }
   }
 });
+
+// ---------- Auto queue Task 12: Task 1's review, M3 and M5 ----------
+
+test('M3: the card has a too-big mark only when it is whole, and its group agrees', () => {
+  const { autoGroup } = autoLib;
+  const at = '2026-11-12T09:00:00.000Z';
+  const reason = 'It touches 14 files in 3 areas.';
+  for (const tooBig of [{ at: null, reason }, { at, reason: null }, { at }, { reason }, { at: 5, reason }, { at, reason: '' }, { at: '', reason }, 'yes', true]) {
+    const record = { on: false, ran: true, tooBig };
+    const c = autoCardView(record, { level: 1 });
+    assert.equal(c.tooBig, null, JSON.stringify(tooBig));
+    assert.equal(c.group, null, `${JSON.stringify(tooBig)}: not under Needs you with no reason`);
+    assert.equal(autoGroup(record), null, JSON.stringify(tooBig));
+  }
+  const whole = autoCardView({ on: false, ran: true, tooBig: { at, reason } }, { level: 1 });
+  assert.deepEqual([whole.tooBig, whole.group], [{ at, reason }, 'needs-you']);
+});
+
+test('M5: the card\'s too-big mark carries at and reason only', () => {
+  const at = '2026-11-12T09:00:00.000Z';
+  const reason = 'It touches 14 files in 3 areas.';
+  assert.deepEqual(autoCardView({ on: false, ran: true, tooBig: { at, reason, brief: 'x' } }, { level: 1 }).tooBig, { at, reason });
+});
+
+test('M5: risky is cleaned to a count of 0 or more, by the record\'s on and on the card', () => {
+  for (const risky of [-1, '2', 1.5]) {
+    assert.equal(autoRecord({ on: false, ran: true, risky }, { on: true }).risky, 0, `on: ${JSON.stringify(risky)}`);
+    assert.equal(autoCardView({ on: true, ran: true, risky }, { level: 1 }).risky, 0, `card: ${JSON.stringify(risky)}`);
+  }
+  assert.equal(autoRecord({ on: false, ran: true, risky: 2 }, { on: true }).risky, 2);
+});
+
+test('M5: an off record that still carries stopped (today\'s leave for L3) is in no Auto group', () => {
+  assert.equal(autoLib.autoGroup({ on: false, ran: true, stopped: { reason: 'the plan is unclear', rule: 'judgment', at: 't' } }), null);
+});

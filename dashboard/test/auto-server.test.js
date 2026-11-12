@@ -4764,3 +4764,31 @@ test('a suggestion on a later brief, after Auto answered one, does not set it as
     assert.deepEqual(await w.autoLines('set-aside'), []);
   } finally { await w.stop(); }
 });
+
+// ---------- Auto queue Task 12: Task 1's review, M4 and M5 ----------
+
+test('M5: a closed job\'s card is in no Auto group: a set-aside job he closes leaves Needs you', { timeout: 30_000 }, async () => {
+  const w = await world({ jobStatus: bigStatus(1) });
+  try {
+    await w.pass();
+    assert.equal((await cardOf(w)).auto.group, 'needs-you');
+    await w.runner.handle({ type: 'close', slug: w.slug, as: 'dropped' }, { from: 'local' });
+    const card = await cardOf(w);
+    assert.ok(card.closed, 'the card says closed');
+    assert.equal(card.auto.group, null);
+    assert.equal((await w.record()).tooBig?.reason, STACK_WHY, 'closing is not his send: the record keeps the mark');
+  } finally { await w.stop(); }
+});
+
+test('M4: the switch\'s answer knows a closed job: switched on, it is in no Auto group, as on the board', { timeout: 30_000 }, async () => {
+  const w = await world({ jobStatus: status(1, { stage_state: 'working', waiting_for: null }) });
+  try {
+    await w.runner.handle({ type: 'close', slug: w.slug, as: 'done' }, { from: 'local' });
+    const res = await w.runner.handle({ type: 'auto', slug: w.slug, on: true }, { from: 'local' });
+    assert.equal(res.auto.on, true);
+    assert.equal(res.auto.group, null);
+    assert.equal((await cardOf(w)).auto.group, null, 'the board says the same');
+    const again = await w.runner.handle({ type: 'auto', slug: w.slug, on: true }, { from: 'local' });
+    assert.equal(again.auto.group, null, 'nothing changed: the same answer');
+  } finally { await w.stop(); }
+});
