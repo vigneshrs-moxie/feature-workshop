@@ -3628,3 +3628,25 @@ test('the board says a step he wrote to is his before Auto\'s next pass', { time
     assert.deepEqual({ lane: after.lane, laneReason: after.laneReason }, { lane: 'needs-you', laneReason: `Auto stopped: ${YOURS}` });
   } finally { release(); await w.stop(); }
 });
+
+test('I5: his own Go or Send back on the waiting step, seen on a fresh read, is not writing to the job: Auto does not stop and decides the next step', { timeout: 30_000 }, async () => {
+  for (const kind of ['approve', 'changes']) {
+    // The pass's first read shows brief 1 unanswered; then his decision on brief 1 lands; the fresh read shows it answered.
+    // Later the Foreman raises brief 2 after his decision.
+    const u = unit({
+      decide: () => {},
+      auditLines: [{ action: 'send', kind, gateBrief: 1, at: new Date(Date.now() - 1000).toISOString(), text: kind === 'approve' ? 'Go.' : 'Use the other table.' }],
+      job: (reads) => (reads === 1 ? {} : reads === 2 ? { answered: [1] } : {
+        answered: [1], briefAt: new Date().toISOString(), gate: { briefNumber: 2, stale: false, questions: [], decided: [], headline: 'Plan v2', nextStage: 'implement' },
+      }),
+    });
+    await u.auto.pass();
+    assert.equal(u.record().stopped, null, `${kind}: no stop for his own decision`);
+    assert.equal(u.lines.filter((l) => l.what === 'stop').length, 0, kind);
+    assert.equal(u.asks.length, 0, `${kind}: brief 1 is his decision, not Auto's`);
+    await later();
+    await u.auto.pass();
+    assert.equal(u.record().stopped, null, kind);
+    assert.deepEqual(u.decides.map((d) => d.briefNumber), [2], `${kind}: Auto decides brief 2`);
+  }
+});
