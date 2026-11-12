@@ -4067,3 +4067,30 @@ test('m7: a status card on an L3 Auto job still stops for status', { timeout: 30
     await assert.rejects(driver.decide(status3.id, { decision: 'allow', by: 'auto' }), /never answers/);
   } finally { await w.stop(); }
 });
+
+test('a pause from the plan-usage meters alone sends one queue change; a meters change that keeps the paused reason sends none', { timeout: 30_000 }, async () => {
+  const w = await world({ auto: null, jobStatus: status(1, { stage_state: 'working', waiting_for: null }) });
+  try {
+    const seen = [];
+    w.runner.on('change', (_job, data) => { if (data?.queue === true) seen.push(data); });
+    const settle = () => new Promise((r) => setTimeout(r, 300));
+    await w.runner.handle({ type: 'settings', workflow: { autoStart: { on: true, tag: 'auto' } } }, { from: 'local' });
+    await settle();
+    const n0 = seen.length;
+    assert.equal((await w.runner.read.snapshot()).autoQueue.paused, null);
+    const meters = w.hooks.planUsage;
+    // The meters move, the paused reason does not (the reading is switched off here): no change.
+    meters.emit('change', meters.view());
+    await settle();
+    assert.equal(seen.length, n0, 'the paused reason is the same');
+    // The reading fails: Auto start pauses for it, and the page is told once.
+    Object.assign(meters, { enabled: true, error: 'No Claude Code sign-in found on this computer.', lasting: true });
+    meters.emit('change', meters.view());
+    await settle();
+    assert.equal(seen.length, n0 + 1);
+    assert.equal((await w.runner.read.snapshot()).autoQueue.paused, 'limit-reading');
+    meters.emit('change', meters.view());
+    await settle();
+    assert.equal(seen.length, n0 + 1, 'still the same reason: nothing more');
+  } finally { await w.stop(); }
+});

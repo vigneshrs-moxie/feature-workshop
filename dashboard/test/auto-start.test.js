@@ -379,3 +379,12 @@ test('hadJobList: null before the first pass, then every ticket with a job (clos
   await r.starter.run();
   assert.deepEqual(r.starter.hadJobList(), ['ORBIT-7']);
 });
+
+test('the memory is read once, however many ask at once', async (t) => {
+  const r = await rig({ items: [] }); // nothing to start: the rig's start reads the file too
+  await fs.writeFile(r.file, JSON.stringify({ started: [], failed: [{ key: 'ORBIT-4', at: 'x', reason: 'No.' }] }));
+  const reads = t.mock.method(fs, 'readFile');
+  await Promise.all([r.starter.load(), r.starter.load(), r.starter.run()]);
+  assert.equal(reads.mock.calls.filter((c) => c.arguments[0] === r.file).length, 1);
+  assert.deepEqual(r.starter.failedList(), [{ key: 'ORBIT-4', reason: 'No.' }]);
+});

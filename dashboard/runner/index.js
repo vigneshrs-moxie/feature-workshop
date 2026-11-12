@@ -224,6 +224,7 @@ export async function createRunner(config) {
   driver.on('usage-status', (info) => limits.onStatus(info));
   // The plan's 5-hour and weekly usage for the top bar's meters, read once a minute (lib/plan-usage.js).
   const planUsage = new PlanUsage({ enabled: planUsageOn });
+  if (testHooks && typeof testHooks === 'object') testHooks.planUsage = planUsage; // tests only, as the driver above
   // Trying a job's work on this computer (its own port, dev server, commands, terminal, database).
   const local = new LocalRunner({ state, demo: DEMO });
   if (testHooks && typeof testHooks === 'object') testHooks.local = local; // tests only, as the driver above
@@ -2279,7 +2280,7 @@ export async function createRunner(config) {
   function runAutoStart() {
     testHooks?.autoStartAsked?.(); // tests only: a place may be free
     if (!autoStartSetting.on) { autoQueueMoved(); return; }
-    autoStarter.run().catch((err) => console.error('auto start:', err.message)).finally(autoQueueMoved);
+    autoStarter.run().catch((err) => console.error('auto start:', err.message)).finally(autoQueueMoved).catch((err) => console.error('auto queue:', err.message));
   }
   orbitInbox.on('change', runAutoStart);
   /** What the Inbox shows of it: the setting, and why it is paused (null when it is not). */
@@ -2294,6 +2295,8 @@ export async function createRunner(config) {
     autoQueueSeen = now;
     events.emit('change', null, { at: Date.now(), queue: true });
   }
+  // A pause from the plan-usage meters alone ('limit', 'limit-reading') changes the queue too.
+  planUsage.on('change', () => { try { autoQueueMoved(); } catch (err) { console.error('auto queue:', err.message); } });
 
   /** Reads the saved address and starts the poller when there is a token. At start and after a save. */
   async function startOrbit() {

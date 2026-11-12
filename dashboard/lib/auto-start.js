@@ -141,19 +141,25 @@ export class AutoStarter {
     this.memory = null; // null until read; { unreadable: true } when the file can't be trusted
     this.current = null;
     this.again = false;
+    this.loading = null; // the memory's one read, while and after it runs
     this.hadJobs = null; // the ticket keys that have or had a job (closed ones too), as the last pass saw them; null before it
   }
 
-  async #load() {
-    if (this.memory) return this.memory;
-    try {
-      const raw = JSON.parse(await fs.readFile(this.file, 'utf8'));
-      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('not an object');
-      this.memory = { started: listOf(raw.started), failed: listOf(raw.failed) };
-    } catch (err) {
-      this.memory = err?.code === 'ENOENT' ? emptyMemory() : { unreadable: true };
-    }
-    return this.memory;
+  // One read, however many ask at once: the first call's promise is kept, so a late read can never
+  // put an older memory over one a pass has already changed.
+  #load() {
+    if (this.memory) return Promise.resolve(this.memory);
+    this.loading ??= (async () => {
+      try {
+        const raw = JSON.parse(await fs.readFile(this.file, 'utf8'));
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('not an object');
+        this.memory = { started: listOf(raw.started), failed: listOf(raw.failed) };
+      } catch (err) {
+        this.memory = err?.code === 'ENOENT' ? emptyMemory() : { unreadable: true };
+      }
+      return this.memory;
+    })();
+    return this.loading;
   }
 
   #save() { return this.write(this.file, `${JSON.stringify({ started: this.memory.started, failed: this.memory.failed }, null, 2)}\n`, { mode: 0o600 }); }
