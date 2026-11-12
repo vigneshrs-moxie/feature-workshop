@@ -28,7 +28,7 @@ export const AUTO_START_WORDS = {
   needsToken: 'Auto start needs the Orbit token (below) before it can start anything.',
 } as const;
 
-export function AutoStartGroup({ setting, tagsShown, tokenSet, busy = false, onSave, className = 'workflow-choice', laptopNote }: {
+export function AutoStartGroup({ setting, tagsShown, tokenSet, busy = false, onSave, className = 'workflow-choice', laptopNote, notTaken = 0 }: {
   setting: AutoStartSetting | undefined;
   /** false: Orbit shows no tags to this token; undefined: not known (nothing is said). */
   tagsShown?: boolean;
@@ -43,6 +43,8 @@ export function AutoStartGroup({ setting, tagsShown, tokenSet, busy = false, onS
    * under the group says where the change is instead (null: nothing to say now).
    */
   laptopNote?: string | null;
+  /** The website: goes up each time a change is reported as not taken by the laptop. */
+  notTaken?: number;
 }) {
   const id = useId();
   const saved = useSaved();
@@ -59,11 +61,26 @@ export function AutoStartGroup({ setting, tagsShown, tokenSet, busy = false, onS
   const [maxDraft, setMaxDraft] = useState(String(max));
   // Typed into since the box last showed a settled number: only then does leaving it save.
   const maxEdited = useRef(false);
-  useEffect(() => { setMaxDraft(String(max)); maxEdited.current = false; }, [max]);
   // The last N this page sent, until the setting shows it. A new N is weighed against this (else the
   // setting's), never against the setting alone, which on the website lags behind what was sent.
   const sentMax = useRef<number | null>(null);
-  useEffect(() => { if (sentMax.current === known) sentMax.current = null; }, [known]);
+  useEffect(() => {
+    // While a sent N is on its way, the box keeps it, even when the setting shows an earlier step (N1).
+    if (sentMax.current !== null && sentMax.current !== known) return;
+    sentMax.current = null;
+    setMaxDraft(String(max));
+    maxEdited.current = false;
+  }, [max, known]);
+  // The website said the laptop did not take the change: forget the N sent, so the same N can be sent
+  // again, and show the laptop's N (N3).
+  const maxNow = useRef(max);
+  maxNow.current = max;
+  useEffect(() => {
+    if (!notTaken) return;
+    sentMax.current = null;
+    maxEdited.current = false;
+    setMaxDraft(String(maxNow.current));
+  }, [notTaken]);
   // On the website the box shows only when the laptop's setting has N: an older laptop refuses max.
   const showMax = laptopNote === undefined || known !== undefined;
   useEffect(() => { if (on) setOffNote(false); }, [on]);

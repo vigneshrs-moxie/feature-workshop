@@ -518,5 +518,83 @@ describe('Up to N jobs at a time on the website', () => {
     expect(within(group).queryByRole('spinbutton', { name: 'Jobs at a time' })).toBeNull();
     expect(group).not.toHaveTextContent('jobs at a time');
   });
+
+  // Fix round 2, N1: the laptop shows the first step while the page waits for the second.
+  it('a second step while the laptop shows the first keeps waiting, and ends on the second with no error', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      go('#/settings/orbit');
+      const { s, api } = site({ autoStart: { on: true, tag: 'auto', max: 3 }, autoTakes: false });
+      render(<HostedApp api={api} />);
+      const group = await screen.findByRole('group', { name: 'Auto start' });
+      const box = await within(group).findByRole('spinbutton', { name: 'Jobs at a time' });
+      await waitFor(() => expect(box).toHaveValue('3'));
+      fireEvent.click(within(group).getByRole('button', { name: 'One more' }));
+      await waitFor(() => expect(autoCalls(s).map((c) => c.body?.max)).toEqual([4]));
+      await within(group).findByText('Sent to your laptop. It takes effect there.');
+      // The laptop takes 4 and mirrors it; he presses + again before the page's next look.
+      s.autoStart = { on: true, tag: 'auto', max: 4 };
+      fireEvent.click(within(group).getByRole('button', { name: 'One more' }));
+      await waitFor(() => expect(autoCalls(s).map((c) => c.body?.max)).toEqual([4, 5]));
+      // The look after the send reads 4: an earlier step on its way, so the page keeps waiting.
+      await act(async () => { vi.advanceTimersByTime(3_100); });
+      expect(within(group).queryByText('Your laptop did not take this change.')).toBeNull();
+      expect(within(group).getByText('Sent to your laptop. It takes effect there.')).toBeInTheDocument();
+      expect(box).toHaveValue('5');
+      // The laptop takes 5: the line goes, the box says 5.
+      s.autoStart = { on: true, tag: 'auto', max: 5 };
+      await act(async () => { vi.advanceTimersByTime(3_100); });
+      await waitFor(() => expect(within(group).queryByText('Sent to your laptop. It takes effect there.')).toBeNull());
+      expect(within(group).queryByText('Your laptop did not take this change.')).toBeNull();
+      expect(box).toHaveValue('5');
+    } finally { vi.useRealTimers(); }
+  });
+
+  // N2: the switch pressed while a change of N is on its way waits for that N, not the laptop's old one.
+  it('the switch pressed while a change of N is on its way waits for that N', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      go('#/settings/orbit');
+      const { s, api } = site({ autoStart: { on: true, tag: 'auto', max: 3 }, autoTakes: false });
+      render(<HostedApp api={api} />);
+      const group = await screen.findByRole('group', { name: 'Auto start' });
+      const box = await within(group).findByRole('spinbutton', { name: 'Jobs at a time' });
+      await waitFor(() => expect(box).toHaveValue('3'));
+      fireEvent.change(box, { target: { value: '6' } });
+      fireEvent.focusOut(box);
+      await waitFor(() => expect(autoCalls(s)).toHaveLength(1));
+      fireEvent.click(within(group).getByRole('checkbox', { name: 'Start a job by itself for tickets with this tag' }));
+      await waitFor(() => expect(autoCalls(s).map((c) => c.body)).toEqual([{ on: true, tag: 'auto', max: 6 }, { on: false, tag: 'auto' }]));
+      // The laptop takes both: N 6, then the switch off with N kept.
+      s.autoStart = { on: false, tag: 'auto', max: 6 };
+      await act(async () => { vi.advanceTimersByTime(3_100); });
+      await waitFor(() => expect(within(group).queryByText('Sent to your laptop. It takes effect there.')).toBeNull());
+      expect(within(group).queryByText('Your laptop did not take this change.')).toBeNull();
+      expect(box).toHaveValue('6');
+    } finally { vi.useRealTimers(); }
+  });
+
+  // N3: after "did not take", the box shows the laptop's N and the same N can be sent again.
+  it('after the laptop did not take a change of N, the box shows its N and the same N can be sent again', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      go('#/settings/orbit');
+      const { s, api } = site({ autoStart: { on: true, tag: 'auto', max: 3 }, autoTakes: false });
+      render(<HostedApp api={api} />);
+      const group = await screen.findByRole('group', { name: 'Auto start' });
+      const box = await within(group).findByRole('spinbutton', { name: 'Jobs at a time' });
+      await waitFor(() => expect(box).toHaveValue('3'));
+      fireEvent.change(box, { target: { value: '6' } });
+      fireEvent.focusOut(box);
+      await waitFor(() => expect(autoCalls(s)).toHaveLength(1));
+      // The laptop is there but keeps 3 for over a minute: not taken.
+      await act(async () => { vi.advanceTimersByTime(63_000); });
+      expect(await within(group).findByText('Your laptop did not take this change.')).toBeInTheDocument();
+      expect(box).toHaveValue('3');
+      fireEvent.change(box, { target: { value: '6' } });
+      fireEvent.focusOut(box);
+      await waitFor(() => expect(autoCalls(s).map((c) => c.body?.max)).toEqual([6, 6]));
+    } finally { vi.useRealTimers(); }
+  });
 });
 

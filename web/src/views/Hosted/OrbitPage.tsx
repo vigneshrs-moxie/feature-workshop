@@ -62,9 +62,12 @@ export function OrbitPage({ api, onSignedOut }: HostedProps) {
   // Auto start: the setting your laptop mirrors, and whether Orbit shows tags to your token (from the inbox the site keeps).
   const [auto, setAuto] = useState<AutoStartSetting | undefined>(undefined);
   const [tagsShown, setTagsShown] = useState<boolean | undefined>(undefined);
-  // A change sent to the laptop: what was sent, the laptop's value then, whether it was there, and when.
-  const [autoSent, setAutoSent] = useState<{ want: AutoStartSetting; was: AutoStartSetting | undefined; online: boolean; at: number } | null>(null);
+  // A change sent to the laptop: what was sent, the laptop's value before the first change still pending,
+  // the earlier changes still on their way (a step sent before this one), whether it was there, and when.
+  const [autoSent, setAutoSent] = useState<{ want: AutoStartSetting; was: AutoStartSetting | undefined; onWay: AutoStartSetting[]; online: boolean; at: number } | null>(null);
   const [autoNote, setAutoNote] = useState<string | null>(null);
+  // Counts the changes reported as not taken, so the group forgets the N it sent (N3).
+  const [autoNotTaken, setAutoNotTaken] = useState(0);
   // Until the laptop mirrors it, the switch shows the laptop's own value; then the line goes, or says it
   // was not taken (the value came back different, or nothing changed for a minute while it was there).
   useEffect(() => {
@@ -76,8 +79,10 @@ export function OrbitPage({ api, onSignedOut }: HostedProps) {
       const now = s.meta?.settings?.workflow?.autoStart;
       setAuto(now);
       const waited = Date.now() - autoSent.at;
+      // The laptop still on the old value, or on an earlier change on its way: keep waiting.
+      const between = sameAuto(now, autoSent.was) || autoSent.onWay.some((w) => sameAuto(now, w));
       if (sameAuto(now, autoSent.want)) { setAutoNote(null); setAutoSent(null); }
-      else if (!sameAuto(now, autoSent.was) || (autoSent.online && waited > AUTO_TAKE_MS)) { setAutoNote(AUTO_START_NOT_TAKEN); setAutoSent(null); }
+      else if (!between || (autoSent.online && waited > AUTO_TAKE_MS)) { setAutoNote(AUTO_START_NOT_TAKEN); setAutoSent(null); setAutoNotTaken((n) => n + 1); }
       else if (waited > AUTO_WAIT_MS) { setAutoNote(AUTO_START_KEPT); setAutoSent(null); }
     };
     void look();
@@ -178,13 +183,19 @@ export function OrbitPage({ api, onSignedOut }: HostedProps) {
         setting={auto}
         tagsShown={tagsShown}
         laptopNote={autoNote}
+        notTaken={autoNotTaken}
         onSave={async (next) => {
           const r = await api.post<{ laptop?: { online?: boolean } } | undefined>('/api/orbit/auto-start', next);
           const online = r?.laptop?.online === true;
           setAutoNote(online ? AUTO_START_SENT : AUTO_START_WAITING);
-          // Only the number box sends max; any other change keeps the laptop's N, so that is what to wait for.
-          const want = next.max === undefined && auto?.max !== undefined ? { ...next, max: auto.max } : next;
-          setAutoSent({ want, was: auto, online, at: Date.now() });
+          setAutoSent((prev) => {
+            // Only the number box sends max; any other change keeps the laptop's N, or the N still on its
+            // way (N2), so that is what to wait for.
+            const keptMax = prev?.want.max ?? auto?.max;
+            const want = next.max === undefined && keptMax !== undefined ? { ...next, max: keptMax } : next;
+            // A change while another is pending (N1): keep the first old value, and the earlier change is on its way.
+            return { want, was: prev ? prev.was : auto, onWay: prev ? [...prev.onWay, prev.want] : [], online, at: Date.now() };
+          });
         }}
       />
     </HostedSettings>
