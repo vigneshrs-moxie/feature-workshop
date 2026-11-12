@@ -83,9 +83,9 @@ interface AutoQueue {
 - **Server track** (worktree 1, `feature/auto-queue`), strictly in order: 1, 2, 3, 4, 5, 6, then the database track is merged in, then 10, 11, 12, 13, 14, 18. `dashboard/runner/auto.js` is touched by Tasks 4, 5, 6, 10, 12, 13 and 14, `dashboard/runner/index.js` by 2, 3, 9, 10, 12, 13, `dashboard/lib/auto.js` by 1, 4, 5, and `dashboard/lib/auto-log.js` by 5, 6, 14: none of these may run side by side. Task 11 must follow Tasks 8 to 10: until Starbase applies migrations on Auto's database, dropping the migrations stop has nothing behind it.
 - **Database track** (worktree 3, `feature/auto-queue-db`, branched after Task 1 is committed; the lead's change to save time): Tasks 8 then 9. Its files are `dashboard/lib/local.js`, `dashboard/runner/evidence.js` and the fixtures. It makes two small edits in files the server track also touches (`OWN_SENDS` in `dashboard/lib/auto.js`, the `onAutoDbProblem` wiring in `dashboard/runner/index.js`): change only the lines needed, so the merge before Task 10 is clean.
 - **Skills track** (the skills repository, its own branch): Task 7, any time after Task 1. It touches no Starbase file. Its `Decisions Auto made` heading must match Task 14's `DECISIONS_HEADING` word for word.
-- **Web track** (worktree 2, `feature/auto-queue-web`, branched after Task 1 is committed): Tasks 15, 16, 17 in order (all three touch `web/src/api/types.ts` readers and shared Auto components). They build against the wire contract and test with hand-made snapshots.
+- **Web track** (worktree 2, `feature/auto-queue-web`, branched after Task 1 is committed): Tasks 15, 16, 17, 19 in order (they touch `web/src/api/types.ts` readers and shared Auto components). They build against the wire contract and test with hand-made snapshots.
 - **Merge point M1:** Task 1 committed on the server track; the web track branches from it.
-- **Merge point M2:** after Task 14 and Task 17, merge the web track into `feature/auto-queue`; run all four commands. Task 18 (the website) runs after M2, since it carries what both tracks made.
+- **Merge point M2:** after Task 14 and Task 19, merge the web track into `feature/auto-queue`; run all four commands. Task 18 (the website) runs after M2, since it carries what both tracks made.
 - **Merge point M3:** after Task 18, the whole-branch checks below. The skills branch merges into the skills repository's `main` at go-live, with the Starbase merge.
 
 ## Safety of Part B
@@ -516,6 +516,49 @@ The go-ahead that leads to pushing and opening PR #1 is, in every flow, the gate
 - [ ] **Step 4:** `npm test`, `npm test -w hosted`, `npm run web:build`.
 - [ ] **Step 5:** Commit `feat(site): the Auto queue on the website`.
 
+### Task 19: The website's Jobs and Inbox tabs (Part F, web track, after Task 17)
+
+Added by the lead on 2026-11-12 after Task 15's review found that the website's Jobs page is its own page (`HostedJobsPage`), not the laptop's `JobsPage`, so the design's section 10 ("the same tabs show on the website") was met by no task. No `hosted/` change and no database change: the website already serves everything needed once Task 18 lands.
+
+**Facts (read at 9685958 and 7e62ced; find the code by name, lines move):**
+- `web/src/views/Hosted/HostedApp.tsx` mounts `HostedJobsPage` for the `jobs` route and `HostedInboxPage` for `inbox`. The mirror store (`useHostedWorkshop` in `HostedWorkshop.tsx`: live sync over `GET /api/snapshot` and `/api/events`) starts only once a mirror page (a job, the Desk, a stack) has been opened.
+- `HostedJobsPage` fetches `GET /api/jobs` itself every 15 s. Its rows are `MirroredJob {id, laptopId, slug, title, ticket, stage, state, stateWords, now, updatedAt}` (`views/Hosted/types.ts`), grouped by laptop. They have no `auto`.
+- `GET /api/snapshot` carries the laptop's job cards whole, so each `jobs[].auto` has `group`, `waitingToTest`, `tooBig`, `risky`, `finished`, and each job its `level`. It carries `autoQueue` once Task 18 lands (an optional field: an older laptop sends none).
+- `HostedInboxPage` wraps the laptop's `InboxView` (`views/Inbox.tsx`). Since Task 16 it keeps `autoQueue` from the `/api/snapshot` it already reads and passes it to the Inbox as `hosted.autoQueue`, read on open and after Start or Cancel only. Tickets come from `GET /api/orbit/inbox`.
+- Task 15 landed `web/src/home/autoTab.ts` (`inAuto`, `autoGroups`, `useJobsTab`, `JOBS_TAB_KEY`) and `web/src/home/AutoJobs.tsx`. Task 16 landed the Inbox's `Auto` tab.
+
+**Files:**
+- Modify: `web/src/views/Hosted/HostedApp.tsx`, `web/src/views/Hosted/HostedJobsPage.tsx`, `web/src/views/Hosted/HostedInboxPage.tsx`
+- Test: `web/src/views/Hosted/Hosted.test.tsx`, `web/src/views/Hosted/HostedInbox.test.tsx`
+
+**Interfaces:**
+- Consumes: `inAuto`, `autoGroups`, `useJobsTab`, `AutoJobs` (Task 15); the Inbox's Auto tab and its `Auto is working on this` mark (Task 16); the snapshot's `jobs[].auto` and `autoQueue` (wire contract).
+- Produces:
+  - **The store on the Jobs route.** The mirror store also starts for the `jobs` route, and `HostedJobsPage` renders inside the same `WorkshopContext` the mirror pages use, so it can read the store's `jobs` and `autoQueue`.
+  - **`HostedJobsPage` tabs.** When the store's snapshot has an `autoQueue` (the laptop is on this build), the page shows the `Yours` and `Auto` tabs, each with its count, in the same `role="tablist"` pattern and with the same remembered choice as the laptop (`useJobsTab`). `Yours` is today's rows, grouped by laptop, without the rows whose slug is `inAuto` in the store's jobs. `Auto` is `AutoJobs` with the store's jobs and `autoQueue`. Rows are joined by slug; when two laptops share a slug the first wins (rare; accepted).
+  - **Not known.** With no snapshot yet, a snapshot that failed to load, or a snapshot with no `autoQueue` (an older laptop), the page is exactly today's list, with no tabs. Nothing crashes and no job disappears.
+  - **`HostedInboxPage`.** The queue it passes to the Inbox is read again on each refresh of its ticket list, so the `Auto` tab and the `Auto is working on this` mark are never staler than the list itself. With no `autoQueue` in the snapshot there is no `Auto` tab. The `Auto` tab on the site shows the paused line from the queue (`autoQueue.paused`).
+  - **Phone.** This is the page he opens on his phone. At 760 px and under the tabs are full width and the groups come one after another; no three columns, no sideways scroll.
+
+- [ ] **Step 1: Failing tests**
+  - `Hosted.test.tsx` (the file's own fake `fetch`, answering `/api/jobs` and `/api/snapshot`):
+    - `the site's Jobs page shows Yours and Auto from the snapshot`: three jobs in `/api/jobs`; the snapshot's jobs give one `auto.group: 'working'`, one `'ready'`, and carry an `autoQueue` → `Yours` has the third only and its count is 1; `Auto` has count 2 and shows `Working · 1 of 5` and `Ready for you to try`.
+    - `a job that needs you under Auto says why`: a stopped job shows its reason; a set-aside one shows `Too big for Auto`.
+    - `no queue in the snapshot: today's list, no tabs` (an older laptop), and `the snapshot fails to load: today's list, no tabs`.
+    - `the chosen tab is remembered` (the same key as the laptop).
+    - `an Auto job's row opens its job page on the site`.
+    - `at phone width the groups come one after another`.
+  - `HostedInbox.test.tsx`:
+    - `the site's Inbox shows the Auto tab from the snapshot's queue` (the four groups, each only when it has rows).
+    - `no queue in the snapshot: no Auto tab`.
+    - `Mine marks a ticket Auto is working on`.
+    - `the Auto tab shows the paused line on the site`.
+    - `the queue is read again when the ticket list refreshes`.
+- [ ] **Step 2:** `npx vitest run src/views/Hosted` (cwd `web/`); the new tests fail.
+- [ ] **Step 3:** Implement.
+- [ ] **Step 4:** `npm run web:test`, `npm run web:build`.
+- [ ] **Step 5:** Commit `feat(site): Yours and Auto on the website's Jobs page, and the Inbox's Auto tab`.
+
 ---
 
 ## After the last task (M3)
@@ -537,7 +580,7 @@ The go-ahead that leads to pushing and opening PR #1 is, in every flow, the gate
 | 7 Too big for Auto | 12, 13, 15, 17 |
 | 8 Notifications | 13 |
 | 9 What Auto decided, and PR #1's description | 5, 6, 7, 14, 17 |
-| 10 The website | 18 |
+| 10 The website | 18, 19 |
 
 ## Rulings for the owner to see
 
@@ -559,4 +602,6 @@ The go-ahead that leads to pushing and opening PR #1 is, in every flow, the gate
 16. **Auto's tab layout:** three groups (columns on a laptop, one after another on a phone); the lanes, list and floor switch belongs to `Yours`.
 17. **The gate reply carries `Decisions Auto made`, as the design says.** The code allows it: `gateDecision` puts each line of Auto's note on one line, drops empty lines and any line equal to the mark, and appends the mark last itself, and no length cap on the note was found. So the block is plain lines in the note, each starting `- ` (it can never be the heading, an option line or the mark), and the mark stays last by construction. The go-ahead that carries it is the gate whose next stage is PR #1 (the review brief at L1 to L3 and in a bug job, the diff brief at L0), and again any brief at the PR #1 stage itself.
 18. **The block's line**: `- <step>: <what was asked>. In doubt: <what the Approver first said>. Auto chose: <the safer answer's why>`, at most 300 characters, at most 30 lines then `- And <n> more, listed in Starbase.` It goes before the PR's attribution line, which every PR body ends with.
-19. **Words not in the design** (marked "plan's words" in their tasks): the two refusal notes, `APPROVER_SAFER`, `The Approver first said:`, `No risky calls`, the three empty-group lines, the migration message to the Foreman, the waiting-for-a-copy line, `AUTO_DB_NOT_USED`, the Try it refusal line, the setting's 400 message, the Auto start hint, and the block's line format and its `And n more` line.
+19. **Words not in the design** (marked "plan's words" in their tasks): the two refusal notes, `APPROVER_SAFER`, `The Approver first said:`, `No risky calls`, the three empty-group lines, the migration message to the Foreman, the waiting-for-a-copy line, `AUTO_DB_NOT_USED`, the Try it refusal line, the setting's 400 message, the Auto start hint, and the block's line format and its `And n more` line. From the build (Task 15): the tabs' hover titles `The jobs you run yourself, in the layout you chose.` and `The jobs Auto runs to PR #1: working, needing you, and ready for you to try.`, and the Auto row's title `Open <name>. Space, or a click on the row, takes a quick look instead.`
+20. **The website's Jobs page is its own page** (added in the build). It lists jobs from the site's own table, with no Auto facts, so the tabs there come from Task 19: the page also reads the laptop's snapshot and joins the two by slug. An older laptop, or a snapshot that will not load, shows today's list with no tabs.
+21. **One bar on both Jobs tabs** (added in the build). The bar that points at the next job needing him counts his jobs and Auto's `Needs you` together, picks his own first, and says `This one has waited longest.` only when that is true.
