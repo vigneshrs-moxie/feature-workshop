@@ -1934,6 +1934,71 @@ describe('after a click on the go / no go bar', () => {
     expect(times(composerBox().value, 'Use the small table.')).toBe(0);
   });
 
+  // Fix round 3: a call's error is always seen, and the focus is never lost to the page body.
+  const THREE_QUESTIONS: Gate = {
+    ...GATE,
+    questions: ['Keep the old column?', 'Show it on the phone?', 'Log the merge?'].map((text, i) => ({ id: String(i + 1), text, recommendation: 'a', options: [{ id: 'a', label: 'Yes' }, { id: 'b', label: 'No' }] })),
+  } as Gate;
+  /** As a browser does: a focused control that is disabled loses the focus to the page body. */
+  function focusFixup() {
+    const mo = new MutationObserver(() => {
+      const at = document.activeElement as HTMLButtonElement | null;
+      if (at && at !== document.body && at.disabled) at.blur();
+    });
+    mo.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['disabled'] });
+    return () => mo.disconnect();
+  }
+  function watchScrolls() {
+    const seen = vi.fn();
+    const had = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView');
+    Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, writable: true, value: seen });
+    return { seen, restore: () => { if (had) Object.defineProperty(Element.prototype, 'scrollIntoView', had); else delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView; } };
+  }
+  const UNREACHABLE = `Couldn’t reach ${BRAND.name}. Try again.`;
+  const cannotReach = () => vi.fn(async (p: string): Promise<unknown> => { if (p.endsWith('/gate')) throw new TypeError('Failed to fetch'); return { ok: true }; });
+
+  it.each([['the laptop app', false], ['the website', true]] as const)('a failed Go on a brief with several questions brings the error into view (%s)', async (_where, hosted) => {
+    const { seen, restore } = watchScrolls();
+    try {
+      const { store } = setup({ jobs: waiting(), gate: THREE_QUESTIONS, post: cannotReach(), hosted });
+      const go = await screen.findByRole('button', { name: /^Go: approve/ });
+      await waitFor(() => expect(go).toBeEnabled());
+      fireEvent.click(go);
+      const words = await screen.findByText(UNREACHABLE);
+      await waitFor(() => expect(seen.mock.contexts.filter((c) => c === words)).toHaveLength(1));
+      expect(seen).toHaveBeenCalledWith({ block: 'nearest' });
+      // A redraw with the same words does not scroll again.
+      act(() => { store.dispatch({ type: 'event', event: ev(260, 'thread', 'alpha', {}) }); });
+      await act(async () => {});
+      expect(screen.getByText(UNREACHABLE)).toBe(words);
+      expect(seen.mock.contexts.filter((c) => c === words)).toHaveLength(1);
+    } finally { restore(); }
+  });
+
+  it.each([['the laptop app', false], ['the website', true]] as const)('after a failed Go the focus is on Go, not the page body (%s)', async (_where, hosted) => {
+    const undo = focusFixup();
+    try {
+      setup({ jobs: waiting(), gate: THREE_QUESTIONS, post: cannotReach(), hosted });
+      const go = await screen.findByRole('button', { name: /^Go: approve/ });
+      await waitFor(() => expect(go).toBeEnabled());
+      go.focus();
+      fireEvent.click(go);
+      await screen.findByText(UNREACHABLE);
+      await waitFor(() => expect(go).toHaveFocus());
+      expect(document.activeElement).not.toBe(document.body);
+    } finally { undo(); }
+  });
+
+  it('a failed send never takes the focus from a box he is typing in', async () => {
+    setup({ jobs: waiting(), gate: THREE_QUESTIONS, post: cannotReach() });
+    fireEvent.click(await sendBack('Use the small table.'));
+    await screen.findByText(UNREACHABLE);
+    // He went on typing in the message box.
+    composerBox().focus();
+    await act(async () => {});
+    expect(composerBox()).toHaveFocus();
+  });
+
   it('a send that fails puts the words back in the box and in the store', async () => {
     let refuse: (e: unknown) => void = () => {};
     const post = vi.fn((p: string): Promise<unknown> => (p.endsWith('/gate') ? new Promise((_res, rej) => { refuse = rej; }) : Promise.resolve({ ok: true })));

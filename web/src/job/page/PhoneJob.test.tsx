@@ -509,6 +509,33 @@ describe('the phone’s step screen', () => {
     expect(localStorage.getItem('workshop.shown.stage')).toBeNull();
   });
 
+  // Fix round 3: on the phone's step screen (the card folded) the error is brought into view, and
+  // the focus stays on Go.
+  it.each([['the laptop app', false], ['the website', true]] as const)('a failed Go on a brief with several questions brings the error into view on the phone’s step screen (%s)', async (_where, hosted) => {
+    localStorage.setItem(DETAIL_KEY, 'simple');
+    const seen = vi.fn();
+    const had = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView');
+    Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, writable: true, value: seen });
+    const blur = new MutationObserver(() => { const at = document.activeElement as HTMLButtonElement | null; if (at && at !== document.body && at.disabled) at.blur(); });
+    blur.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['disabled'] });
+    try {
+      const questions = ['Keep the old column?', 'Show it on the phone?', 'Log the merge?'].map((text, i) => ({ id: String(i + 1), text, recommendation: 'a', options: [{ id: 'a', label: 'Yes' }, { id: 'b', label: 'No' }] }));
+      const post = vi.fn(async (p: string): Promise<unknown> => { if (p === '/api/job/alpha/gate') throw new TypeError('Failed to fetch'); return { ok: true }; });
+      setup({ jobs: [AUTO_OFF[1]], gate: { ...GATE, questions } as Gate, hosted, post, at: '#/job/alpha/stage/plan' });
+      await threeCallsOn();
+      const go = screen.getByRole('button', { name: /^Go: approve/ });
+      go.focus();
+      fireEvent.click(go);
+      const words = await screen.findByText(/^Couldn’t reach .+\. Try again\.$/);
+      await waitFor(() => expect(words).toBeVisible());
+      await waitFor(() => expect(seen.mock.contexts.filter((c) => c === words)).toHaveLength(1));
+      await waitFor(() => expect(go).toHaveFocus());
+    } finally {
+      blur.disconnect();
+      if (had) Object.defineProperty(Element.prototype, 'scrollIntoView', had); else delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    }
+  });
+
   it('on the website a queued Go on a folded card shows its words and Cancel (the phone’s step screen)', async () => {
     localStorage.setItem(DETAIL_KEY, 'simple');
     const QUEUED = { id: 'd_abcdefgh1234', kind: 'approve', state: 'waiting', words: 'Go: waiting for your laptop. It runs when the laptop is back.', at: NOW, expiresAt: null, waiting: true, canCancel: true, permissionId: null };
