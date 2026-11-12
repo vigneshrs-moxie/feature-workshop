@@ -241,3 +241,14 @@ test('the Auto start setting from the site: on a boolean, tag text of at most 60
   assert.equal(parseCommand({ type: 'auto-start', on: true, tag: 'a' }, { from: 'local' }).ok, true);
   assert.equal(Object.hasOwn(LOCAL_COMMANDS, 'auto-start'), false);
 });
+
+test('the auto-start command takes an optional max of 1 to 10', () => {
+  const ok = (c) => parseCommand({ type: 'auto-start', on: true, tag: 'auto', ...c }, { from: 'site' });
+  assert.equal(ok({}).ok, true, 'max may be left out');
+  for (const max of [1, 5, 10]) {
+    const r = ok({ max });
+    assert.equal(r.ok, true, String(max));
+    assert.equal(r.command.max, max);
+  }
+  for (const max of [0, 11, 2.5, '3', null, -1, true]) assert.equal(ok({ max }).ok, false, String(max));
+});

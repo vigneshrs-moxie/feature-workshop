@@ -53,7 +53,7 @@ const memoryOf = async (dirs) => JSON.parse(await fs.readFile(path.join(dirs.sta
 test('the setting is saved trimmed, refused when wrong, and the inbox answer carries it with tagsShown', { timeout: 60_000 }, async () => {
   await withDashboard(() => [row(1, ['auto']), row(2, [])], async ({ write, inbox, until }) => {
     const first = await until(async () => { const b = await inbox(); return b.items?.length === 2 ? b : null; }, 'the list');
-    assert.deepEqual(first.autoStart, { on: false, tag: '', paused: null });
+    assert.deepEqual(first.autoStart, { on: false, tag: '', max: 5, paused: null });
     assert.equal(first.tagsShown, true);
     assert.deepEqual(first.items.find((i) => i.key === 'ORBIT-1').tags, ['auto']);
     assert.equal((await write('POST', '/api/settings', { workflow: { autoStart: { on: true, tag: 'x'.repeat(61) } } })).status, 400);
@@ -61,8 +61,8 @@ test('the setting is saved trimmed, refused when wrong, and the inbox answer car
     assert.equal((await write('POST', '/api/settings', { workflow: { autoStart: { on: true } } })).status, 400);
     const ok = await write('POST', '/api/settings', { workflow: { autoStart: { on: false, tag: '  nightly  ' } } });
     assert.equal(ok.status, 200);
-    assert.deepEqual(ok.body.workflow.autoStart, { on: false, tag: 'nightly' });
-    assert.deepEqual((await inbox()).autoStart, { on: false, tag: 'nightly', paused: null });
+    assert.deepEqual(ok.body.workflow.autoStart, { on: false, tag: 'nightly', max: 5 });
+    assert.deepEqual((await inbox()).autoStart, { on: false, tag: 'nightly', max: 5, paused: null });
   });
 });
 
@@ -131,5 +131,96 @@ test('with a repository registered, the ticket starts a job with Auto on by the 
     const both = await until(async () => { const m = await memoryOf(dirs); return m?.started?.length === 2 && m.started.every((e) => e.slug) ? m : null; }, 'the second start');
     assert.deepEqual(both.started.map((e) => e.key), ['ORBIT-1', 'ORBIT-2'], 'the second starts while the first has no PR #1: five places');
     assert.deepEqual(both.failed, []);
+  });
+});
+
+// ---------- Auto queue: every working Auto job holds a place; N is the setting ----------
+
+/** A job folder written straight into feature-work, as a job he started himself (no ticket, no Auto). */
+async function writeHandJob(dirs, slug) {
+  const dir = path.join(dirs['feature-work'], slug);
+  await fs.mkdir(path.join(dir, 'briefs'), { recursive: true });
+  await fs.writeFile(path.join(dir, 'status.json'), JSON.stringify({ schema_version: 1, slug, title: `Hand ${slug}`, route: 'quick', stage: 'implement', stage_state: 'working', updated_at: new Date().toISOString() }, null, 2));
+  await fs.writeFile(path.join(dir, 'options.json'), JSON.stringify({ schema_version: 2, level: 1, flow: 'quick', title: `Hand ${slug}` }, null, 2));
+  return dir;
+}
+const sessionsOf = async (dirs) => JSON.parse(await fs.readFile(path.join(dirs.state, 'sessions.json'), 'utf8').catch(() => '{}'));
+
+test('the setting takes max of 1 to 10, refuses anything else in plain words, and keeps the saved max when none is sent', { timeout: 60_000 }, async () => {
+  await withDashboard(() => [row(1, [])], async ({ write, inbox, until }) => {
+    await until(async () => (await inbox()).items?.length === 1, 'the list');
+    for (const max of [0, 11, 2.5, '3', null]) {
+      const bad = await write('POST', '/api/settings', { workflow: { autoStart: { on: false, tag: 'auto', max } } });
+      assert.equal(bad.status, 400, String(max));
+      assert.equal(bad.body.error ?? bad.body.message, 'Auto start: on or off, a tag of at most 60 characters, and 1 to 10 jobs at a time.');
+    }
+    const three = await write('POST', '/api/settings', { workflow: { autoStart: { on: false, tag: 'auto', max: 3 } } });
+    assert.equal(three.status, 200);
+    assert.deepEqual(three.body.workflow.autoStart, { on: false, tag: 'auto', max: 3 });
+    const kept = await write('POST', '/api/settings', { workflow: { autoStart: { on: false, tag: 'nightly' } } });
+    assert.deepEqual(kept.body.workflow.autoStart, { on: false, tag: 'nightly', max: 3 }, 'no max sent: his N stays');
+    assert.deepEqual((await inbox()).autoStart, { on: false, tag: 'nightly', max: 3, paused: null });
+  });
+});
+
+test('a job he switches to Auto by hand counts as a place, and the switch is never refused for places', { timeout: 60_000 }, async () => {
+  await withDashboard(() => [row(1, ['auto'])], async ({ d, dirs, write, inbox, until }) => {
+    await writeHandJob(dirs, 'hand-one');
+    await writeHandJob(dirs, 'hand-two');
+    await until(async () => (await inbox()).items?.length === 1, 'the list');
+    await until(async () => (await fetch(`${d.base}/api/job/hand-two`)).status === 200, 'the two jobs');
+    const one = await write('POST', '/api/job/hand-one/auto', { on: true });
+    assert.equal(one.status, 200, JSON.stringify(one.body));
+    assert.equal((await write('POST', '/api/settings', { workflow: { autoStart: { on: true, tag: 'auto', max: 1 } } })).status, 200);
+    const two = await write('POST', '/api/job/hand-two/auto', { on: true });
+    assert.equal(two.status, 200, JSON.stringify(two.body));
+    assert.equal(two.body.auto.on, true);
+    await write('POST', '/api/settings', { workflow: { autoStart: { on: true, tag: 'auto', max: 1 } } }); // a pass with both on
+    await new Promise((r) => setTimeout(r, 800));
+    // The one place is his hand-switched job's: the tagged ticket is not even tried.
+    assert.equal(await memoryOf(dirs), null);
+    assert.deepEqual((await fs.readdir(dirs['feature-work'])).sort(), ['hand-one', 'hand-two']);
+    const sessions = await sessionsOf(dirs);
+    for (const slug of ['hand-one', 'hand-two']) {
+      const rec = sessions[path.join(dirs['feature-work'], slug)]?.auto;
+      assert.deepEqual({ on: rec?.on, stopped: rec?.stopped ?? null, began: rec?.began }, { on: true, stopped: null, began: 'you' }, slug);
+    }
+  });
+});
+
+test('removing the tag holds back only a ticket not started', { timeout: 90_000 }, async () => {
+  let tagged = true;
+  await withDashboard(() => [row(1, tagged ? ['auto'] : []), row(2, tagged ? ['auto'] : [])], async ({ d, dirs, write, inbox, until }) => {
+    const repo = path.join(dirs.home, 'widgets');
+    await fs.mkdir(repo);
+    const git = (...a) => execFileSync('git', ['-C', repo, ...a], { stdio: 'pipe' });
+    git('init', '-q', '-b', 'main');
+    git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'start');
+    git('remote', 'add', 'origin', 'git@github.com:acme/widgets.git');
+    git('remote', 'add', 'upstream', 'git@github.com:acme-org/widgets.git');
+    await fs.writeFile(path.join(repo, 'starbase.md'), '---\nname: Widgets\ngithub: acme-org/widgets\nremotes:\n  fork: origin\n  org: upstream\n---\nNotes.\n');
+    assert.equal((await write('POST', '/api/repos/registry', { path: repo })).status, 200);
+    await until(async () => (await inbox()).items?.length === 2, 'the list');
+    // One place: the first ticket starts, the second waits for it.
+    assert.equal((await write('POST', '/api/settings', { workflow: { autoStart: { on: true, tag: 'auto', max: 1 } } })).status, 200);
+    const mem = await until(async () => { const m = await memoryOf(dirs); return m?.started?.[0]?.slug ? m : null; }, 'the first start');
+    assert.deepEqual(mem.started.map((e) => e.key), ['ORBIT-1']);
+    const slug = mem.started[0].slug;
+    // The tag comes off both tickets in Orbit, and the Inbox reads it again.
+    tagged = false;
+    await until(async () => {
+      const b = await (await fetch(`${d.base}/api/orbit/inbox?refresh=1`)).json();
+      return b.items?.length === 2 && b.items.every((i) => Array.isArray(i.tags) && i.tags.length === 0);
+    }, 'the tags to be gone');
+    // A free place now (N is 2): still the second ticket does not start, it has lost its tag.
+    assert.equal((await write('POST', '/api/settings', { workflow: { autoStart: { on: true, tag: 'auto', max: 2 } } })).status, 200);
+    await new Promise((r) => setTimeout(r, 800));
+    const after = await memoryOf(dirs);
+    assert.deepEqual(after.started.map((e) => e.key), ['ORBIT-1'], 'the ticket not started is held back');
+    assert.deepEqual(after.failed, []);
+    // The started job is still an Auto job.
+    const rec = Object.entries(await sessionsOf(dirs)).find(([dir]) => path.basename(dir) === slug)?.[1]?.auto;
+    assert.equal(rec?.began, 'tag');
+    assert.equal(rec?.on, true, `still in Auto: ${JSON.stringify(rec)}`);
   });
 });

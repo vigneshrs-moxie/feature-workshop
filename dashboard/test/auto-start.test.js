@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { AUTO_START_MAX_JOBS, AutoStarter, isBusy, lastJob, normalizeAutoStart, pausedFor, pickNext, tagMatches } from '../lib/auto-start.js';
+import { AUTO_CEILING, AUTO_MAX, AutoStarter, countAuto, lastJob, normalizeAutoStart, pausedFor, pickNext, tagMatches } from '../lib/auto-start.js';
 
 const dirs = [];
 async function tmp() { const d = await fs.mkdtemp(path.join(os.tmpdir(), 'sb-autostart-')); dirs.push(d); return d; }
@@ -15,7 +15,7 @@ after(async () => { for (const d of dirs) await fs.rm(d, { recursive: true, forc
 const item = (n, o = {}) => ({ key: `ORBIT-${n}`, number: n, title: `Ticket ${n}`, type: 'bug', status: 'open', why: ['assigned'], tags: ['auto'], url: `https://orbit.test/admin/feedback/ORBIT-${n}`, job: null, ...o });
 const SETTING = { on: true, tag: 'auto' };
 const MEMORY = { started: [], failed: [] };
-const ask = (o = {}) => pickNext({ items: [item(1)], setting: SETTING, memory: MEMORY, ticketsWithJobs: new Set(), running: 0, paused: null, tagsShown: true, ...o });
+const ask = (o = {}) => pickNext({ items: [item(1)], setting: SETTING, memory: MEMORY, ticketsWithJobs: new Set(), working: 0, unfinished: 0, paused: null, tagsShown: true, ...o });
 
 test('a tagged assigned ticket starts', () => assert.equal(ask().start.key, 'ORBIT-1'));
 test('an untagged ticket never starts', () => {
@@ -59,15 +59,15 @@ test('nothing starts while the limit warning shows or Orbit cannot be reached', 
 });
 test('four jobs holding a place leave room for one more, five do not', () => {
   const items = [item(1), item(2)];
-  assert.equal(AUTO_START_MAX_JOBS, 5);
-  assert.equal(ask({ items, running: 4 }).start.key, 'ORBIT-1');
-  assert.deepEqual(ask({ items, running: 5 }), { wait: 'busy' });
-  assert.deepEqual(ask({ items, running: 6 }), { wait: 'busy' });
-  assert.equal(ask({ items }).start.key, 'ORBIT-1', 'running defaults to 0');
+  const five = { on: true, tag: 'auto', max: 5 };
+  assert.equal(ask({ items, setting: five, working: 4, unfinished: 4 }).start.key, 'ORBIT-1');
+  assert.deepEqual(ask({ items, setting: five, working: 5, unfinished: 5 }), { wait: 'busy' });
+  assert.deepEqual(ask({ items, setting: five, working: 6, unfinished: 6 }), { wait: 'busy' });
+  assert.equal(ask({ items, setting: five, working: undefined, unfinished: undefined }).start.key, 'ORBIT-1', 'working and unfinished default to 0');
 });
 test('the setting is trimmed and at most 60 characters', () => {
-  assert.deepEqual(normalizeAutoStart(undefined), { on: false, tag: '' });
-  assert.deepEqual(normalizeAutoStart({ on: 'yes', tag: ' auto ' }), { on: false, tag: 'auto' });
+  assert.deepEqual(normalizeAutoStart(undefined), { on: false, tag: '', max: 5 });
+  assert.deepEqual(normalizeAutoStart({ on: 'yes', tag: ' auto ' }), { on: false, tag: 'auto', max: 5 });
   assert.equal(normalizeAutoStart({ on: true, tag: 'x'.repeat(80) }).tag.length, 60);
 });
 
@@ -77,7 +77,7 @@ async function rig(over = {}) {
   const dir = await tmp();
   const file = path.join(dir, 'auto-start.json');
   const r = {
-    dir, file, items: [item(1)], setting: { ...SETTING }, tickets: new Set(), running: null, freed: new Set(), paused: null, tagsShown: true, afterStart: null,
+    dir, file, items: [item(1)], setting: { ...SETTING }, tickets: new Set(), working: null, unfinished: null, freed: new Set(), paused: null, tagsShown: true, afterStart: null,
     started: [], told: [], failWith: null, seenFile: [],
   };
   Object.assign(r, over);
@@ -87,7 +87,8 @@ async function rig(over = {}) {
     inbox: () => ({ items: r.items, tagsShown: r.tagsShown }),
     jobs: async () => ({
       ticketsWithJobs: new Set([...r.tickets, ...r.started.map((x) => x.key)]),
-      running: r.running ?? r.started.filter((x) => !r.freed.has(x.key)).length,
+      working: r.working ?? r.started.filter((x) => !r.freed.has(x.key)).length,
+      unfinished: r.unfinished ?? r.started.filter((x) => !r.freed.has(x.key)).length,
     }),
     paused: () => r.paused,
     start: async (it, tag) => {
@@ -215,15 +216,13 @@ test('runs overlapping start only one job', async () => {
 
 // ---------- Fix round 1 ----------
 
-const JOB = { jobOpen: true, pr1Open: false, replyRunning: false, autoOn: true, autoStopped: false };
-test('A1: busy while the job is open, PR #1 is not, and a reply runs or Auto is on and not stopped', () => {
-  assert.equal(isBusy({ ...JOB, autoOn: false, replyRunning: true }), true, 'Auto switched off, reply running');
-  assert.equal(isBusy({ ...JOB, autoOn: false, replyRunning: false }), false, 'Auto switched off, idle');
-  assert.equal(isBusy({ ...JOB, autoStopped: true }), false, 'Auto stopped, waiting for the person');
-  assert.equal(isBusy({ ...JOB, autoStopped: true, replyRunning: true }), true, 'a reply runs even when stopped');
-  assert.equal(isBusy({ ...JOB }), true, 'Auto on, idle at a gate');
-  assert.equal(isBusy({ ...JOB, pr1Open: true }), false);
-  assert.equal(isBusy({ ...JOB, jobOpen: false, replyRunning: true }), false);
+test('A1: a job he switched off is not working, even with a reply running', () => {
+  // Working is the record's alone (Auto on and not stopped): a reply running on the job is not asked about.
+  const off = { on: false, since: 't', by: 'you', tag: null, ran: true, stopped: null, began: 'tag', beganTag: 'auto' };
+  assert.deepEqual(countAuto([off]), { working: 0, unfinished: 0 }, 'switched off: no place, not unfinished');
+  assert.deepEqual(countAuto([{ ...off, on: true }]), { working: 1, unfinished: 1 }, 'Auto on, idle at a gate');
+  assert.deepEqual(countAuto([{ ...off, on: true, stopped: { reason: 'x' } }]), { working: 0, unfinished: 1 }, 'Auto stopped, waiting for the person');
+  assert.deepEqual(countAuto([null, undefined]), { working: 0, unfinished: 0 }, 'a job never in Auto');
 });
 
 test('A2: a save that fails after a good start is not a failed start, and is retried', async () => {
@@ -306,4 +305,48 @@ test('the last job is found by its slug, and by its ticket when a crash left no 
   assert.equal(lastJob({ key: 'ORBIT-1', slug: 'gone' }, jobs), null);
   assert.equal(lastJob({ key: 'ORBIT-9', slug: null }, jobs), null);
   assert.equal(lastJob(null, jobs), null);
+});
+
+// ---------- Auto queue: places, N and the ceiling ----------
+
+test('places: every working Auto job counts, started by the tag or by hand; a stopped, finished or set-aside one does not', () => {
+  assert.deepEqual(countAuto([
+    { on: true, began: 'you' },
+    { on: true, began: 'tag' },
+    { on: true, stopped: { reason: 'x' } },
+    { on: false, finished: 't' },
+    { on: false, tooBig: { at: 't', reason: 'r' } },
+  ]), { working: 2, unfinished: 3 });
+});
+
+test('N is the setting: with max 2, two working start nothing more', () => {
+  const two = { on: true, tag: 'auto', max: 2 };
+  assert.equal(ask({ setting: two, working: 1, unfinished: 1 }).start.key, 'ORBIT-1');
+  assert.deepEqual(ask({ setting: two, working: 2, unfinished: 2 }), { wait: 'busy' });
+});
+
+test('the ceiling: ten unfinished start nothing, whatever N', () => {
+  assert.equal(AUTO_CEILING, 10);
+  assert.deepEqual(ask({ setting: { on: true, tag: 'auto', max: 10 }, working: 3, unfinished: 10 }), { wait: 'ceiling' });
+  assert.deepEqual(ask({ setting: { on: true, tag: 'auto', max: 10 }, working: 3, unfinished: 11 }), { wait: 'ceiling' });
+  assert.equal(ask({ setting: { on: true, tag: 'auto', max: 10 }, working: 3, unfinished: 9 }).start.key, 'ORBIT-1');
+});
+
+test('the setting keeps max between 1 and 10, else 5', () => {
+  assert.deepEqual(AUTO_MAX, { min: 1, max: 10, default: 5 });
+  assert.ok(Object.isFrozen(AUTO_MAX));
+  for (const max of [0, 11, 2.5, '3', undefined, null, -1]) assert.equal(normalizeAutoStart({ on: true, tag: 'auto', max }).max, 5, String(max));
+  assert.equal(normalizeAutoStart({ on: true, tag: 'auto' }).max, 5, 'missing');
+  assert.equal(normalizeAutoStart({ on: true, tag: 'auto', max: 1 }).max, 1);
+  assert.equal(normalizeAutoStart({ on: true, tag: 'auto', max: 10 }).max, 10);
+  assert.equal(normalizeAutoStart({ on: true, tag: 'auto', max: 7 }).max, 7);
+});
+
+test('the starter counts the places its jobs() gives: working against N, unfinished against the ceiling', async () => {
+  const r = await rig({ items: six(), setting: { on: true, tag: 'auto', max: 2 } });
+  await r.starter.run();
+  assert.deepEqual(r.started.map((s) => s.key), ['ORBIT-1', 'ORBIT-2'], 'N is 2');
+  const c = await rig({ items: six(), setting: { on: true, tag: 'auto', max: 10 }, working: 0, unfinished: 10 });
+  await c.starter.run();
+  assert.deepEqual(c.started, [], 'ten unfinished: nothing starts');
 });

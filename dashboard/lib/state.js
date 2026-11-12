@@ -24,7 +24,7 @@ export const workflowChoiceOf = (raw) => (WORKFLOW_CHOICES.includes(raw) ? raw :
  * The workflow settings with defaults filled in (Settings → Workflow): { finishLine } (lib/finish.js),
  * and for new jobs `wireframes` and `clarify` ('auto' | 'always' | 'off', default auto); a new job's
  * options.json copies those two (lib/options.js normalize). autoLevel: "Choose the level for me"
- * (lib/auto-level.js), off unless set to true. autoStart: { on, tag } (lib/auto-start.js), off with no tag. sectionsAtOnce: how many sections of stacks (plan §6.2)
+ * (lib/auto-level.js), off unless set to true. autoStart: { on, tag, max } (lib/auto-start.js), off with no tag, max 5. sectionsAtOnce: how many sections of stacks (plan §6.2)
  * run at once across every stack, 1 to 20, default 3 (lib/stack.js DEFAULT_CAP and MAX_CAP; saved
  * by POST /api/stacks/cap). It is there only once it has been set: until then the default holds,
  * and the first stack started takes the integration board's "packets at once" (integrate.json).

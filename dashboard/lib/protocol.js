@@ -101,9 +101,12 @@ export const REMOTE_COMMANDS = freeze({
   'stack-merge': { slug: required(FIELD.slug), section: str(200) },
   // Auto mode's switch for one job (lib/auto.js): on or off. Who turned it on is the runner's to say.
   auto: { slug: required(FIELD.slug), on: required(FIELD.bool) },
-  // Auto start (lib/auto-start.js): the switch and the Orbit tag, from the site's Settings. It only
-  // changes the setting; the laptop's own starter is the only thing that ever starts a job by it.
-  'auto-start': { on: required(FIELD.bool), tag: required({ ok: (v) => typeof v === 'string' && v.trim().length <= 60, says: 'a tag of at most 60 characters' }) },
+  // Auto start (lib/auto-start.js): the switch, the Orbit tag and how many jobs at a time (optional), from the
+  // site's Settings. It only changes the setting; the laptop's own starter is the only thing that ever starts a job by it.
+  'auto-start': {
+    on: required(FIELD.bool), tag: required({ ok: (v) => typeof v === 'string' && v.trim().length <= 60, says: 'a tag of at most 60 characters' }),
+    max: { ok: (v) => Number.isInteger(v) && v >= 1 && v <= 10, says: 'a whole number from 1 to 10' },
+  },
 });
 
 /** What only the page on this computer may ask. */

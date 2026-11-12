@@ -94,7 +94,7 @@ import { checkCounts } from '../lib/job-page.js';
 import { writeFileAtomic } from '../lib/atomic-write.js';
 import { UsageLog, TurnMeter, turnLines, usageDir, starbaseUser, claudeAccountId } from '../lib/usage-log.js';
 import { statusTicketKey, slugTicketKey } from '../lib/orbit.js';
-import { AUTO_START_FILE, AutoStarter, isBusy, lastJob, normalizeAutoStart, pausedFor } from '../lib/auto-start.js';
+import { AUTO_MAX, AUTO_START_FILE, AutoStarter, countAuto, normalizeAutoStart, pausedFor } from '../lib/auto-start.js';
 import { activeWarnings } from '../lib/usage-warnings.js';
 import { telemetry as telemetryOf } from '../lib/telemetry.js';
 import { ClaudeCodeUsage, CLAUDE_CODE_NOTE, CLAUDE_CODE_WORDS, readSetting as claudeCodeSetting, writeSetting as setClaudeCodeSetting } from '../lib/claude-code-usage.js';
@@ -2225,7 +2225,7 @@ export async function createRunner(config) {
   }
 
   // Auto start by tag (lib/auto-start.js): after each Inbox refresh, a ticket assigned to you with the
-  // Orbit tag you wrote starts a job with Auto on, up to five at a time, each ticket once. It never runs
+  // Orbit tag you wrote starts a job with Auto on, up to N at a time (ten unfinished at most), each ticket once. It never runs
   // when the setting is off. The website can only change the setting (the auto-start command).
   let autoStartSetting = normalizeAutoStart(null);
   const autoPaused = () => {
@@ -2237,27 +2237,15 @@ export async function createRunner(config) {
     setting: async () => autoStartSetting,
     inbox: () => orbitInbox.view(),
     paused: autoPaused,
-    jobs: async (memory) => {
+    jobs: async () => {
       const list = await features();
       const ticketsWithJobs = new Set();
-      const keyed = [];
       for (const f of list) {
         const key = (f.dir ? await statusTicketKey(f.dir) : null) ?? slugTicketKey(f.slug);
         if (key) ticketsWithJobs.add(key);
-        keyed.push({ slug: f.slug, key, closed: f.closed, f });
       }
-      // Each started entry is matched to its job; a job counts once, even if two entries match it.
-      const mine = new Set();
-      for (const entry of memory.started) { const f = lastJob(entry, keyed)?.f; if (f) mine.add(f); }
-      // A reply is running when the driver has a run on the job: the same signal sendPlan refuses a second send on.
-      let running = 0;
-      for (const f of mine) {
-        if (isBusy({
-          jobOpen: !f.closed, pr1Open: finishLineReached({ prs: f.prs, closed: f.closed }, null, 'pr1-open').reached,
-          replyRunning: Boolean(driver.activeRunFor({ featureDir: f.dir })), autoOn: f.auto?.on === true, autoStopped: Boolean(f.auto?.stopped), // stopped is { reason, rule, at } or null
-        })) running++;
-      }
-      return { ticketsWithJobs, running };
+      // Every open job's Auto record counts, whether the tag or the person switched it on (lib/auto-start.js countAuto).
+      return { ticketsWithJobs, ...countAuto(list.filter((f) => !f.closed).map((f) => f.auto)) };
     },
     start: async (item, tag) => {
       const out = await HANDLERS.start({
@@ -2576,7 +2564,7 @@ export async function createRunner(config) {
     // Auto start's setting from the website (lib/auto-start.js): only the setting; this laptop's own
     // starter is what starts a job by it.
     async 'auto-start'(body) {
-      await HANDLERS.settings({ workflow: { autoStart: { on: body.on, tag: body.tag } } });
+      await HANDLERS.settings({ workflow: { autoStart: { on: body.on, tag: body.tag, ...(body.max !== undefined ? { max: body.max } : {}) } } });
       return { ok: true, autoStart: autoStartSetting };
     },
 
@@ -3003,8 +2991,11 @@ export async function createRunner(config) {
         if (w.inboxSuggest !== undefined && typeof w.inboxSuggest !== 'boolean') throw new HttpError(400, 'Suggest what to start next: on or off.');
         if (w.autoStart !== undefined) {
           const a = w.autoStart;
-          if (!a || typeof a !== 'object' || Array.isArray(a) || typeof a.on !== 'boolean' || typeof a.tag !== 'string' || a.tag.trim().length > 60) throw new HttpError(400, 'Auto start: on or off, and a tag of at most 60 characters.');
-          w = { ...w, autoStart: normalizeAutoStart(a) };
+          const maxOk = (m) => m === undefined || (Number.isInteger(m) && m >= AUTO_MAX.min && m <= AUTO_MAX.max);
+          if (!a || typeof a !== 'object' || Array.isArray(a) || typeof a.on !== 'boolean' || typeof a.tag !== 'string' || a.tag.trim().length > 60 || !maxOk(a.max)) throw new HttpError(400, 'Auto start: on or off, a tag of at most 60 characters, and 1 to 10 jobs at a time.');
+          // No max sent (an older page or site): the saved N stays.
+          const max = a.max ?? normalizeAutoStart((await state.getSettings()).workflow?.autoStart).max;
+          w = { ...w, autoStart: normalizeAutoStart({ ...a, max }) };
         }
         if (w.countClaudeCode !== undefined && typeof w.countClaudeCode !== 'boolean') throw new HttpError(400, 'Count my Claude Code use outside the app: on or off.');
         if (w.finishLine !== undefined && !FINISH_LINES.includes(w.finishLine)) throw new HttpError(400, 'The finish line is PR #1 open, PR #1 merged, in staging, in main, or when you mark it done.');

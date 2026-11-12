@@ -1,8 +1,10 @@
 // Auto start by tag (Settings → Workflow → Auto start): a ticket assigned to you that carries the
-// Orbit tag you wrote starts a job by itself, with Auto on, up to five jobs at a time.
+// Orbit tag you wrote starts a job by itself, with Auto on, up to N jobs at a time (the setting's max).
 //
 // It can't loop, by construction:
-//   - at most five at a time: the next waits until one of them has stopped or has PR #1 open;
+//   - at most N working at a time: every open job whose Auto is on and not stopped holds a place,
+//     whether the tag or the person switched it on; the next waits until one stops, finishes or is off;
+//   - nothing starts while AUTO_CEILING (10) Auto jobs are unfinished (on, stopped or not);
 //   - each ticket is started at most once ever: the memory file is written BEFORE the start;
 //   - a failed start is remembered and never retried by itself (Start on the row clears it);
 //   - nothing starts while the setting is off, the tag is empty, the Claude limit warning shows or
@@ -13,17 +15,22 @@
 
 import fs from 'node:fs/promises';
 import { writeFileAtomic } from './atomic-write.js';
+import { isUnfinished, isWorking } from './auto.js';
 
 export const AUTO_START_FILE = 'auto-start.json';
 export const TAG_MAX = 60;
-export const AUTO_START_MAX_JOBS = 5;
+/** N, how many Auto jobs work at once: Settings → Workflow → Auto start, 1 to 10, 5 when missing. */
+export const AUTO_MAX = Object.freeze({ min: 1, max: 10, default: 5 });
+/** Nothing starts by itself while this many Auto jobs are unfinished (working or stopped), whatever N. */
+export const AUTO_CEILING = 10;
 
 const CLOSED = new Set(['closed', 'resolved']);
 
-/** The setting as saved: { on: boolean, tag: string } (tag trimmed, at most 60 characters). */
+/** The setting as saved: { on: boolean, tag: string, max: number } (tag trimmed, at most 60 characters; max a whole number 1 to 10, else 5). */
 export function normalizeAutoStart(raw) {
   const r = raw && typeof raw === 'object' ? raw : {};
-  return { on: r.on === true, tag: typeof r.tag === 'string' ? r.tag.trim().slice(0, TAG_MAX) : '' };
+  const max = Number.isInteger(r.max) && r.max >= AUTO_MAX.min && r.max <= AUTO_MAX.max ? r.max : AUTO_MAX.default;
+  return { on: r.on === true, tag: typeof r.tag === 'string' ? r.tag.trim().slice(0, TAG_MAX) : '', max };
 }
 
 /** Whether a tag name of the row equals the tag, ignoring case and surrounding spaces. Never any other field. */
@@ -34,14 +41,19 @@ export function tagMatches(item, tag) {
 }
 
 /**
- * Whether a job the tag started still holds a place (of AUTO_START_MAX_JOBS). Pure. It does while
- * it is open and PR #1 is not, and either a reply is running on it (whatever its Auto state) or
- * Auto is on and not stopped. A job waiting for the person (Auto stopped, or switched off with no
- * reply running) frees its place.
+ * The places taken, from the Auto records of the open jobs (the caller leaves closed jobs out). Pure.
+ * working: Auto on and not stopped (lib/auto.js isWorking), whether the tag or the person switched it
+ * on; each holds one of the N places. unfinished: Auto on, stopped or not (isUnfinished), against
+ * AUTO_CEILING. A job finished (PR #1 open), set aside or switched off counts in neither.
  */
-export function isBusy({ jobOpen = false, pr1Open = false, replyRunning = false, autoOn = false, autoStopped = false } = {}) {
-  if (!jobOpen || pr1Open) return false;
-  return replyRunning === true || (autoOn === true && autoStopped !== true);
+export function countAuto(records = []) {
+  let working = 0;
+  let unfinished = 0;
+  for (const r of records) {
+    if (isWorking(r)) working++;
+    if (isUnfinished(r)) unfinished++;
+  }
+  return { working, unfinished };
 }
 
 /**
@@ -73,22 +85,24 @@ const tried = (memory, key) => memory.started.some((e) => e.key === key) || memo
 /**
  * What to do next. Pure.
  *   items          the Inbox's items, in the Inbox's order
- *   setting        { on, tag }
+ *   setting        { on, tag, max }
  *   memory         { started, failed }
  *   ticketsWithJobs  Set of ticket keys that have or had a job (closed ones too)
- *   running        how many tag-started jobs hold a place now (isBusy), default 0
+ *   working        how many open Auto jobs hold a place now (countAuto), default 0
+ *   unfinished     how many open Auto jobs are unfinished (countAuto), default 0
  *   paused         'limit' | 'limit-reading' | 'orbit' | null
  *   tagsShown      Orbit shows tags to this token (the view's tagsShown); anything but true counts as no
  * Returns { start: item } or { wait: reason }.
  */
-export function pickNext({ items = [], setting, memory, ticketsWithJobs = new Set(), running = 0, paused = null, tagsShown = false } = {}) {
+export function pickNext({ items = [], setting, memory, ticketsWithJobs = new Set(), working = 0, unfinished = 0, paused = null, tagsShown = false } = {}) {
   const s = normalizeAutoStart(setting);
   if (!s.on) return { wait: 'off' };
   if (!s.tag) return { wait: 'no-tag' };
   if (paused === 'orbit') return { wait: 'paused-orbit' };
   if (paused === 'limit' || paused === 'limit-reading') return { wait: 'paused-limit' };
   if (tagsShown !== true) return { wait: 'no-tags-shown' };
-  if (running >= AUTO_START_MAX_JOBS) return { wait: 'busy' };
+  if (working >= s.max) return { wait: 'busy' };
+  if (unfinished >= AUTO_CEILING) return { wait: 'ceiling' };
   const hit = items.find((i) => Array.isArray(i?.why) && i.why.includes('assigned')
     && !CLOSED.has(i.status) && !i.job
     && tagMatches(i, s.tag)
@@ -104,8 +118,9 @@ const listOf = (v) => (Array.isArray(v) ? v.filter((e) => e && typeof e.key === 
  * the places fill one after another; runs never overlap (a run asked for
  * during another is folded into it).
  *   file       the memory file
- *   setting()  { on, tag }                            inbox()  the inbox view: { items, tagsShown }
- *   jobs()     { ticketsWithJobs, running }              paused() 'limit' | 'orbit' | null
+ *   setting()  { on, tag, max }                       inbox()  the inbox view: { items, tagsShown }
+ *   jobs(memory)  { ticketsWithJobs, working, unfinished }: counted over every open job's Auto record
+ *                 (countAuto), not only the ones this starter started   paused() 'limit' | 'orbit' | null
  *   start(item, tag)  starts the job, returns { slug }, throws in plain words when it can't
  *   notify(n)  tells the person once per started job, and once per failed start
  */
@@ -165,7 +180,7 @@ export class AutoStarter {
     if (this.dirty) { try { await this.#save(); this.dirty = false; } catch { /* tried again next pass */ } }
     const setting = await this.setting();
     const view = this.inbox();
-    const { ticketsWithJobs, running } = await this.jobs(memory);
+    const { ticketsWithJobs, working, unfinished } = await this.jobs(memory);
     // A crash mid-start left an entry with no slug and no job: show it as a failed start (never started again).
     const lost = memory.started.filter((e) => !e.slug && !ticketsWithJobs.has(e.key));
     if (lost.length) {
@@ -173,7 +188,7 @@ export class AutoStarter {
       for (const e of lost) memory.failed.push({ key: e.key, at: this.now(), reason: 'Starbase stopped while it was starting this one. Press Start to try.' });
       await this.#save();
     }
-    const next = pickNext({ items: view.items, setting, memory, ticketsWithJobs, running, paused: this.paused(), tagsShown: view.tagsShown });
+    const next = pickNext({ items: view.items, setting, memory, ticketsWithJobs, working, unfinished, paused: this.paused(), tagsShown: view.tagsShown });
     if (!next.start) return next;
     const it = next.start;
     const tag = normalizeAutoStart(setting).tag;
