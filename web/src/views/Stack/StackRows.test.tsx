@@ -15,7 +15,7 @@ import { createStore, WorkshopContext } from '../../state/store';
 import { job, snapshot } from '../../state/test-fixtures';
 import { LookSettings } from '../Settings/LookSettings';
 import { stackView, summary } from './fixtures';
-import { indexStacks, PartOfStack, RUN_AS_STACK_TEXT, StackSuggestion } from './StackRows';
+import { indexStacks, PartOfStack, RUN_AS_STACK_TEXT, StackSuggestion, useStackIndex } from './StackRows';
 import { editorHref, nextStep, ownsFile, splitWhy, startLine, summaryChip } from './stackModel';
 
 const building = stackView({ next: { action: 'wait', label: null, key: null, words: 'Building.' } }, ['running', 'ready', 'pending']);
@@ -129,6 +129,24 @@ describe('a part’s Job page, and the Foreman’s suggestion', () => {
     fireEvent.click(within(box).getByRole('button', { name: 'Run as a stack instead' }));
     await waitFor(() => expect(post).toHaveBeenCalledWith('/api/job/orbit-600/send', { kind: 'message', text: RUN_AS_STACK_TEXT }));
     expect(await within(box).findByRole('status')).toHaveTextContent('Sent. The Foreman writes the stack’s plan next.');
+  });
+
+  it('several parts of a page that want the stacks share one ask while it is out', async () => {
+    let answer: (v: unknown) => void = () => {};
+    const get = vi.fn((p: string) => (p === '/api/stacks' ? new Promise((r) => { answer = r; }) : Promise.resolve({})));
+    const store = createStore();
+    store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [job('orbit-512--csv-writer', 'idle')], meta: { token: 't' } as never }) });
+    const api = { get, post: vi.fn() } as unknown as ApiClient;
+    function Count() { const index = useStackIndex(); return <output>{index.stackOf(LIST.stacks[0].slug) ? 'a stack' : 'none'}</output>; }
+    render(<WorkshopContext.Provider value={{ store, api }}><Count /><Count /><Count /><Count /><Count /></WorkshopContext.Provider>);
+    await act(async () => {});
+    const asks = () => get.mock.calls.filter(([p]) => p === '/api/stacks').length;
+    expect(asks()).toBe(1);
+    await act(async () => { answer(LIST); });
+    expect(screen.getAllByRole('status').map((o) => o.textContent)).toEqual(Array(5).fill('a stack'));
+    // Once it is answered, the next look asks again.
+    await act(async () => { store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [job('orbit-512--csv-writer', 'running')], meta: { token: 't' } as never }) }); });
+    expect(asks()).toBe(2);
   });
 
   it('says nothing without a suggestion, or once the job is a stack or a part', () => {
