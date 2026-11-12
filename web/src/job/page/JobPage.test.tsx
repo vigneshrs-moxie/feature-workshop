@@ -9,6 +9,7 @@ import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type ApiClient } from '../../api/client';
 import type { EvidenceCriterion, EvidenceView, Gate, Job, JobDetail, JobDoc, JobDocEntry, Permission, StageView, StopId, ThreadItem } from '../../api/types';
+import { BRAND } from '../../app/brand';
 import { DETAIL_KEY } from '../../app/detail';
 import { installKeyListener } from '../../app/keyRegistry';
 import { useRoute, type JobView } from '../../app/router';
@@ -1797,6 +1798,26 @@ describe('after a click on the go / no go bar', () => {
     // The same rule: it goes once he writes there.
     fireEvent.change(composerBox(), { target: { value: 'Use the small table. Later.' } });
     await waitFor(() => expect(screen.queryByText('Your unsent words are in the message box.')).toBeNull());
+  });
+
+  // Fix round 1, item 12 (browser fault 3): a send that never got an answer says so in plain words.
+  it.each([['the laptop app', false], ['the website', true]] as const)('a send that never gets an answer says Couldn’t reach …, not the browser’s words (%s)', async (_where, hosted) => {
+    const post = vi.fn(async (p: string): Promise<unknown> => { if (p.endsWith('/gate')) throw new TypeError('Failed to fetch'); return { ok: true }; });
+    setup({ jobs: waiting(), gate: GATE, post, hosted });
+    // Go, then Send back.
+    const go = await screen.findByRole('button', { name: /^Go: approve/ });
+    await waitFor(() => expect(go).toBeEnabled());
+    fireEvent.click(go);
+    expect(await screen.findByText(`Couldn’t reach ${BRAND.name}. Try again.`)).toBeVisible();
+    expect(screen.queryByText('Failed to fetch')).toBeNull();
+    fireEvent.click(await sendBack('Use the small table.'));
+    await waitFor(() => expect(gatePosts(post)).toHaveLength(2));
+    expect(await screen.findByText(`Couldn’t reach ${BRAND.name}. Try again.`)).toBeVisible();
+    expect(screen.queryByText('Failed to fetch')).toBeNull();
+    // An answer from the server keeps its own words.
+    post.mockImplementation(async (p: string) => { if (p.endsWith('/gate')) throw new ApiError(503, 'The laptop is away.'); return { ok: true }; });
+    fireEvent.click(screen.getByRole('button', { name: 'Send back' }));
+    expect(await screen.findByText('The laptop is away.')).toBeInTheDocument();
   });
 
   it('a send that fails puts the words back in the box and in the store', async () => {
