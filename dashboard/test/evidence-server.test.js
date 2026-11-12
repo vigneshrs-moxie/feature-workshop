@@ -261,7 +261,9 @@ test('evidence server: while it records, the view says which line of how many an
     assert.equal(card.lane, 'working');
     assert.equal(card.laneReason, 'Recording evidence: line 1 of 3');
   } finally {
+    // Let it go and see it end, so no later test finds this recording still in the queue (final fixes C4).
     await setHold('go');
+    await viewWhen('held-job', (v) => !v.recording, 'the held recording never ended');
   }
 });
 
