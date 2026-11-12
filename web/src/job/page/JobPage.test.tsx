@@ -1049,6 +1049,56 @@ describe('writing to the Foreman under 1100 px', () => {
 });
 
 // Final review A2: a folded card never hides what it says after a press.
+// Fix round 1, item 11 (browser fault 1): opening a box never changes what he chose for the fold.
+describe('the fold after a box closes, with the conversation full screen', () => {
+  const MODES = [['the laptop app', false], ['the website', true]] as const;
+  /** Watches the bar's area being scrolled back to its top (jsdom keeps no scroll position). */
+  function watchTop() {
+    const work = page().querySelector<HTMLElement>('.sb-job-work')!;
+    let top = 120;
+    Object.defineProperty(work, 'scrollTop', { configurable: true, get: () => top, set: (v: number) => { top = v; } });
+    return () => top;
+  }
+
+  it.each(MODES)('Cancel folds the card again when the box was what unfolded it (%s)', async (_where, hosted) => {
+    windowWidth(1024);
+    simple();
+    setup({ jobs: waiting(), gate: GATE, hosted });
+    await screen.findByRole('button', { name: /^Go: approve/ });
+    takePage('full screen');
+    const top = watchTop();
+    for (const [call, name] of [['Reply', /Your answers or a note/], [/^No go: send back/, /What should change\?/]] as const) {
+      expect(briefRow()).toHaveAttribute('aria-expanded', 'false');
+      const open = screen.getByRole('button', { name: call });
+      await waitFor(() => expect(open).toBeEnabled());
+      fireEvent.click(open);
+      expect(await screen.findByRole('textbox', { name })).toBeVisible();
+      fireEvent.click(within(document.querySelector<HTMLElement>('.job-gate-body .gate-note')!).getByRole('button', { name: 'Cancel' }));
+      await waitFor(() => expect(briefRow()).toHaveAttribute('aria-expanded', 'false'));
+      expect(document.querySelector('.job-gate-body')).toHaveAttribute('hidden');
+      expect(top()).toBe(0);
+    }
+  });
+
+  it.each(MODES)('a card he unfolded himself stays unfolded after Cancel (%s)', async (_where, hosted) => {
+    windowWidth(1024);
+    simple();
+    setup({ jobs: waiting(), gate: GATE, hosted });
+    await screen.findByRole('button', { name: /^Go: approve/ });
+    takePage('full screen');
+    fireEvent.click(briefRow());
+    expect(briefRow()).toHaveAttribute('aria-expanded', 'true');
+    const reply = screen.getByRole('button', { name: 'Reply' });
+    await waitFor(() => expect(reply).toBeEnabled());
+    fireEvent.click(reply);
+    await screen.findByRole('textbox', { name: /Your answers or a note/ });
+    fireEvent.click(within(document.querySelector<HTMLElement>('.job-gate-body .gate-note')!).getByRole('button', { name: 'Cancel' }));
+    await act(async () => {});
+    expect(briefRow()).toHaveAttribute('aria-expanded', 'true');
+    expect(document.querySelector('.job-gate-body')).not.toHaveAttribute('hidden');
+  });
+});
+
 describe('what the folded card says after a press', () => {
   const MODES = [['the laptop app', false], ['the website', true]] as const;
   const TERMINAL = 'Claude Code is open in this repository in a terminal.';

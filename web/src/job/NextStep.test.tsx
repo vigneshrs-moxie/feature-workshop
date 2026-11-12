@@ -1014,6 +1014,45 @@ describe('the brief folded under the bar (foldCard)', () => {
     }
   });
 
+  // Fix round 1, item 11: the same on the phone's step screen.
+  it('on the phone’s step screen Cancel folds the card again when the box was what unfolded it', async () => {
+    for (const hosted of [false, true]) {
+      setDefaultDetail('simple');
+      setup({ jobs: waiting(), gate: GATE, foldCard: true, hosted });
+      await gateShown();
+      expect(row()).toHaveAttribute('aria-expanded', 'false');
+      const reply = within(bar()).getByRole('button', { name: 'Reply' });
+      await waitFor(() => expect(reply).toBeEnabled());
+      fireEvent.click(reply);
+      expect(await screen.findByRole('textbox', { name: /Your answers or a note/ })).toBeVisible();
+      fireEvent.click(within(document.querySelector<HTMLElement>('.job-gate-body .gate-note')!).getByRole('button', { name: 'Cancel' }));
+      await waitFor(() => expect(row()).toHaveAttribute('aria-expanded', 'false'));
+      expect(body()).not.toBeVisible();
+      cleanup();
+      localStorage.clear();
+    }
+  });
+
+  it('on the phone’s step screen a card he unfolded himself stays unfolded after Cancel', async () => {
+    for (const hosted of [false, true]) {
+      setDefaultDetail('simple');
+      setup({ jobs: waiting(), gate: GATE, foldCard: true, hosted });
+      await gateShown();
+      fireEvent.click(row());
+      expect(row()).toHaveAttribute('aria-expanded', 'true');
+      const back = within(bar()).getByRole('button', { name: /^No go: send back/ });
+      await waitFor(() => expect(back).toBeEnabled());
+      fireEvent.click(back);
+      await screen.findByRole('textbox', { name: /What should change\?/ });
+      fireEvent.click(within(document.querySelector<HTMLElement>('.job-gate-body .gate-note')!).getByRole('button', { name: 'Cancel' }));
+      await act(async () => {});
+      expect(row()).toHaveAttribute('aria-expanded', 'true');
+      expect(body()).toBeVisible();
+      cleanup();
+      localStorage.clear();
+    }
+  });
+
   it('Full: the brief starts open, and its row folds it', async () => {
     setup({ jobs: waiting(), gate: GATE, foldCard: true });
     await gateShown();
