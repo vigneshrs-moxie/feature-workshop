@@ -220,7 +220,8 @@ export function ticketFacts(detail) {
 /**
  * The ticket's own description from a ticket.md: the text inside the fenced block under
  * `## Description`, or null when there is none ("No description."). Lines inside the ticket's own
- * fences are skipped, so a title that reads "## Description" is not taken for the heading.
+ * fences are skipped, so a title that reads "## Description" is not taken for the heading. A
+ * longer text than Starbase writes is cut at DESCRIPTION_MAX with the mark.
  */
 export function ticketDescription(md) {
   if (typeof md !== 'string') return null;
@@ -239,7 +240,9 @@ export function ticketDescription(md) {
     const end = lines.findIndex((l, j) => j > i + 1 && fenceOf(l) === fence);
     if (end < 0) return null;
     const text = lines.slice(i + 2, end).join('\n');
-    return text.trim() ? text : null;
+    if (!text.trim()) return null;
+    // Cut as Starbase cuts it when it writes the file (a file from elsewhere can hold more).
+    return text.length > DESCRIPTION_MAX + CUT.length ? `${text.slice(0, DESCRIPTION_MAX)}${CUT}` : text;
   }
   return null;
 }

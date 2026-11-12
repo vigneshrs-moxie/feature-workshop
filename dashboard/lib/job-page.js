@@ -128,12 +128,15 @@ export function stepDocs(docs = [], kind = null) {
 const STEP_HEADING = /^###\s+(S\d+[a-z]?)\s*:\s*(.*\S)\s*$/;
 // A code fence's marker: it ends at a line of the same character, at least as long (``` inside ~~~ doesn't).
 const FENCE = /^\s*(`{3,}|~{3,})/;
+// How many steps the page keeps, and how long a name: the job record must fit the website's limit.
+const PLAN_STEPS_MAX = 50;
+const PLAN_STEP_NAME_MAX = 200;
 
 /**
  * Every `### S<n>: <name>` heading of a plan (implementation-plan.md, else quick-plan.md), in the
- * order written: [{ id, name }]. The name is everything after the first colon, without a closing
- * run of #s. Headings inside a ``` or ~~~ code block don't count. None (a plan from before this
- * change, or no text): []. Pure.
+ * order written: [{ id, name }], the first 50, each name cut at 200 characters. The name is
+ * everything after the first colon, without a closing run of #s. Headings inside a ``` or ~~~ code
+ * block don't count. None (a plan from before this change, or no text): []. Pure.
  */
 export function planSteps(text) {
   if (typeof text !== 'string') return [];
@@ -145,7 +148,8 @@ export function planSteps(text) {
     if (f && f[0] === fence[0] && f.length >= fence.length) { fence = null; continue; }
     const m = fence ? null : STEP_HEADING.exec(line);
     const name = m ? m[2].replace(/\s+#+\s*$/, '').trim() : '';
-    if (name) out.push({ id: m[1], name });
+    if (name) out.push({ id: m[1], name: name.slice(0, PLAN_STEP_NAME_MAX) });
+    if (out.length === PLAN_STEPS_MAX) break;
   }
   return out;
 }

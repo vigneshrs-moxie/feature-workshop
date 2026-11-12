@@ -83,6 +83,91 @@ test('fit: a part too big is cut, or says it is too big', () => {
   assert.equal(fit('board', { blob: 'q'.repeat(RECORD_MAX + 10) }).tooBig, true);
 });
 
+// ---------- Final fixes C2: a big job never drops off the website ----------
+
+const bytes = (v) => Buffer.byteLength(JSON.stringify(v));
+const atOf = (i) => `2026-11-1${i % 10}T09:${String(i % 60).padStart(2, '0')}:00.000Z`;
+const wordsOf = (n, w) => `${w} `.repeat(Math.ceil(n / (w.length + 1))).slice(0, n);
+const BIG_GATE = gateOf();
+function gateOf() {
+  return {
+    briefNumber: 40, briefFile: 'briefs/040-review.md', headline: 'Review round 4 done', stage: 'review', nextStage: 'ship', stale: false,
+    questions: Array.from({ length: 5 }, (_, i) => ({ id: `Q${i}`, text: wordsOf(300, 'question') })), decided: [{ id: 'D1', text: wordsOf(200, 'decided') }], raisedVersions: { review: '4' },
+  };
+}
+/** A long job's record as jobRecord makes it: 120 crew entries (4 running), 150 findings, 40 briefs and 40 Auto lines; `rest` stands for the rest of its record. */
+function bigJobRecord(rest = 0) {
+  return jobRecord({
+    slug: 'big', title: 'Big', stage: 'review', gate: BIG_GATE,
+    heldReply: { kind: 'approve', gateBrief: 40, at: atOf(1) },
+    answeredBriefs: Array.from({ length: 39 }, (_, i) => i + 1),
+    permissionsPending: [{ id: 'p1', slug: 'big', kind: 'permission', toolName: 'Bash', input: { command: 'npm test' }, plain: { headline: 'Run a command', preview: 'npm test' } }],
+    thread: Array.from({ length: 5 }, (_, i) => ({ id: `you:${i}`, kind: 'you', at: atOf(i), text: 'Looks good' })),
+    briefs: Array.from({ length: 40 }, (_, i) => ({ number: i + 1, file: `briefs/${String(i + 1).padStart(3, '0')}-review.md`, stage: 'review', headline: wordsOf(120, 'brief'), at: atOf(i) })),
+    activity: Array.from({ length: 120 }, (_, i) => ({
+      who: 'feature-reviewer', state: i < 4 ? 'running' : 'done', doing: 'Review the branch', startedAt: atOf(i),
+      recent: Array.from({ length: 6 }, (_, k) => ({ text: wordsOf(110, `line${k}`), at: atOf(i) })), lastCommand: { command: wordsOf(240, 'npm'), at: atOf(i), tail: null },
+    })),
+    page: {
+      ticket: null, building: null, check: null,
+      docs: {
+        review: Array.from({ length: 40 }, (_, i) => ({ file: `review/round-${i}.md`, name: wordsOf(80, 'Review'), group: 'review', updatedAt: atOf(i) })),
+        plan: Array.from({ length: 40 }, (_, i) => ({ file: `briefs/${String(i + 1).padStart(3, '0')}-review.md`, name: wordsOf(80, 'Brief'), group: 'briefs', updatedAt: atOf(i) })),
+      },
+      review: { at: atOf(1), rows: Array.from({ length: 150 }, (_, i) => ({ lens: 'tests', severity: 'minor', text: wordsOf(400, `finding${i}`), status: 'open' })) },
+    },
+    auto: { on: true, decided: Array.from({ length: 40 }, (_, i) => wordsOf(700, `decided${i}`)) },
+    history: [{ at: atOf(0), text: 'h'.repeat(rest) }],
+  });
+}
+// Each shed by hand, in the order fit makes them.
+const withoutFeed = (r) => ({ ...r, activity: r.activity.map((a) => (a.state === 'running' ? a : (({ recent, lastCommand, ...x }) => x)(a))) });
+const withoutDocs = (r) => ({ ...r, page: { ...r.page, docs: null } });
+const rowsCut = (r) => ({ ...r, page: { ...r.page, review: { ...r.page.review, rows: r.page.review.rows.slice(0, 30), cut: true } } });
+const decidedCut = (r) => ({ ...r, auto: { ...r.auto, decided: r.auto.decided.slice(-20) } });
+
+test('a big job still fits: it sheds in order, only as far as it must, and never the gate or the three calls’ data', () => {
+  // The rest of the record brings it within 2 KB of the limit once all four are shed, so all four are needed.
+  const rest = RECORD_MAX - bytes(decidedCut(rowsCut(withoutDocs(withoutFeed(bigJobRecord(0)))))) - 2048;
+  const record = bigJobRecord(rest);
+  assert.ok(bytes(record) > RECORD_MAX);
+  assert.ok(bytes(rowsCut(withoutDocs(withoutFeed(record)))) > RECORD_MAX, 'the last shed is needed');
+  const sent = fit('job', record);
+  assert.notEqual(sent.tooBig, true);
+  assert.ok(bytes(sent) <= RECORD_MAX);
+  assert.deepEqual(sent, { ...decidedCut(rowsCut(withoutDocs(withoutFeed(record)))), latestBrief: null }, 'what was shed is what the order says, and nothing else');
+  // What was shed, one by one.
+  assert.ok(sent.activity.slice(0, 4).every((a) => a.recent.length === 6 && a.lastCommand.command), 'a running entry keeps its feed and command');
+  assert.ok(sent.activity.slice(4).every((a) => !('recent' in a) && !('lastCommand' in a)));
+  assert.equal(sent.page.docs, null, 'the website has the docs part');
+  assert.equal(sent.page.review.rows.length, 30);
+  assert.equal(sent.page.review.cut, true);
+  assert.deepEqual(sent.auto.decided, record.auto.decided.slice(20), 'the newest 20 kept');
+  // Never shed.
+  assert.deepEqual(sent.gate, record.gate);
+  assert.deepEqual(sent.heldReply, record.heldReply);
+  assert.deepEqual(sent.answeredBriefs, record.answeredBriefs);
+  assert.deepEqual(sent.permissionsPending, record.permissionsPending);
+  assert.equal(sent.briefs.length, 40);
+  assert.equal(makeEvent('record', { kind: 'job', key: 'big', value: sent }).ok, true);
+});
+
+test('a job a little too big sheds only the finished crew’s feed and keeps the rest', () => {
+  const record = bigJobRecord(0);
+  assert.ok(bytes(record) > RECORD_MAX && bytes(withoutFeed(record)) <= RECORD_MAX);
+  const sent = fit('job', record);
+  assert.deepEqual(sent, { ...withoutFeed(record), latestBrief: null });
+  assert.equal(sent.page.review.rows.length, 150);
+  assert.equal('cut' in sent.page.review, false);
+  assert.equal(sent.auto.decided.length, 40);
+  assert.ok(sent.page.docs.review.length === 40);
+});
+
+test('a small job’s record is byte for byte what it was', () => {
+  const record = jobRecord({ slug: 'small', gate: BIG_GATE, thread: [], activity: [{ who: 'planner', state: 'done', recent: [{ text: 'a', at: 'T' }], lastCommand: { command: 'ls', at: 'T', tail: null } }], page: { docs: { plan: [] }, review: { at: null, rows: [] } }, auto: { on: true, decided: ['a'] } });
+  assert.equal(JSON.stringify(fit('job', record)), JSON.stringify(record));
+});
+
 test('made on: a gate’s mark catches another brief, another stage or new versions; a permission must still wait', () => {
   const g = { briefNumber: 2, briefFile: 'briefs/002-plan.md', stage: 'plan', raisedVersions: { plan: '2' } };
   const job = { slug: 'x', stage: 'plan', gate: g };

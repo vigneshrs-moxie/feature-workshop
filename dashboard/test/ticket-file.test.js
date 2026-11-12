@@ -326,3 +326,14 @@ test('ticketDescription returns the description block', () => {
   assert.equal(ticketDescription(ticketFile(tech({ subject: '## Description', description: 'The real one.\n```\nwith code\n```' }), OPTS)), 'The real one.\n```\nwith code\n```');
   assert.equal(ticketDescription('no headings here'), null);
 });
+
+test('ticketDescription cuts a long description to the limit Starbase writes it at (final fixes C2)', () => {
+  // As Starbase writes it: cut at DESCRIPTION_MAX with the mark, and read back as it was written.
+  const written = ticketDescription(ticketFile(tech({ description: 'word '.repeat(3000) }), OPTS));
+  assert.ok(written.endsWith(' […cut]'));
+  assert.ok(written.length <= DESCRIPTION_MAX + ' […cut]'.length);
+  // A ticket.md edited by hand, or from elsewhere, with a far longer description: cut on reading too.
+  const long = `## Description\n\`\`\`\n${'x'.repeat(50000)}\n\`\`\`\n`;
+  const read = ticketDescription(long);
+  assert.equal(read, `${'x'.repeat(DESCRIPTION_MAX)} […cut]`);
+});

@@ -231,6 +231,15 @@ test('planSteps reads the S headings in order', () => {
   assert.deepEqual(steps.map((s) => s.id), ['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10'], 'as written: S10 after S9');
 });
 
+test('planSteps keeps at most 50 steps, each name cut at 200 characters (final fixes C2)', () => {
+  const text = Array.from({ length: 80 }, (_, i) => `### S${i + 1}: ${'n'.repeat(500)}`).join('\n');
+  const steps = planSteps(text);
+  assert.equal(steps.length, 50);
+  assert.equal(steps.at(-1).id, 'S50', 'the first 50, in the order written');
+  assert.ok(steps.every((s) => s.name.length === 200));
+  assert.deepEqual(planSteps('### S1: Short'), [{ id: 'S1', name: 'Short' }], 'a short plan is as it was');
+});
+
 test('a plan with no S headings has no steps', () => {
   // A plan from before this change (Review Focus 1): numbered steps, no ### S1 headings.
   assert.deepEqual(planSteps('# Plan\n\n## Step 1: the form\n1. Build it.\n### Testing\n'), []);
