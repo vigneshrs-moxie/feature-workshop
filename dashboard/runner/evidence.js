@@ -18,8 +18,8 @@
 //     progressWords(slug) "Recording evidence: line 4 of 19" while it runs ("…: starting, 19 lines" before
 //                         a line begins), else null (the Jobs card's `testing`)
 //     file(slug, rel)     { abs, type, size } of one picture or video inside evidence/, else 404
-//     live(slug)          { abs, type: 'image/jpeg', size } of the hidden browser's picture while it records
-//                         and someone watches (each ask marks it watched for 5 s), else 404; laptop only
+//     live(slug)          { abs, type: 'image/jpeg', size, bytes } of the hidden browser's picture while it
+//                         records and someone watches (each ask marks it watched for 5 s), else 404; laptop only
 //     record(slug)        records for the commit the report names now (409 "Already recorded for …");
 //                         one that takes longer than a moment carries on by itself ({ started: true })
 //
@@ -30,12 +30,11 @@
 // mode nothing real runs, so only that script can record there.
 
 import { spawn } from 'node:child_process';
-import fsp from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { HttpError } from '../lib/http-guard.js';
-import { EVIDENCE_DIR, EvidenceError, LIVE_FRESH_MS, NO_LIVE, evidenceFile, evidenceWanted, liveFiles, readEvidence, readyToRecord, recordEvidence, recordingWords, reportCommit, shortCommit } from '../lib/evidence.js';
+import { EVIDENCE_DIR, EvidenceError, NO_LIVE, evidenceFile, evidenceWanted, liveFiles, markWatched, readEvidence, readLiveFrame, readyToRecord, recordEvidence, recordingWords, reportCommit, shortCommit } from '../lib/evidence.js';
 import { fillPattern } from '../lib/profile.js';
 import { killTree, shellFor } from '../lib/platform.js';
 import { PRODUCT } from '../lib/brand.js';
@@ -272,20 +271,20 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
      * Each ask touches the run's watch file, so the guard saves a picture every half second for the
      * next 5 s (lib/evidence.js guardModule); the picture is answered when one was saved in the last
      * 5 s, else a 404. Both paths are the server's own (evidence/<commit>/run/), never the asker's,
-     * and nothing is made when no recording runs (the run's folder goes with the run).
+     * and nothing is made when no recording runs (the run's folder goes with the run). Neither file
+     * is ever used through a link, and the picture's bytes are read here (at most LIVE_MAX_BYTES).
      */
     async live(slug) {
       const f = await jobOf(slug);
       const p = progress.get(f.slug);
       if (!p?.commit) throw new HttpError(404, NO_LIVE);
       const { liveFile, watchFile } = liveFiles(path.join(f.dir, EVIDENCE_DIR), p.commit);
-      // Only into the run's folder while it is there: no folder is made for it. Touched, or made new
-      // ('wx' never follows a link a spec left there), never written through.
-      const t = new Date();
-      await fsp.utimes(watchFile, t, t).catch(() => fsp.writeFile(watchFile, '', { flag: 'wx' })).catch(() => {});
-      const st = await fsp.lstat(liveFile).catch(() => null);
-      if (!st?.isFile() || Date.now() - st.mtimeMs >= LIVE_FRESH_MS || !progress.has(f.slug)) throw new HttpError(404, NO_LIVE);
-      return { abs: liveFile, type: 'image/jpeg', size: st.size };
+      // Only into the run's folder while it is there, and never through a link (lib/evidence.js markWatched).
+      if (!(await markWatched(watchFile))) throw new HttpError(404, NO_LIVE);
+      // Read here, from a file opened without following a link, fresh and under the cap.
+      const bytes = await readLiveFrame(liveFile);
+      if (!bytes || !progress.has(f.slug)) throw new HttpError(404, NO_LIVE);
+      return { abs: liveFile, type: 'image/jpeg', size: bytes.length, bytes };
     },
     /**
      * Record now. A quick answer (already recorded, not for this job, the database copy down…) comes

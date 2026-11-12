@@ -14,7 +14,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   BROWSER_FIX, CONFIG_FILE, DB_DOWN, EvidenceError, buildEvidence, evidenceFile, evidenceLines, evidenceWanted, guardedSpec,
   listSpecs, playwrightConfig, prepareRun, readEvidence, readyToRecord, recordEvidence,
-  parseProgressLine, progressReporter, recordingWords, guardModule,
+  parseProgressLine, progressReporter, recordingWords, guardModule, markWatched, readLiveFrame, LIVE_MAX_BYTES,
 } from '../lib/evidence.js';
 import { defaultsForLevel, describeOptions, evidenceOn, normalize, optionsAtLevel } from '../lib/options.js';
 import { describeDoc, listJobDocs, readJobDoc } from '../lib/docs.js';
@@ -461,4 +461,63 @@ test('evidence: a recording’s guard watches run/watching and saves to run/live
   assert.ok(guard.includes(JSON.stringify(path.join(run.runDir, 'live.jpg'))));
   assert.ok(guard.includes(JSON.stringify(path.join(run.runDir, 'watching'))));
   assert.equal(await exists(path.join(run.runDir, 'watching')), false, 'nobody watches yet');
+});
+
+// ---------- Watch, hardened (Task 6 fix round 1): never through a link, a size cap ----------
+
+test('evidence: the watch mark is made or touched as a plain file, never through a link', async () => {
+  const dir = await tmp('mark');
+  const mark = path.join(dir, 'watching');
+  assert.equal(await markWatched(mark), true, 'made when it isn’t there');
+  assert.ok((await fs.lstat(mark)).isFile());
+  const old = new Date(Date.now() - 60_000);
+  await fs.utimes(mark, old, old);
+  assert.equal(await markWatched(mark), true);
+  assert.ok(Date.now() - (await fs.stat(mark)).mtimeMs < 5000, 'touched again: fresh');
+  // A link a spec left there: refused, and what it points at keeps its times and its words.
+  const target = path.join(dir, 'precious.txt');
+  await fs.writeFile(target, 'keep me');
+  await fs.utimes(target, old, old);
+  const linked = path.join(dir, 'linked');
+  await fs.symlink(target, linked);
+  assert.equal(await markWatched(linked), false);
+  assert.equal((await fs.stat(target)).mtimeMs, old.getTime());
+  assert.equal(await fs.readFile(target, 'utf8'), 'keep me');
+  assert.ok((await fs.lstat(linked)).isSymbolicLink());
+  // A dangling link, a folder, or no run folder at all: refused, nothing made.
+  const dangling = path.join(dir, 'dangling');
+  await fs.symlink(path.join(dir, 'nowhere.txt'), dangling);
+  assert.equal(await markWatched(dangling), false);
+  assert.equal(await exists(path.join(dir, 'nowhere.txt')), false);
+  await fs.mkdir(path.join(dir, 'a-folder'));
+  assert.equal(await markWatched(path.join(dir, 'a-folder')), false);
+  assert.equal(await markWatched(path.join(dir, 'gone', 'watching')), false);
+  assert.equal(await exists(path.join(dir, 'gone')), false);
+});
+
+test('evidence: a live frame is read only from a plain, fresh file under the cap, never through a link', async () => {
+  const dir = await tmp('frame');
+  const frame = path.join(dir, 'live.jpg');
+  const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 0xff, 0xd9]);
+  await fs.writeFile(frame, jpeg);
+  assert.deepEqual(await readLiveFrame(frame), jpeg);
+  assert.ok(LIVE_MAX_BYTES >= 1024 * 1024 && LIVE_MAX_BYTES <= 5 * 1024 * 1024, 'a sane cap');
+  // Too old.
+  const old = new Date(Date.now() - 6000);
+  await fs.utimes(frame, old, old);
+  assert.equal(await readLiveFrame(frame), null);
+  // A link to another file, however fresh: never read.
+  const target = path.join(dir, 'secret.jpg');
+  await fs.writeFile(target, jpeg);
+  const linked = path.join(dir, 'linked.jpg');
+  await fs.symlink(target, linked);
+  assert.equal(await readLiveFrame(linked), null);
+  // Empty, too big, a folder, missing: none.
+  await fs.writeFile(path.join(dir, 'empty.jpg'), '');
+  assert.equal(await readLiveFrame(path.join(dir, 'empty.jpg')), null);
+  await fs.writeFile(path.join(dir, 'big.jpg'), Buffer.alloc(LIVE_MAX_BYTES + 1, 1));
+  assert.equal(await readLiveFrame(path.join(dir, 'big.jpg')), null);
+  await fs.mkdir(path.join(dir, 'folder.jpg'));
+  assert.equal(await readLiveFrame(path.join(dir, 'folder.jpg')), null);
+  assert.equal(await readLiveFrame(path.join(dir, 'missing.jpg')), null);
 });
