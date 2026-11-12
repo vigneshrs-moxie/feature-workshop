@@ -234,7 +234,7 @@ describe('the Desk card after Auto’s go', () => {
     get.mockImplementation(async (path: string) => ({ ...detail(path.split('/')[3]), answeredBriefs: [2], thread: [autoGo] }) as JobDetail);
     act(() => { store.dispatch({ type: 'event', event: ev(20, 'run', 'alpha', { id: 'r_auto', slug: 'alpha', status: 'running' }) }); });
     act(() => { store.dispatch({ type: 'event', event: ev(21, 'thread', 'alpha', {}) }); });
-    await within(card).findByText('Sent. Waiting for the Foreman to start.');
+    await within(card).findByText('Sent by Auto. Waiting for the Foreman to start.');
     expect(card).not.toHaveTextContent('Your go');
   });
 });
