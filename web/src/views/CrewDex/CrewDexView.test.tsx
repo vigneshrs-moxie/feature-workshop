@@ -104,23 +104,31 @@ describe('Crew-dex', () => {
   });
 
   it('shows real stats: jobs, dispatches, blockers and majors for a lens, average stage time, last seen', async () => {
-    setup();
-    await screen.findByRole('heading', { name: 'Foreman', level: 3 });
-    const stat = (name: string, label: string) => within(card(name)).getByText(label).nextElementSibling;
-    expect(stat('Builder', 'Jobs worked')).toHaveTextContent('2');
-    expect(stat('Builder', 'Times dispatched')).toHaveTextContent('4');
-    expect(stat('Builder', 'Avg. time on a stage')).toHaveTextContent('24m');
-    expect(stat('Builder', 'Last seen')).toHaveTextContent('3h ago');
-    // Only the review lenses raise findings.
-    expect(within(card('Builder')).queryByText('Blockers raised')).toBeNull();
-    expect(stat('Locksmith', 'Blockers raised')).toHaveTextContent('1');
-    expect(stat('Locksmith', 'Majors raised')).toHaveTextContent('2');
-    expect(stat('Locksmith', 'Avg. time on a stage')).toHaveTextContent('1h 15m');
-    // The Foreman hands the work out.
-    expect(stat('Foreman', 'Work handed out')).toHaveTextContent('7');
-    expect(within(card('Foreman')).queryByText('Avg. time on a stage')).toBeNull();
-    expect(stageTime(20_000)).toBe('under a minute');
-    expect(stageTime(2 * HOUR)).toBe('2h');
+    // A fixed midday clock (Date only; timers stay real), so "3 hours ago" is the same day whenever
+    // the test runs: just after midnight it would be yesterday's.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 10, 10, 13, 0));
+    try {
+      setup();
+      await screen.findByRole('heading', { name: 'Foreman', level: 3 });
+      const stat = (name: string, label: string) => within(card(name)).getByText(label).nextElementSibling;
+      expect(stat('Builder', 'Jobs worked')).toHaveTextContent('2');
+      expect(stat('Builder', 'Times dispatched')).toHaveTextContent('4');
+      expect(stat('Builder', 'Avg. time on a stage')).toHaveTextContent('24m');
+      expect(stat('Builder', 'Last seen')).toHaveTextContent('3h ago');
+      // Only the review lenses raise findings.
+      expect(within(card('Builder')).queryByText('Blockers raised')).toBeNull();
+      expect(stat('Locksmith', 'Blockers raised')).toHaveTextContent('1');
+      expect(stat('Locksmith', 'Majors raised')).toHaveTextContent('2');
+      expect(stat('Locksmith', 'Avg. time on a stage')).toHaveTextContent('1h 15m');
+      // The Foreman hands the work out.
+      expect(stat('Foreman', 'Work handed out')).toHaveTextContent('7');
+      expect(within(card('Foreman')).queryByText('Avg. time on a stage')).toBeNull();
+      expect(stageTime(20_000)).toBe('under a minute');
+      expect(stageTime(2 * HOUR)).toBe('2h');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('counts crew met, secrets found (never which) and achievements', async () => {
