@@ -27,7 +27,7 @@ const ticket = (n: number, extra: Partial<InboxItem> = {}): InboxItem => ({
 const REPOS = [{ name: 'orbit', default: true }, { name: 'starbase', default: false }];
 const lap = (id: number, name: string, online: boolean): Laptop => ({ id, name, os: 'macOS', version: '0.1.0', pairedAt: ago(86_400_000 * 5), lastSeenAt: ago(online ? 5_000 : 3_600_000), online });
 
-interface Site { suggest?: InboxSuggestion | null; status: OrbitStatus; items: InboxItem[]; filter?: InboxFilter; laptops: Laptop[]; repos?: { name: string; default: boolean }[]; calls: { method: string; path: string; body?: Record<string, unknown> }[]; startFails?: string; /** What the laptop's settings (mirrored) say about Auto start. */ autoStart?: { on: boolean; tag: string; max?: number }; /** What the laptop mirrors after an Auto start change: what was sent (default), nothing yet (false), or something else. */ autoTakes?: false | { on: boolean; tag: string }; /** Start answers only once this settles. */ hold?: Promise<void> }
+interface Site { suggest?: InboxSuggestion | null; status: OrbitStatus; items: InboxItem[]; filter?: InboxFilter; laptops: Laptop[]; repos?: { name: string; default: boolean }[]; calls: { method: string; path: string; body?: Record<string, unknown> }[]; startFails?: string; /** What the laptop's settings (mirrored) say about Auto start. */ autoStart?: { on: boolean; tag: string; max?: number }; /** What the laptop mirrors after an Auto start change: what was sent (default), nothing yet (false), or something else. */ autoTakes?: false | { on: boolean; tag: string }; /** Start answers only once this settles. */ hold?: Promise<void>; /** The next Auto start command answers only once this settles (taken once). */ autoHold?: Promise<void> }
 
 function site(over: Partial<Site> = {}) {
   const s: Site = { status: STATUS, items: [ticket(12), ticket(13, { severity: 'low' })], laptops: [lap(7, 'Olive’s Mac', true)], calls: [], ...over };
@@ -42,6 +42,8 @@ function site(over: Partial<Site> = {}) {
     if (path === '/api/orbit/inbox' || path === '/api/orbit/inbox?refresh=1') return json(200, answer());
     if (path === '/api/snapshot') return json(200, { meta: { settings: { workflow: { finishLine: 'pr1-merged', ...(s.autoStart ? { autoStart: s.autoStart } : {}) } } } });
     if (path === '/api/orbit/auto-start' && method === 'POST') {
+      const held = s.autoHold;
+      if (held) { s.autoHold = undefined; await held; }
       // As hosted/site/routes-orbit.js answers: queued for the laptop, with whether it is there.
       // A command with no max keeps the laptop's N, as the laptop's settings route does.
       const keptMax = typeof body?.max === 'number' ? body.max : s.autoStart?.max;
@@ -594,6 +596,84 @@ describe('Up to N jobs at a time on the website', () => {
       fireEvent.change(box, { target: { value: '6' } });
       fireEvent.focusOut(box);
       await waitFor(() => expect(autoCalls(s).map((c) => c.body?.max)).toEqual([6, 6]));
+    } finally { vi.useRealTimers(); }
+  });
+
+  // Fix round 3, C: a later command carries the switch he last set, not the laptop's mirrored one.
+  it('switched off, then N changed before the laptop answers: the N command carries off, and the page ends off with the new N', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      go('#/settings/orbit');
+      const { s, api } = site({ autoStart: { on: true, tag: 'auto', max: 3 }, autoTakes: false });
+      render(<HostedApp api={api} />);
+      const group = await screen.findByRole('group', { name: 'Auto start' });
+      const sw = within(group).getByRole('checkbox', { name: 'Start a job by itself for tickets with this tag' });
+      const box = await within(group).findByRole('spinbutton', { name: 'Jobs at a time' });
+      await waitFor(() => expect(sw).toBeChecked());
+      fireEvent.click(sw);
+      await waitFor(() => expect(autoCalls(s)).toHaveLength(1));
+      fireEvent.change(box, { target: { value: '6' } });
+      fireEvent.focusOut(box);
+      await waitFor(() => expect(autoCalls(s).map((c) => c.body)).toEqual([{ on: false, tag: 'auto' }, { on: false, tag: 'auto', max: 6 }]));
+      // The laptop runs both in order.
+      s.autoStart = { on: false, tag: 'auto', max: 6 };
+      await act(async () => { vi.advanceTimersByTime(3_100); });
+      await waitFor(() => expect(within(group).queryByText('Sent to your laptop. It takes effect there.')).toBeNull());
+      expect(within(group).queryByText('Your laptop did not take this change.')).toBeNull();
+      expect(sw).not.toBeChecked();
+      expect(box).toHaveValue('6');
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('switched off, then the tag changed before the laptop answers: the tag command carries off', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      go('#/settings/orbit');
+      const { s, api } = site({ autoStart: { on: true, tag: 'auto', max: 3 }, autoTakes: false });
+      render(<HostedApp api={api} />);
+      const group = await screen.findByRole('group', { name: 'Auto start' });
+      const sw = within(group).getByRole('checkbox', { name: 'Start a job by itself for tickets with this tag' });
+      await waitFor(() => expect(sw).toBeChecked());
+      fireEvent.click(sw);
+      await waitFor(() => expect(autoCalls(s)).toHaveLength(1));
+      const tag = within(group).getByLabelText('Orbit tag');
+      fireEvent.change(tag, { target: { value: 'robot' } });
+      fireEvent.keyDown(tag, { key: 'Enter' });
+      await waitFor(() => expect(autoCalls(s).map((c) => c.body)).toEqual([{ on: false, tag: 'auto' }, { on: false, tag: 'robot' }]));
+      s.autoStart = { on: false, tag: 'robot', max: 3 };
+      await act(async () => { vi.advanceTimersByTime(3_100); });
+      await waitFor(() => expect(within(group).queryByText('Sent to your laptop. It takes effect there.')).toBeNull());
+      expect(within(group).queryByText('Your laptop did not take this change.')).toBeNull();
+      expect(sw).not.toBeChecked();
+    } finally { vi.useRealTimers(); }
+  });
+
+  // Minor B: the wait follows the order the commands were sent, not the order the site answered.
+  it('when the first command is answered after the second, the page still waits for the last one sent', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      go('#/settings/orbit');
+      let release = () => {};
+      const { s, api } = site({ autoStart: { on: true, tag: 'auto', max: 3 }, autoTakes: false, autoHold: new Promise<void>((res) => { release = res; }) });
+      render(<HostedApp api={api} />);
+      const group = await screen.findByRole('group', { name: 'Auto start' });
+      const sw = within(group).getByRole('checkbox', { name: 'Start a job by itself for tickets with this tag' });
+      const box = await within(group).findByRole('spinbutton', { name: 'Jobs at a time' });
+      await waitFor(() => expect(box).toHaveValue('3'));
+      // N to 6: its answer is held. Then the switch: answered at once.
+      fireEvent.change(box, { target: { value: '6' } });
+      fireEvent.focusOut(box);
+      await waitFor(() => expect(autoCalls(s)).toHaveLength(1));
+      fireEvent.click(sw);
+      await within(group).findByText('Sent to your laptop. It takes effect there.');
+      await act(async () => { release(); });
+      expect(autoCalls(s).map((c) => c.body)).toEqual([{ on: true, tag: 'auto', max: 6 }, { on: false, tag: 'auto' }]);
+      // The laptop ran both in the order sent.
+      s.autoStart = { on: false, tag: 'auto', max: 6 };
+      await act(async () => { vi.advanceTimersByTime(3_100); });
+      await waitFor(() => expect(within(group).queryByText('Sent to your laptop. It takes effect there.')).toBeNull());
+      expect(within(group).queryByText('Your laptop did not take this change.')).toBeNull();
+      expect(box).toHaveValue('6');
     } finally { vi.useRealTimers(); }
   });
 });

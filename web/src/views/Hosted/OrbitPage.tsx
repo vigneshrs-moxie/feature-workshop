@@ -3,7 +3,7 @@
 // site checks it with one call to Orbit and keeps it encrypted. After that this page shows only
 // "Saved · expires 12 Dec" and Remove: the token is never shown again, and no answer carries it.
 // Past its date, or refused by Orbit, the form comes back to paste a new one.
-import { useCallback, useEffect, useId, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import type { AutoStartSetting, InboxAnswer, OrbitStatus, Snapshot } from '../../api/types';
 import { AutoStartGroup } from '../Settings/AutoStartGroup';
 import { AUTO_MAX } from '../../home/autoTab';
@@ -64,7 +64,11 @@ export function OrbitPage({ api, onSignedOut }: HostedProps) {
   const [tagsShown, setTagsShown] = useState<boolean | undefined>(undefined);
   // A change sent to the laptop: what was sent, the laptop's value before the first change still pending,
   // the earlier changes still on their way (a step sent before this one), whether it was there, and when.
-  const [autoSent, setAutoSent] = useState<{ want: AutoStartSetting; was: AutoStartSetting | undefined; onWay: AutoStartSetting[]; online: boolean; at: number } | null>(null);
+  const [autoSent, setAutoSent] = useState<{ want: AutoStartSetting; seq: number; was: AutoStartSetting | undefined; onWay: AutoStartSetting[]; online: boolean; at: number } | null>(null);
+  // Each change's number in the order sent, and what the last one sent should leave on the laptop
+  // (null once the wait has ended).
+  const autoSeq = useRef(0);
+  const autoLastWant = useRef<AutoStartSetting | null>(null);
   const [autoNote, setAutoNote] = useState<string | null>(null);
   // Counts the changes reported as not taken, so the group forgets the N it sent (N3).
   const [autoNotTaken, setAutoNotTaken] = useState(0);
@@ -81,9 +85,9 @@ export function OrbitPage({ api, onSignedOut }: HostedProps) {
       const waited = Date.now() - autoSent.at;
       // The laptop still on the old value, or on an earlier change on its way: keep waiting.
       const between = sameAuto(now, autoSent.was) || autoSent.onWay.some((w) => sameAuto(now, w));
-      if (sameAuto(now, autoSent.want)) { setAutoNote(null); setAutoSent(null); }
-      else if (!between || (autoSent.online && waited > AUTO_TAKE_MS)) { setAutoNote(AUTO_START_NOT_TAKEN); setAutoSent(null); setAutoNotTaken((n) => n + 1); }
-      else if (waited > AUTO_WAIT_MS) { setAutoNote(AUTO_START_KEPT); setAutoSent(null); }
+      if (sameAuto(now, autoSent.want)) { setAutoNote(null); setAutoSent(null); autoLastWant.current = null; }
+      else if (!between || (autoSent.online && waited > AUTO_TAKE_MS)) { setAutoNote(AUTO_START_NOT_TAKEN); setAutoSent(null); autoLastWant.current = null; setAutoNotTaken((n) => n + 1); }
+      else if (waited > AUTO_WAIT_MS) { setAutoNote(AUTO_START_KEPT); setAutoSent(null); autoLastWant.current = null; }
     };
     void look();
     const timer = setInterval(() => { void look(); }, AUTO_LOOK_MS);
@@ -185,16 +189,26 @@ export function OrbitPage({ api, onSignedOut }: HostedProps) {
         laptopNote={autoNote}
         notTaken={autoNotTaken}
         onSave={async (next) => {
-          const r = await api.post<{ laptop?: { online?: boolean } } | undefined>('/api/orbit/auto-start', next);
+          // Numbered, and what to wait for worked out, before it goes, so the wait follows the order the
+          // commands were sent, not the order the site answered (B). Only the number box sends max; any
+          // other change keeps the laptop's N, or the N still on its way (N2).
+          const seq = ++autoSeq.current;
+          const before = autoLastWant.current;
+          const keptMax = before?.max ?? auto?.max;
+          const want = next.max === undefined && keptMax !== undefined ? { ...next, max: keptMax } : next;
+          autoLastWant.current = want;
+          let r: { laptop?: { online?: boolean } } | undefined;
+          try { r = await api.post<{ laptop?: { online?: boolean } } | undefined>('/api/orbit/auto-start', next); } catch (err) {
+            if (autoLastWant.current === want) autoLastWant.current = before;
+            throw err;
+          }
           const online = r?.laptop?.online === true;
           setAutoNote(online ? AUTO_START_SENT : AUTO_START_WAITING);
           setAutoSent((prev) => {
-            // Only the number box sends max; any other change keeps the laptop's N, or the N still on its
-            // way (N2), so that is what to wait for.
-            const keptMax = prev?.want.max ?? auto?.max;
-            const want = next.max === undefined && keptMax !== undefined ? { ...next, max: keptMax } : next;
+            // Sent before the pending change but answered after it: it is on its way, not the last word.
+            if (prev && prev.seq > seq) return { ...prev, onWay: [...prev.onWay, want] };
             // A change while another is pending (N1): keep the first old value, and the earlier change is on its way.
-            return { want, was: prev ? prev.was : auto, onWay: prev ? [...prev.onWay, prev.want] : [], online, at: Date.now() };
+            return { want, seq, was: prev ? prev.was : auto, onWay: prev ? [...prev.onWay, prev.want] : [], online, at: Date.now() };
           });
         }}
       />

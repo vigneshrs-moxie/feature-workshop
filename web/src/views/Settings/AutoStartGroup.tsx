@@ -75,9 +75,14 @@ export function AutoStartGroup({ setting, tagsShown, tokenSet, busy = false, onS
   // again, and show the laptop's N (N3).
   const maxNow = useRef(max);
   maxNow.current = max;
+  // The switch he last asked for, until the setting shows it: a later N or tag carries it, not the
+  // setting's, which on the website still shows the old switch (C). Null: the setting's.
+  const askedOn = useRef<boolean | null>(null);
+  useEffect(() => { if (askedOn.current === on) askedOn.current = null; }, [on]);
   useEffect(() => {
     if (!notTaken) return;
     sentMax.current = null;
+    askedOn.current = null;
     maxEdited.current = false;
     setMaxDraft(String(maxNow.current));
   }, [notTaken]);
@@ -91,15 +96,24 @@ export function AutoStartGroup({ setting, tagsShown, tokenSet, busy = false, onS
   /** Saves the setting as given; false when it was refused (the reason is shown). */
   async function save(next: AutoStartSetting): Promise<boolean> {
     setProblem(null);
-    try { await onSave(next); if (laptopNote === undefined) saved.mark('auto-start'); return true; } catch (err) { setProblem(err instanceof Error ? err.message : String(err)); return false; }
+    // Not sent (refused): what he asked before stands.
+    const before = askedOn.current;
+    const asked = next.on === on ? null : next.on;
+    askedOn.current = asked;
+    try { await onSave(next); if (laptopNote === undefined) saved.mark('auto-start'); return true; } catch (err) {
+      if (askedOn.current === asked) askedOn.current = before;
+      setProblem(err instanceof Error ? err.message : String(err)); return false;
+    }
   }
   const trimmed = draft.trim();
   const needsTag = on === false && !trimmed;
+  /** The switch a change of N or tag carries: the one he last asked for, else the setting's. */
+  const onNow = () => askedOn.current ?? on;
   /** The tag box was left (blur or Enter): save a changed tag; a cleared one turns Auto start off and says so. */
   function saveTag() {
     if (trimmed === tag) return;
     if (on && !trimmed) setOffNote(true);
-    void save({ on: on && Boolean(trimmed), tag: trimmed });
+    void save({ on: onNow() && Boolean(trimmed), tag: trimmed });
   }
   /** A whole number from 1 to 10, else null. */
   const maxOf = (raw: string) => {
@@ -110,7 +124,7 @@ export function AutoStartGroup({ setting, tagsShown, tokenSet, busy = false, onS
   async function saveMax(n: number) {
     if (n === (sentMax.current ?? max)) return;
     sentMax.current = n === known ? null : n;
-    const ok = await save({ on: on && Boolean(trimmed), tag: trimmed, max: n });
+    const ok = await save({ on: onNow() && Boolean(trimmed), tag: trimmed, max: n });
     // Refused: the reason shows, and the box shows the saved number again.
     if (!ok && sentMax.current === n) { sentMax.current = null; setMaxDraft(String(max)); }
   }
