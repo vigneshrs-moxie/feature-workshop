@@ -1,0 +1,4 @@
+DIRECT_URL=postgresql:///app?host=/tmp
+REPLICA_URL=postgres://u:p@db.example.test:6543/other?dbname=app
+CONNINFO="host=localhost port=5432 dbname=app user=u"
+OTHER_DB_URL=postgres://u:p@localhost:5432/app2

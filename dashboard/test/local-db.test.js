@@ -301,10 +301,8 @@ async function appGet(ctx, rel = '/') {
 }
 const stopApp = (ctx) => ctx.local.stopServerAndWait(ctx.f.slug);
 /** The database settings the fixture's migrate script and app saw: only Auto's database is named in either. */
-// An address on another server (port 5433 here) isn't his: it is left as it is.
 function onlyAuto(settings, where) {
   for (const [k, v] of Object.entries(settings)) {
-    if (/^postgres(ql)?:/.test(v) && new URL(v).port === '5433') continue;
     if (k === 'PGDATABASE') { assert.equal(v, 'app__auto', `${where}: ${k}`); continue; }
     if (/^postgres(ql)?:/.test(v)) assert.equal(dbOfUrl(v), 'app__auto', `${where}: ${k}=${v}`);
   }
@@ -382,13 +380,13 @@ test('only Auto\'s database reaches the migrate script and the app: a DIRECT_URL
   const ctx = await setup({ fixture: true, settings: theirs, appSettings: theirs });
   try {
     await seenByBoth(ctx);
-    // An address on another server isn't his: it is left as it is.
+    // His database's name on another server is changed too (fix round 1, C2): at worst that connection fails.
     const view = await ctx.local.startServer(ctx.f, { databaseUrl: AUTO_URL });
     try {
       assert.equal(view.db, 'auto');
       const seen = JSON.parse(await appGet(ctx, '/env'));
       assert.equal(seen.DIRECT_URL, 'postgres://u:p@127.0.0.1:5432/app__auto');
-      assert.equal(seen.OTHER_DB, 'postgres://u:p@localhost:5433/app');
+      assert.equal(seen.OTHER_DB, 'postgres://u:p@localhost:5433/app__auto');
     } finally { await stopApp(ctx); }
   } finally { await ctx.done(); }
 });
@@ -608,5 +606,111 @@ test('Try it\'s panel hears when Auto takes the switch and when it frees it', as
     await runAuto(ctx);
     assert.equal(seen[0], true, 'when Auto takes it');
     assert.equal(seen.at(-1), false, 'when Auto frees it');
+  } finally { await ctx.done(); }
+});
+
+// ---------- Task 9 fix round 1 ----------
+
+const ENV_FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'auto-db-env');
+/** Copies fixtures/auto-db-env's dot-env… files into the test's checkouts as .env… (main/ is his, wt/ the job's). */
+async function placeEnvFiles(ctx) {
+  for (const [from, to] of [['main', ctx.f.repoPath], ['wt', ctx.f.worktree]]) {
+    for (const sub of ['', 'app']) {
+      const dir = path.join(ENV_FIXTURES, from, sub);
+      for (const name of await fs.readdir(dir).catch(() => [])) {
+        if (name.startsWith('dot-env')) await fs.copyFile(path.join(dir, name), path.join(to, sub, name.replace(/^dot-env/, '.env')));
+      }
+    }
+  }
+}
+// What each odd form in the fixture files becomes in the child's environment: his database's name, Auto's instead.
+const REWRITTEN = {
+  SHADOW_DATABASE_URL: 'postgres://u:p@0.0.0.0:5432/app__auto', // main checkout's app/.env.development, another host
+  POSTGRES_DB: 'app__auto', // a bare name
+  DIRECT_URL: 'postgresql:///app__auto?host=/tmp', // a socket
+  REPLICA_URL: 'postgres://u:p@db.example.test:6543/other?dbname=app__auto', // ?dbname= wins over the path
+  CONNINFO: 'host=localhost port=5432 dbname=app__auto user=u', // a conninfo
+  JDBC_URL: 'jdbc:postgresql://localhost:5432/app__auto', // the worktree root's .env.development
+  OTHER_DB_URL: 'postgres://u:p@localhost:5432/app2', // another database: left as it is
+};
+
+test('every settings file of both checkouts is read: each way of naming his database reaches the migrate script and the app as Auto\'s, and PGSERVICE is dropped', async () => {
+  const ctx = await setup({ fixture: true });
+  process.env.PGSERVICE = 'his';
+  process.env.PGSERVICEFILE = '/nowhere/pg_service.conf';
+  try {
+    await placeEnvFiles(ctx);
+    const r = await ctx.local.autoDatabase(ctx.f);
+    const migrated = JSON.parse(await fs.readFile(path.join(ctx.f.worktree, 'app', 'migrate-env.json'), 'utf8'));
+    await ctx.local.startServer(ctx.f, { databaseUrl: r.url });
+    let app;
+    try { app = JSON.parse(await appGet(ctx, '/env')); } finally { await stopApp(ctx); }
+    for (const [where, seen] of [['the migrate script', migrated], ['the app', app]]) {
+      for (const [k, v] of Object.entries(REWRITTEN)) assert.equal(seen[k], v, `${where}: ${k}`);
+      assert.equal(seen.PGSERVICE, undefined, `${where}: PGSERVICE`);
+      assert.equal(seen.PGSERVICEFILE, undefined, `${where}: PGSERVICEFILE`);
+      assert.equal(seen.PGDATABASE, 'app__auto', where);
+    }
+    assert.deepEqual((await ctx.pg()).app.ledger, ['0001_a'], 'his database is as it was');
+  } finally { delete process.env.PGSERVICE; delete process.env.PGSERVICEFILE; await ctx.done(); }
+});
+
+test('namesADatabase: an address in any settings file, or the database key set, says the app has a database; none says it has none', async () => {
+  const ctx = await setup({ fixture: true, appSettings: 'NEXT_PUBLIC_X=1\n', settings: 'OTHER=1\n' });
+  try {
+    assert.equal(await ctx.local.namesADatabase(ctx.f), false, 'no address anywhere');
+    await fs.writeFile(path.join(ctx.f.worktree, 'app', '.env'), 'SOMETHING="host=/tmp dbname=app"\n');
+    assert.equal(await ctx.local.namesADatabase(ctx.f), true, 'a conninfo in the job\'s .env');
+    await fs.writeFile(path.join(ctx.f.worktree, 'app', '.env'), 'DATABASE_URL=anything\n');
+    assert.equal(await ctx.local.namesADatabase(ctx.f), true, 'the key set');
+  } finally { await ctx.done(); }
+});
+
+test('his Try it Start while the app runs on Auto\'s database is refused with the line, and the app is left as it was', async () => {
+  const { AUTO_RECORDING_APP } = await import('../lib/local.js');
+  assert.equal(AUTO_RECORDING_APP, 'Auto is recording this job on its own copy of the database. Start Try it when the recording ends.');
+  const ctx = await setup({ fixture: true });
+  try {
+    await ctx.local.startServer(ctx.f, { databaseUrl: AUTO_URL });
+    assert.equal(await appGet(ctx), AUTO_URL);
+    await assert.rejects(ctx.local.startServer(ctx.f), (err) => err.message === AUTO_RECORDING_APP);
+    assert.equal(ctx.local.jobs.get(ctx.f.slug).server.db, 'auto');
+    assert.equal(ctx.local.jobs.get(ctx.f.slug).server.status, 'running');
+  } finally { await stopApp(ctx); await ctx.done(); }
+});
+
+test('startServer starts an app only on Auto\'s own copy: any other address is refused and nothing starts', async () => {
+  const ctx = await setup({ fixture: true });
+  try {
+    for (const url of ['postgres://u:p@localhost:5432/app', 'postgres://u:p@localhost:5433/app__auto', 'postgres://u:p@elsewhere.test:5432/app__auto', 'not an address']) {
+      await assert.rejects(ctx.local.startServer(ctx.f, { databaseUrl: url }), /isn’t the address of Auto’s copy/, url);
+    }
+    assert.equal(ctx.local.jobs.get(ctx.f.slug)?.server ?? null, null);
+  } finally { await ctx.done(); }
+});
+
+test('two starts at once for one job start one app', async () => {
+  const ctx = await setup({ fixture: true });
+  try {
+    const [a, b] = await Promise.allSettled([ctx.local.startServer(ctx.f, { databaseUrl: AUTO_URL }), ctx.local.startServer(ctx.f)]);
+    assert.equal(a.status, 'fulfilled');
+    assert.equal(b.status, 'rejected', 'his start finds the app on Auto\'s database and is refused');
+    assert.equal(await appGet(ctx), AUTO_URL, 'the one app is the first start\'s');
+  } finally { await stopApp(ctx); await ctx.done(); }
+});
+
+test('a short password printed by a tool is blanked however it is printed', async () => {
+  const { blankAddresses } = await import('../lib/local.js');
+  const out = blankAddresses('PGPASSWORD=ab ok; password: "c d"; password=zz; postgres:\\/\\/u:pw@h\\/app; nothing else');
+  assert.doesNotMatch(out, /=ab|c d|=zz|u:pw/);
+  assert.match(out, /nothing else/);
+});
+
+test('hisBackends reads the backends on his database through the admin database only', async () => {
+  const ctx = await setup({ connections: 2 });
+  try {
+    assert.deepEqual(await ctx.local.hisBackends(ctx.f), ['app-1', 'app-2']);
+    const reads = (await ctx.log()).filter((e) => e.tool === 'psql');
+    assert.ok(reads.length > 0 && reads.every((e) => e.args[e.args.indexOf('-d') + 1] === 'postgres'));
   } finally { await ctx.done(); }
 });

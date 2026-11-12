@@ -1,0 +1,2 @@
+SHADOW_DATABASE_URL=postgres://u:p@0.0.0.0:5432/app
+POSTGRES_DB=app

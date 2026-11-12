@@ -172,16 +172,18 @@ export function createdbArgs(from, to, { fileCopy }) {
   return ['-T', from, ...(fileCopy ? ['--strategy=file_copy'] : []), to];
 }
 
-const ADDRESS = /postgres(?:ql)?:\/\/[^\s'"`<>]+/gi;
+const ADDRESS = /postgres(?:ql)?:(?:\\?\/){2}[^\s'"`<>]+/gi; // also as JSON writes it (postgres:\/\/…)
+const PASSWORD_SETTING = /\b(PGPASSWORD\s*=\s*|password\s*[=:]\s*)("[^"]*"|'[^']*'|\S+)/gi;
 
 /**
  * Text with every database address blanked (`<database address>`), and each of `secrets` (the
  * passwords in the addresses, as written and decoded) too: what a tool printed may go to the
  * Foreman and the job page, and no address leaves the laptop. A secret under 4 characters isn't
- * blanked alone (it would blank parts of words); the address it was in still is.
+ * blanked alone (it would blank parts of words); the address it was in still is, and so is any
+ * `PGPASSWORD=…` or `password: …` / `password=…` printed, whatever its length.
  */
 export function blankAddresses(text, secrets = []) {
-  let out = String(text ?? '').replace(ADDRESS, '<database address>');
+  let out = String(text ?? '').replace(ADDRESS, '<database address>').replace(PASSWORD_SETTING, '$1<password>');
   for (const s of secrets) if (typeof s === 'string' && s.length >= 4) out = out.split(s).join('<password>');
   return out;
 }
@@ -207,37 +209,79 @@ export class AutoDbError extends Error {
 /** Try it's server for a job is running, so Auto's recording of it can't start on Auto's database (plan's words). */
 export const AUTO_TRY_IT_RUNNING = 'Try it is running for this job, so Auto can\'t record it on its own database. Stop Try it, then press Record.';
 
+/** His Try it Start while an Auto recording runs the job's app on Auto's database (lead's words). */
+export const AUTO_RECORDING_APP = 'Auto is recording this job on its own copy of the database. Start Try it when the recording ends.';
+
 const pgPort = (u) => u.port || '5432';
 const sameServer = (a, b) => (isLocalHost(a.hostname) ? isLocalHost(b.hostname) : a.hostname.toLowerCase() === b.hostname.toLowerCase()) && pgPort(a) === pgPort(b);
+
+/**
+ * A settings value, as Auto's copy would have it: the value with his database's name (name) changed
+ * to Auto's (auto), or null when it doesn't name his database. "Names his database" is the same
+ * database name on any host (a copy named after his on another server only fails to connect):
+ *   - an address (postgres://, postgresql://, jdbc:postgresql://; any host, a socket's empty host
+ *     too) whose path, or whose ?dbname= (libpq lets it win over the path), is that name;
+ *   - a key/value conninfo (`host=… dbname=<name> …`);
+ *   - the bare name, under a key that holds a database's name (PGDATABASE, POSTGRES_DB, DB_NAME…).
+ */
+export function autoValue(key, value, name, auto) {
+  const v = String(value ?? '');
+  const decode = (x) => { try { return decodeURIComponent(x); } catch { return null; } };
+  const m = /^(jdbc:)?(postgres(?:ql)?:\/\/)(.*)$/i.exec(v);
+  if (m) {
+    // [userinfo@]host[:port][/path][?query][#hash], by hand: a socket's empty host, a list of hosts and odd names all parse.
+    const rest = /^([^/?#]*)(\/[^?#]*)?(\?[^#]*)?(#.*)?$/.exec(m[3]);
+    if (!rest) return null;
+    const [, hostPart, pathPart = '', query = '', hash = ''] = rest;
+    let hit = false;
+    let newPath = pathPart;
+    if (pathPart && decode(pathPart.slice(1)) === name) { newPath = `/${auto}`; hit = true; }
+    const newQuery = query.replace(/([?&]dbname=)([^&]*)/gi, (all, k, x) => (decode(x) === name ? ((hit = true), `${k}${auto}`) : all));
+    return hit ? `${m[1] ?? ''}${m[2]}${hostPart}${newPath}${newQuery}${hash}` : null;
+  }
+  if (/(^|\s)dbname\s*=/i.test(v)) {
+    let hit = false;
+    const out = v.replace(/((?:^|\s)dbname\s*=\s*)('([^']*)'|[^\s']+)/gi, (all, k, x, quoted) => ((quoted ?? x) === name ? ((hit = true), `${k}${quoted !== undefined ? `'${auto}'` : auto}`) : all));
+    return hit ? out : null;
+  }
+  if (/DB|DATABASE/i.test(String(key)) && v === name) return auto;
+  return null;
+}
+
+/** Whether a settings value is a Postgres database address of any kind (an address or a conninfo naming a database). */
+export const isDbAddress = (value) => /^(jdbc:)?postgres(ql)?:\/\//i.test(String(value ?? '')) || /(^|\s)dbname\s*=/i.test(String(value ?? ''));
+
+/** The KEY=value pairs in .env text (export, quotes and comments as envValue reads them). */
+function envPairs(text) {
+  const out = [];
+  for (const line of String(text ?? '').split('\n')) {
+    const m = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(line);
+    if (m) out.push([m[1], envValue(line, m[1])]);
+  }
+  return out;
+}
+
+// libpq reads a service's settings (its dbname too) before the PG* fallbacks: never passed on.
+const PG_SERVICE = new Set(['PGSERVICE', 'PGSERVICEFILE']);
 
 /**
  * The environment for everything Auto starts on its own database (the migrate script and the
  * recording's app): base (Starbase's own, as a child gets it) with
  *   - DATABASE_URL, the profile's key (db.key) and PGDATABASE set to Auto's (db.autoUrl, db.auto);
- *   - each key in his settings file (settingsText) whose value names his database (db.url's server
- *     and db.name) set to the same address naming db.auto: a value in the process wins over the
- *     file for an app that loads it as Next.js and dotenv do, so setting it is what protects it;
- *   - every other key from base whose value names his database left out.
+ *   - each key in his settings files (settingsText: every .env file of both checkouts) whose value
+ *     names his database (autoValue) set to the same value naming db.auto: a value in the process
+ *     wins over the file for an app that loads it as Next.js and dotenv do, so setting it is what
+ *     protects it;
+ *   - every other key from base whose value names his database left out, and PGSERVICE and
+ *     PGSERVICEFILE left out.
  * Nothing else changes. db: #database's ({ url, name, key, auto, autoUrl }).
  */
 export function autoDbEnv(db, settingsText, base = process.env) {
-  const his = new URL(db.url);
-  const naming = (value) => {
-    let u;
-    try { u = new URL(String(value)); } catch { return null; }
-    if (!/^postgres(ql)?:$/.test(u.protocol) || !sameServer(u, his)) return null;
-    let name;
-    try { name = decodeURIComponent(u.pathname.slice(1)); } catch { return null; }
-    return name === db.name ? u : null;
-  };
   const env = {};
-  for (const [k, v] of Object.entries(base)) if (v !== undefined && !naming(v)) env[k] = v;
-  for (const line of String(settingsText ?? '').split('\n')) {
-    const m = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(line);
-    const u = m ? naming(envValue(line, m[1])) : null;
-    if (!u) continue;
-    u.pathname = `/${db.auto}`;
-    env[m[1]] = u.toString();
+  for (const [k, v] of Object.entries(base)) if (v !== undefined && !PG_SERVICE.has(k) && autoValue(k, v, db.name, db.auto) === null) env[k] = v;
+  for (const [k, v] of envPairs(settingsText)) {
+    const auto = autoValue(k, v, db.name, db.auto);
+    if (auto !== null) env[k] = auto;
   }
   env.DATABASE_URL = db.autoUrl;
   if (db.key) env[db.key] = db.autoUrl;
@@ -288,6 +332,7 @@ async function diskMigrations(appDir) {
 export class LocalRunner extends EventEmitter {
   #pgTool;
   #autoStepMs;
+  #starts = new Map(); // slug -> the start under way (startServer)
   #fileCopy = new Map(); // server and createdb -> a promise: whether createdb's file copy can be used (read once)
 
   /**
@@ -454,20 +499,37 @@ export class LocalRunner extends EventEmitter {
    * is autoDbEnv's, naming that database, and the server's view says db: 'auto'. His Try it server
    * already running for the job is never stopped for it: that is refused (AUTO_TRY_IT_RUNNING).
    */
-  async startServer(f, { databaseUrl = null } = {}) {
+  startServer(f, opts = {}) {
+    // One start at a time per job: a second start (his Try it while the recorder starts the app) waits
+    // for the first, then finds its server, so two apps are never spawned for one job.
+    const before = this.#starts.get(f.slug) ?? Promise.resolve();
+    const mine = before.catch(() => {}).then(() => this.#startServer(f, opts));
+    this.#starts.set(f.slug, mine);
+    mine.finally(() => { if (this.#starts.get(f.slug) === mine) this.#starts.delete(f.slug); }).catch(() => {});
+    return mine;
+  }
+
+  async #startServer(f, { databaseUrl = null } = {}) {
     const w = await this.where(f);
     if (!w.app) throw new Error(w.reason ?? 'No app folder (a package.json with a "dev" script) in this job’s worktree.');
     const slot = this.#slot(f.slug);
     if (slot.server && ['starting', 'running'].includes(slot.server.status)) {
       if (databaseUrl && slot.server.db !== 'auto') throw new Error(AUTO_TRY_IT_RUNNING);
+      // His Try it Start while the app runs on Auto's database (a recording): never his to take over.
+      if (!databaseUrl && slot.server.db === 'auto') throw new Error(AUTO_RECORDING_APP);
       return this.#serverView(slot.server);
     }
     let autoEnv = null;
     if (databaseUrl && !this.demo) {
       const db = await this.#database(w);
       if (!db.url) throw new Error(db.reason ?? `This job’s app has no database ${PRODUCT} can copy for Auto.`);
-      const u = new URL(databaseUrl);
-      autoEnv = { ...db, autoUrl: databaseUrl, auto: decodeURIComponent(u.pathname.slice(1)) };
+      // Only Auto's own copy, on his database's server: anything else is refused.
+      let u = null;
+      try { u = new URL(databaseUrl); } catch { u = null; }
+      let name = null;
+      try { name = u ? decodeURIComponent(u.pathname.slice(1)) : null; } catch { name = null; }
+      if (!u || name !== db.auto || !sameServer(u, new URL(db.url))) throw new Error(`That isn’t the address of Auto’s copy of the database, so the app wasn’t started.`);
+      autoEnv = { ...db, autoUrl: databaseUrl, auto: name };
     }
     const port = await this.portFor(f.slug);
     if (!this.demo && await portInUse(port)) throw new Error(`Something else is already using port ${port}. Stop it, or close the other app, and try again.`);
@@ -670,12 +732,39 @@ export class LocalRunner extends EventEmitter {
     return { url, name, key, original: `${name}__original`, incoming: `${name}__incoming`, auto, autoUrl: u.toString(), env };
   }
 
-  /** His settings file's text (the main checkout's) and the job's copy of it (the one the app reads), for autoDbEnv. */
+  /**
+   * Every settings file the app or its scripts can read, for autoDbEnv and namesADatabase: each .env
+   * file (.env, .env.local, .env.development…) in the app folder and the root of both checkouts (his
+   * main checkout and the job's worktree), and the profile's settings file in each. The text stays
+   * on the server.
+   */
   async #settingsText(w) {
+    const dirs = [...new Set([w.mainRoot, w.mainApp, w.root, w.app?.dir].filter(Boolean))];
     const rule = LocalRunner.settingsFile(w);
-    if (!rule) return '';
-    const read = (file) => (file && exists(file) ? fsp.readFile(file, 'utf8').catch(() => '') : '');
-    return `${await read(w.mainRoot && path.join(w.mainRoot, rule.from))}\n${await read(w.root && path.join(w.root, rule.to))}`;
+    const files = new Set([rule && w.mainRoot && path.join(w.mainRoot, rule.from), rule && w.root && path.join(w.root, rule.to)].filter(Boolean));
+    for (const dir of dirs) {
+      const names = await fsp.readdir(dir).catch(() => []);
+      for (const n of names.sort()) if (/^\.env(\..+)?$/.test(n)) files.add(path.join(dir, n));
+    }
+    const texts = [];
+    for (const file of files) {
+      const st = await fsp.stat(file).catch(() => null);
+      if (st?.isFile() && st.size <= 1024 * 1024) texts.push(await fsp.readFile(file, 'utf8').catch(() => ''));
+    }
+    return texts.join('\n');
+  }
+
+  /**
+   * Whether the job's app names a database anywhere: a value in its settings files (#settingsText)
+   * or in Starbase's own environment that is a Postgres address, or its database key (the profile's,
+   * else DATABASE_URL) set there. Only an app that names none records as Try it does today.
+   */
+  async namesADatabase(f) {
+    const w = await this.where(f);
+    if (!w.root) return false;
+    const key = w.tryIt?.dbUrlKey ?? 'DATABASE_URL';
+    const pairs = [...envPairs(await this.#settingsText(w)), ...Object.entries(process.env)];
+    return pairs.some(([k, v]) => isDbAddress(v) || (k === key && v != null && String(v) !== ''));
   }
 
   /**
@@ -965,6 +1054,18 @@ export class LocalRunner extends EventEmitter {
     const db = w.app ? await this.#database(w) : { reason: w.reason };
     if (!db.url) throw new Error(db.reason ?? `This job’s app has no database ${PRODUCT} can copy for Auto.`);
     return Number(await this.#psql({ ...db, dbName: 'postgres' }, `select count(*) from pg_stat_activity where datname = '${db.auto}' and pid <> pg_backend_pid()`)) || 0;
+  }
+
+  /**
+   * The backends on HIS database now (their process ids), read through the admin database only:
+   * Auto never connects to his database. The recording compares them before and after its app starts.
+   */
+  async hisBackends(f) {
+    if (this.demo) throw new Error('Demo mode: nothing real runs.');
+    const w = await this.where(f);
+    const db = w.app ? await this.#database(w) : { reason: w.reason };
+    if (!db.url) throw new Error(db.reason ?? `This job’s app has no database ${PRODUCT} can copy for Auto.`);
+    return (await this.#psql({ ...db, dbName: 'postgres' }, `select pid from pg_stat_activity where datname = '${db.name}' and pid <> pg_backend_pid()`)).split('\n').filter(Boolean);
   }
 
   #finish(slug, status, text) {

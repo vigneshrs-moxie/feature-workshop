@@ -1,7 +1,7 @@
 // Fake Postgres tools for dashboard/test/local-db.test.js. No real database is ever touched.
 // Each tool (psql, createdb, dropdb, and migrate for the app's "db:migrate" script) appends one JSON
 // line to $FAKE_PG_LOG ({ tool, args, url }) and answers from the JSON state file $FAKE_PG_STATE:
-//   { version: 170000, databases: { <name>: { ledger: [migration names] | null, connections: n } } }
+//   { version: 170000, databases: { <name>: { ledger: [migration names] | null, connections: n, pids?: [ids] } } }
 // createdb fails when $FAKE_PG_FAIL names its target; migrate fails when it names the migration.
 // migrate exits 0 having written nothing when $FAKE_PG_SILENT names the migration (a script that went elsewhere).
 // $FAKE_PG_HANG = '<tool>:<target>' (psql's -d, createdb's and dropdb's database, migrate's migration):
@@ -40,6 +40,13 @@ module.exports = function fake(tool) {
     if ((m = /from pg_database where datname in \((.*)\)/.exec(sql))) {
       const names = [...m[1].matchAll(/'([^']*)'/g)].map((x) => x[1]);
       return console.log(names.filter((n) => dbs[n]).join('\n'));
+    }
+    // The backends on a database: its pids (an app's own, from the fixture app), else one made-up id per connection.
+    if ((m = /select pid from pg_stat_activity where datname = '([^']*)'/.exec(sql))) {
+      const d = dbs[m[1]] ?? { connections: 0 };
+      const pids = [...(d.pids ?? [])];
+      for (let i = pids.length; i < (d.connections ?? 0); i++) pids.push(`${m[1]}-${i + 1}`);
+      return console.log(pids.join('\n'));
     }
     if ((m = /from pg_stat_activity where datname = '([^']*)'/.exec(sql))) return console.log(String(dbs[m[1]]?.connections ?? 0));
     if (/to_regclass\('public\.applied_migrations'\)/.test(sql)) return console.log(Array.isArray(dbs[db].ledger) ? 't' : 'f');

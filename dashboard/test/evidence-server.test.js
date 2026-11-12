@@ -804,7 +804,7 @@ const dbNameOf = (url) => decodeURIComponent(new URL(url).pathname.slice(1));
  * its settings file over what it is given. migrate: 'fake' for fixtures/fake-pg's migrate. settings: his
  * settings file. profile: the repository's.
  */
-async function autoWorld({ slugs = ['auto-job'], auto = { on: true }, original = true, connections = 0, override = false, migrate = null, profile = AUTO_PROFILE, settings = `DATABASE_URL=${HIS_ADDRESS}\n` } = {}) {
+async function autoWorld({ slugs = ['auto-job'], auto = { on: true }, original = true, connections = 0, override = false, both = false, migrate = null, profile = AUTO_PROFILE, settings = `DATABASE_URL=${HIS_ADDRESS}\n`, appSettings = `DATABASE_URL=${HIS_ADDRESS}\n` } = {}) {
   const { LocalRunner } = await import('../lib/local.js');
   const { State } = await import('../lib/state.js');
   const { pathToFileURL } = await import('node:url');
@@ -819,9 +819,10 @@ async function autoWorld({ slugs = ['auto-job'], auto = { on: true }, original =
     for (const file of await fs.readdir(AUTO_APP)) await fs.copyFile(path.join(AUTO_APP, file), path.join(wt, 'app', file));
     const pkg = JSON.parse(await fs.readFile(path.join(wt, 'app', 'package.json'), 'utf8'));
     if (override) pkg.scripts.dev = 'node dev.mjs --override';
+    if (both) pkg.scripts.dev = 'node dev.mjs --both';
     if (migrate === 'fake') pkg.scripts['db:migrate'] = `node ${JSON.stringify(path.join(FAKE_PG, 'migrate'))}`;
     await fs.writeFile(path.join(wt, 'app', 'package.json'), JSON.stringify(pkg));
-    await fs.writeFile(path.join(wt, 'app', '.env.local'), `DATABASE_URL=${HIS_ADDRESS}\n`);
+    await fs.writeFile(path.join(wt, 'app', '.env.local'), appSettings);
     for (const m of ['0001_a', '0002_b']) await fs.mkdir(path.join(wt, 'app', 'prisma', 'migrations', m), { recursive: true });
     const dir = path.join(top, 'jobs', slug);
     await fs.mkdir(path.join(dir, 'evidence', 'specs'), { recursive: true });
@@ -970,6 +971,7 @@ test('with no saved original the recording waits and tries again', { timeout: 60
     assert.equal(view.problem.waiting, true);
     assert.ok(!w.emitted.some((e) => e.outcome === 'not-recorded'), 'not shown as failed');
     assert.ok(!w.audits.some((a) => a.outcome === 'not-recorded'));
+    assert.ok(!w.emitted.some((e) => e.outcome === 'recording'), 'it never said it was recording while it waits');
     assert.equal(await w.runs(), 0);
     // He stops his app: the next look (the timer) saves the original and records.
     const state = JSON.parse(await fs.readFile(process.env.FAKE_PG_STATE, 'utf8'));
@@ -1031,14 +1033,28 @@ test('an Auto job whose app has no database Starbase can copy records nothing, s
   } finally { await w.done(); }
 });
 
-test('an Auto job whose profile names no database key records as today', { timeout: 60_000 }, async () => {
+test('an Auto job whose app names no database anywhere records as today', { timeout: 60_000 }, async () => {
   const { database, ...noKey } = AUTO_PROFILE;
-  const w = await autoWorld({ profile: noKey });
+  const w = await autoWorld({ profile: noKey, settings: 'OTHER=1\n', appSettings: 'NEXT_PUBLIC_X=1\n' });
   try {
     const r = await w.door.record('auto-job', { waitMs: 50_000 });
     assert.equal(r.evidence.commit, 'abc1234def5');
     assert.deepEqual(w.steps.filter((s) => s.startsWith('copy')), [], 'no autoDatabase call');
     assert.equal(w.local.jobs.get('auto-job').server.db, null);
+  } finally { await w.done(); }
+});
+
+test('an Auto job whose profile has no database section but whose settings name a database records on Auto\'s copy or not at all, never on his', { timeout: 60_000 }, async () => {
+  const { database, ...noKey } = AUTO_PROFILE;
+  const w = await autoWorld({ profile: noKey });
+  try {
+    const before = await w.pg();
+    await assert.rejects(w.door.record('auto-job', { waitMs: 50_000 }), (err) => err.status === 409);
+    assert.ok(w.steps.includes('copy auto-job'), 'Auto\'s copy was asked for');
+    assert.equal(await w.runs(), 0, 'no Playwright run');
+    assert.equal(w.local.jobs.get('auto-job')?.server ?? null, null, 'the app never started');
+    assert.ok((await w.door.view('auto-job')).problem.message, 'the Test step says why');
+    assert.deepEqual(await w.pg(), before, 'his database got no connection and no change');
   } finally { await w.done(); }
 });
 
@@ -1051,7 +1067,79 @@ test('his Try it server running for an Auto job: the recording is refused, no co
     await assert.rejects(w.door.record('auto-job', { waitMs: 50_000 }), (err) => err.status === 409 && err.message === AUTO_TRY_IT_RUNNING);
     assert.equal((await w.door.view('auto-job')).problem.message, AUTO_TRY_IT_RUNNING);
     assert.deepEqual(w.steps, [], 'no copy, nothing stopped');
+    assert.ok(!w.emitted.some((e) => e.outcome === 'recording'), 'refused before it says it records');
     assert.equal(w.local.jobs.get('auto-job').server.status, 'running', 'his server is left running');
+    assert.equal(await w.runs(), 0);
+  } finally { await w.done(); }
+});
+
+// ---------- Task 9 fix round 1 ----------
+
+test('his Try it Start while an Auto recording holds the app is refused with the line, never handed over, and the recording ends and stops its app', { timeout: 90_000 }, async () => {
+  const { AUTO_RECORDING_APP } = await import('../lib/local.js');
+  const w = await autoWorld();
+  const holdFile = path.join(w.top, 'hold');
+  process.env.STARBASE_FAKE_HOLD = holdFile;
+  try {
+    assert.equal((await w.door.record('auto-job', { waitMs: 100 })).started, true);
+    await untilTrue(async () => (await w.door.view('auto-job')).progress?.lines?.[0]?.state === 'running', 'the recording never got going');
+    assert.equal(w.door.startRefusal('auto-job'), AUTO_RECORDING_APP, 'what the start action says');
+    await assert.rejects(w.local.startServer(w.list[0]), (err) => err.message === AUTO_RECORDING_APP);
+    w.door.handAppOver('auto-job'); // even if it were asked: an app on Auto's database is never his
+    await fs.writeFile(holdFile, 'go');
+    await untilTrue(async () => { const v = await w.door.view('auto-job'); return v.evidence && !v.recording; }, 'the recording never ended');
+    assert.equal(w.local.jobs.get('auto-job').server.status, 'stopped', 'the recording stopped its app');
+    assert.equal(w.door.startRefusal('auto-job'), null, 'his Start works again');
+  } finally { delete process.env.STARBASE_FAKE_HOLD; await w.done(); }
+});
+
+test('a migration that did not land on Auto\'s copy: nothing recorded, Auto is told to stop on the job, nothing goes to the Foreman', { timeout: 60_000 }, async () => {
+  const w = await autoWorld({ migrate: 'fake' });
+  process.env.FAKE_PG_SILENT = '0002_b';
+  try {
+    await assert.rejects(w.door.record('auto-job', { waitMs: 50_000 }), (err) => err.status === 409 && /did not land/.test(err.message));
+    await settle(200);
+    assert.equal(w.sends.length, 1);
+    assert.equal(w.sends[0].err.code, 'not-landed', 'passed on as not-landed: the runner stops Auto (runner/auto-db-problems.js)');
+    assert.equal(await w.runs(), 0);
+    assert.equal(w.local.jobs.get('auto-job')?.server ?? null, null, 'the app never started');
+  } finally { delete process.env.FAKE_PG_SILENT; await w.done(); }
+});
+
+test('an app that connects to Auto\'s copy and to his database is stopped, nothing is recorded, and it is tried again', { timeout: 60_000 }, async () => {
+  const { AUTO_DB_HIS_NEW } = await import('../runner/evidence.js');
+  assert.equal(AUTO_DB_HIS_NEW, 'Something new connected to your database while Auto\'s app was starting, so no recording was made. Auto will try again.');
+  const w = await autoWorld({ both: true });
+  try {
+    w.handlers.change();
+    await untilTrue(async () => (await w.door.view('auto-job')).problem?.message === AUTO_DB_HIS_NEW, 'the new connection was never seen');
+    assert.equal(await w.runs(), 0, 'no Playwright run');
+    assert.equal(w.local.jobs.get('auto-job').server.status, 'stopped');
+    assert.equal((await w.door.view('auto-job')).problem.waiting, true, 'it is tried again');
+    assert.ok(!w.emitted.some((e) => e.outcome === 'not-recorded'));
+    // The look again comes by itself.
+    const turns = w.steps.filter((x) => x === 'copy auto-job').length;
+    await untilTrue(() => w.steps.filter((x) => x === 'copy auto-job').length > turns, 'never tried again');
+  } finally { await w.done(); }
+});
+
+test('something already on Auto\'s fresh copy before its app starts: no app, nothing recorded, tried again', { timeout: 60_000 }, async () => {
+  const { AUTO_DB_TAKEN } = await import('../runner/evidence.js');
+  const w = await autoWorld();
+  try {
+    const made = w.local.autoDatabase;
+    w.local.autoDatabase = async (f, o) => {
+      const r = await made(f, o);
+      const state = JSON.parse(await fs.readFile(process.env.FAKE_PG_STATE, 'utf8'));
+      state.databases.app__auto.connections = 1; // an old app reconnecting
+      await fs.writeFile(process.env.FAKE_PG_STATE, JSON.stringify(state));
+      return r;
+    };
+    await assert.rejects(w.door.record('auto-job', { waitMs: 50_000 }), (err) => err.status === 409 && err.message === AUTO_DB_TAKEN);
+    const view = await w.door.view('auto-job');
+    assert.equal(view.problem.message, AUTO_DB_TAKEN);
+    assert.equal(view.problem.waiting, true);
+    assert.equal(w.local.jobs.get('auto-job')?.server ?? null, null, 'the app never started');
     assert.equal(await w.runs(), 0);
   } finally { await w.done(); }
 });
