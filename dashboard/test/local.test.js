@@ -58,5 +58,9 @@ test('local: finds the app folder, gives each job its own port, refuses unignore
   assert.equal((await local.view(f)).env.ready, true);
 
   assert.equal((await local.where({ slug: 'z' })).reason.includes('no worktree'), true);
+  // A worktree found only through a branch Starbase guessed (lib/locate.js) may be another job's: Try it does not run there.
+  const guessed = { ...f, locate: { branch: 'feature/x', branchGuessed: true, worktree: wt }, statusWorktree: null };
+  assert.equal((await local.where(guessed)).reason, 'Starbase isn\'t sure which branch is this job\'s. It looks like feature/x. Confirm it on the job page and try again.');
+  assert.equal((await local.where({ ...guessed, statusWorktree: wt })).root, wt, 'status.json naming it is a record, not a guess');
   await fs.rm(root, { recursive: true, force: true });
 });

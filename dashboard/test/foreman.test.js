@@ -137,6 +137,115 @@ test('locateJob: finds the repo, branch and worktree from text and git', async (
   await fs.rm(root, { recursive: true, force: true });
 });
 
+test('locateJob: a branch guessed by name is never another ticket\'s, and a guess says so', async () => {
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'workshop-locate-guess-')));
+  const repo = path.join(root, 'moxie-portal');
+  const run = (...a) => execFileSync('git', ['-C', repo, ...a], { stdio: 'pipe' });
+  await fs.mkdir(repo);
+  run('init', '-q', '-b', 'main'); run('config', 'user.email', 't@example.invalid'); run('config', 'user.name', 'T');
+  await fs.writeFile(path.join(repo, 'a'), 'a'); run('add', '.'); run('commit', '-qm', 'a');
+  // Another ticket's branch, checked out in that job's own worktree: it shares "orbit" and "talent" with the job.
+  run('branch', 'feature/orbit-470-talent-hide-before-hire');
+  run('worktree', 'add', '-q', path.join(root, 'orbit-talent-hide-before-hire'), 'feature/orbit-470-talent-hide-before-hire');
+  const job = {
+    slug: 'orbit-463-it-is-really-difficult-as-a-manager-to',
+    title: 'ORBIT-463: It is really difficult as a manager to see how many of my supervisors/leads have done the team talent scores',
+  };
+
+  // The real case (ORBIT-463 at clarify, no branch of its own yet): nothing is borrowed.
+  const real = await locateJob({ ...job, wsText: '', override: { repoPath: repo } });
+  assert.equal(real.path, repo);
+  assert.equal(real.branch, null, 'another ticket\'s branch is not this job\'s');
+  assert.equal(real.worktree, null, 'nor its worktree');
+  assert.equal(real.branchGuessed, false, 'no branch, no guess');
+  const searched = await locateJob({ ...job, wsText: '', knownRepos: [repo] });
+  assert.equal(searched.branch, null, 'searching the known repositories finds nothing either');
+
+  // A branch named after the same ticket still matches by name, and is marked a guess (another repository: git's answers are cached).
+  const repo3 = path.join(root, 'moxie-portal-2');
+  const run3 = (...a) => execFileSync('git', ['-C', repo3, ...a], { stdio: 'pipe' });
+  await fs.mkdir(repo3);
+  run3('init', '-q', '-b', 'main'); run3('config', 'user.email', 't@example.invalid'); run3('config', 'user.name', 'T');
+  await fs.writeFile(path.join(repo3, 'a'), 'a'); run3('add', '.'); run3('commit', '-qm', 'a');
+  run3('branch', 'feature/orbit-470-talent-hide-before-hire');
+  run3('branch', 'feature/orbit-463-talent-scores-count');
+  const same = await locateJob({ ...job, wsText: '', override: { repoPath: repo3 } });
+  assert.equal(same.branch, 'feature/orbit-463-talent-scores-count');
+  assert.equal(same.branchGuessed, true);
+
+  // The records: status.json's branch and the workflow-status.md Repository field are not guesses; a branch the text only mentions is.
+  const recorded = await locateJob({ ...job, statusBranch: 'feature/orbit-470-talent-hide-before-hire', override: { repoPath: repo } });
+  assert.equal(recorded.branch, 'feature/orbit-470-talent-hide-before-hire');
+  assert.equal(recorded.branchGuessed, false);
+  assert.equal(recorded.worktree, path.join(root, 'orbit-talent-hide-before-hire'), 'a recorded branch keeps its worktree as before');
+  const field = await locateJob({ ...job, wsRepository: { path: repo, branch: 'feature/orbit-463-x' }, override: { repoPath: repo } });
+  assert.equal(field.branch, 'feature/orbit-463-x');
+  assert.equal(field.branchGuessed, false);
+  const chosen = await locateJob({ ...job, override: { repoPath: repo, branch: 'feature/orbit-463-mine' } });
+  assert.equal(chosen.branchGuessed, false);
+  const mentioned = await locateJob({ ...job, wsText: 'Stacked on the parent branch `feature/parent-work` for now.', override: { repoPath: repo } });
+  assert.equal(mentioned.branch, 'feature/parent-work');
+  assert.equal(mentioned.branchGuessed, true);
+
+  // A branch with one word of its own never matches a job that merely has that word.
+  const repo2 = path.join(root, 'acme');
+  const run2 = (...a) => execFileSync('git', ['-C', repo2, ...a], { stdio: 'pipe' });
+  await fs.mkdir(repo2);
+  run2('init', '-q', '-b', 'main'); run2('config', 'user.email', 't@example.invalid'); run2('config', 'user.name', 'T');
+  await fs.writeFile(path.join(repo2, 'a'), 'a'); run2('add', '.'); run2('commit', '-qm', 'a');
+  run2('branch', 'feature/talent');
+  run2('branch', 'talent');
+  const oneWord = await locateJob({ slug: 'team-talent-scores', title: 'Team talent scores', wsText: '', override: { repoPath: repo2 } });
+  assert.equal(oneWord.branch, null);
+  assert.equal(oneWord.branchGuessed, false);
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test('locateJob: ticket keys decide, whole, and the slug\'s own key first', async () => {
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'workshop-locate-keys-')));
+  // One repository per case: git's answers are cached per repository for a few seconds.
+  let n = 0;
+  const repoWith = async (...branches) => {
+    const repo = path.join(root, `r${n++}`);
+    const run = (...a) => execFileSync('git', ['-C', repo, ...a], { stdio: 'pipe' });
+    await fs.mkdir(repo);
+    run('init', '-q', '-b', 'main'); run('config', 'user.email', 't@example.invalid'); run('config', 'user.name', 'T');
+    await fs.writeFile(path.join(repo, 'a'), 'a'); run('add', '.'); run('commit', '-qm', 'a');
+    for (const b of branches) run('branch', b);
+    return repo;
+  };
+  const at = async (clues, ...branches) => locateJob({ wsText: '', ...clues, override: { repoPath: await repoWith(...branches) } });
+  const job463 = { slug: 'orbit-463-it-is-really-difficult-as-a-manager-to', title: 'ORBIT-463: team talent scores' };
+
+  // The job's own key alone is enough (a guess), even with fewer than two other shared words.
+  for (const b of ['fix/orbit-463', 'feature/orbit-463-score-count']) {
+    const got = await at(job463, b);
+    assert.deepEqual({ branch: got.branch, guessed: got.branchGuessed }, { branch: b, guessed: true }, b);
+  }
+  // Keys are whole: orbit-46 is not orbit-463, also by the whole-slug rule, which needs a boundary after the slug.
+  const job46 = { slug: 'orbit-46', title: 'ORBIT-46: x' };
+  assert.equal((await at(job46, 'feature/orbit-463-x')).branch, null, 'orbit-463 is another ticket');
+  assert.equal((await at(job46, 'feature/orbit-46-x')).branch, 'feature/orbit-46-x');
+  assert.equal((await at({ slug: 'dark-mode', title: 'Dark mode' }, 'feature/dark-modes')).branch, null, 'the slug must end where a word ends');
+  assert.equal((await at({ slug: 'dark-mode', title: 'Dark mode' }, 'feature/dark-mode')).branch, 'feature/dark-mode');
+  // A slug without a key: the title's key is the job's, and another ticket's branch never matches, by either rule.
+  const keyless = { slug: 'talent-scores', title: 'ORBIT-463: talent scores' };
+  assert.equal((await at(keyless, 'feature/orbit-470-talent-scores-hide')).branch, null);
+  assert.equal((await at(keyless, 'feature/orbit-463-talent-scores')).branch, 'feature/orbit-463-talent-scores');
+  // A title that mentions another ticket does not make that ticket's branch match: the slug's key is the job's.
+  const followUp = { slug: 'orbit-463-talent-follow-up', title: 'ORBIT-463: follow-up to ORBIT-470 talent hide' };
+  assert.equal((await at(followUp, 'feature/orbit-470-talent-hide-before-hire')).branch, null);
+  // A slug's ticket key is only the one it starts with: "phase-2" further in is no key, so it never lets another ticket's branch in.
+  const phase = await at({ slug: 'prototypes-platform-phase-2', title: 'Prototypes platform phase 2' }, 'feature/orbit-470-phase-2-cleanup');
+  assert.deepEqual({ branch: phase.branch, guessed: phase.branchGuessed }, { branch: null, guessed: false });
+  assert.equal((await at({ slug: 'orbit-463-foo', title: 'ORBIT-463: foo' }, 'fix/orbit-463')).branch, 'fix/orbit-463');
+  // A branch the text only mentions is not taken when it carries another ticket's key.
+  const other = await at({ ...job463, wsText: 'Stacked on the parent branch `feature/orbit-400-parent` for now.' });
+  assert.equal(other.branch, null);
+  assert.equal(other.branchGuessed, false);
+  await fs.rm(root, { recursive: true, force: true });
+});
+
 test('pathsIn and branchesIn read free-form records', () => {
   assert.deepEqual(pathsIn('Repo `/Users/a/p`, see /Users/a/q/file.md. And (/tmp/x).'), ['/Users/a/p', '/Users/a/q/file.md', '/tmp/x']);
   // Windows paths, as the Foreman writes them there.

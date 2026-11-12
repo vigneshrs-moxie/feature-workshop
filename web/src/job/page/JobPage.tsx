@@ -206,7 +206,7 @@ function LaptopJob({ job, conversation, now, step, view, sent }: {
   const cls = `page page-job sb-job-page${talk ? ' is-talk' : ''}${wide ? ' is-wide' : ''}${full ? ' is-full' : ''}`;
   return (
     <main className={cls} aria-label="Job" data-view={view}>
-      <JobTop job={job} detail={detail} run={run} sent={sent} />
+      <JobTop job={job} detail={detail} run={run} sent={sent} reload={thread.reload} />
       <div className="sb-job-cols">
         <div className="sb-job-work" hidden={talk && !barShown && !full}>
           {full && (

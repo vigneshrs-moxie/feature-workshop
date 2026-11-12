@@ -88,11 +88,28 @@ export async function worktrees(repo) {
 }
 
 const words = (s) => String(s ?? '').toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 2);
+// Ticket keys in a name: letters, a hyphen, digits ("orbit-463"), lower case.
+const ticketKeys = (s) => [...String(s ?? '').toLowerCase().matchAll(/(?:^|[^a-z0-9])([a-z]+-\d+)(?![a-z0-9])/g)].map((m) => m[1]);
+const BRANCH_TYPES = ['feature', 'fix', 'bug', 'hotfix', 'chore'];
+
+/** The worktree a job was given only because its branch was guessed (locateJob's branchGuessed), or null: never the job's own. */
+export function guessedWorktree(f) {
+  const loc = f?.locate;
+  return loc?.branchGuessed === true && loc.worktree && loc.worktree !== f.statusWorktree ? loc.worktree : null;
+}
+
+/** What a refusal caused by a guessed branch says, with what to do (the job page's "This is the job's branch"). */
+export function guessWords(f) {
+  const branch = f?.locate?.branch ?? null;
+  return branch ? `Starbase isn't sure which branch is this job's. It looks like ${branch}. Confirm it on the job page and try again.` : 'Starbase doesn\'t know this job\'s branch yet.';
+}
 
 /**
  * clues: { slug, title, statusRepo, statusBranch, statusWorktree, wsRepository: {path, branch}, wsText,
  *          specPath, sessionCwds[], override: {repoPath, branch}, knownRepos[] }
- * Returns { path, source, branch, branchSource, worktree, checkoutBranch, branchExists }.
+ * Returns { path, source, branch, branchSource, branchGuessed, worktree, checkoutBranch, branchExists }.
+ * branchGuessed: the branch came from a name match in git or from a branch the workflow-status.md text only
+ * mentions, not from your choice, status.json or the Repository field (false with no branch).
  */
 export async function locateJob(clues) {
   const tried = [];
@@ -125,11 +142,29 @@ export async function locateJob(clues) {
 
   // Branch: what the records say, else a local branch named after the job.
   const slugWords = new Set([...words(clues.slug), ...words(clues.title)]);
+  // The job's own ticket key: the slug's; the title's only when the slug has none (a title may mention another ticket).
+  // A slug's key is the one it starts with ("orbit-463-…"); "…-phase-2" further in is no ticket key.
+  const slugKeys = ticketKeys(clues.slug).filter((k) => String(clues.slug).toLowerCase().startsWith(k));
+  const jobKeys = new Set(slugKeys.length ? slugKeys : ticketKeys(clues.title));
+  const otherTicket = (b) => { const keys = ticketKeys(b); return keys.length > 0 && jobKeys.size > 0 && !keys.some((k) => jobKeys.has(k)); };
+  // The whole slug in the branch name, ending where a word ends.
+  const slugAt = new RegExp(`${String(clues.slug ?? '').toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![a-z0-9])`);
+  // By its words: never another ticket's branch; the job's own key alone, else at least two words in common besides
+  // the ticket keys' words and the branch type.
+  const byWords = (b) => {
+    const keys = ticketKeys(b);
+    if (otherTicket(b)) return false;
+    if (keys.some((k) => jobKeys.has(k))) return true;
+    const skip = new Set([...BRANCH_TYPES, ...[...keys, ...jobKeys].flatMap((k) => k.split('-'))]);
+    const w = words(b).filter((x) => !skip.has(x));
+    return w.filter((x) => slugWords.has(x)).length >= 2;
+  };
   let branch = clues.override?.branch ?? clues.statusBranch ?? null;
   let branchSource = clues.override?.branch ? 'your choice' : clues.statusBranch ? 'status.json' : null;
+  let branchGuessed = false;
   if (!branch) {
-    const fromText = [clues.wsRepository?.branch, ...branchesIn(clues.wsText)].filter((b) => b && !/^(main|master|staging)$/.test(b));
-    if (fromText.length) { branch = fromText[0]; branchSource = 'workflow-status.md'; }
+    const fromText = [clues.wsRepository?.branch, ...branchesIn(clues.wsText).filter((b) => !otherTicket(b))].filter((b) => b && !/^(main|master|staging)$/.test(b));
+    if (fromText.length) { branch = fromText[0]; branchSource = 'workflow-status.md'; branchGuessed = branch !== clues.wsRepository?.branch; }
   }
   // Search known repositories for a branch named after the job when there's still no repo or branch.
   const repos = repo ? [repo.path] : [];
@@ -139,10 +174,10 @@ export async function locateJob(clues) {
     const branches = await localBranches(r);
     if (branch && branches.includes(branch)) { branchExists = true; if (!repo) repo = { path: r, source: `has branch ${branch}` }; break; }
     if (!branch) {
-      const match = branches.find((b) => b.toLowerCase().includes(String(clues.slug).toLowerCase()))
-        ?? branches.find((b) => { const w = words(b); return w.length && w.filter((x) => slugWords.has(x)).length >= Math.min(2, w.length); });
+      const match = branches.find((b) => !otherTicket(b) && slugAt.test(b.toLowerCase()))
+        ?? branches.find(byWords);
       if (match && !/^(main|master|staging)$/.test(match)) {
-        branch = match; branchSource = `git branch in ${path.basename(r)}`; branchExists = true;
+        branch = match; branchSource = `git branch in ${path.basename(r)}`; branchExists = true; branchGuessed = true;
         if (!repo) repo = { path: r, source: `has branch ${match}` };
         break;
       }
@@ -157,5 +192,5 @@ export async function locateJob(clues) {
     const wt = branch ? wts.find((w) => w.branch === branch) : null;
     worktree = clues.statusWorktree ?? (wt && wt.path !== repo.path ? wt.path : null);
   }
-  return { path: repo?.path ?? null, source: repo?.source ?? null, branch, branchSource, branchExists, worktree, checkoutBranch, tried };
+  return { path: repo?.path ?? null, source: repo?.source ?? null, branch, branchSource, branchGuessed, branchExists, worktree, checkoutBranch, tried };
 }

@@ -2077,3 +2077,20 @@ describe('a narrow window', () => {
     });
   });
 });
+
+describe('a branch that was only guessed, on the laptop page', () => {
+  const GUESSED = 'feature/someone-elses-branch';
+  const guessed = { repoPath: '/Users/me/Projects/moxie-portal', branch: GUESSED, locate: { path: '/Users/me/Projects/moxie-portal', branch: GUESSED, branchGuessed: true } } as unknown as Partial<JobDetail>;
+  const detailAsks = (get: ReturnType<typeof vi.fn>) => get.mock.calls.filter(([p]) => p === '/api/job/alpha').length;
+
+  it('This is the job’s branch records the branch and reads the job again', async () => {
+    const { get, post } = setup({ jobs: [working('plan')], more: guessed });
+    const top = page().querySelector<HTMLElement>('.sb-job-top')!;
+    const guess = await within(top).findByRole('group', { name: 'The job’s branch' });
+    expect(within(guess).getByText('Branch (a guess):')).toBeInTheDocument();
+    const before = detailAsks(get);
+    fireEvent.click(within(guess).getByRole('button', { name: 'This is the job\'s branch' }));
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/api/job/alpha/repo', { repoPath: '/Users/me/Projects/moxie-portal', branch: GUESSED }));
+    await waitFor(() => expect(detailAsks(get)).toBeGreaterThan(before));
+  });
+});
