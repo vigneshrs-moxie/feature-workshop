@@ -266,11 +266,19 @@ test('evidence server: while it records, the view says which line of how many an
 });
 
 test('evidence server: when the recording ends the progress is gone', async () => {
-  const view = await viewWhen('held-job', (v) => v.evidence && !v.recording, 'the held recording never ended');
+  // Its own job, held part way and then let go (final fixes C4: no test depends on another's job).
+  await fs.rm(hold, { force: true });
+  try {
+    await writeJob('ended-job', { level: 2 });
+    await viewWhen('ended-job', runningFirst, 'no recording part way');
+  } finally {
+    await setHold('go');
+  }
+  const view = await viewWhen('ended-job', (v) => v.evidence && !v.recording, 'the held recording never ended');
   assert.equal(view.progress, null);
-  assert.equal((await cardOf('held-job')).testing, null);
+  assert.equal((await cardOf('ended-job')).testing, null);
   const { epoch } = await getJson('/api/snapshot');
-  const seen = (await eventsFor(800, epoch)).filter((e) => e.type === 'evidence' && e.job === 'held-job');
+  const seen = (await eventsFor(800, epoch)).filter((e) => e.type === 'evidence' && e.job === 'ended-job');
   assert.ok(seen.some((e) => e.data.outcome === 'progress' && e.data.progress?.line === 1 && e.data.progress.lines[0].state === 'running'), 'each change is sent');
   assert.equal(seen.at(-1).data.outcome, 'progress');
   assert.equal(seen.at(-1).data.progress, null, 'the last one says it is gone');
