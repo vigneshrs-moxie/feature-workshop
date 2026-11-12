@@ -246,7 +246,7 @@ function LaptopJob({ job, conversation, now, step, view, sent }: {
               {stageView && (
                 <StepBody
                   stop={open} job={job} detail={detail} view={stageView} now={now}
-                  evidence={evidence.view} onRecorded={reloadEvidence}
+                  evidence={evidence.view} onRecorded={reloadEvidence} evidenceState={evidence}
                   watching={watching} onWatching={setWatching} tryOpen={tryOpen} onTryOpen={setTryOpen}
                 />
               )}

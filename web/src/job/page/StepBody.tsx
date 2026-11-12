@@ -8,10 +8,13 @@ import { ReviewStep } from './ReviewStep';
 import { ShipStep } from './ShipStep';
 import { SpecStep } from './SpecStep';
 import { TestStep } from './TestStep';
+import type { EvidenceState } from './useEvidence';
 
-export function StepBody({ stop, job, detail, view, now, evidence, onRecorded, watching, onWatching, tryOpen, onTryOpen }: {
+export function StepBody({ stop, job, detail, view, now, evidence, evidenceState, onRecorded, watching, onWatching, tryOpen, onTryOpen }: {
   stop: StopId; job: Job; detail: JobDetail | null; view: StageView; now: Date;
   evidence: EvidenceView | null; onRecorded(): void;
+  /** Whether the evidence is known yet (the page's useJobEvidence): Loading… and Couldn’t read in the Test step. */
+  evidenceState?: Pick<EvidenceState, 'loaded' | 'error' | 'reload'>;
   watching: boolean; onWatching(on: boolean): void; tryOpen: boolean; onTryOpen(open: boolean): void;
 }): ReactNode {
   const slug = job.slug;
@@ -22,7 +25,7 @@ export function StepBody({ stop, job, detail, view, now, evidence, onRecorded, w
     case 'test':
       return (
         <TestStep
-          slug={slug} job={job} detail={detail} view={view} evidence={evidence} now={now} onRecorded={onRecorded}
+          slug={slug} job={job} detail={detail} view={view} evidence={evidence} evidenceState={evidenceState} now={now} onRecorded={onRecorded}
           watching={watching} onWatching={onWatching} tryOpen={tryOpen} onTryOpen={onTryOpen}
         />
       );

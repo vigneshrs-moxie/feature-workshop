@@ -303,7 +303,7 @@ function StepScreen({ job, conversation, now, sent, evidence, back, write, stop,
           {view && (
             <StepBody
               stop={stop} job={job} detail={detail} view={view} now={now}
-              evidence={evidence.view} onRecorded={evidence.reload}
+              evidence={evidence.view} onRecorded={evidence.reload} evidenceState={evidence}
               watching={evidence.watching} onWatching={evidence.setWatching} tryOpen={evidence.tryOpen} onTryOpen={evidence.setTryOpen}
             />
           )}

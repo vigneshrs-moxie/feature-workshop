@@ -13,6 +13,7 @@ import { job, snapshot } from '../../state/test-fixtures';
 import { StepPanel } from './StepPanel';
 import { recorderAgent, TestStep } from './TestStep';
 import { useEvidence } from './useEvidence';
+import { useJobEvidence } from './useJobEvidence';
 import { WatchPicture } from './WatchPicture';
 
 const NOW = new Date('2026-11-10T12:00:00Z');
@@ -603,6 +604,80 @@ describe('TestStep', () => {
     show();
     fireEvent.click(within(kind('Recorded evidence')).getByRole('button', { name: 'Each line and its video' }));
     expect(await screen.findByRole('list', { name: 'Each acceptance line' })).toBeInTheDocument();
+  });
+});
+
+describe('the Recorded evidence row while the evidence is not known', () => {
+  /** The step as the page mounts it: the page's one evidence ask (useJobEvidence) feeds the row. */
+  function Live({ j }: { j: Job }) {
+    const e = useJobEvidence(j);
+    return (
+      <TestStep
+        slug={SLUG} job={j} detail={DETAIL} view={TEST} evidence={e.view} evidenceState={e} now={NOW} onRecorded={e.reload}
+        watching={false} onWatching={() => {}} tryOpen={false} onTryOpen={() => {}}
+      />
+    );
+  }
+  function live(hosted: boolean, answer: () => Promise<unknown>) {
+    const s = stores(TESTING, { hosted });
+    s.api.get.mockImplementation(async (path: string) => {
+      if (path === `/api/job/${SLUG}/evidence`) return answer();
+      throw new Error(`not in this test: ${path}`);
+    });
+    render(s.wrap(<Live j={TESTING} />));
+    return s;
+  }
+  const asks = (get: ReturnType<typeof vi.fn>) => get.mock.calls.filter(([p]) => p === `/api/job/${SLUG}/evidence`).length;
+
+  it('the evidence row says Loading… before the first answer', async () => {
+    for (const hosted of [false, true]) {
+      let answer: (v: EvidenceView) => void = () => {};
+      live(hosted, () => new Promise((r) => { answer = r as (v: EvidenceView) => void; }));
+      expect(kind('Recorded evidence')).toHaveTextContent('Loading…');
+      expect(kind('Recorded evidence')).not.toHaveTextContent('Not started');
+      expect(fact('Recorded evidence', 'When')).toBeNull();
+      await act(async () => { answer(EVIDENCE); });
+      expect(chip('Recorded evidence')).toBe('17 passed, 2 failed');
+      expect(kind('Recorded evidence')).not.toHaveTextContent('Loading…');
+      cleanup();
+    }
+  });
+
+  it('a failed first ask says Couldn’t read the evidence. with Try again, and Try again asks once more', async () => {
+    for (const hosted of [false, true]) {
+      let fail = true;
+      const s = live(hosted, async () => { if (fail) throw new Error('Starbase isn’t answering'); return EVIDENCE; });
+      const row = kind('Recorded evidence');
+      expect(await within(row).findByText('Couldn’t read the evidence.')).toBeInTheDocument();
+      expect(row).not.toHaveTextContent('Not started');
+      expect(row).not.toHaveTextContent('Loading…');
+      expect(fact('Recorded evidence', 'When')).toBeNull();
+      expect(asks(s.api.get)).toBe(1);
+      fail = false;
+      fireEvent.click(within(row).getByRole('button', { name: 'Try again' }));
+      await waitFor(() => expect(chip('Recorded evidence')).toBe('17 passed, 2 failed'));
+      expect(asks(s.api.get)).toBe(2);
+      expect(row).not.toHaveTextContent('Couldn’t read the evidence.');
+      cleanup();
+    }
+  });
+
+  it('a failed refresh keeps the last view', async () => {
+    for (const hosted of [false, true]) {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
+      let fail = false;
+      const s = live(hosted, async () => { if (fail) throw new Error('Starbase isn’t answering'); return EVIDENCE; });
+      await act(async () => {});
+      expect(chip('Recorded evidence')).toBe('17 passed, 2 failed');
+      fail = true;
+      await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+      expect(asks(s.api.get)).toBe(2);
+      expect(chip('Recorded evidence')).toBe('17 passed, 2 failed');
+      expect(kind('Recorded evidence')).not.toHaveTextContent('Couldn’t read the evidence.');
+      expect(screen.queryByRole('alert')).toBeNull();
+      cleanup();
+      vi.useRealTimers();
+    }
   });
 });
 

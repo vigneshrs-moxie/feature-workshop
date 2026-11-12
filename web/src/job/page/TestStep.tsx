@@ -7,6 +7,8 @@
 //   Your hand test, by you: Try it with What to check beside it (laptop only). While Auto decides
 //     the job, it says Auto skips the hand test.
 // Every fact may be missing (a record from an older laptop): each row then says its plain state.
+// The evidence not known yet is never a state: the row says Loading… until the first answer, and
+// Couldn’t read the evidence. with Try again when the asks failed before any view came.
 // recorderAgent gives the open step Starbase's own row and feed while it records. Watch and Try it
 // open and close through the page (watching, tryOpen), which keeps them.
 import { useId, useState, type ReactNode } from 'react';
@@ -22,6 +24,7 @@ import { useWorkshop } from '../../state/store';
 import { AUTO_SKIPS_HAND_TEST } from '../../views/JobDrawer/OptionsEditor';
 import { spentWords, statesOf } from './stepWords';
 import { listOf } from '../../lib/lists';
+import type { EvidenceState } from './useEvidence';
 import { WatchPicture } from './WatchPicture';
 import { WhatToCheck } from './WhatToCheck';
 import './page.css';
@@ -82,7 +85,7 @@ export function recorderAgent(progress: EvidenceProgress | null | undefined): St
   };
 }
 
-export function TestStep({ slug, job, detail, view, evidence, watching, onWatching, tryOpen, onTryOpen, now, onRecorded }: {
+export function TestStep({ slug, job, detail, view, evidence, evidenceState, watching, onWatching, tryOpen, onTryOpen, now, onRecorded }: {
   slug: string;
   job: Job;
   detail: JobDetail | null;
@@ -90,6 +93,8 @@ export function TestStep({ slug, job, detail, view, evidence, watching, onWatchi
   view: StageView | null;
   /** The job's evidence view (useEvidence); null while it loads, or from a Starbase before it. */
   evidence: EvidenceView | null;
+  /** Whether the evidence is known (useEvidence): an answer came, the last failure, and asking again. Left out: known. */
+  evidenceState?: Pick<EvidenceState, 'loaded' | 'error' | 'reload'>;
   /** Watch is on (the page keeps it). */
   watching: boolean;
   onWatching(on: boolean): void;
@@ -112,7 +117,7 @@ export function TestStep({ slug, job, detail, view, evidence, watching, onWatchi
       <h3 id={`${id}-head`}>Three kinds of test</h3>
       <div className="sb-test-rows">
         <ChecksRow view={view} now={clock} hosted={hosted} />
-        <EvidenceRow slug={slug} evidence={evidence} now={clock} hosted={hosted} watching={watching} onWatching={onWatching} stripOpen={stripOpen} onStrip={() => setStripOpen(!stripOpen)} stripId={stripId} onRecorded={onRecorded} />
+        <EvidenceRow slug={slug} evidence={evidence} known={evidenceState} now={clock} hosted={hosted} watching={watching} onWatching={onWatching} stripOpen={stripOpen} onStrip={() => setStripOpen(!stripOpen)} stripId={stripId} onRecorded={onRecorded} />
         <HandRow slug={slug} job={job} detail={detail} view={view} now={clock} hosted={hosted} tryOpen={tryOpen} onTryOpen={onTryOpen} />
       </div>
       {/* The page's evidence view: the strip asks nothing of its own. */}
@@ -124,13 +129,13 @@ export function TestStep({ slug, job, detail, view, evidence, watching, onWatchi
 type Tone = 'ok' | 'err' | 'now' | '';
 
 /** One kind of test: its name and who runs it, its state, Where and When, and what goes under them. */
-function Kind({ name, by, state, tone = '', stateTitle, where, when, children }: { name: string; by: string; state: string; tone?: Tone; stateTitle?: string; where: string; when: ReactNode | null; children?: ReactNode }) {
+function Kind({ name, by, state, tone = '', stateTitle, where, when, children }: { name: string; by: string; /** null: no state to show (not known yet). */ state: string | null; tone?: Tone; stateTitle?: string; where: string; when: ReactNode | null; children?: ReactNode }) {
   return (
     <article className="sb-test-row" aria-label={name}>
       <div className="sb-test-head">
         <h4 className="sb-test-name">{name}</h4>
         <span className="muted sb-test-by">{by}</span>
-        <span className={`chip sb-test-chip${tone ? ` is-${tone}` : ''}`} title={stateTitle}>{state}</span>
+        {state !== null && <span className={`chip sb-test-chip${tone ? ` is-${tone}` : ''}`} title={stateTitle}>{state}</span>}
       </div>
       <dl className="sb-test-facts">
         <div><dt>Where</dt><dd>{where}</dd></div>
@@ -193,8 +198,8 @@ function ChecksRow({ view, now, hosted }: { view: StageView | null; now: Date; h
   );
 }
 
-function EvidenceRow({ slug, evidence, now, hosted, watching, onWatching, stripOpen, onStrip, stripId, onRecorded }: {
-  slug: string; evidence: EvidenceView | null; now: Date; hosted: boolean; watching: boolean; onWatching(on: boolean): void;
+function EvidenceRow({ slug, evidence, known, now, hosted, watching, onWatching, stripOpen, onStrip, stripId, onRecorded }: {
+  slug: string; evidence: EvidenceView | null; known?: Pick<EvidenceState, 'loaded' | 'error' | 'reload'>; now: Date; hosted: boolean; watching: boolean; onWatching(on: boolean): void;
   stripOpen: boolean; onStrip(): void; stripId: string; onRecorded?(): void;
 }) {
   const recording = evidence?.recording === true;
@@ -203,6 +208,25 @@ function EvidenceRow({ slug, evidence, now, hosted, watching, onWatching, stripO
   const problem = !recording ? evidence?.problem ?? null : null;
   const ev = evidence?.evidence ?? null;
   const canWatch = recording && !hosted && evidence?.watch === true;
+  const where = 'The job’s app on its own address, in a hidden browser';
+
+  // Not known: no view yet, from an ask still out or asks that failed. Never Not started.
+  if (!evidence && known && (!known.loaded || known.error)) {
+    return (
+      <Kind name="Recorded evidence" by={`by ${BRAND.name}`} state={null} where={where} when={null}>
+        {!known.loaded
+          ? <p className="muted sb-test-note" role="status">Loading…</p>
+          : (
+            <div className="sb-test-problem">
+              <p className="thread-error" role="alert" title={known.error ?? undefined}>Couldn’t read the evidence.</p>
+              <div className="sb-test-action">
+                <Button kind="secondary" size="sm" icon="refresh" onClick={known.reload} title={`Ask ${BRAND.name} for the evidence again.`}>Try again</Button>
+              </div>
+            </div>
+          )}
+      </Kind>
+    );
+  }
 
   let state = 'Not started';
   let tone: Tone = '';
@@ -233,7 +257,7 @@ function EvidenceRow({ slug, evidence, now, hosted, watching, onWatching, stripO
   }
 
   return (
-    <Kind name="Recorded evidence" by={`by ${BRAND.name}`} state={state} tone={tone} stateTitle={title} where="The job’s app on its own address, in a hidden browser" when={when}>
+    <Kind name="Recorded evidence" by={`by ${BRAND.name}`} state={state} tone={tone} stateTitle={title} where={where} when={when}>
       {canWatch && (
         <div className="sb-test-action">
           <Button kind="secondary" size="sm" icon={watching ? 'eye-off' : 'eye'} onClick={() => onWatching(!watching)}>
