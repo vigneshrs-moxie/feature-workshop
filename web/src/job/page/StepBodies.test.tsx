@@ -79,7 +79,7 @@ function setup(ui: (j: Job) => ReactNode, { hosted = false, jobExtra = {}, slug 
   store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [j], meta: { token: 't', wireframesOrigin: SCREENS_ORIGIN } as never }) });
   const get = vi.fn(async (path: string): Promise<unknown> => {
     if (path.endsWith('/commits')) return commits;
-    if (/\/commit\//.test(path)) return change;
+    if (/\/commit\//.test(path)) { if (change instanceof Error) throw change; return change; }
     if (path.endsWith('/auto')) {
       if (auto instanceof Error) throw auto;
       return auto ? { on: true, stopped: null, tag: null, summary: ['', '', ''], ...auto } : null;
@@ -225,6 +225,18 @@ describe('Plan and Build', () => {
     cleanup();
     setup(() => <CommitChanges slug={SLUG} sha={'b'.repeat(40)} />, { change: { files: null, patchFiles: { 0: 'x' }, truncated: false } });
     expect(await screen.findByText('No file changes in this commit.')).toBeInTheDocument();
+  });
+
+  it('a commit’s change that fails to load has Try again, which asks once more', async () => {
+    const { get } = setup(() => <CommitChanges slug={SLUG} sha={'b'.repeat(40)} />, { change: new Error('Starbase isn’t answering') });
+    const asks = () => get.mock.calls.filter(([p]) => /\/commit\//.test(p)).length;
+    expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t read the change: Starbase isn’t answering');
+    expect(asks()).toBe(1);
+    get.mockImplementation(async (path: string) => (/\/commit\//.test(path) ? CHANGE : {}));
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText('src/routes/buildRoute.ts')).toBeInTheDocument();
+    expect(asks()).toBe(2);
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 
   it('a commit with many files lists the first 50, then how many more', async () => {
