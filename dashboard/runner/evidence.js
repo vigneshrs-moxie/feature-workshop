@@ -28,8 +28,15 @@
 // `npx playwright test` without npx looking anything up. STARBASE_PLAYWRIGHT names another script
 // to run the same way (the tests' fake, which copies dashboard/test/fixtures/evidence/). In demo
 // mode nothing real runs, so only that script can record there.
+//
+// The demo's recording under way (demo mode only, `demo` as the server was started): a job folder
+// with evidence/demo-progress.json shows that progress in view() while nothing really records it,
+// and live() answers evidence/demo-live.jpg beside it (dashboard/demo/run-demo.js writes both for
+// Nightly Export). Outside demo mode both files are ignored.
 
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -52,6 +59,73 @@ function ownPlaywright() {
 }
 
 const httpError = (err) => (err instanceof EvidenceError ? new HttpError(err.status, err.message, { ...(err.fix ? { fix: err.fix } : {}), ...(err.code ? { code: err.code } : {}) }) : err);
+
+// ---------- The demo's recording under way (demo mode only) ----------
+
+/** The demo's progress and picture, in a job's evidence/ folder (run-demo.js writes them). */
+export const DEMO_PROGRESS_FILE = 'demo-progress.json';
+export const DEMO_LIVE_FILE = 'demo-live.jpg';
+const DEMO_PROGRESS_MAX_BYTES = 64 * 1024;
+const DEMO_LINES_MAX = 200;
+const LINE_STATES = new Set(['waiting', 'running', 'passed', 'failed', 'skipped']);
+
+/**
+ * One of the demo's files in the job's evidence/ folder, by the server's own name for it: its path
+ * when evidence/ is a real folder (not a link) and the file a plain file (not a link), else null.
+ */
+async function demoPath(jobDir, name) {
+  const root = path.join(path.resolve(jobDir), EVIDENCE_DIR);
+  const dir = await fsp.lstat(root).catch(() => null);
+  if (!dir?.isDirectory()) return null;
+  const file = path.join(root, name);
+  const st = await fsp.lstat(file).catch(() => null);
+  return st?.isFile() ? file : null;
+}
+
+/**
+ * The demo's progress (evidence/demo-progress.json) in the shape a recording's has (lib/evidence.js):
+ * { commit, startedAt, line, of, lines: [{ id, title, state, video, at }] }, or null when the file is
+ * missing, a link, too big or not that shape. Read from a file opened without following a link.
+ */
+async function readDemoProgress(jobDir) {
+  const file = await demoPath(jobDir, DEMO_PROGRESS_FILE);
+  if (!file) return null;
+  let fh;
+  let raw;
+  try {
+    fh = await fsp.open(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
+    const st = await fh.stat();
+    if (!st.isFile() || st.size < 2 || st.size > DEMO_PROGRESS_MAX_BYTES) return null;
+    raw = JSON.parse(await fh.readFile('utf8'));
+  } catch {
+    return null;
+  } finally {
+    await fh?.close().catch(() => {});
+  }
+  if (!raw || typeof raw !== 'object' || !Array.isArray(raw.lines) || !raw.lines.length || raw.lines.length > DEMO_LINES_MAX) return null;
+  const text = (v, max) => (typeof v === 'string' && v ? v.slice(0, max) : null);
+  const lines = [];
+  for (const l of raw.lines) {
+    if (!l || typeof l !== 'object' || typeof l.id !== 'string' || !/^AC-[1-9]\d{0,3}$/.test(l.id) || !LINE_STATES.has(l.state)) return null;
+    lines.push({ id: l.id, title: text(l.title, 300) ?? l.id, state: l.state, video: null, at: text(l.at, 40) });
+  }
+  const count = (v) => (Number.isInteger(v) && v >= 0 && v <= lines.length ? v : null);
+  const line = count(raw.line);
+  const of = count(raw.of) || lines.length;
+  if (line === null) return null;
+  return { commit: text(raw.commit, 40), startedAt: text(raw.startedAt, 40), line, of, lines };
+}
+
+/**
+ * The demo's picture for Watch (evidence/demo-live.jpg): { abs, type, size, bytes }, or null. Read as
+ * the real picture is (lib/evidence.js readLiveFrame: opened without following a link, a plain file
+ * of at most LIVE_MAX_BYTES), but it is a still, so any age will do.
+ */
+async function readDemoFrame(jobDir) {
+  const file = await demoPath(jobDir, DEMO_LIVE_FILE);
+  const bytes = file ? await readLiveFrame(file, { now: Number.NEGATIVE_INFINITY }) : null;
+  return bytes ? { abs: file, type: 'image/jpeg', size: bytes.length, bytes } : null;
+}
 
 /** Run one command line through the shell: resolves { code, output } (code null when it couldn't start). */
 function runShell(command, { cwd, timeoutMs = 15_000 } = {}) {
@@ -251,10 +325,12 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
       const evidence = await readEvidence(f.dir);
       const wanted = evidenceWanted(f.options);
       const folder = evidence ? path.join(f.dir, EVIDENCE_DIR, evidence.commit) : path.join(f.dir, EVIDENCE_DIR);
+      // In demo mode only, and only while nothing really records the job: the demo's recording under way.
+      const still = demo && !recording.has(f.slug) && !progress.has(f.slug) ? await readDemoProgress(f.dir) : null;
       return {
         evidence, commit: await reportCommit(f.dir), wanted: wanted.on, why: wanted.why,
-        recording: recording.has(f.slug), problem: problems.get(f.slug) ?? null, progress: progress.get(f.slug) ?? null,
-        watch: progress.has(f.slug),
+        recording: recording.has(f.slug) || still !== null, problem: problems.get(f.slug) ?? null, progress: progress.get(f.slug) ?? still,
+        watch: progress.has(f.slug) || still !== null,
         folder, folderUrl: pathToFileURL(folder).href + (folder.endsWith(path.sep) ? '' : '/'),
       };
     },
@@ -273,11 +349,17 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
      * 5 s, else a 404. Both paths are the server's own (evidence/<commit>/run/), never the asker's,
      * and nothing is made when no recording runs (the run's folder goes with the run). Neither file
      * is ever used through a link, and the picture's bytes are read here (at most LIVE_MAX_BYTES).
+     * In demo mode only, with no real recording of the job: the demo's still picture, while its
+     * progress file is there (readDemoFrame), else the 404.
      */
     async live(slug) {
       const f = await jobOf(slug);
       const p = progress.get(f.slug);
-      if (!p?.commit) throw new HttpError(404, NO_LIVE);
+      if (!p?.commit) {
+        const still = demo && !recording.has(f.slug) && (await readDemoProgress(f.dir)) ? await readDemoFrame(f.dir) : null;
+        if (still) return still;
+        throw new HttpError(404, NO_LIVE);
+      }
       const { liveFile, watchFile } = liveFiles(path.join(f.dir, EVIDENCE_DIR), p.commit);
       // Only into the run's folder while it is there, and never through a link (lib/evidence.js markWatched).
       if (!(await markWatched(watchFile))) throw new HttpError(404, NO_LIVE);

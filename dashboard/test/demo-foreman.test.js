@@ -16,7 +16,7 @@ import { stagesFor } from '../lib/stages.js';
 import { makeFakeQuery, readReply } from '../demo/fake-query.js';
 import { parseReviewFindings } from '../lib/play.js';
 import { createRunner } from '../runner/index.js';
-import { autoRecord } from '../lib/auto.js';
+import { autoRecord, YOURS_NOW } from '../lib/auto.js';
 import { answerSchema, approverOptions, askApprover, checkAnswer } from '../lib/approver.js';
 import { makeFakeApprover } from '../demo/fake-approver.js';
 import { execFileSync } from 'node:child_process';
@@ -409,6 +409,107 @@ test('the demo\'s migrate job stops on a database change before the Approver is 
     const mine = (await w.lines()).filter((l) => l.action === 'auto');
     // The words "(demo: migrate)" trip the migrations trigger in the description (level-rules), so Auto stops at the plan gate, before any approval.
     assert.equal(mine.some((l) => l.what === 'gate' || l.what === 'permission' || l.what === 'finished'), false, 'nothing was approved, and nothing was put to the Approver');
+  } finally {
+    w.runner.stop();
+    await fs.rm(w.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }).catch(() => {});
+  }
+});
+
+// ---------- The demo's jobs for the new job page (Part 3, Task 17) ----------
+
+// The whole demo as run-demo.js writes it, in a temp folder of this test's own, with a real runner
+// on it in demo mode (no server, no port): the pretend Foreman, the demo's stand-in Approver.
+async function wholeDemo() {
+  // Not realpath'd: the demo writes only inside the system's temp folder as os.tmpdir() names it.
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'workshop-demo-page-'));
+  // The demo's usage lines go to its own state folder, never anywhere else.
+  process.env.STARBASE_DIR = path.join(root, 'state');
+  const { buildDemo } = await import('../demo/run-demo.js');
+  const demo = await buildDemo({ root });
+  assert.equal(demo.root, root);
+  await fs.mkdir(path.join(root, 'claude'), { recursive: true });
+  const runner = await createRunner({
+    host: '127.0.0.1', port: 1, token: 't', dashboardDir: DASH, claudeDir: path.join(root, 'claude'), featuresDir: demo.features, projectsDir: demo.projects,
+    agentsDir: path.join(root, 'agents'), skillsDir: path.join(root, 'skills'), stateDir: demo.state, demo: true, claudePath: null,
+    claudeSettingsFile: path.join(root, 'claude.json'), legacySettingsFile: null, planUsage: false, orbitStore: 'file',
+    integrateDir: demo.state, integrateRoot: path.join(DASH, '..'), siteLink: false, env: {},
+    queryFn: makeFakeQuery({ featuresDir: demo.features, pace: PACE }),
+  });
+  const lines = async () => (await fs.readFile(path.join(demo.state, 'audit.jsonl'), 'utf8').catch(() => '')).split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  const until = async (fn, what) => {
+    for (let i = 0; i < 400; i++) { const v = await fn(); if (v) return v; await new Promise((r) => setTimeout(r, 50)); }
+    throw new Error(`Timed out waiting for ${what}; Auto's lines say ${JSON.stringify((await lines()).filter((l) => l.action === 'auto').map((l) => [l.slug, l.what, l.rule, l.reason]))}`);
+  };
+  const record = async (slug) => JSON.parse(await fs.readFile(path.join(demo.state, 'sessions.json'), 'utf8'))[path.join(demo.features, slug)]?.auto ?? null;
+  const cardOf = async (slug) => (await runner.read.features()).features.find((c) => c.slug === slug);
+  return { root, demo, runner, lines, until, record, cardOf };
+}
+
+test('the demo has a job with an overview and plan steps, one with a recording under way, and an Auto job he wrote to that waits for him with its sentence', { timeout: 120_000 }, async () => {
+  const w = await wholeDemo();
+  try {
+    // Bulk Archive, at Build: its ticket with who filed it and when, its acceptance lines, and a plan of six steps, three built.
+    const bulk = await w.runner.read.job('bulk-archive');
+    assert.equal(bulk.stage, 'implement');
+    const ticket = bulk.page.ticket;
+    assert.ok(ticket, 'the overview has its ticket');
+    assert.match(ticket.key, /^[A-Z]+-\d+$/);
+    assert.ok(ticket.title);
+    assert.ok(ticket.filedBy, 'an invented filer');
+    assert.ok(Number.isFinite(Date.parse(ticket.filedAt)), 'and a date');
+    assert.ok(ticket.description, 'the ticket’s own words, from ticket.md');
+    assert.ok(bulk.page.check?.worksWhen?.length >= 3, 'It works when lines from acceptance.md');
+    assert.ok(bulk.page.check.mustNot?.length >= 1, 'It must not lines');
+    assert.deepEqual(bulk.page.plan?.steps?.map((s) => s.id), ['S1', 'S2', 'S3', 'S4', 'S5', 'S6']);
+    assert.deepEqual(bulk.page.plan.steps.map((s) => s.state), ['done', 'done', 'done', 'now', 'next', 'next'], 'commits [S1] to [S3] are on its branch; the Builder is on S4');
+
+    // Nightly Export, at Test: a recording under way, line 4 of 19, and Watch's picture.
+    const nightly = await w.runner.read.job('nightly-export');
+    assert.equal(nightly.stage, 'test');
+    const view = await w.runner.local.evidence.view('nightly-export');
+    assert.equal(view.recording, true);
+    assert.equal(view.watch, true);
+    assert.equal(view.progress?.line, 4);
+    assert.equal(view.progress.of, 19);
+    assert.equal(view.progress.lines.length, 19);
+    assert.deepEqual(view.progress.lines.slice(0, 5).map((l) => l.state), ['passed', 'passed', 'passed', 'running', 'waiting']);
+    assert.ok(view.progress.lines.every((l) => /^AC-\d+$/.test(l.id) && l.title), 'each line has its id and words');
+    assert.ok(Number.isFinite(Date.parse(view.progress.startedAt)));
+    const frame = await w.runner.local.evidence.live('nightly-export');
+    assert.equal(frame.type, 'image/jpeg');
+    const onDisk = await fs.readFile(path.join(w.demo.features, 'nightly-export', 'evidence', 'demo-live.jpg'));
+    assert.ok(frame.bytes.equals(onDisk), 'the demo’s picture');
+    assert.equal(frame.size, onDisk.length);
+    assert.deepEqual([...onDisk.subarray(0, 3)], [0xff, 0xd8, 0xff], 'a JPEG');
+    assert.deepEqual([...onDisk.subarray(-2)], [0xff, 0xd9]);
+    assert.ok(onDisk.length < 20 * 1024, 'a small one');
+
+    // The job he wrote to while its step waited: his already, on the board, before Auto's pass.
+    const before = await w.cardOf('auto-yours');
+    assert.ok(before, 'the job is on the board');
+    assert.doesNotMatch(before.title, /Auto demo/, 'autoRun.mjs tells the Auto demo cards apart by their titles');
+    assert.equal(before.auto.yours, true);
+    assert.equal(before.laneReason, `Auto stopped: ${YOURS_NOW}`);
+
+    // Auto's own first pass leaves the step to him with the sentence; nothing is put to the Approver for it.
+    w.runner.auto.pass();
+    const stop = await w.until(async () => (await w.lines()).find((l) => l.action === 'auto' && l.what === 'stop' && l.slug === 'auto-yours'), 'Auto to stop auto-yours');
+    assert.equal(stop.reason, YOURS_NOW);
+    const rec = await w.record('auto-yours');
+    assert.equal(rec.on, true);
+    assert.equal(rec.stopped?.reason, YOURS_NOW);
+    const mine = (await w.lines()).filter((l) => l.action === 'auto' && l.slug === 'auto-yours');
+    assert.equal(mine.some((l) => ['gate', 'permission', 'finished'].includes(l.what)), false, 'nothing was approved for it');
+    const after = await w.cardOf('auto-yours');
+    assert.deepEqual({ lane: after.lane, laneReason: after.laneReason }, { lane: 'needs-you', laneReason: `Auto stopped: ${YOURS_NOW}` });
+    // The other job that waits for him stops on its database change, as before.
+    const migrate = await w.until(async () => (await w.lines()).find((l) => l.action === 'auto' && l.what === 'stop' && l.slug === 'auto-demo-migrate'), 'Auto to stop auto-demo-migrate');
+    assert.equal(migrate.rule, 'database');
+    // And nothing holds the Approver back: the demo's Auto job still runs to PR #1 with no click.
+    await w.until(async () => (await w.lines()).some((l) => l.action === 'auto' && l.what === 'finished' && l.slug === 'auto-demo'), 'Auto to finish auto-demo');
+    const autoDemo = JSON.parse(await fs.readFile(path.join(w.demo.features, 'auto-demo', 'status.json'), 'utf8'));
+    assert.equal(autoDemo.stage, 'pr1');
+    assert.equal(autoDemo.prs?.[0]?.state, 'open');
   } finally {
     w.runner.stop();
     await fs.rm(w.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }).catch(() => {});
