@@ -5,7 +5,7 @@
 // A page opened before starts from its last known answer (lib/lastKnown.ts), at once; the fresh
 // one fills in quietly (packet R, principle 5).
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ApiError } from '../../api/client';
+import { ApiError, type ApiClient } from '../../api/client';
 import { lastKnown, remember } from '../../lib/lastKnown';
 import { DEFAULT_SECTIONS_AT_ONCE, type PartPageData, type StackView, type StacksList } from '../../api/types';
 import { useWorkshop, useWorkshopState } from '../../state/store';
@@ -27,6 +27,23 @@ function useLookAgain(look: () => void) {
   }, []);
 }
 
+/**
+ * One ask for the list under way per client: every part of a page that looks while it is out (a job
+ * page has several) shares its answer, so the page asks once, not once each. The next look after
+ * it is answered asks again.
+ */
+const listAsks = new WeakMap<object, Promise<StacksList>>();
+function askForList(api: ApiClient): Promise<StacksList> {
+  const out = listAsks.get(api);
+  if (out) return out;
+  // (Promise.resolve: a test's bare api.get mock answers nothing, which counts as no stacks.)
+  const ask = Promise.resolve().then(() => api.get<StacksList>('/api/stacks'));
+  listAsks.set(api, ask);
+  const done = () => { if (listAsks.get(api) === ask) listAsks.delete(api); };
+  ask.then(done, done);
+  return ask;
+}
+
 export interface StacksState {
   list: StacksList | null;
   /** The dashboard says stacks don't run here (it isn't on your own computer). */
@@ -45,8 +62,7 @@ export function useStacksList(): StacksState {
   const refresh = useCallback(() => {
     if (busy.current) return;
     busy.current = true;
-    // (Promise.resolve: a test's bare api.get mock answers nothing, which counts as no stacks.)
-    Promise.resolve().then(() => api.get<StacksList>('/api/stacks')).then(
+    askForList(api).then(
       (l) => { setList(remember(api, '/api/stacks', l && Array.isArray(l.stacks) ? l : { stacks: [], globalCap: DEFAULT_SECTIONS_AT_ONCE, globalRunning: 0 })); setError(null); setUnavailable(null); },
       (err) => {
         if (err instanceof ApiError && err.status === 404) setUnavailable(err.message);

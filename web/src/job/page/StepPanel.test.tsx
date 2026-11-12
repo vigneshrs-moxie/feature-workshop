@@ -343,6 +343,46 @@ describe('StepPanel', () => {
     expect(reads()).toBe(2);
   });
 
+  it('Open docs is dropped when the step’s load fails: a later Try again never moves the focus', async () => {
+    for (const hosted of [false, true]) {
+      const { wrap } = stores(BUILDING, { hosted });
+      const panel = (view: StageView | null, error: string | null) => wrap(<StepPanel job={BUILDING} stop="build" view={view} error={error} onRetry={() => {}} now={NOW} docRequest={{ n: 1, file: null }} />);
+      const view = render(panel(null, null));
+      // The load fails: the request waits no more.
+      view.rerender(panel(null, 'Starbase isn’t answering'));
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+      // He clicks elsewhere; Try again brings the step with its documents later: the focus stays.
+      const elsewhere = document.createElement('button');
+      document.body.append(elsewhere);
+      elsewhere.focus();
+      view.rerender(panel(BUILD, null));
+      await act(async () => {});
+      expect(within(screen.getByRole('region', { name: 'Documents from this step' })).getAllByRole('button')).toHaveLength(2);
+      expect(elsewhere).toHaveFocus();
+      elsewhere.remove();
+      cleanup();
+    }
+  });
+
+  it('Open docs waiting for a step’s answer is dropped when the job changes', async () => {
+    const { wrap } = stores(BUILDING);
+    const ask = { n: 1, file: null };
+    const view = render(wrap(<StepDocs slug={SLUG} docs={[]} request={ask} loaded={false} />));
+    const elsewhere = document.createElement('button');
+    document.body.append(elsewhere);
+    elsewhere.focus();
+    // Another job's list comes in, with the same request still passed: the focus stays.
+    view.rerender(wrap(<StepDocs slug="another-job" docs={[PLAN_DOC, TEST_PLAN]} request={ask} loaded />));
+    await act(async () => {});
+    expect(document.querySelectorAll('.doc-item')).toHaveLength(2);
+    expect(elsewhere).toHaveFocus();
+    // The same job, as before: its answer takes the focus to its first document.
+    view.rerender(wrap(<StepDocs slug="another-job" docs={[PLAN_DOC, TEST_PLAN]} request={{ n: 2, file: null }} loaded />));
+    await act(async () => {});
+    expect(document.activeElement).toBe(document.querySelector('.doc-item'));
+    elsewhere.remove();
+  });
+
   it('the step’s body sits after the feed, or first with bodyFirst', () => {
     const order = () => {
       const panel = screen.getByRole('tabpanel');
@@ -397,6 +437,81 @@ describe('StepPanel', () => {
     await act(async () => { answers[0](BUILD); });
     expect(screen.getByText('Writing step 4 of 6')).toBeInTheDocument();
     expect(screen.queryByText('Writing step 3 of 6')).toBeNull();
+  });
+
+  it('while a picked step loads the panel keeps its last height as a minimum, and drops it when the step shows', () => {
+    // jsdom lays nothing out: the panel's measured height is a stub (640 px), the rest measure 0.
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      return { height: this.classList.contains('sb-panel') ? 640 : 0, width: 0, top: 0, left: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON() {} } as DOMRect;
+    });
+    try {
+      const planView: StageView = { ...BUILD, stop: 'plan', label: 'Plan', agents: [], finished: [], docs: [] };
+      for (const hosted of [false, true]) {
+        const { wrap } = stores(BUILDING, { hosted });
+        const panelOf = (stop: StopId, view: StageView | null, error: string | null = null) => wrap(
+          <StepPanel job={BUILDING} stop={stop} view={view} error={error} onRetry={() => {}} now={NOW}>{view && <p>The step’s own body</p>}</StepPanel>,
+        );
+        const view = render(panelOf('build', BUILD));
+        const panel = () => document.querySelector<HTMLElement>('.sb-panel')!;
+        // The first draw holds nothing.
+        expect(panel().style.minHeight).toBe('');
+        // Another step picked: while its view loads the panel keeps the height it had.
+        view.rerender(panelOf('plan', null));
+        expect(within(panel()).getByText('Loading who worked on it…')).toBeInTheDocument();
+        expect(panel().style.minHeight).toBe('640px');
+        // The step shows: the minimum goes.
+        view.rerender(panelOf('plan', planView));
+        expect(panel().style.minHeight).toBe('');
+        // A pick whose load fails: the error shows and the minimum goes.
+        view.rerender(panelOf('build', null));
+        expect(panel().style.minHeight).toBe('640px');
+        view.rerender(panelOf('build', null, 'Starbase isn’t answering'));
+        expect(within(panel()).getByRole('alert')).toBeInTheDocument();
+        expect(panel().style.minHeight).toBe('');
+        // Try again loads the same step again: no pick, so nothing is held.
+        view.rerender(panelOf('build', null));
+        expect(panel().style.minHeight).toBe('');
+        // A step whose view is in at the pick (seen before) holds nothing.
+        view.rerender(panelOf('plan', planView));
+        expect(panel().style.minHeight).toBe('');
+        cleanup();
+      }
+
+      // The phone's step screen is its own screen: nothing is held there.
+      vi.stubGlobal('matchMedia', (q: string) => ({ matches: q.includes('760'), addEventListener() {}, removeEventListener() {} }));
+      const { wrap } = stores(BUILDING);
+      const view = render(wrap(<StepPanel job={BUILDING} stop="build" view={BUILD} error={null} onRetry={() => {}} now={NOW} />));
+      view.rerender(wrap(<StepPanel job={BUILDING} stop="plan" view={null} error={null} onRetry={() => {}} now={NOW} />));
+      expect(document.querySelector<HTMLElement>('.sb-panel')!.style.minHeight).toBe('');
+    } finally {
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('an older good answer that lands after a newer failure is kept', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'] });
+    const asks: { ok(v: StageView): void; fail(e: Error): void }[] = [];
+    const { api, wrap } = stores(BUILDING, { get: () => new Promise((ok, fail) => { asks.push({ ok: ok as (v: StageView) => void, fail }); }) });
+    render(wrap(<Live stop="build" />));
+    await act(async () => {});
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(stageCalls(api.get)).toBe(2);
+    // The newer ask fails first: nothing good is in yet, so it says so.
+    await act(async () => { asks[1].fail(new Error('Starbase isn’t answering')); });
+    expect(within(who()).getByRole('alert')).toHaveTextContent('Couldn’t load this step: Starbase isn’t answering');
+    // The older ask's good answer lands after it: kept, and the problem goes.
+    await act(async () => { asks[0].ok(BUILD); });
+    expect(screen.getByText('Writing step 3 of 6')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).toBeNull();
+    // A failure older than a good answer already taken changes nothing.
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(asks).toHaveLength(4);
+    await act(async () => { asks[3].ok({ ...BUILD, agents: [BUILD.agents[0], { ...BUILD.agents[1], doing: 'Writing step 4 of 6' }] }); });
+    await act(async () => { asks[2].fail(new Error('late')); });
+    expect(screen.getByText('Writing step 4 of 6')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 
   it('a step not reached says so', () => {

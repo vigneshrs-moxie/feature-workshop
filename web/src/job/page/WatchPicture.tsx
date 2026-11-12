@@ -4,7 +4,8 @@
 // too), so nothing is kept and nothing piles up. A 404 means no picture yet (the first ask marks
 // the recording watched and may itself be one): never an error. After 5 s with no picture it says
 // so and keeps asking. It stops when it goes from the page (Stop watching unmounts it), and it
-// rests while the tab is hidden, asking again when the tab shows.
+// rests while the tab is hidden, asking again when the tab shows. Each picture shows from a data:
+// address (the page policy refuses blob: pictures); the last one stays until the next is read.
 import { useEffect, useState } from 'react';
 import type { EvidenceProgress } from '../../api/types';
 import './page.css';
@@ -25,9 +26,19 @@ export function captionOf(progress: EvidenceProgress | null | undefined): string
   return title ? `Line ${n} of ${of}: ${title}. ${UPDATES}` : `Line ${n} of ${of}. ${UPDATES}`;
 }
 
+/** A fetched picture as a data: address. The laptop app's page policy allows pictures only from
+ *  the app itself and data: addresses (img-src 'self' data:), so a blob: address would be refused.
+ *  The live picture is a JPEG, so a picture with no type is read as one. */
+export async function dataUrlOf(blob: Blob): Promise<string> {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return `data:${blob.type || 'image/jpeg'};base64,${btoa(binary)}`;
+}
+
 export function WatchPicture({ slug, progress }: { slug: string; progress: EvidenceProgress | null | undefined }) {
   // The picture and the "no picture" line belong to one job: another job starts with neither (the
-  // old picture's address is revoked as its chain stops).
+  // old picture is dropped with its chain; a data: address holds nothing to let go).
   const [held, setHeld] = useState<{ slug: string; src: string | null; stale: boolean }>({ slug, src: null, stale: false });
   let current = held;
   if (held.slug !== slug) {
@@ -41,7 +52,6 @@ export function WatchPicture({ slug, progress }: { slug: string; progress: Evide
     const setStale = () => setHeld((h) => (h.slug === slug ? { ...h, stale: true } : h));
     let on = true;
     let n = 0;
-    let shown: string | null = null;
     let next: ReturnType<typeof setTimeout> | undefined;
     let none: ReturnType<typeof setTimeout> | undefined;
     let resting = false;
@@ -61,11 +71,8 @@ export function WatchPicture({ slug, progress }: { slug: string; progress: Evide
           cache: 'no-store', credentials: 'same-origin', signal: ctrl?.signal,
         });
         if (on && res.ok) {
-          const blob = await res.blob();
+          const url = await dataUrlOf(await res.blob());
           if (on) {
-            const url = URL.createObjectURL(blob);
-            if (shown) URL.revokeObjectURL(shown);
-            shown = url;
             setSrc(url);
             waitForPicture();
           }
@@ -90,7 +97,6 @@ export function WatchPicture({ slug, progress }: { slug: string; progress: Evide
       clearTimeout(none);
       ctrl?.abort();
       document.removeEventListener('visibilitychange', onVisible);
-      if (shown) URL.revokeObjectURL(shown);
     };
   }, [slug]);
 

@@ -11,7 +11,7 @@
 // open and close through the page (watching, tryOpen), which keeps them.
 import { useId, useState, type ReactNode } from 'react';
 import { ApiError } from '../../api/client';
-import type { EvidenceProgress, EvidenceRecordResult, EvidenceView, FeedLine, Job, JobDetail, StageAgent, StageView } from '../../api/types';
+import type { EvidenceCriterion, EvidenceProgress, EvidenceRecordResult, EvidenceView, FeedLine, Job, JobDetail, StageAgent, StageView } from '../../api/types';
 import { BRAND } from '../../app/brand';
 import { useUi } from '../../app/ui';
 import { Button } from '../../components/Button';
@@ -21,7 +21,7 @@ import { TryTab } from '../../panes/Preview/TryTab';
 import { useWorkshop } from '../../state/store';
 import { AUTO_SKIPS_HAND_TEST } from '../../views/JobDrawer/OptionsEditor';
 import { spentWords, statesOf } from './stepWords';
-import { listOf } from './useStage';
+import { listOf } from '../../lib/lists';
 import { WatchPicture } from './WatchPicture';
 import { WhatToCheck } from './WhatToCheck';
 import './page.css';
@@ -44,6 +44,8 @@ function agoWords(iso: string | null | undefined, now: Date): string | null {
 }
 
 const LINE_WORDS: Record<Line['state'], string> = { passed: 'Passed', failed: 'Failed', running: 'Running', waiting: 'Waiting', skipped: 'Skipped' };
+/** A line of the evidence's progress, not a hole in the list. */
+const isLine = (l: unknown): l is Line => l !== null && typeof l === 'object';
 const isFinished = (l: Line) => l.state === 'passed' || l.state === 'failed' || l.state === 'skipped';
 
 /**
@@ -54,8 +56,9 @@ const isFinished = (l: Line) => l.state === 'passed' || l.state === 'failed' || 
  */
 export function recorderAgent(progress: EvidenceProgress | null | undefined): StageAgent | null {
   if (!progress || !Array.isArray(progress.lines)) return null;
-  const lines = progress.lines.map((l, i) => ({ l, n: i + 1 }));
-  const of = count(progress.of) || lines.length;
+  // Each line by its own number; a hole in the list (a half-written answer) is left out.
+  const lines = progress.lines.map((l, i) => ({ l, n: i + 1 })).filter(({ l }) => isLine(l));
+  const of = count(progress.of) || progress.lines.length;
   const line = count(progress.line);
   const order = (a: { l: Line; n: number }, b: { l: Line; n: number }) => (ms(a.l.at) || 0) - (ms(b.l.at) || 0) || a.n - b.n;
   const done = lines.filter(({ l }) => isFinished(l)).sort(order).slice(-3);
@@ -216,7 +219,7 @@ function EvidenceRow({ slug, evidence, now, hosted, watching, onWatching, stripO
     tone = 'err';
     when = null;
   } else if (ev) {
-    const criteria = Array.isArray(ev.criteria) ? ev.criteria : [];
+    const criteria = listOf<EvidenceCriterion>(ev.criteria);
     const n = (s: string) => criteria.filter((c) => c.status === s).length;
     const parts = [[n('passed'), 'passed'], [n('failed'), 'failed'], [n('skipped'), 'not recorded']].filter(([k]) => (k as number) > 0).map(([k, w]) => `${k} ${w}`);
     state = parts.length ? parts.join(', ') : 'Recorded';
@@ -253,11 +256,13 @@ function EvidenceRow({ slug, evidence, now, hosted, watching, onWatching, stripO
 
 /** Each line in order: the finished ones, the one it runs, the first few waiting and the rest as one row. */
 function Lines({ slug, lines }: { slug: string; lines: Line[] }) {
-  const waiting = lines.filter((l) => l.state === 'waiting').length;
+  const waiting = lines.filter((l) => isLine(l) && l.state === 'waiting').length;
   const keep = waiting - WAITING_SHOWN > 1 ? WAITING_SHOWN : waiting;
   let seen = 0;
   const rows: { l: Line; n: number }[] = [];
   lines.forEach((l, i) => {
+    // A hole in the list is left out; the lines after it keep their own numbers.
+    if (!isLine(l)) return;
     if (l.state === 'waiting' && seen++ >= keep) return;
     rows.push({ l, n: i + 1 });
   });

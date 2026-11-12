@@ -1,7 +1,8 @@
 // The documents from one step (design 3.2): a row each with its name, version and when it changed
 // (the Docs tab's own rows). A click opens it in place, in the Docs tab's reader, with Back to the
 // list; a new `request` (a document link, ⌘K) opens its file, or the list when it has none, with the
-// focus on its first document once the step's answer is in with one (none: the request is dropped).
+// focus on its first document once the step's answer is in with one (none, a failed load or another
+// job: the request is dropped).
 // The focus never leaves a box he is typing in. The wireframes page is not a document: it opens in
 // the Screens page, as in the Docs tab.
 import { useEffect, useRef, useState } from 'react';
@@ -13,7 +14,7 @@ import { DocItem, DocReader } from '../../panes/Preview/DocsTab';
 
 export function StepDocs({ slug, docs, request, loaded = true }: {
   slug: string; docs: JobDocEntry[]; request?: { n: number; file: string | null };
-  /** The step's answer is in (its `docs` are known); while it is not, a request waits for them. */
+  /** The step's answer is in (its `docs` are known), or its load failed; while neither, a request waits. */
   loaded?: boolean;
 }) {
   const ui = useUi();
@@ -28,6 +29,14 @@ export function StepDocs({ slug, docs, request, loaded = true }: {
   // A request with no file (⌘K Open docs): the focus goes to the first document once the step's
   // answer is in; an answer with no documents drops it, so a document arriving later never takes the focus.
   const focusFirst = useRef(false);
+  // Another job: a request still waiting for the old job's answer is dropped (this effect runs
+  // before the one that takes a new request, so a request for the new job still counts).
+  const forSlug = useRef(slug);
+  useEffect(() => {
+    if (forSlug.current === slug) return;
+    forSlug.current = slug;
+    focusFirst.current = false;
+  }, [slug]);
   const n = request?.n ?? null;
   const wanted = request?.file ?? null;
   useEffect(() => {

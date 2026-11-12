@@ -3,13 +3,15 @@
 // not written yet.
 import type { JobPageFacts } from '../../api/types';
 import { Icon } from '../../components/Icon';
+import { textsOf } from '../../lib/lists';
 import './page.css';
 
 export const CHECK_NOT_WRITTEN = 'Not written yet. The Foreman writes this list with the plan.';
 
 export function WhatToCheck({ check }: { check: JobPageFacts['check'] }) {
-  const worksWhen = check?.worksWhen ?? [];
-  const mustNot = check?.mustNot ?? [];
+  // Not a list, or holes in one (an older or half-written answer): nothing, never a crash.
+  const worksWhen = textsOf(check?.worksWhen);
+  const mustNot = textsOf(check?.mustNot);
   if (!worksWhen.length && !mustNot.length) return <p className="sb-ov-empty">{CHECK_NOT_WRITTEN}</p>;
   return (
     <div className="sb-check">

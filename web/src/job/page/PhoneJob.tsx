@@ -262,11 +262,13 @@ function StepScreen({ job, conversation, now, sent, evidence, back, write, stop,
   const time = stepTimeWords(job, stop, view?.time, now, view?.since, sent);
   const waits = waitingStep(job, detail) === stop;
   const recorder = stop === 'test' ? recorderAgent(evidence.recording ? evidence.view?.progress : null) : null;
+  // No tab row here: the step's panel is a region named by this screen's heading.
+  const headingId = useId();
   return (
     <div className="sb-phone-scroll">
       <header className="sb-phone-head">
         <div className="sb-phone-nav"><Back to={back}>{job.title || slug}</Back></div>
-        <h1 className="sb-phone-title"><Icon name={here.icon} size={20} />{here.label}</h1>
+        <h1 className="sb-phone-title" id={headingId}><Icon name={here.icon} size={20} />{here.label}</h1>
         <div className="sb-phone-facts">
           <span className={`chip sb-step-chip ${state.cls}`.trim()}>{state.words}</span>
           {time && <span className="num">{time}</span>}
@@ -296,6 +298,7 @@ function StepScreen({ job, conversation, now, sent, evidence, back, write, stop,
           sent={sent}
           docRequest={docRequest}
           bodyFirst={stop === 'test'}
+          regionOf={headingId}
         >
           {view && (
             <StepBody

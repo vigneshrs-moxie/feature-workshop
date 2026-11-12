@@ -76,7 +76,7 @@ export function ShipStep({ slug, job, view }: { slug: string; job: Job; view: St
   const now = useNow().getTime();
   return (
     <div className="sb-step-body">
-      {stopped ? <AutoLine icon="octagon" words={stopped} />
+      {stopped ? <AutoLine icon="octagon-pause" words={stopped} />
         : autoOn && <AutoLine icon="git-pr" words="Auto stops once PR #1 is open. It never merges." />}
       <section className="sb-block sb-prs" aria-label="The pull requests">
         <h3 className="eyebrow">The pull requests</h3>

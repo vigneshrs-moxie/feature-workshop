@@ -298,8 +298,11 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, foldHere = fa
   const folds = foldCard || foldHere;
   const body = useRef<HTMLDivElement>(null);
   const [go, setGo] = useState({ words: '', off: true, asks: false, backOff: false, replyOff: true, why: '', boxOpen: false });
-  // A box open in the card (What should change?, Reply) keeps it open: typed words are never out of sight.
-  const folded = folds && !cardShown && !go.boxOpen;
+  // Over the job page's conversation (foldHere) a box open in the card (What should change?, Reply)
+  // keeps it open, so typed words are never out of sight, and its row is off meanwhile. On the
+  // phone's screens (foldCard) the row folds the brief, box and all, as he asks.
+  const boxHolds = foldHere && go.boxOpen;
+  const folded = folds && !cardShown && !boxHolds;
   useLayoutEffect(() => {
     const el = body.current;
     if (!el) return;
@@ -317,6 +320,13 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, foldHere = fa
     watch.observe(el, { subtree: true, childList: true, attributes: true, characterData: true });
     return () => watch.disconnect();
   }, [detail]);
+  // With the conversation taking the screen the bar's area is capped and scrolls (page.css): as a
+  // box opens, the row with its send button comes into view inside it. (jsdom may lack the call.)
+  useEffect(() => {
+    if (!foldHere || !go.boxOpen) return;
+    const row = body.current?.querySelector<HTMLElement>('.gate-note .perm-actions');
+    if (typeof row?.scrollIntoView === 'function') row.scrollIntoView({ block: 'nearest' });
+  }, [foldHere, go.boxOpen]);
   const press = (what: 'approve' | 'revise') => { const b = body.current?.querySelector(`[data-gate="${what}"]`); if (isPressable(b)) b.click(); };
   // Send back and Reply open a box in the card: a folded brief opens first so the box is seen.
   const reply = () => { if (folded) setCardShown(true); pressReply(body.current); };
@@ -334,7 +344,9 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, foldHere = fa
   // Auto stopped (or the step is his): the stop look with its reason, and the same three calls.
   const stopped = waits ? null : autoStopped(job);
   return (
-    <div className="job-go" hidden={hidden}>
+    // is-box-open: a box (What should change?, Reply) is open in the card; the job page's talk
+    // layouts let the bar's area grow for it (page.css).
+    <div className={`job-go${go.boxOpen ? ' is-box-open' : ''}`} hidden={hidden}>
       <NextBar
         tone={stopped ? 'stop' : 'go'}
         icon={stopped ? 'hand' : 'clipboard'}
@@ -372,7 +384,7 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, foldHere = fa
       </NextBar>
       {autoDeciding(job) && !stopped && !waits && <p className="job-go-auto muted">{AUTO_DECIDING_NOTE}</p>}
       {folds && (
-        <button type="button" className="desk-details-row stage-brief-row" aria-expanded={!folded} onClick={() => setCardShown(folded)} title={folded ? 'Show the brief’s questions and details here; Go sends the answers picked in it.' : 'Fold the brief back to this row.'}>
+        <button type="button" className="desk-details-row stage-brief-row" aria-expanded={!folded} disabled={boxHolds} onClick={() => setCardShown(folded)} title={folded ? 'Show the brief’s questions and details here; Go sends the answers picked in it.' : 'Fold the brief back to this row.'}>
           <Icon name="file" size={16} />
           <span className="desk-details-words"><b>The brief</b><span className="muted">{foldHere ? 'its questions and details; Go sends the answers picked in it' : 'its questions and details, also on the job’s page; Go sends the answers picked in it'}</span></span>
           <Icon name="chevron-down" size={14} className={`fold-chevron${folded ? '' : ' is-up'}`} />

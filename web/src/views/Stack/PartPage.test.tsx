@@ -120,6 +120,9 @@ describe('a part’s own page', () => {
     // (The strip's level comes from the same loaded conversation the card would wait for.)
     await waitFor(() => expect(document.querySelector('.part-convo .thread[aria-busy="false"]')).toBeInTheDocument());
     expect(document.querySelector('.part-convo .level-card')).not.toBeInTheDocument();
+    // One region named Conversation (the part's), the messages inside it named Messages.
+    expect(screen.getAllByRole('region', { name: 'Conversation' })).toEqual([document.querySelector('.part-convo')]);
+    expect(within(document.querySelector<HTMLElement>('.part-convo')!).getByRole('region', { name: 'Messages' })).toHaveClass('thread');
     expect(partCss).not.toMatch(/level-card \{ display: none/);
     fireEvent.click(within(strip).getByRole('button', { name: 'Choose' }));
     const sheet = await screen.findByRole('dialog', { name: 'The level for part 2’s job' });

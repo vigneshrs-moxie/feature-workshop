@@ -37,9 +37,10 @@ export function useAutoEntries(slug: string, job: Pick<Job, 'auto' | 'updatedAt'
   return sorted;
 }
 
-/** Auto is stopped on the job now and waits for him (the job's Auto record names a stop). */
+/** Auto is stopped on the job now and waits for him: Auto is on and the job's Auto record names a stop. */
 export const autoStoppedNow = (job: Pick<Job, 'auto'>): boolean => {
-  const stopped = job.auto?.stopped;
+  if (job.auto?.on !== true) return false;
+  const stopped = job.auto.stopped;
   return typeof stopped === 'string' ? stopped.trim() !== '' : Boolean(stopped && typeof stopped === 'object');
 };
 
@@ -66,14 +67,14 @@ export function autoLineWords(entries: AutoDecision[] | null, step: StopId, appr
   if (!entries || !entries.some((e) => e.kind)) return null;
   const stop = stoppedNow ? stopHere(entries, step) : null;
   const stopped = stop && stoppedWords(stop);
-  if (stopped) return { words: stopped, icon: 'octagon' };
+  if (stopped) return { words: stopped, icon: 'octagon-pause' };
   const mine = entries.filter((e) => e.stop === step);
   const answers = mine.filter((e) => e.kind === 'answer').reduce((n, e) => n + (Array.isArray(e.answers) && e.answers.length ? e.answers.length : 1), 0);
   const approvedIt = mine.some((e) => e.kind === 'approve');
   const question = answers > 1 ? 'this step’s questions' : 'this step’s question';
-  if (answers && approvedIt) return { words: `Auto answered ${question} and approved ${approved ?? 'it'}. ${REASONS}`, icon: 'check' };
-  if (approvedIt) return { words: `Auto approved this step. ${REASONS}`, icon: 'check' };
-  if (answers) return { words: `Auto answered ${question}. ${REASONS}`, icon: 'check' };
+  if (answers && approvedIt) return { words: `Auto answered ${question} and approved ${approved ?? 'it'}. ${REASONS}`, icon: 'bot' };
+  if (approvedIt) return { words: `Auto approved this step. ${REASONS}`, icon: 'bot' };
+  if (answers) return { words: `Auto answered ${question}. ${REASONS}`, icon: 'bot' };
   return null;
 }
 

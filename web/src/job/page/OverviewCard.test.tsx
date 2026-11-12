@@ -7,7 +7,8 @@ import type { ApiClient } from '../../api/client';
 import type { JobDetail, JobPageFacts } from '../../api/types';
 import { createStore, WorkshopContext } from '../../state/store';
 import { job } from '../../state/test-fixtures';
-import { OverviewCard } from './OverviewCard';
+import { BUILDING_NOT_WRITTEN, OverviewCard } from './OverviewCard';
+import { CHECK_NOT_WRITTEN, WhatToCheck } from './WhatToCheck';
 
 const TICKET = {
   key: 'ORBIT-900',
@@ -151,6 +152,53 @@ describe('OverviewCard', () => {
     expect(within(t).getByText('Pause <img src="x" alt="sneaky"> and <b>keep</b> the slot.')).toBeInTheDocument();
     expect(t.querySelector('img')).toBeNull();
     expect(within(t).queryByText('keep')).toBeNull();
+  });
+
+  it('the ticket is a link only when its address is http or https; otherwise its number shows as text', () => {
+    for (const url of ['javascript:alert(1)', 'data:text/html,hi', '/tickets/ORBIT-900', 'orbit.example/tickets/ORBIT-900', ' JavaScript:alert(1)']) {
+      const view = show({ ...FULL, ticket: { ...TICKET, url } });
+      open();
+      const t = column('The ticket');
+      expect(within(t).queryByRole('link')).toBeNull();
+      expect(t.querySelector('a')).toBeNull();
+      expect(within(t).getByText('ORBIT-900 · filed by Dana Whitfield on Nov 3')).toBeInTheDocument();
+      view.unmount();
+    }
+    for (const url of ['http://orbit.example/t/1', 'https://orbit.example/t/1', 'HTTPS://orbit.example/t/1']) {
+      const view = show({ ...FULL, ticket: { ...TICKET, url } });
+      expect(within(column('The ticket')).getByRole('link', { name: 'Open ORBIT-900 in Orbit' })).toHaveAttribute('href', url);
+      view.unmount();
+    }
+  });
+
+  it('a description written with \\r\\n line ends splits into paragraphs as one with \\n does', () => {
+    show({ ...FULL, ticket: { ...TICKET, description: 'When a customer goes away we cancel.\r\nThat loses their slot.\r\n\r\nCan we pause it instead?\r\n \r\nThanks.\r\n' } });
+    open();
+    const paras = within(column('The ticket')).getAllByText(/./, { selector: 'p' }).map((p) => p.textContent);
+    expect(paras).toEqual(['When a customer goes away we cancel.\r\nThat loses their slot.', 'Can we pause it instead?', 'Thanks.']);
+  });
+
+  it('a list that is not a list, or has holes, shows as nothing, never a crash', () => {
+    const bad = { from: 'spec', version: '1', outcome: 'Pause a service.', risks: { 0: 'not a list' } } as unknown as JobPageFacts['building'];
+    const view = show({ ...FULL, ticket: { ...TICKET, description: 42 as unknown as string }, building: bad });
+    open();
+    expect(within(column('What we’re building')).getByText(BUILDING_NOT_WRITTEN)).toBeInTheDocument();
+    expect(within(column('The ticket')).getByText(TICKET.title)).toBeInTheDocument();
+    view.unmount();
+    const holes = { from: 'spec', version: '1', outcome: [null, 'Pause a service.', 7], risks: [undefined, 'A visit on today’s route.'] } as unknown as JobPageFacts['building'];
+    show({ ...FULL, building: holes });
+    const b = column('What we’re building');
+    expect([...b.querySelectorAll('.sb-ov-desc')].map((p) => p.textContent)).toEqual(['Pause a service.']);
+    expect(within(b).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['A visit on today’s route.']);
+  });
+
+  it('What to check: a list that is not a list, or has holes, shows as nothing, never a crash', () => {
+    const view = render(<WhatToCheck check={{ version: null, worksWhen: 'Pause shows.', mustNot: { a: 1 } } as unknown as JobPageFacts['check']} />);
+    expect(screen.getByText(CHECK_NOT_WRITTEN)).toBeInTheDocument();
+    view.unmount();
+    render(<WhatToCheck check={{ version: null, worksWhen: [null, 'Pause shows.'], mustNot: 'Charge.' } as unknown as JobPageFacts['check']} />);
+    expect(screen.getAllByRole('listitem').map((li) => li.textContent)).toEqual(['Pause shows.']);
+    expect(screen.queryByText('It must not')).toBeNull();
   });
 
   it('the website shows the same card', () => {

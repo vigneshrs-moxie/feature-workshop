@@ -8,6 +8,7 @@ import type { Job, JobDetail, JobPageFacts } from '../../api/types';
 import { Icon } from '../../components/Icon';
 import { Fold } from '../../components/page/Page';
 import { ticketOf } from '../NextStep';
+import { textsOf } from '../../lib/lists';
 import { WhatToCheck } from './WhatToCheck';
 import './page.css';
 
@@ -42,9 +43,12 @@ function filedLine(t: Ticket): string {
   return `${t.key} · filed${by ? ` by ${by}` : ''}${on ? ` on ${on}` : ''}`;
 }
 
-/** The description as plain paragraphs (a blank line between them); always text, never HTML. */
+/** The description as plain paragraphs (a blank line between them, with \n or \r\n line ends); always text, never HTML. */
 const paragraphs = (description: string | null | undefined) =>
-  (description ?? '').split(/\n[ \t]*\n/).map((p) => p.replace(/^\n+|\n+$/g, '')).filter((p) => p.trim());
+  (typeof description === 'string' ? description : '').split(/\r?\n[ \t]*\r?\n/).map((p) => p.replace(/^[\r\n]+|[\r\n]+$/g, '')).filter((p) => p.trim());
+
+/** The ticket's address, only when it is a web address (http or https): anything else is no link. */
+const webAddress = (url: string | null): string | null => (url && /^https?:\/\//i.test(url) ? url : null);
 
 /** One of the three parts under its heading: h3 in the card, h2 on the phone's overview screen (under its h1). */
 export function Column({ title, level = 3, children }: { title: string; level?: 2 | 3; children: ReactNode }) {
@@ -61,7 +65,8 @@ export function Column({ title, level = 3, children }: { title: string; level?: 
 export function TheTicket({ ticket }: { ticket: Ticket | null }) {
   if (!ticket) return <p className="sb-ov-empty">{NO_TICKET}</p>;
   const title = text(ticket.title);
-  const url = text(ticket.url);
+  // Not a web address (javascript:, a bare path): no link; the number shows as text above.
+  const url = webAddress(text(ticket.url));
   return (
     <>
       {title && <b className="sb-ov-title">{title}</b>}
@@ -77,8 +82,9 @@ export function TheTicket({ ticket }: { ticket: Ticket | null }) {
 }
 
 export function WhatWereBuilding({ building }: { building: Building }) {
-  const outcome = building?.outcome ?? [];
-  const risks = building?.risks ?? [];
+  // Not a list, or holes in one (an older or half-written answer): nothing, never a crash.
+  const outcome = textsOf(building?.outcome);
+  const risks = textsOf(building?.risks);
   if (!building || (!outcome.length && !risks.length)) return <p className="sb-ov-empty">{BUILDING_NOT_WRITTEN}</p>;
   const version = text(building.version);
   const from = building.from === 'brief' ? 'From the first brief' : version ? `From spec v${version}` : 'From the spec';

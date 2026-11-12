@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { StageAgent, StageView, StopId } from '../../api/types';
 import { lastKnown, remember } from '../../lib/lastKnown';
+import { listOf } from '../../lib/lists';
 import { jobBySlug } from '../../state/reducer';
 import { useWorkshop, useWorkshopState } from '../../state/store';
 
@@ -16,13 +17,7 @@ type Load = { state: 'loading' } | { state: 'error'; message: string } | { state
 export const STAGE_LIVE_MS = 5_000;
 export const STAGE_QUIET_MS = 30_000;
 
-/**
- * A step view's list (its agents, finished, documents): a missing one, one that is not a list (an
- * older laptop, a half-written answer) and any hole in it count as none, never as a crash.
- */
-export function listOf<T extends object>(v: unknown): T[] {
-  return Array.isArray(v) ? v.filter((x): x is T => x !== null && typeof x === 'object') : [];
-}
+// A step view's lists (its agents, finished, documents) are read with listOf (lib/lists.ts).
 
 const live = (view: StageView | null) => Boolean(view) && (view!.state === 'now' || view!.state === 'waiting' || listOf<StageAgent>(view!.agents).some((a) => a.status === 'working' || a.status === 'waiting'));
 
@@ -43,25 +38,23 @@ export function useStage(slug: string, stop: StopId): { view: StageView | null; 
   }
   const [tries, setTries] = useState(0);
 
-  // Each ask is numbered: an answer older than one already taken is dropped (a slow first ask that
-  // lands after a quick second one never puts the older view back).
+  // Each ask is numbered, and only a good answer counts as taken: an answer older than the good one
+  // taken is dropped (a slow first ask that lands after a quick second one never puts the older view
+  // back), and a failure shows only while no newer good answer is in (a newer ask that fails never
+  // throws away an older good answer that lands after it).
   const asked = useRef(0);
   const taken = useRef(0);
   const ask = useCallback((alive: () => boolean) => {
     const mine = ++asked.current;
-    const newest = () => {
-      if (mine < taken.current) return false;
-      taken.current = mine;
-      return true;
-    };
     return api.get<StageView>(path).then(
       (value) => {
-        if (!newest()) return;
+        if (mine < taken.current) return;
+        taken.current = mine;
         remember(api, path, value);
         if (alive()) setHeld((h) => (h.path === path ? { path, load: { state: 'ready', value } } : h));
       },
       (err) => {
-        if (!newest()) return;
+        if (mine < taken.current) return;
         const message = err instanceof Error ? err.message : String(err);
         // A refresh that fails keeps what the step showed.
         if (alive()) setHeld((h) => (h.path === path && h.load.state !== 'ready' ? { path, load: { state: 'error', message } } : h));

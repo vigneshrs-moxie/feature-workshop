@@ -104,16 +104,25 @@ describe('GateCard', () => {
   });
 
   it('has the brief, stage, waiting time, next step and a parked chip (in words)', () => {
-    const { show } = setup();
-    const c = card()!;
-    expect(within(c).getByRole('heading', { level: 3 })).toHaveTextContent('Plan v2 ready');
-    expect(c).toHaveTextContent('Brief 2 · Plan');
-    expect(c).toHaveTextContent('waiting 2h');
-    expect(c).toHaveTextContent('Next, as proposed: Build step 1');
-    expect(within(c).queryByText('parked 4h')).toBeNull();
-    show(detail({ parked: true, usage: 'Claude’s five-hour limit is at 85%: Build may pause part-way.' }));
-    expect(within(card()!).getByText('parked 4h')).toHaveAttribute('title', expect.stringContaining('more than 4 hours'));
-    expect(card()).toHaveTextContent('Claude’s five-hour limit is at 85%');
+    // A fixed midday clock (Date only), so "2 hours ago" is the same day whenever the test runs:
+    // just after midnight it would be yesterday's and read "waiting since yesterday".
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 10, 10, 13, 0));
+    try {
+      const waitingSince = new Date(Date.now() - 2 * 3600_000).toISOString();
+      const { show } = setup({ det: detail({ waitingSince }) });
+      const c = card()!;
+      expect(within(c).getByRole('heading', { level: 3 })).toHaveTextContent('Plan v2 ready');
+      expect(c).toHaveTextContent('Brief 2 · Plan');
+      expect(c).toHaveTextContent('waiting 2h');
+      expect(c).toHaveTextContent('Next, as proposed: Build step 1');
+      expect(within(c).queryByText('parked 4h')).toBeNull();
+      show(detail({ waitingSince, parked: true, usage: 'Claude’s five-hour limit is at 85%: Build may pause part-way.' }));
+      expect(within(card()!).getByText('parked 4h')).toHaveAttribute('title', expect.stringContaining('more than 4 hours'));
+      expect(card()).toHaveTextContent('Claude’s five-hour limit is at 85%');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('picks the recommendation, labelled Recommended; questions are labelled radio groups with Your own answer', () => {

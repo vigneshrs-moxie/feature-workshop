@@ -4,6 +4,8 @@
 // on the laptop and on the website, and with a record from an older laptop (none of the new
 // facts). Invented jobs, commits and reviews only; no model, browser or network.
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../../api/client';
@@ -14,10 +16,12 @@ import { job, SCREENS_ORIGIN, snapshot } from '../../state/test-fixtures';
 import { flow, view as reviewView } from '../../views/Review/test-fixtures';
 import { clearWireframes } from '../../panes/Preview/wireframes';
 import { BuildStep, PlanStep, PlanSteps } from './BuildStep';
+import { CommitChanges } from './CommitChanges';
 import { ReviewStep } from './ReviewStep';
 import { ShipStep } from './ShipStep';
 import { SpecStep } from './SpecStep';
-import { autoLineWords } from './stepAuto';
+import { Icon, ICON_NAMES } from '../../components/Icon';
+import { autoLineWords, autoStoppedNow } from './stepAuto';
 
 const SLUG = 'pause-a-recurring-service';
 const BRANCH = 'feature/orbit-900-pause-service';
@@ -66,15 +70,16 @@ interface Setup {
   auto?: { entries: AutoDecision[] } | Error | null;
   commits?: unknown;
   review?: ReturnType<typeof reviewView> | null;
+  change?: unknown;
 }
 
-function setup(ui: (j: Job) => ReactNode, { hosted = false, jobExtra = {}, slug = SLUG, auto = null, commits = COMMITS, review = null }: Setup = {}) {
+function setup(ui: (j: Job) => ReactNode, { hosted = false, jobExtra = {}, slug = SLUG, auto = null, commits = COMMITS, review = null, change = CHANGE }: Setup = {}) {
   const j = job(slug, 'running', { stage: 'implement', ...jobExtra });
   const store = createStore();
   store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [j], meta: { token: 't', wireframesOrigin: SCREENS_ORIGIN } as never }) });
   const get = vi.fn(async (path: string): Promise<unknown> => {
     if (path.endsWith('/commits')) return commits;
-    if (/\/commit\//.test(path)) return CHANGE;
+    if (/\/commit\//.test(path)) return change;
     if (path.endsWith('/auto')) {
       if (auto instanceof Error) throw auto;
       return auto ? { on: true, stopped: null, tag: null, summary: ['', '', ''], ...auto } : null;
@@ -206,6 +211,22 @@ describe('Plan and Build', () => {
     expect(within(first).getByText('src/routes/buildRoute.test.ts')).toHaveAttribute('title', 'src/routes/buildRoute.test.ts');
   });
 
+  it('a change whose files or lines are not lists, or have holes, shows what it can, never a crash', async () => {
+    const change = {
+      files: 'not a list',
+      patchFiles: [null, { path: 'src/a.ts', lines: 'not a list' }, { path: 'src/b.ts', lines: ['@@ -1 +1 @@', null, 5, '+new'] }],
+      truncated: false,
+    };
+    setup(() => <CommitChanges slug={SLUG} sha={'b'.repeat(40)} />, { change });
+    expect(await screen.findByText('src/a.ts')).toBeInTheDocument();
+    expect(screen.getByText('src/b.ts')).toBeInTheDocument();
+    expect(screen.getByText('+new')).toHaveClass('is-add');
+    expect(screen.queryByRole('alert')).toBeNull();
+    cleanup();
+    setup(() => <CommitChanges slug={SLUG} sha={'b'.repeat(40)} />, { change: { files: null, patchFiles: { 0: 'x' }, truncated: false } });
+    expect(await screen.findByText('No file changes in this commit.')).toBeInTheDocument();
+  });
+
   it('a commit with many files lists the first 50, then how many more', async () => {
     const file = (i: number) => ({ path: `src/gen/file${i}.ts`, added: 1, removed: 0, isNew: true });
     const many = (n: number, short: string) => ({ sha: short.padEnd(40, '0'), short, author: 'Ann', date: ago(5), subject: `Generate ${n} files`, step: null, files: Array.from({ length: n }, (_, i) => file(i)) });
@@ -280,6 +301,21 @@ describe('Review', () => {
     setup((j) => <ReviewStep slug={SLUG} job={j} view={stage('review')} />);
     expect(screen.queryByText(/finding/i)).toBeNull();
     expect(screen.queryByRole('heading', { name: 'The reviewers and what they found' })).toBeNull();
+  });
+
+  it('the Review step’s heading is drawn as the other steps’ section headings are', () => {
+    setup((j) => <BuildStep slug={SLUG} job={j} view={stage('build', { plan: PLAN_V2 })} />, { hosted: true });
+    const build = screen.getByRole('heading', { name: 'The plan’s steps · Plan v2' });
+    const buildClass = build.className;
+    cleanup();
+    setup((j) => <ReviewStep slug={SLUG} job={j} view={stage('review', { review: REVIEWERS })} />);
+    const review = screen.getByRole('heading', { name: 'The reviewers and what they found' });
+    expect(review.tagName).toBe(build.tagName);
+    expect(review.className).toBe(buildClass);
+    // The open step's own headings (Who worked on it, Documents from this step) are larger: inside
+    // the panel these section headings keep the eyebrow's size, as on the overview.
+    const css = readFileSync(path.join(process.cwd(), 'src/job/page/page.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(css).toMatch(/\.sb-panel h3\.eyebrow \{[^}]*font-size: var\(--text-2xs\)/);
   });
 
   it('the review walkthrough folds under Review only when there is one', () => {
@@ -453,6 +489,45 @@ describe('Auto', () => {
     s = setup((j) => <PlanStep slug={SLUG} job={j} view={planView} />, { auto: { entries: [atShip, ...ENTRIES] }, jobExtra: STOPPED });
     await read(s.get);
     expect(screen.queryByText(/Auto stopped here/)).toBeNull();
+  });
+
+  it('Auto is stopped now only while Auto is on: a stop left on a job with Auto off says nothing', async () => {
+    const stoppedOff = { auto: { ...STOPPED.auto, on: false } };
+    expect(autoStoppedNow(STOPPED as Pick<Job, 'auto'>)).toBe(true);
+    expect(autoStoppedNow(stoppedOff as Pick<Job, 'auto'>)).toBe(false);
+    expect(autoStoppedNow({ auto: { ran: true, stopped: { reason: 'x', at: ago(1) } } } as unknown as Pick<Job, 'auto'>)).toBe(false);
+    for (const hosted of [false, true]) {
+      const s = setup((j) => <PlanStep slug={SLUG} job={j} view={planView} />, { auto: { entries: ENTRIES }, jobExtra: stoppedOff, hosted });
+      await read(s.get);
+      expect(screen.queryByText(/Auto stopped here/)).toBeNull();
+      cleanup();
+      // Ship: no stop line either, and no "Auto stops" rule while Auto is off.
+      const ship = setup((j) => <ShipStep slug={SLUG} job={j} view={stage('ship', { prs: PRS })} />, { auto: { entries: [atShip, ...ENTRIES] }, jobExtra: stoppedOff, hosted });
+      await read(ship.get);
+      expect(screen.queryByText(/^Auto /)).toBeNull();
+      cleanup();
+    }
+  });
+
+  it('the Auto line’s icons: bot where Auto approved or answered, octagon-pause where it stopped', async () => {
+    const svgOf = (name: Parameters<typeof Icon>[0]['name']) => render(<Icon name={name} />).container.querySelector('svg')!.innerHTML;
+    expect(ICON_NAMES).toContain('octagon-pause');
+    const bot = svgOf('bot');
+    const pause = svgOf('octagon-pause');
+    cleanup();
+    expect(autoLineWords(ENTRIES, 'spec')?.icon).toBe('bot');
+    expect(autoLineWords(ENTRIES.filter((e) => e.kind !== 'answer'), 'spec')?.icon).toBe('bot');
+    expect(autoLineWords(ENTRIES.filter((e) => e.kind !== 'approve'), 'spec')?.icon).toBe('bot');
+    expect(autoLineWords(ENTRIES, 'plan', null, true)?.icon).toBe('octagon-pause');
+    // As drawn in the step.
+    setup((j) => <SpecStep slug={SLUG} job={j} view={specView} />, { auto: { entries: ENTRIES }, jobExtra: AUTO });
+    expect((await screen.findByText(SPEC_LINE)).closest('.sb-auto-line')!.querySelector('svg')!.innerHTML).toBe(bot);
+    cleanup();
+    setup((j) => <PlanStep slug={SLUG} job={j} view={planView} />, { auto: { entries: ENTRIES }, jobExtra: STOPPED });
+    expect((await screen.findByText(STOP_LINE)).closest('.sb-auto-line')!.querySelector('svg')!.innerHTML).toBe(pause);
+    cleanup();
+    setup((j) => <ShipStep slug={SLUG} job={j} view={stage('ship', { prs: PRS })} />, { auto: { entries: [atShip, ...ENTRIES] }, jobExtra: STOPPED });
+    expect((await screen.findByText('Auto stopped here: the pull request needs your go-ahead.')).closest('.sb-auto-line')!.querySelector('svg')!.innerHTML).toBe(pause);
   });
 
   it('the Auto line’s words: several answers, a reason’s own ending, and approved it when the version isn’t known', async () => {
