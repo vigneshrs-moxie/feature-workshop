@@ -222,6 +222,23 @@ describe('JobTop', () => {
     expect(head.querySelector('.level-chip, [class*="level"]')).not.toBeNull();
   });
 
+  it('the job’s cost is a fact once it is over 10 cents, with the old facts line’s title', () => {
+    for (const hosted of [false, true]) {
+      setup({ j: job('alpha', 'idle', { stage: 'plan', level: 1, cost: { totalUsd: 1.234, source: 'records' } }), hosted });
+      expect(within(top()).getByText('$1.23')).toHaveAttribute('title', 'What this job has cost so far.');
+      cleanup();
+      setup({ j: job('alpha', 'idle', { stage: 'plan', level: 1, cost: { totalUsd: 0.5, source: 'estimate' } }), hosted });
+      expect(within(top()).getByText('$0.50')).toHaveAttribute('title', 'What this job has cost so far (an estimate from its sessions’ token counts).');
+      cleanup();
+      // 10 cents or less, no cost records yet, or no cost known: nothing.
+      for (const cost of [{ totalUsd: 0.1 }, { totalUsd: 3, source: 'none' }, null, undefined]) {
+        setup({ j: job('alpha', 'idle', { stage: 'plan', level: 1, cost }), hosted });
+        expect(top()).not.toHaveTextContent('$');
+        cleanup();
+      }
+    }
+  });
+
   // ---- A branch Starbase only guessed (dashboard/lib/locate.js branchGuessed): BranchGuess in the header ----
 
   const GUESSED = 'feature/orbit-470-talent-hide-before-hire';
