@@ -190,3 +190,23 @@ test('the feed and the command go up once: the cost part has none of them', () =
   assert.equal('lastCommand' in cost, false);
   assert.equal(cost.doing, 'Run the checks', 'the rest of the entry still goes up');
 });
+
+// ---------- Fix round 3: the website's copy of a permission card is scrubbed before its cut ----------
+
+test('a permission card goes up scrubbed first and cut second: a secret across the 4,000 cut is hidden', () => {
+  const token = `ghp_${'Q7w8'.repeat(9)}`;
+  const command = `${'x'.repeat(3989)} ${token} done`;
+  const laptop = { id: 'p1', slug: 'x', kind: 'permission', toolName: 'Bash', input: { command }, plain: { headline: 'Run a command in the terminal', preview: `${command.slice(0, 4000)}…`, previewCut: 4000, risk: 'normal' } };
+  const card = permissionCard(laptop);
+  assert.equal(card.plain.preview.includes('ghp_'), false, card.plain.preview.slice(-40));
+  assert.equal(card.plain.preview.includes('Q7w8'), false);
+  assert.ok(card.plain.preview.length <= 4001);
+  assert.equal(card.plain.previewCut, 4000);
+  assert.equal(laptop.plain.preview.includes('ghp_Q7w8Q'), true, 'the laptop’s own card is untouched');
+  const sent = makeEvent('record', { kind: 'board', key: 'board', value: { permissions: [card] } });
+  assert.equal(JSON.stringify(sent.event.data).includes('Q7w8'), false);
+  // A short command goes up whole (scrubbed), with no cut.
+  const short = permissionCard({ ...laptop, input: { command: 'tool --password hunter2-long-value run' }, plain: { preview: 'tool --password hunter2-long-value run', previewCut: null } });
+  assert.equal(short.plain.preview, 'tool --password [hidden] run');
+  assert.equal(short.plain.previewCut, null);
+});

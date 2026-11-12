@@ -886,7 +886,7 @@ test('the scrub stays fast on 200 KB of the inputs that made its patterns rescan
   const N = 200_000;
   const rep = (s) => s.repeat(Math.ceil(N / s.length)).slice(0, N);
   // a-a-a…: the address rule; sk-sk-…: the OpenAI key; -eyJ… and eyJaaaaa.…: the JWT; _KEY_KEY…: NAME=value.
-  for (const [what, text] of [['address', rep('a-')], ['address (dots)', rep('a.')], ['OpenAI key', rep('sk-')], ['JWT', rep('-eyJ')], ['JWT (dots)', rep('eyJaaaaa.')], ['NAME=value', `-${rep('_KEY')}`]]) {
+  for (const [what, text] of [['address', rep('a-')], ['address (dots)', rep('a.')], ['OpenAI key', rep('sk-')], ['JWT', rep('-eyJ')], ['JWT (dots)', rep('eyJaaaaa.')], ['NAME=value', `-${rep('_KEY')}`], ['--user', ` --user${rep('=')}`]]) {
     const started = performance.now();
     scrub(text);
     const ms = performance.now() - started;
@@ -899,4 +899,35 @@ test('a JWT is hidden by every scrub, not only a command line’s', () => {
   assert.equal(scrub(`the brief says ${jwt} works`), 'the brief says [JWT hidden] works');
   assert.deepEqual(scrubDeep({ card: { input: { command: `curl -H "X-Session: ${jwt}" https://x` } } }), { card: { input: { command: 'curl -H "X-Session: [JWT hidden]" https://x' } } });
   assert.equal(scrub('version 1.2.3 and eyJustAWord.no.dots'), 'version 1.2.3 and eyJustAWord.no.dots', 'not a token');
+});
+
+// ---------- Fix round 3: what the base hid stays hidden, with any character in front ----------
+
+test('a secret with a dash, a dot or a plus in front of it is still hidden', () => {
+  const key = (s, n) => s.repeat(Math.ceil(n / s.length)).slice(0, n);
+  const jwt = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkFsaWNlIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
+  const proj = `sk-proj-${key('Z9y8X7w6', 48)}`;
+  // [input, the secret part that must not show]
+  const cases = [
+    ['-https://alice:s3cret@host/x', 's3cret'],
+    ['.https://alice:s3cret@host/x', 's3cret'],
+    ['1.https://alice:s3cret@host/x', 's3cret'],
+    ['+postgres://alice:s3cret@db/app', 's3cret'],
+    ['--postgres://alice:s3cret@db/app', 's3cret'],
+    [`x-${proj}`, 'Z9y8X7w6Z9y8'],
+    [`-${proj}`, 'Z9y8X7w6Z9y8'],
+    ['task-sk-something-long-1234567890abcdef', 'something-long-1234567890'],
+    [`-${jwt}`, 'SflKxwRJSMeKKF2QT4fwpMeJf36'],
+    [`x-${jwt}`, 'SflKxwRJSMeKKF2QT4fwpMeJf36'],
+    // What the earlier rounds already hid.
+    ['https://alice:s3cret@host/x', 's3cret'],
+    [proj, 'Z9y8X7w6Z9y8'],
+    [`token ${jwt}`, 'SflKxwRJSMeKKF2QT4fwpMeJf36'],
+    [`ghp_${key('Q7w8E9r0', 36)}`, 'Q7w8E9r0Q7w8'],
+    ['curl -u admin:hunter2pass https://x', 'hunter2pass'],
+    ['curl --user=admin:hunter2pass https://x', 'hunter2pass'],
+    ['mysql --password=Sup3rSecret app', 'Sup3rSecret'],
+    ['API_KEY=Zx9Yw8Vu7Ts6Rq5', 'Zx9Yw8Vu7Ts6Rq5'],
+  ];
+  for (const [input, secret] of cases) assert.equal(scrub(input).includes(secret), false, `${input} → ${scrub(input)}`);
 });

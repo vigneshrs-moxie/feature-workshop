@@ -9,7 +9,6 @@
 
 import path from 'node:path';
 import { renderMarkdown } from './markdown.js';
-import { scrub } from './orbit.js';
 
 // The first n characters, then "…" when there was more.
 const cut = (s, n) => {
@@ -63,8 +62,7 @@ export function describePermission(toolName, input = {}, opts = {}) {
     case 'Bash':
       headline = 'Run a command in the terminal';
       detail = input.description ? String(input.description) : null;
-      // Scrubbed before it is cut, so a token cut at 4,000 can't slip under the scrub's shapes (the card goes up to the website).
-      preview = shown(scrub(String(input.command ?? '')), 4000);
+      preview = shown(input.command, 4000);
       if (/\b(rm\s+-rf|git\s+push|git\s+reset\s+--hard|npm\s+publish|curl|wget|sudo|chmod|drop\s+table)\b/i.test(input.command ?? '')) risk = 'high';
       break;
     case 'Edit':

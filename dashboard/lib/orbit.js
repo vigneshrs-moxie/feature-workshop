@@ -162,13 +162,14 @@ export const SECRET_PATTERNS = [
   { name: 'AWS key', re: /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g },
   { name: 'Slack token', re: /\bxox[abprs]-[A-Za-z0-9-]{10,}/g },
   { name: 'Stripe key', re: /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{10,}/g },
-  // sk-…, sk-proj-…: key length, with a digit (not a word like sk-learn-…). It starts only where no key
-  // character is before it, so a long run (sk-sk-sk-…) is read once, not again from every sk-.
-  { name: 'OpenAI key', re: /(?<![A-Za-z0-9_-])sk-(?!ant-)(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]{20,}/g },
+  // sk-…, sk-proj-…: key length, with a digit in its first 200 characters (not a word like sk-learn-…).
+  // The digit is looked for 200 characters at most, so a long run (sk-sk-sk-…) stays quick.
+  { name: 'OpenAI key', re: /\bsk-(?!ant-)(?=[A-Za-z0-9_-]{0,200}\d)[A-Za-z0-9_-]{20,}/g },
   // The header, its body (base64, spaces, and \n as JSON or a shell writes it) and the end line when there.
   { name: 'Private key', re: /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----(?:[A-Za-z0-9+/=\s]|\\[nr])*(?:-----END [A-Z0-9 ]*PRIVATE KEY-----)?/g },
-  // A JWT: three base64url parts, the first starting eyJ (also where no token character is before it).
-  { name: 'JWT', re: /(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}/g },
+  // A JWT: three base64url parts, the first starting eyJ. Its first part (the header) is read
+  // 500 characters at most (a header is far shorter), so a long run (-eyJ-eyJ…) stays quick.
+  { name: 'JWT', re: /\beyJ[A-Za-z0-9_-]{5,500}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}/g },
 ];
 // Secrets by where they sit on a command line: group 1 (the flag, header or address before it) is
 // kept and the value becomes [hidden]. A value already hidden ([…]) is left as it is. No value
@@ -180,10 +181,11 @@ const SECRET_PLACES = [
   new RegExp(String.raw`(\bAuthorization:\s*(?:(?:Bearer|Basic|token|Digest)\s+)?)(?!\[|(?:Bearer|Basic|token|Digest)\b)([^\s"'\\]+)`, 'gi'),
   /(\bBearer\s+)(?!\[)(?=[A-Za-z0-9._~+/=-]*\d)([A-Za-z0-9._~+/=-]{8,})/g,
   // curl -u user:pass, --user user:pass (a name alone, which curl asks the password for, is left).
-  /((?:^|[\s"'])(?:-u\s*|--user[\s=]+))(?!\[)([^\s"'\\:]+:[^\s"'\\]+)/g,
-  // A name and password inside an address, any scheme: scheme://[hidden]@host. The scheme starts only
-  // where none of its own characters is before it, so a long run (a-a-a-…) is read once.
-  /((?<![A-Za-z0-9+.-])[A-Za-z][A-Za-z0-9+.-]*:\/\/)(?!\[)([^\s/@"'\\:]+:[^\s/@"'\\]*)(?=@)/g,
+  /((?:^|[\s"'])(?:-u\s*|--user(?:=|\s+)))(?!\[)([^\s"'\\:]+:[^\s"'\\]+)/g,
+  // A name and password inside an address, any scheme: scheme://[hidden]@host. The kept part is the
+  // whole run of scheme characters before ://, from where none is before it (-https://, 1.https:// too),
+  // so a long run (a-a-a-…) is read once.
+  /((?<![A-Za-z0-9+.-])[A-Za-z0-9+.-]+:\/\/)(?!\[)([^\s/@"'\\:]+:[^\s/@"'\\]*)(?=@)/g,
   // --password SECRET, --password=SECRET, and --passwd, --token, --api-key, --secret, --client-secret alike (never a next flag).
   new RegExp(String.raw`((?:^|[\s"'])--(?:password|passwd|token|api[-_]?key|secret|client[-_]secret)(?:=|\s+))(?!-)${QUOTED_OR_BARE}`, 'gi'),
   // mysql -pSECRET: the attached form, only on a mysql-family command (psql -p 5432, ssh -p 22 and mkdir -p are ports and flags).
