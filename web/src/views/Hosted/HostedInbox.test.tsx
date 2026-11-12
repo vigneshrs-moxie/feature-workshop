@@ -29,7 +29,7 @@ const ticket = (n: number, extra: Partial<InboxItem> = {}): InboxItem => ({
 const REPOS = [{ name: 'orbit', default: true }, { name: 'starbase', default: false }];
 const lap = (id: number, name: string, online: boolean): Laptop => ({ id, name, os: 'macOS', version: '0.1.0', pairedAt: ago(86_400_000 * 5), lastSeenAt: ago(online ? 5_000 : 3_600_000), online });
 
-interface Site { suggest?: InboxSuggestion | null; status: OrbitStatus; items: InboxItem[]; filter?: InboxFilter; laptops: Laptop[]; repos?: { name: string; default: boolean }[]; calls: { method: string; path: string; body?: Record<string, unknown> }[]; startFails?: string; /** What the laptop's settings (mirrored) say about Auto start. */ autoStart?: { on: boolean; tag: string; max?: number }; /** What the laptop mirrors after an Auto start change: what was sent (default), nothing yet (false), or something else. */ autoTakes?: false | { on: boolean; tag: string }; /** Start answers only once this settles. */ hold?: Promise<void>; /** The next Auto start command answers only once this settles (taken once). */ autoHold?: Promise<void>; /** The Auto queue in the laptop's snapshot; missing: an older laptop's snapshot, with none. */ queue?: AutoQueue }
+interface Site { suggest?: InboxSuggestion | null; status: OrbitStatus; items: InboxItem[]; filter?: InboxFilter; laptops: Laptop[]; repos?: { name: string; default: boolean }[]; calls: { method: string; path: string; body?: Record<string, unknown> }[]; startFails?: string; /** What the laptop's settings (mirrored) say about Auto start. */ autoStart?: { on: boolean; tag: string; max?: number }; /** What the laptop mirrors after an Auto start change: what was sent (default), nothing yet (false), or something else. */ autoTakes?: false | { on: boolean; tag: string }; /** Start answers only once this settles. */ hold?: Promise<void>; /** The next Auto start command answers only once this settles (taken once). */ autoHold?: Promise<void>; /** The Auto queue in the laptop's snapshot; missing: an older laptop's snapshot, with none. */ queue?: AutoQueue; /** Each snapshot read takes the next of these and answers only once it settles. */ snapshotHolds?: Promise<void>[] }
 
 function site(over: Partial<Site> = {}) {
   const s: Site = { status: STATUS, items: [ticket(12), ticket(13, { severity: 'low' })], laptops: [lap(7, 'Olive’s Mac', true)], calls: [], ...over };
@@ -42,7 +42,13 @@ function site(over: Partial<Site> = {}) {
     s.calls.push({ method, path, body });
     if (path === '/api/meta') return json(200, { mode: 'hosted', person: OLIVE, signIn: '/api/auth/start', missing: [] });
     if (path === '/api/orbit/inbox' || path === '/api/orbit/inbox?refresh=1') return json(200, answer());
-    if (path === '/api/snapshot') return json(200, { meta: { settings: { workflow: { finishLine: 'pr1-merged', ...(s.autoStart ? { autoStart: s.autoStart } : {}) } } }, ...(s.queue ? { autoQueue: s.queue } : {}) });
+    if (path === '/api/snapshot') {
+      // What the laptop has when it is asked; held reads answer later with it, in the order the test lets them go.
+      const body = { meta: { settings: { workflow: { finishLine: 'pr1-merged', ...(s.autoStart ? { autoStart: s.autoStart } : {}) } } }, ...(s.queue ? { autoQueue: s.queue } : {}) };
+      const hold = s.snapshotHolds?.shift();
+      if (hold) await hold;
+      return json(200, body);
+    }
     if (path === '/api/orbit/auto-start' && method === 'POST') {
       const held = s.autoHold;
       if (held) { s.autoHold = undefined; await held; }
@@ -536,11 +542,18 @@ describe('Up to N jobs at a time on the website', () => {
       fireEvent.click(within(group).getByRole('button', { name: 'One more' }));
       await waitFor(() => expect(autoCalls(s).map((c) => c.body?.max)).toEqual([4]));
       await within(group).findByText('Sent to your laptop. It takes effect there.');
-      // The laptop takes 4 and mirrors it; he presses + again before the page's next look.
-      s.autoStart = { on: true, tag: 'auto', max: 4 };
+      // He presses + again while the page still waits for 4, and the second step is answered.
       fireEvent.click(within(group).getByRole('button', { name: 'One more' }));
       await waitFor(() => expect(autoCalls(s).map((c) => c.body?.max)).toEqual([4, 5]));
-      // The look after the send reads 4: an earlier step on its way, so the page keeps waiting.
+      // The page has its answer and waits for 5: its look after that send has asked the laptop.
+      const second = s.calls.map((c) => c.path).lastIndexOf('/api/orbit/auto-start');
+      await waitFor(() => expect(s.calls.slice(second + 1).some((c) => c.path === '/api/snapshot')).toBe(true));
+      // Only now does the laptop show the first step (4). Before, the laptop's value changed before the
+      // second press, so a look of the first wait (the one right after the send, or the 3 second one
+      // when the run was slow) could read 4, end that wait and race the second press's answer
+      // (task 19 fix round 1, item 7).
+      s.autoStart = { on: true, tag: 'auto', max: 4 };
+      // The next look reads 4: an earlier step on its way, so the page keeps waiting.
       await act(async () => { vi.advanceTimersByTime(3_100); });
       expect(within(group).queryByText('Your laptop did not take this change.')).toBeNull();
       expect(within(group).getByText('Sent to your laptop. It takes effect there.')).toBeInTheDocument();
@@ -766,6 +779,24 @@ describe('the Auto queue on the website', () => {
       fireEvent.click(screen.getByRole('tab', { name: 'Auto' }));
       expect(within(screen.getByRole('region', { name: 'Auto is working on these' })).getByRole('link', { name: 'Sample ticket 12' })).toHaveAttribute('href', '#/job/orbit-12-x');
     } finally { vi.useRealTimers(); }
+  });
+
+  // Fix round 1 (M4): reads that answer out of order. Only the newest read counts.
+  it('two snapshot reads that answer out of order: the older never undoes the newer', async () => {
+    let first = () => {};
+    const { s, api } = site({ items, queue: queue([at('ORBIT-12', 'next')]), snapshotHolds: [new Promise<void>((r) => { first = r; })] });
+    const reads: Promise<unknown>[] = [];
+    const tracked = { ...api, get: <T,>(path: string) => { const p = api.get<T>(path); if (path === '/api/snapshot') reads.push(p); return p; } } as typeof api;
+    render(<HostedApp api={tracked} />);
+    await screen.findAllByRole('table');
+    await waitFor(() => expect(reads).toHaveLength(1));
+    // The read on open is held, with ORBIT-12 next. Auto starts it; Read now reads again, and that answer comes first.
+    s.queue = queue([at('ORBIT-12', 'working', { slug: 'orbit-12-x' })]);
+    fireEvent.click(screen.getByRole('button', { name: 'Read now' }));
+    expect(await within(row('ORBIT-12')).findByText('Auto is working on this')).toBeInTheDocument();
+    // Then the older answer lands, and everything after it has run: it is dropped.
+    await act(async () => { first(); await reads[0]; await new Promise((r) => { setTimeout(r, 0); }); });
+    expect(within(row('ORBIT-12')).getByText('Auto is working on this')).toBeInTheDocument();
   });
 
   it('Read now, and the page coming back into view, read the queue again', async () => {

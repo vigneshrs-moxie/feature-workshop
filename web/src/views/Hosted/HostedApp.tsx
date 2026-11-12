@@ -1,8 +1,7 @@
 // The hosted site (packet 2A): the same web app, in hosted mode. It knows you by the site's session
 // cookie (the API client in hosted mode), not by a page token, and has its own few screens:
 //   signed out           Sign in with Google (SignInPage), saying why a refused sign-in was refused
-//   Jobs                 my jobs from the mirror, by laptop (HostedJobsPage), with Yours and Auto
-//                        from the store once the laptop's snapshot carries its Auto queue
+//   Jobs                 my jobs from the mirror, by laptop (HostedJobsPage)
 //   Pair this laptop     the code `starbase login` printed (PairPage)
 //   Inbox                your Orbit tickets, from the inbox the site keeps (HostedInboxPage)
 //   Telemetry            the shared account's limit, and your own jobs' graphs (packet 2E:
@@ -13,7 +12,7 @@
 //                        the laptop app's own pages, from the full mirror (packet 2B: HostedWorkshop)
 //   everything else      a calm "open this on your laptop for now" page (LaterPage), never an error
 // A 401 from any of them (the session ended) brings the sign-in page back.
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { createApi, type ApiClient } from '../../api/client';
 import { BRAND, pageTitle } from '../../app/brand';
 import { BrandMark } from '../../app/BrandMark';
@@ -32,7 +31,6 @@ import { PeoplePage } from './PeoplePage';
 import { SignInPage } from './SignInPage';
 import { HostedWorkshop, useHostedWorkshop } from './HostedWorkshop';
 import { LoungePage } from '../Lounge/LoungePage';
-import { WorkshopContext } from '../../state/store';
 import { useHostedRoute, type HostedRoute } from './route';
 import type { HostedMeta, HostedPerson } from './types';
 import { words, type HostedProps } from './shared';
@@ -112,13 +110,10 @@ export function HostedApp({ api: given }: { api?: ApiClient }) {
   useEffect(() => { void refresh(); }, [refresh]);
 
   const person = load.state === 'ready' ? load.meta.person : null;
-  // The laptop app's store and its live stream start with the first of its pages you open, or Jobs
-  // (its Yours and Auto tabs come from the store), then stay. Jobs never waits for it.
+  // The laptop app's store and its live stream start with the first of its pages you open, then stay.
   const [mirrorOn, setMirrorOn] = useState(false);
-  const wantsStore = route.name === 'mirror' || route.name === 'jobs';
-  useEffect(() => { if (wantsStore) setMirrorOn(true); }, [wantsStore]);
-  const store = useHostedWorkshop(api, Boolean(person) && (mirrorOn || wantsStore));
-  const workshop = useMemo(() => (store ? { api, store } : null), [api, store]);
+  useEffect(() => { if (route.name === 'mirror') setMirrorOn(true); }, [route.name]);
+  const store = useHostedWorkshop(api, Boolean(person) && (mirrorOn || route.name === 'mirror'));
   useEffect(() => { document.title = pageTitle(person ? nameOf(route) : 'Sign in'); }, [route, person]);
   // Signed in, the sign-in page has nothing to say: go to Jobs.
   useEffect(() => { if (person && route.name === 'sign-in') window.location.hash = '#/'; }, [person, route.name]);
@@ -153,8 +148,7 @@ export function HostedApp({ api: given }: { api?: ApiClient }) {
             : route.name === 'lounge' ? <LoungePage {...props} />
           : route.name === 'later' ? <LaterPage page={route.page} />
             : route.name === 'mirror' ? <HostedWorkshop api={api} store={store} route={route.route} />
-            // Inside the mirror pages' store (null until it is made): the page shows its list without it.
-            : <WorkshopContext.Provider value={workshop}><HostedJobsPage {...props} /></WorkshopContext.Provider>;
+            : <HostedJobsPage {...props} />;
   }
   return (
     <div className="app hosted-app" data-mode="hosted">

@@ -94,7 +94,8 @@ export function AutoJobs({ jobs, queue, now, play, stacks, onPeek, peeked = null
             <ul className="sb-auto-rows">
               {need.map((j) => {
                 const big = j.auto?.tooBig ?? null;
-                const why = big ? big.reason : stopReason(j);
+                // The reason trimmed; one that is only spaces is none.
+                const why = big ? tooBigTitle(big.reason) ?? null : stopReason(j);
                 return (
                   <Row key={j.slug} job={j} onPeek={onPeek} peeked={peeked === j.slug}>
                     {big && <Chip tone="warn" icon="layers" className="sb-auto-big" title={tooBigTitle(big.reason)}>{TOO_BIG}</Chip>}

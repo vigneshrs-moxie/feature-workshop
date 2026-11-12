@@ -775,3 +775,14 @@ describe.each(['laptop', 'hosted'] as const)('the Inbox’s Auto tab (%s)', (mod
   });
 });
 
+
+// Task 19 fix round 1 (M4): a paused value this build has no words for reads as not paused. Before
+// Task 19 the line was empty then; now it is the Auto start line.
+describe('Auto start on the Inbox: a paused value with no words', () => {
+  it('shows the Auto start line, never an empty line', async () => {
+    const { wrap } = setup({ answer: { ...STATUS, autoStart: { on: true, tag: 'auto', paused: 'disk' as never }, items: [item(1, { tags: ['auto'] })] } });
+    wrap(<InboxView openStream={() => null} />);
+    expect(await screen.findByText('Auto start is on: tickets tagged "auto" start by themselves, up to 5 at a time.')).toBeInTheDocument();
+    expect(screen.queryByText(/Auto start is paused/)).toBeNull();
+  });
+});

@@ -120,3 +120,16 @@ describe('Jobs: the Auto tab, a set-aside job with no reason', () => {
     }
   });
 });
+
+// Task 19 fix round 1: the Too big for Auto reason in the row's text is trimmed, and one that is only spaces is none.
+describe('Jobs: the Auto tab, a set-aside job\'s reason in the row', () => {
+  it.each([['the laptop app', false], ['the website', true]] as const)('is trimmed, and only spaces show no reason (%s)', (_where, hosted) => {
+    const aside = (reason: string) => job('t1', 'idle', { title: 'Payroll export', stage: 'spec', lane: 'needs-you', auto: { on: false, ran: true, tooBig: { at: '2026-11-12T09:00:00Z', reason }, group: 'needs-you' } });
+    setup({ jobs: [aside('  It touches billing.  ')], hosted });
+    expect(group('Needs you, 1').querySelector('.sb-auto-reason')?.textContent).toBe('It touches billing.');
+    cleanup();
+    setup({ jobs: [aside('   ')], hosted });
+    expect(within(group('Needs you, 1')).getByText('Too big for Auto')).toBeInTheDocument();
+    expect(group('Needs you, 1').querySelector('.sb-auto-reason')).toBeNull();
+  });
+});
