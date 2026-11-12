@@ -2661,7 +2661,7 @@ test('m3: a stop and a finish each say a place is free (once), so Auto start can
   }
 });
 
-test('F5: a reply that ends asks Auto start to fill the place it held', { timeout: 30_000 }, async () => {
+test('F5: a reply that ends asks Auto start to look again', { timeout: 30_000 }, async () => {
   const w = await world({ auto: null, jobStatus: status(1, { stage_state: 'working', waiting_for: null }) });
   try {
     let asked = 0;

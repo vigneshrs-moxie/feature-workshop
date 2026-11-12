@@ -187,12 +187,18 @@ test('a job he switches to Auto by hand counts as a place, and the switch is nev
       const rec = sessions[path.join(dirs['feature-work'], slug)]?.auto;
       assert.deepEqual({ on: rec?.on, stopped: rec?.stopped ?? null, began: rec?.began }, { on: true, stopped: null, began: 'you' }, slug);
     }
+    // The positive control: with a third place the same save's pass does try the ticket (it fails here, no repository is
+    // registered). So the passes above ran, and held it back for the places alone.
+    assert.equal((await write('POST', '/api/settings', { workflow: { autoStart: { on: true, tag: 'auto', max: 3 } } })).status, 200);
+    const tried = await until(async () => { const m = await memoryOf(dirs); return m?.failed?.length ? m : null; }, 'the ticket to be tried');
+    assert.deepEqual(tried.failed.map((e) => e.key), ['ORBIT-1']);
   });
 });
 
 test('removing the tag holds back only a ticket not started', { timeout: 90_000 }, async () => {
   let tagged = true;
-  await withDashboard(() => [row(1, tagged ? ['auto'] : []), row(2, tagged ? ['auto'] : [])], async ({ d, dirs, write, inbox, until }) => {
+  let back = false; // the positive control at the end puts the tag back on ORBIT-2
+  await withDashboard(() => [row(1, tagged ? ['auto'] : []), row(2, tagged || back ? ['auto'] : [])], async ({ d, dirs, write, inbox, until }) => {
     const repo = path.join(dirs.home, 'widgets');
     await fs.mkdir(repo);
     const git = (...a) => execFileSync('git', ['-C', repo, ...a], { stdio: 'pipe' });
@@ -224,6 +230,15 @@ test('removing the tag holds back only a ticket not started', { timeout: 90_000 
     const rec = Object.entries(await sessionsOf(dirs)).find(([dir]) => path.basename(dir) === slug)?.[1]?.auto;
     assert.equal(rec?.began, 'tag');
     assert.equal(rec?.on, true, `still in Auto: ${JSON.stringify(rec)}`);
+    // The positive control: the tag back on ORBIT-2, and the same save starts it. So the pass above ran, and held it back for its tag alone.
+    back = true;
+    await until(async () => {
+      const b = await (await fetch(`${d.base}/api/orbit/inbox?refresh=1`)).json();
+      return b.items?.find((i) => i.key === 'ORBIT-2')?.tags?.includes('auto');
+    }, 'the tag to be back');
+    assert.equal((await write('POST', '/api/settings', { workflow: { autoStart: { on: true, tag: 'auto', max: 2 } } })).status, 200);
+    const both = await until(async () => { const m = await memoryOf(dirs); return m?.started?.length === 2 && m.started.every((e) => e.slug) ? m : null; }, 'ORBIT-2 to start');
+    assert.deepEqual(both.started.map((e) => e.key), ['ORBIT-1', 'ORBIT-2']);
   });
 });
 

@@ -2057,7 +2057,7 @@ export async function createRunner(config) {
   const endedRuns = new Set();
   driver.on('run', (run) => {
     // A reply ended: the job may now wait for your go-ahead (its card shows only once nothing runs).
-    // A reply that held an Auto start place has let it go: a waiting tagged ticket starts now, not at the next Inbox poll (F5).
+    // A reply holds no Auto start place (the record alone does), but its end asks Auto start to look again: an extra look, not a freed place (F5).
     if (!ACTIVE_RUN.has(run.status) && !endedRuns.has(run.id)) { endedRuns.add(run.id); setTimeout(() => { checkWaiting(); auto.pass(); runAutoStart(); }, 1000); }
     if (run.status !== 'error' || toldErrors.has(run.id)) return;
     toldErrors.add(run.id);

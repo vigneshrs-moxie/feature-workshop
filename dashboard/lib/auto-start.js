@@ -68,18 +68,6 @@ export function pausedFor({ orbitError = null, limited = false, warnings = 0, re
   return null;
 }
 
-/**
- * The job a started entry made, or null. Pure. By its slug; when a crash between the start and the
- * save left no slug, by its ticket (an open job before a closed one), so that job still holds its place.
- *   jobs  [{ slug, key, closed }]
- */
-export function lastJob(last, jobs = []) {
-  if (!last) return null;
-  if (last.slug) return jobs.find((j) => j.slug === last.slug) ?? null;
-  const same = jobs.filter((j) => j.key && j.key === last.key);
-  return same.find((j) => !j.closed) ?? same[0] ?? null;
-}
-
 const tried = (memory, key) => (memory?.started ?? []).some((e) => e.key === key) || (memory?.failed ?? []).some((e) => e.key === key);
 
 /**

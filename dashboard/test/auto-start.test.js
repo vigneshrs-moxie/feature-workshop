@@ -1,12 +1,13 @@
 // Auto start by tag (lib/auto-start.js): which ticket starts by itself, and the starter that keeps it
-// to five jobs at a time, one try per ticket. No model, no Orbit, no real job: fakes stand in.
+// to N jobs at a time (the setting, 5 when missing) and starts nothing at the ceiling of unfinished Auto
+// jobs, one try per ticket. No model, no Orbit, no real job: fakes stand in.
 
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { AUTO_CEILING, AUTO_MAX, AutoStarter, countAuto, lastJob, normalizeAutoStart, pausedFor, pickNext, tagMatches } from '../lib/auto-start.js';
+import { AUTO_CEILING, AUTO_MAX, AutoStarter, countAuto, normalizeAutoStart, pausedFor, pickNext, tagMatches } from '../lib/auto-start.js';
 
 const dirs = [];
 async function tmp() { const d = await fs.mkdtemp(path.join(os.tmpdir(), 'sb-autostart-')); dirs.push(d); return d; }
@@ -294,15 +295,6 @@ test('a refusal that is not the limit is a failed start, whatever its status', a
   r.starter.start = async () => { throw Object.assign(new Error('A job is already starting.'), { status: 409 }); };
   await r.starter.run();
   assert.equal(r.starter.failedReason('ORBIT-1'), 'A job is already starting.');
-});
-
-test('the last job is found by its slug, and by its ticket when a crash left no slug', () => {
-  const jobs = [{ slug: 'a', key: 'ORBIT-1', closed: true }, { slug: 'b', key: 'ORBIT-1', closed: false }, { slug: 'c', key: 'ORBIT-2', closed: false }];
-  assert.equal(lastJob({ key: 'ORBIT-2', slug: 'c' }, jobs).slug, 'c');
-  assert.equal(lastJob({ key: 'ORBIT-1', slug: null }, jobs).slug, 'b', 'the open job for that ticket');
-  assert.equal(lastJob({ key: 'ORBIT-1', slug: 'gone' }, jobs), null);
-  assert.equal(lastJob({ key: 'ORBIT-9', slug: null }, jobs), null);
-  assert.equal(lastJob(null, jobs), null);
 });
 
 // ---------- Auto queue: places, N and the ceiling ----------
