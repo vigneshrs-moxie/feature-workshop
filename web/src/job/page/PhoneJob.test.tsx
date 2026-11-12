@@ -10,8 +10,9 @@ import { readFileSync } from 'node:fs';
 import { useState, type ReactNode } from 'react';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ApiClient } from '../../api/client';
+import { ApiError, type ApiClient } from '../../api/client';
 import type { EvidenceView, Gate, Job, JobDetail, JobDoc, JobDocEntry, Permission, StageView, StopId, ThreadItem } from '../../api/types';
+import { DETAIL_KEY } from '../../app/detail';
 import { installKeyListener } from '../../app/keyRegistry';
 import { useRoute, type JobView } from '../../app/router';
 import { UiProvider, useUi } from '../../app/ui';
@@ -442,6 +443,34 @@ describe('the phone’s step screen', () => {
     await act(async () => { release(); });
     await waitFor(() => expect(panel.querySelector('.sb-step-body')).not.toBeNull());
     expect(screen.getByRole('region', { name: 'Build' })).toBe(panel);
+  });
+
+  // Final review A2: the folded card on the waiting step's screen shows what it says after a press.
+  it.each([['the laptop app', false], ['the website', true]] as const)('a refused Go on the phone’s step screen shows the error (%s)', async (_where, hosted) => {
+    localStorage.setItem(DETAIL_KEY, 'simple');
+    const TERMINAL = 'Claude Code is open in this repository in a terminal.';
+    const post = vi.fn(async (p: string): Promise<unknown> => {
+      if (p === '/api/job/alpha/gate') throw new ApiError(409, TERMINAL, { code: 'terminal-open' });
+      return { ok: true };
+    });
+    setup({ jobs: [AUTO_OFF[1]], gate: GATE, hosted, post, at: '#/job/alpha/stage/plan' });
+    await threeCallsOn();
+    expect(screen.getByRole('button', { name: /^The brief/ })).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(screen.getByRole('button', { name: /^Go: approve/ }));
+    await waitFor(() => expect(screen.getByText(TERMINAL)).toBeVisible());
+    expect(screen.getByRole('checkbox', { name: /None of the open terminals is this job’s Foreman/ })).toBeVisible();
+  });
+
+  it('on the website a queued Go on a folded card shows its words and Cancel (the phone’s step screen)', async () => {
+    localStorage.setItem(DETAIL_KEY, 'simple');
+    const QUEUED = { id: 'd_abcdefgh1234', kind: 'approve', state: 'waiting', words: 'Go: waiting for your laptop. It runs when the laptop is back.', at: NOW, expiresAt: null, waiting: true, canCancel: true, permissionId: null };
+    setup({ jobs: [AUTO_OFF[1]], gate: GATE, hosted: true, at: '#/job/alpha/stage/plan', detailMore: { queued: QUEUED } as Partial<JobDetail> });
+    const card = await waitFor(() => { const c = document.querySelector<HTMLElement>('.queued-decision'); expect(c).not.toBeNull(); return c!; });
+    expect(card).toBeVisible();
+    expect(within(card).getByText(QUEUED.words)).toBeVisible();
+    expect(within(card).getByRole('button', { name: 'Cancel' })).toBeVisible();
+    expect(bar()).toHaveTextContent(QUEUED.words);
+    expect(bar()).not.toHaveTextContent(/Say go/);
   });
 
   it('after Go the chip reads Sent and the step’s row and screen read Approved', async () => {

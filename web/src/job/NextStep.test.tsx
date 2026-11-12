@@ -293,7 +293,9 @@ describe('the bar on an Auto job (the owner’s requirement)', () => {
     for (const b of threeCalls()) await waitFor(() => expect(b).toBeEnabled());
     server.queued = { id: 'q1', kind: 'approve', state: 'waiting', words: 'Go: waiting for your laptop. It runs when the laptop is back.', at: NOW, expiresAt: null, waiting: true, canCancel: true, permissionId: null };
     act(() => { store.dispatch({ type: 'event', event: ev(30, 'thread', 'alpha', {}) }); });
-    expect(await screen.findByText('Go: waiting for your laptop. It runs when the laptop is back.')).toBeInTheDocument();
+    // The card's words, and the bar's sentence is the same words (final review A2).
+    expect(await within(document.querySelector<HTMLElement>('.job-gate-body')!).findByText('Go: waiting for your laptop. It runs when the laptop is back.')).toBeInTheDocument();
+    expect(bar()).toHaveTextContent('Go: waiting for your laptop. It runs when the laptop is back.');
     expect(within(bar()).queryByRole('button', { name: /^No go: send back/ })).toBeNull();
     expect(within(bar()).queryByRole('button', { name: 'Reply' })).toBeNull();
     expect(within(bar()).queryByRole('button', { name: /^Go: / })).toBeNull();

@@ -942,6 +942,46 @@ describe('writing to the Foreman under 1100 px', () => {
   });
 });
 
+// Final review A2: a folded card never hides what it says after a press.
+describe('what the folded card says after a press', () => {
+  const MODES = [['the laptop app', false], ['the website', true]] as const;
+  const TERMINAL = 'Claude Code is open in this repository in a terminal.';
+
+  it.each(MODES)('a refused Go with the conversation full screen shows the error (%s)', async (_where, hosted) => {
+    windowWidth(1024);
+    simple();
+    const post = vi.fn(async (p: string): Promise<unknown> => {
+      if (p === '/api/job/alpha/gate') throw new ApiError(409, TERMINAL, { code: 'terminal-open' });
+      return { ok: true };
+    });
+    setup({ jobs: waiting(), gate: GATE, hosted, post });
+    await screen.findByRole('button', { name: /^Go: approve/ });
+    takePage('full screen');
+    expect(briefRow()).toHaveAttribute('aria-expanded', 'false');
+    const go = screen.getByRole('button', { name: /^Go: approve/ });
+    await waitFor(() => expect(go).toBeEnabled());
+    fireEvent.click(go);
+    await waitFor(() => expect(screen.getByText(TERMINAL)).toBeVisible());
+    expect(screen.getByRole('checkbox', { name: /None of the open terminals is this job’s Foreman/ })).toBeVisible();
+    expect(briefRow()).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('on the website a queued Go on a folded card shows its words and Cancel (laptop full screen)', async () => {
+    windowWidth(1024);
+    simple();
+    setup({ jobs: waiting(), gate: GATE, hosted: true, more: { queued: QUEUED } });
+    await screen.findAllByText(QUEUED.words);
+    takePage('full screen');
+    const card = document.querySelector<HTMLElement>('.queued-decision')!;
+    expect(card).toBeVisible();
+    expect(within(card).getByText(QUEUED.words)).toBeVisible();
+    expect(within(card).getByRole('button', { name: 'Cancel' })).toBeVisible();
+    // The bar's sentence is the decision's own words, not "Say go and the Foreman goes ahead".
+    expect(bar()).toHaveTextContent(QUEUED.words);
+    expect(bar()).not.toHaveTextContent(/Say go/);
+  });
+});
+
 describe('when the job’s details are slow, fail, or come from an older laptop', () => {
   it('the job’s details failing leaves the bar, the steps and the conversation in place', async () => {
     setup({ jobs: [working('plan')], fail: true });
@@ -1004,7 +1044,7 @@ describe('when the job’s details are slow, fail, or come from an older laptop'
 describe('on the website', () => {
   it('on the website the same page shows, with a queued decision in place of the calls', async () => {
     setup({ jobs: waiting(), gate: GATE, hosted: true, more: { queued: QUEUED } });
-    expect(await screen.findByText(QUEUED.words)).toBeInTheDocument();
+    await waitFor(() => expect(document.querySelector('.job-gate-body .queued-decision')).toHaveTextContent(QUEUED.words));
     // The same page: the header (the job menu on the laptop), the bar, seven steps with one open, the conversation.
     expect(page().querySelector('.sb-job-top')).toHaveTextContent(MENU_ON_LAPTOP);
     expect(shown(bar())).toBe(true);

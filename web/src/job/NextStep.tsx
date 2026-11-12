@@ -6,7 +6,7 @@
 // the evidence being recorded. The owner's one requirement: on every step that waits for him, on
 // Auto jobs too (Auto on, deciding, stopped, or the step his once he wrote), the three calls are
 // there and pressable. After a send the bar says what reached the Foreman (sentView.ts).
-import { isOpen, queuedOf } from '../views/Hosted/QueuedDecision';
+import { isOpen, needsLook, queuedOf } from '../views/Hosted/QueuedDecision';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import type { EvidenceView, Job, NowDoing, Run, StopId, TestChecks } from '../api/types';
 import { BRAND } from '../app/brand';
@@ -298,12 +298,18 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, foldHere = fa
   const setCardShown = foldHere ? setShownHere : setStageShown;
   const folds = foldCard || foldHere;
   const body = useRef<HTMLDivElement>(null);
-  const [go, setGo] = useState({ words: '', off: true, asks: false, backOff: false, replyOff: true, why: '', boxOpen: false });
+  const [go, setGo] = useState({ words: '', off: true, asks: false, backOff: false, replyOff: true, why: '', boxOpen: false, holds: false });
   // Over the job page's conversation (foldHere) a box open in the card (What should change?, Reply)
   // keeps it open, so typed words are never out of sight, and its row is off meanwhile. On the
   // phone's screens (foldCard) the row folds the brief, box and all, as he asks.
   const boxHolds = foldHere && go.boxOpen;
-  const folded = folds && !cardShown && !boxHolds;
+  // What the card says after a press keeps it open on every folding layout, its row off meanwhile:
+  // an error, a notice, the terminal tick box (data-gate-holds), or a website decision on its way
+  // or to look at. Once it goes, the fold is what he chose again.
+  const queued = queuedOf(detail.queued);
+  const queuedOpen = isOpen(queued);
+  const holds = go.holds || queuedOpen || needsLook(queued);
+  const folded = folds && !cardShown && !boxHolds && !holds;
   useLayoutEffect(() => {
     const el = body.current;
     if (!el) return;
@@ -313,8 +319,8 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, foldHere = fa
       // Off whenever the card's button can't be pressed: disabled, aria-disabled, or busy.
       const reply = el.querySelector<HTMLButtonElement>('[data-gate="guidance"]');
       // The card's own reason when Go must wait for something on it (words typed for a send back).
-      const next = { words: wordsOf(b), off: !isPressable(b), asks: Boolean(el.querySelector('.gate-question')), backOff: !isPressable(back), replyOff: !isPressable(reply), why: b?.dataset.offWhy ?? '', boxOpen: Boolean(el.querySelector('.gate-note')) };
-      setGo((was) => (was.words === next.words && was.off === next.off && was.asks === next.asks && was.backOff === next.backOff && was.replyOff === next.replyOff && was.why === next.why && was.boxOpen === next.boxOpen ? was : next));
+      const next = { words: wordsOf(b), off: !isPressable(b), asks: Boolean(el.querySelector('.gate-question')), backOff: !isPressable(back), replyOff: !isPressable(reply), why: b?.dataset.offWhy ?? '', boxOpen: Boolean(el.querySelector('.gate-note')), holds: Boolean(el.querySelector('[data-gate-holds]')) };
+      setGo((was) => (was.words === next.words && was.off === next.off && was.asks === next.asks && was.backOff === next.backOff && was.replyOff === next.replyOff && was.why === next.why && was.boxOpen === next.boxOpen && was.holds === next.holds ? was : next));
     };
     read();
     const watch = new MutationObserver(read);
@@ -352,13 +358,13 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, foldHere = fa
         tone={stopped ? 'stop' : 'go'}
         icon={stopped ? 'hand' : 'clipboard'}
         label={call && !waits ? 'Go / no go' : null}
-        say={waits ? sentSay : stopped ?? (gate?.headline || (typeof job.headline === 'string' && job.headline) || 'The Foreman waits for your go-ahead')}
-        sub={waits ? (sent?.more ?? after.more) : stopped ? AUTO_STOPPED_SUB : autoLaneReason(job) ?? (gate?.nextProposed ? `Say go and the Foreman goes ahead: ${gate.nextProposed}` : job.laneReason)}
+        say={waits ? sentSay : queuedOpen ? queued.words : stopped ?? (gate?.headline || (typeof job.headline === 'string' && job.headline) || 'The Foreman waits for your go-ahead')}
+        sub={waits ? (sent?.more ?? after.more) : queuedOpen ? null : stopped ? AUTO_STOPPED_SUB : autoLaneReason(job) ?? (gate?.nextProposed ? `Say go and the Foreman goes ahead: ${gate.nextProposed}` : job.laneReason)}
       >
         {/* Try again: the send itself is stuck, or the answered brief has stalled with no run at work. */}
         {waits && !isActiveRun(run) && (after.stuck || sent?.canRetry) && <TryAgain after={after} />}
-        {/* On the hosted site a Go made there waits for the laptop (the card under this says so): no calls meanwhile. */}
-        {!waits && !isOpen(queuedOf(detail.queued)) && <>
+        {/* On the hosted site a Go made there waits for the laptop (the bar says its words, and the card under this, shown, has Cancel): no calls meanwhile. */}
+        {!waits && !queuedOpen && <>
         <Button size="lg" keyId="gate-revise" busy={spins('changes')} busyLabel={SENDING_WORDS} disabled={go.backOff} onClick={() => { if (folded) setCardShown(true); press('revise'); }} title={go.backOff ? offWhy : 'No go: say what should change. The Foreman stays at this stop and revises; nothing is approved (key: r).'}>
           {call ? 'No go: send back' : 'Send back'}
         </Button>
@@ -385,7 +391,7 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, foldHere = fa
       </NextBar>
       {autoDeciding(job) && !stopped && !waits && <p className="job-go-auto muted">{AUTO_DECIDING_NOTE}</p>}
       {folds && (
-        <button type="button" className="desk-details-row stage-brief-row" aria-expanded={!folded} disabled={boxHolds} onClick={() => setCardShown(folded)} title={folded ? 'Show the brief’s questions and details here; Go sends the answers picked in it.' : 'Fold the brief back to this row.'}>
+        <button type="button" className="desk-details-row stage-brief-row" aria-expanded={!folded} disabled={boxHolds || holds} onClick={() => setCardShown(folded)} title={folded ? 'Show the brief’s questions and details here; Go sends the answers picked in it.' : 'Fold the brief back to this row.'}>
           <Icon name="file" size={16} />
           <span className="desk-details-words"><b>The brief</b><span className="muted">{foldHere ? 'its questions and details; Go sends the answers picked in it' : 'its questions and details, also on the job’s page; Go sends the answers picked in it'}</span></span>
           <Icon name="chevron-down" size={14} className={`fold-chevron${folded ? '' : ' is-up'}`} />

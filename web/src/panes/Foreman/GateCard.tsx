@@ -139,6 +139,8 @@ export function pressReply(root: Element | null | undefined) {
 }
 
 /**
+ * What the card says after a press carries `data-gate-holds` (a notice, an error, the terminal tick
+ * box): a page that folds the card shows it while any of them is there.
  * `callsOutside`: the page draws its own big calls (the Desk's Go / No go / Reply) and presses the card's buttons, so the card's row is hidden.
  * `evidence`: the page's own evidence view for the card's strip (left out: the strip asks for itself).
  * `keysOff`: the card is kept but hidden (a permission card has the bar's place): its keys rest.
@@ -173,7 +175,7 @@ export function GateSlot({ job, detail, now, reload, callsOutside = false, extra
   return (
     <>
       {notice && (
-        <div ref={noticeEl} className={`gate-notice is-${notice.tone}`} role={notice.tone === 'problem' ? 'alert' : 'status'} tabIndex={-1}>
+        <div ref={noticeEl} className={`gate-notice is-${notice.tone}`} data-gate-holds role={notice.tone === 'problem' ? 'alert' : 'status'} tabIndex={-1}>
           <p className="gate-notice-text">{notice.text}</p>
           {notice.lines && notice.lines.length > 0 && (
             <ul className="gate-notice-lines" aria-label="How the job runs from the next step">
@@ -500,11 +502,11 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   const sendProblems = (
     <>
       {askTerminal && (
-        <label className="check" title="Claude Code is open in this repository in a terminal. Two Foremen on one job would trip over each other.">
+        <label className="check" data-gate-holds title="Claude Code is open in this repository in a terminal. Two Foremen on one job would trip over each other.">
           <Choice type="checkbox" checked={noTerminal} onChange={(e) => setNoTerminal(e.target.checked)} /> None of the open terminals is this job’s Foreman
         </label>
       )}
-      {error && <p className="field-problem" role="alert">{error}</p>}
+      {error && <p className="field-problem" role="alert" data-gate-holds>{error}</p>}
     </>
   );
 
