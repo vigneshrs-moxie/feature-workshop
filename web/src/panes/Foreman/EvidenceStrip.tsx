@@ -112,19 +112,26 @@ export function foldLine(view: Pick<EvidenceView, 'evidence' | 'recording' | 'pr
 /**
  * The strip. tested: the commit the checks ran on (the gate's proof stamp), else the one the test
  * report names; refresh: anything that changes when the job is fetched again (it reads again then).
- * fold: one line until it is opened (the gate card).
+ * fold: one line until it is opened (the gate card). view: the page's own evidence view (the new job
+ * page asks once for every part of it): when it is passed, even as null, the strip neither asks nor
+ * polls and draws that one; left out, the strip asks for itself as before.
  */
-export function EvidenceStrip({ slug, tested = null, refresh = null, fold = false }: { slug: string; tested?: string | null; refresh?: unknown; fold?: boolean }) {
+export function EvidenceStrip({ slug, tested = null, refresh = null, fold = false, view: given }: { slug: string; tested?: string | null; refresh?: unknown; fold?: boolean; view?: EvidenceView | null }) {
   const { api } = useWorkshop();
   const headId = useId();
+  const shared = given !== undefined;
   // Folded: null until he opens or folds it himself, so it follows what the evidence says (open when something is wrong).
   const [opened, setOpen] = useState<boolean | null>(null);
-  const [view, setView] = useState<EvidenceView | null>(null);
+  const [own, setView] = useState<EvidenceView | null>(null);
+  // Record pressed with the page's view: the answer shows until the page's view next changes.
+  const [posted, setPosted] = useState<{ over: EvidenceView | null | undefined; view: EvidenceView } | null>(null);
   const [note, setNote] = useState<{ tone: 'ok' | 'problem'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [tick, setTick] = useState(0);
+  const view = shared ? (posted && posted.over === given ? posted.view : given) : own;
 
   useEffect(() => {
+    if (shared) return;
     let cancelled = false;
     Promise.resolve(api.get<EvidenceView>(`/api/job/${encodeURIComponent(slug)}/evidence`)).then(
       (v) => { if (!cancelled) setView(v && typeof v === 'object' ? v : null); },
@@ -132,14 +139,14 @@ export function EvidenceStrip({ slug, tested = null, refresh = null, fold = fals
       () => {},
     );
     return () => { cancelled = true; };
-  }, [api, slug, refresh, tick]);
+  }, [api, slug, refresh, tick, shared]);
 
-  // While it records, look again now and then until it is done.
+  // While it records, look again now and then until it is done (the page does this for a view it passes).
   useEffect(() => {
-    if (!view?.recording) return;
+    if (shared || !view?.recording) return;
     const t = setTimeout(() => setTick((n) => n + 1), POLL_MS);
     return () => clearTimeout(t);
-  }, [view]);
+  }, [view, shared]);
 
   if (!view) return null;
   const ev = view.evidence;
@@ -167,7 +174,10 @@ export function EvidenceStrip({ slug, tested = null, refresh = null, fold = fals
     setNote(null);
     try {
       const r = await api.post<EvidenceRecordResult>(`/api/job/${encodeURIComponent(slug)}/evidence/record`, {});
-      if (r && typeof r === 'object') setView(r);
+      if (r && typeof r === 'object') {
+        if (shared) setPosted({ over: given, view: r });
+        else setView(r);
+      }
       setNote({ tone: 'ok', text: r?.started ? 'Recording now. The rows fill in when it is done.' : 'Recorded.' });
     } catch (err) {
       setNote({ tone: 'problem', text: err instanceof ApiError ? err.message : `Couldn’t record: ${message(err)}` });

@@ -4,6 +4,8 @@
 //   #/table       the Table: the jobs as rows, from the gear menu
 //   #/desk        the Desk: every decision waiting for you, one at a time
 //   #/job/<slug>  that job's page: the map of seven stops, the next step, the tabs, the conversation
+//   #/job/<slug>/conversation, #/job/<slug>/overview  the same job (the new job page: its conversation
+//                 or its overview, as the narrow window and the phone show them full screen)
 //   #/job/<slug>/stage/<stop>  one stop of the job (the Stage): who works it, what each is doing
 //   #/job/<slug>/id/<id>  the same job: the dashboard links requirement IDs (FR-001...) in
 //                 replies and briefs this way; the job stays open (the ID itself is ignored for now)
@@ -31,11 +33,15 @@ export const SETTINGS_SECTIONS = ['permissions', 'notifications', 'look', 'keys'
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 export const isSettingsSection = (v: string): v is SettingsSection => (SETTINGS_SECTIONS as readonly string[]).includes(v);
 
-export type Route = { name: 'home' } | { name: 'map' } | { name: 'table' } | { name: 'desk' } | { name: 'inbox' } | { name: 'settings'; section?: SettingsSection } | { name: 'crew' } | { name: 'achievements' } | { name: 'job'; slug: string }
+export type Route = { name: 'home' } | { name: 'map' } | { name: 'table' } | { name: 'desk' } | { name: 'inbox' } | { name: 'settings'; section?: SettingsSection } | { name: 'crew' } | { name: 'achievements' } | { name: 'job'; slug: string; view?: JobView }
   | { name: 'stage'; slug: string; stop: StopId }
   | { name: 'screens'; slug: string } | { name: 'telemetry' } | { name: 'stacks' } | { name: 'stack'; slug: string } | { name: 'stack-part'; slug: string; n: number } | { name: 'stack-build' }
   | { name: 'gallery' }
   | { name: 'not-found'; hash: string };
+
+/** What a job's own address can name besides the job: its conversation or its overview (the new job page). */
+export type JobView = 'conversation' | 'overview';
+export const isJobView = (v: unknown): v is JobView => v === 'conversation' || v === 'overview';
 
 /** The integration board's old address: it opens Stacks now (packet K2). */
 const OLD_INTEGRATE = /^#\/integrate\/?$/;
@@ -79,11 +85,11 @@ export function parseHash(rawHash: string): Route {
       if (slug) return { name: 'stage', slug, stop: st[2] };
     } catch { /* a malformed escape: not a page */ }
   }
-  const m = /^#\/job\/([^/?#]+)(?:\/id\/[^/?#]+|\/(screens))?\/?$/.exec(hash);
+  const m = /^#\/job\/([^/?#]+)(?:\/id\/[^/?#]+|\/(screens|conversation|overview))?\/?$/.exec(hash);
   if (m) {
     try {
       const slug = decodeURIComponent(m[1]);
-      if (slug) return m[2] === 'screens' ? { name: 'screens', slug } : { name: 'job', slug };
+      if (slug) return m[2] === 'screens' ? { name: 'screens', slug } : isJobView(m[2]) ? { name: 'job', slug, view: m[2] } : { name: 'job', slug };
     } catch { /* a malformed escape: not a page */ }
   }
   if (!hash.startsWith('#/') || hash === '#/') return { name: 'home' };
@@ -91,7 +97,7 @@ export function parseHash(rawHash: string): Route {
 }
 
 export function hrefFor(route: Route): string {
-  if (route.name === 'job') return `#/job/${encodeURIComponent(route.slug)}`;
+  if (route.name === 'job') return `#/job/${encodeURIComponent(route.slug)}${route.view ? `/${route.view}` : ''}`;
   if (route.name === 'screens') return `#/job/${encodeURIComponent(route.slug)}/screens`;
   if (route.name === 'stage') return `#/job/${encodeURIComponent(route.slug)}/stage/${route.stop}`;
   if (route.name === 'crew') return '#/crew';
@@ -130,6 +136,9 @@ export const partHref = (slug: string, n: number) => hrefFor({ name: 'stack-part
 export const telemetryHref = () => hrefFor({ name: 'telemetry' });
 
 export const jobHref = (slug: string) => hrefFor({ name: 'job', slug });
+
+/** A job's conversation or its overview, on the new job page. */
+export const jobViewHref = (slug: string, view: JobView) => hrefFor({ name: 'job', slug, view });
 
 /** One stop of a job: its Stage page. */
 export const stageHref = (slug: string, stop: StopId) => hrefFor({ name: 'stage', slug, stop });
@@ -211,6 +220,15 @@ export const oldPages = { open(href: string) { window.location.href = href; } };
 export function navigate(route: Route) {
   const href = hrefFor(route);
   if (window.location.hash !== href) window.location.hash = href;
+}
+
+/**
+ * Writes `href` (a #/… address) into the address bar in place: no new history entry, and no
+ * hashchange, so useRoute does not see it and the page that wrote it is not drawn again.
+ */
+export function replaceHash(href: string) {
+  if (window.location.hash === href) return;
+  window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}${href}`);
 }
 
 export function useRoute(): Route {

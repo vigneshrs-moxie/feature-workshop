@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { classicHref, hrefFor, jobHref, openFromHash, parseHash, peekFromHash, screensHref, withPeek } from './router';
+import { describe, expect, it, vi } from 'vitest';
+import { classicHref, hrefFor, jobHref, jobViewHref, openFromHash, pageName, parseHash, peekFromHash, replaceHash, screensHref, stageHref, withPeek } from './router';
 
 describe('hash router', () => {
   it.each([
@@ -93,5 +93,53 @@ describe('hash router', () => {
     expect(withPeek('#/?theme=glass&peek=alpha', null)).toBe('#/?theme=glass');
     expect(withPeek('#/jobs?peek=alpha', null)).toBe('#/jobs');
     expect(peekFromHash(withPeek('#/', 'a b/c'))).toBe('a b/c');
+  });
+
+  // The new job page (Part 3): its conversation and its overview each have an address.
+  it('a job’s conversation and overview have their own addresses', () => {
+    expect(parseHash('#/job/alpha/conversation')).toEqual({ name: 'job', slug: 'alpha', view: 'conversation' });
+    expect(parseHash('#/job/alpha/overview')).toEqual({ name: 'job', slug: 'alpha', view: 'overview' });
+    expect(parseHash('#/job/alpha/overview/')).toEqual({ name: 'job', slug: 'alpha', view: 'overview' });
+    expect(parseHash('#/job/alpha/conversation?theme=glass')).toEqual({ name: 'job', slug: 'alpha', view: 'conversation' });
+    expect(jobViewHref('alpha', 'conversation')).toBe('#/job/alpha/conversation');
+    expect(jobViewHref('a b/c', 'overview')).toBe('#/job/a%20b%2Fc/overview');
+    expect(parseHash(jobViewHref('a b/c', 'overview'))).toEqual({ name: 'job', slug: 'a b/c', view: 'overview' });
+    // The job's own address has no view at all, and still links the same way.
+    expect(parseHash('#/job/alpha')).not.toHaveProperty('view');
+    expect(hrefFor({ name: 'job', slug: 'alpha' })).toBe('#/job/alpha');
+    expect(jobHref('alpha')).toBe('#/job/alpha');
+    // Only those two words.
+    expect(parseHash('#/job/alpha/talk')).toEqual({ name: 'not-found', hash: '#/job/alpha/talk' });
+    expect(parseHash('#/job/alpha/conversation/x')).toEqual({ name: 'not-found', hash: '#/job/alpha/conversation/x' });
+    // The page is still the job's.
+    expect(pageName(parseHash('#/job/alpha/conversation'), 'Pause a service')).toBe('Pause a service');
+  });
+
+  it('a step’s address is unchanged', () => {
+    expect(parseHash('#/job/alpha/stage/spec')).toEqual({ name: 'stage', slug: 'alpha', stop: 'spec' });
+    expect(parseHash('#/job/alpha/stage/test/')).toEqual({ name: 'stage', slug: 'alpha', stop: 'test' });
+    expect(parseHash('#/job/alpha/stage/nowhere')).toEqual({ name: 'not-found', hash: '#/job/alpha/stage/nowhere' });
+    expect(stageHref('a b', 'review')).toBe('#/job/a%20b/stage/review');
+    expect(parseHash(stageHref('a b', 'review'))).toEqual({ name: 'stage', slug: 'a b', stop: 'review' });
+  });
+
+  it('replaceHash changes the address with no new history entry and no hashchange', async () => {
+    const settle = () => new Promise((r) => setTimeout(r, 20));
+    window.location.hash = '#/job/alpha';
+    await settle();
+    const entries = window.history.length;
+    const heard = vi.fn();
+    window.addEventListener('hashchange', heard);
+    try {
+      replaceHash(stageHref('alpha', 'spec'));
+      await settle();
+      expect(window.location.hash).toBe('#/job/alpha/stage/spec');
+      expect(window.history.length).toBe(entries);
+      expect(heard).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('hashchange', heard);
+      window.location.hash = '';
+      await settle();
+    }
   });
 });

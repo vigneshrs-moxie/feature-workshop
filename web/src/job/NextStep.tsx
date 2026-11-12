@@ -8,7 +8,7 @@
 // there and pressable. After a send the bar says what reached the Foreman (sentView.ts).
 import { isOpen, queuedOf } from '../views/Hosted/QueuedDecision';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
-import type { Job, NowDoing, Run, StopId, TestChecks } from '../api/types';
+import type { EvidenceView, Job, NowDoing, Run, StopId, TestChecks } from '../api/types';
 import { BRAND } from '../app/brand';
 import { jobHref } from '../app/router';
 import { useShown } from '../app/detail';
@@ -58,9 +58,10 @@ const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
  * (oldest first), else the go / no go bar while a gate waits, else, while a pull request is in
  * review, the review round's bar (packet Q: its card is answered here, not as a permission), else
  * what is happening in words. `onShip` shows the pull requests (the Ship tab); without it, the
- * button goes to the Job page.
+ * button goes to the Job page. While a permission card has the bar's place the gate card stays
+ * mounted, only hidden, so a box opened in it and the words typed there are still there after.
  */
-export function NextStep({ job, conversation, now, onShip, onWatch, foldCard = false }: { job: Job; conversation: Conversation; now: Date; onShip?: () => void; /** Shows the evidence being recorded (laptop only). */ onWatch?: () => void; /** A stop's page: the brief under the bar folds to one row (the Job page has it in full). */ foldCard?: boolean }) {
+export function NextStep({ job, conversation, now, onShip, onWatch, foldCard = false, evidence }: { job: Job; conversation: Conversation; now: Date; onShip?: () => void; /** Shows the evidence being recorded (laptop only). */ onWatch?: () => void; /** A stop's page: the brief under the bar folds to one row (the Job page has it in full). */ foldCard?: boolean; /** The page's own evidence view for the gate card's strip (left out: the strip asks for itself). */ evidence?: EvidenceView | null }) {
   const state = useWorkshopState();
   const play = usePlay();
   const review = useReview(job.slug);
@@ -75,12 +76,14 @@ export function NextStep({ job, conversation, now, onShip, onWatch, foldCard = f
   const sent = perms.length === 0 ? sentShown : null;
   const live = <p className="sr-only" role="status" data-next-live>{after.live || (sent ? linesText(sent) : '')}</p>;
   const problem = after.problem && <p ref={after.problemRef} className="field-problem" role="alert" tabIndex={-1}>{after.problem}</p>;
-  let bar: ReactNode;
-  if (perms.length > 0) bar = <PermissionAlert permissions={perms} now={now} />;
-  else if (thread.detail?.gate) bar = <GoBar job={job} detail={thread.detail} now={now} reload={thread.reload} call={play.on} foldCard={foldCard} after={after} sent={sent} run={run} />;
-  else if (review.view) bar = <ReviewBar view={review.view} act={review.act} problem={review.problem} />;
-  else bar = <StateBar job={job} now={now} checks={thread.detail?.page?.checks ?? null} onShip={onShip} onWatch={onWatch} hosted={Boolean(api.hosted?.())} after={after} />;
-  return <>{bar}{live}{problem}</>;
+  const alert = perms.length > 0 ? <PermissionAlert permissions={perms} now={now} /> : null;
+  // The gate's bar and card stay in one place whether or not a permission card is up: hidden under it.
+  const gate = thread.detail?.gate ? <GoBar job={job} detail={thread.detail} now={now} reload={thread.reload} call={play.on} foldCard={foldCard} after={after} sent={sent} run={run} evidence={evidence} hidden={alert !== null} /> : null;
+  // Neither: the review round's bar, else what is happening in words.
+  const bar: ReactNode = alert || gate ? null
+    : review.view ? <ReviewBar view={review.view} act={review.act} problem={review.problem} />
+    : <StateBar job={job} now={now} checks={thread.detail?.page?.checks ?? null} onShip={onShip} onWatch={onWatch} hosted={Boolean(api.hosted?.())} after={after} />;
+  return <>{alert}{gate}{bar}{live}{problem}</>;
 }
 
 type Conversation = ReturnType<typeof useJobConversation>;
@@ -280,7 +283,7 @@ function TryAgain({ after }: { after: AfterSend }) {
  * the decisions made for you, a stale plan, the evidence); its own row of buttons is hidden, and
  * the bar's three calls press them (Reply opens the message box). Go is off while the card asks a question: a never answers one.
  */
-function GoBar({ job, detail, now, reload, call, foldCard = false, after, sent, run }: { job: Job; detail: NonNullable<ReturnType<typeof useJobConversation>['thread']['detail']>; now: Date; reload(): void; call: boolean; foldCard?: boolean; after: AfterSend; sent: SentShown | null; run: Run | null }) {
+function GoBar({ job, detail, now, reload, call, foldCard = false, after, sent, run, evidence, hidden = false }: { job: Job; detail: NonNullable<ReturnType<typeof useJobConversation>['thread']['detail']>; now: Date; reload(): void; call: boolean; foldCard?: boolean; after: AfterSend; sent: SentShown | null; run: Run | null; evidence?: EvidenceView | null; /** A permission card has the bar's place: kept, not shown, its keys at rest. */ hidden?: boolean }) {
   const [cardShown, setCardShown] = useShown('stage', 'brief');
   const folded = foldCard && !cardShown;
   const body = useRef<HTMLDivElement>(null);
@@ -319,7 +322,7 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, after, sent, 
   // Auto stopped (or the step is his): the stop look with its reason, and the same three calls.
   const stopped = waits ? null : autoStopped(job);
   return (
-    <div className="job-go">
+    <div className="job-go" hidden={hidden}>
       <NextBar
         tone={stopped ? 'stop' : 'go'}
         icon={stopped ? 'hand' : 'clipboard'}
@@ -364,7 +367,7 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, after, sent, 
         </button>
       )}
       <div ref={body} className="job-gate-body" hidden={folded}>
-        <GateSlot job={job} detail={detail} now={now} reload={reload} callsOutside onOpenBox={() => { if (folded) setCardShown(true); }} />
+        <GateSlot job={job} detail={detail} now={now} reload={reload} callsOutside onOpenBox={() => { if (folded) setCardShown(true); }} evidence={evidence} keysOff={hidden} />
       </div>
     </div>
   );

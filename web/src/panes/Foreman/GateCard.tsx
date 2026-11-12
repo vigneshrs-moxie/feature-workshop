@@ -15,7 +15,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ApiError } from '../../api/client';
-import type { Gate, GateRequest, GateResult, Job, JobDetail, JobLockInfo } from '../../api/types';
+import type { EvidenceView, Gate, GateRequest, GateResult, Job, JobDetail, JobLockInfo } from '../../api/types';
 import { isOpen, needsLook, QueuedDecision, queuedOf } from '../../views/Hosted/QueuedDecision';
 import { loadJobDoc, stopRun } from '../../app/jobActions';
 import { useKeyScope } from '../../app/keyRegistry';
@@ -142,8 +142,12 @@ export function pressReply(root: Element | null | undefined) {
   else b.click();
 }
 
-/** `callsOutside`: the page draws its own big calls (the Desk's Go / No go / Reply) and presses the card's buttons, so the card's row is hidden. */
-export function GateSlot({ job, detail, now, reload, callsOutside = false, extrasTo = null, onOpenBox }: { job: Job; detail: JobDetail; now: Date; reload(): void; callsOutside?: boolean; /** The page opens a folded card before a key opens its box. */ onOpenBox?(): void; /** The Desk's Details sheet (packet R): Adjust the next step and How this works are drawn there instead. */ extrasTo?: HTMLElement | null }) {
+/**
+ * `callsOutside`: the page draws its own big calls (the Desk's Go / No go / Reply) and presses the card's buttons, so the card's row is hidden.
+ * `evidence`: the page's own evidence view for the card's strip (left out: the strip asks for itself).
+ * `keysOff`: the card is kept but hidden (a permission card has the bar's place): its keys rest.
+ */
+export function GateSlot({ job, detail, now, reload, callsOutside = false, extrasTo = null, onOpenBox, evidence, keysOff = false }: { job: Job; detail: JobDetail; now: Date; reload(): void; callsOutside?: boolean; /** The page opens a folded card before a key opens its box. */ onOpenBox?(): void; /** The Desk's Details sheet (packet R): Adjust the next step and How this works are drawn there instead. */ extrasTo?: HTMLElement | null; evidence?: EvidenceView | null; keysOff?: boolean }) {
   const { runs } = useWorkshopState();
   const [notice, setNotice] = useState<GateNotice | null>(null);
   const [memoRaw, setMemo] = useStored(gateDraftKey(job.slug));
@@ -200,7 +204,7 @@ export function GateSlot({ job, detail, now, reload, callsOutside = false, extra
           </div>
         </section>
       ) : (
-        <GateCard key={`${job.slug}#${gate.briefNumber ?? '-'}`} job={job} detail={detail} gate={gate} now={now} reload={reload} report={setNotice} running={running} callsOutside={callsOutside} extrasTo={extrasTo} onOpenBox={onOpenBox} />
+        <GateCard key={`${job.slug}#${gate.briefNumber ?? '-'}`} job={job} detail={detail} gate={gate} now={now} reload={reload} report={setNotice} running={running} callsOutside={callsOutside} extrasTo={extrasTo} onOpenBox={onOpenBox} evidence={evidence} keysOff={keysOff} />
       ))}
     </>
   );
@@ -208,8 +212,9 @@ export function GateSlot({ job, detail, now, reload, callsOutside = false, extra
 
 type Mode = null | 'changes' | 'message' | 'stop';
 
-function GateCard({ job, detail, gate, now, reload, report, running, callsOutside = false, extrasTo = null, onOpenBox }: {
+function GateCard({ job, detail, gate, now, reload, report, running, callsOutside = false, extrasTo = null, onOpenBox, evidence, keysOff = false }: {
   job: Job; detail: JobDetail; gate: Gate; now: Date; reload(): void; report(n: GateNotice): void; callsOutside?: boolean; extrasTo?: HTMLElement | null; onOpenBox?(): void;
+  evidence?: EvidenceView | null; keysOff?: boolean;
   /** The Foreman is working on a reply for this job right now. */
   running: boolean;
 }) {
@@ -484,7 +489,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
     },
     'gate-adjust': () => setAdjustOpen(!adjustOpen),
     'gate-decided': () => { if (!decided.length) return false; setDecidedOpen(!decidedOpen); },
-  }, !busy);
+  }, !busy && !keysOff);
 
   const resetAt = usage?.resetsAt ? clockTime(usage.resetsAt, now) : '';
   const waited = waitedText(gate.waitingSince, now);
@@ -750,7 +755,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
           <Button kind="quiet" size="sm" icon="terminal" onClick={() => tryUi.openTry(slug)} title="Open the Try it tab: start this job’s app on your computer and click around before you decide.">Try it on your computer</Button>
         </p>
       )}
-      {EVIDENCE_STAGES.includes(gate.stage ?? '') && <EvidenceStrip slug={slug} tested={gate.proof?.tested ?? null} refresh={detail} fold />}
+      {EVIDENCE_STAGES.includes(gate.stage ?? '') && <EvidenceStrip slug={slug} tested={gate.proof?.tested ?? null} refresh={detail} fold view={evidence} />}
       {decided.length > 0 && (
         <details className="gate-decided" open={decidedOpen}>
           <summary className="gate-fold" onClick={(e) => { e.preventDefault(); setDecidedOpen(!decidedOpen); }} title="The decisions the Foreman made for you with this brief. Open them to read each one and override any of them; going ahead confirms the rest.">

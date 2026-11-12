@@ -111,7 +111,8 @@ export function TestStep({ slug, job, detail, view, evidence, watching, onWatchi
         <EvidenceRow slug={slug} evidence={evidence} now={clock} hosted={hosted} watching={watching} onWatching={onWatching} stripOpen={stripOpen} onStrip={() => setStripOpen(!stripOpen)} stripId={stripId} onRecorded={onRecorded} />
         <HandRow slug={slug} job={job} detail={detail} view={view} now={clock} hosted={hosted} tryOpen={tryOpen} onTryOpen={onTryOpen} />
       </div>
-      {stripOpen && <div id={stripId} className="sb-test-strip"><EvidenceStrip slug={slug} refresh={evidence} /></div>}
+      {/* The page's evidence view: the strip asks nothing of its own. */}
+      {stripOpen && <div id={stripId} className="sb-test-strip"><EvidenceStrip slug={slug} view={evidence} /></div>}
     </section>
   );
 }

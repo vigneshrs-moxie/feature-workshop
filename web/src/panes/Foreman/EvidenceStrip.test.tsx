@@ -327,3 +327,43 @@ describe('Record again inside the open fold', () => {
     expect(within(recording).getByText('Recording now. The rows fill in when it is done.')).toBeVisible();
   });
 });
+
+// The new job page asks for the evidence once and hands the view to every strip on it.
+describe('a strip given the page’s evidence view', () => {
+  function shared(view: EvidenceView | null, post = vi.fn(async (): Promise<unknown> => ({ ...VIEW, evidence: null, recording: true, started: true }))) {
+    const get = vi.fn(async (): Promise<unknown> => VIEW);
+    const api = { get, post } as unknown as ApiClient;
+    const ui = (v: EvidenceView | null) => <WorkshopContext.Provider value={{ store: createStore(), api }}><EvidenceStrip slug="alpha" view={v} /></WorkshopContext.Provider>;
+    const utils = render(ui(view));
+    return { ...utils, get, post, rerenderWith: (v: EvidenceView | null) => utils.rerender(ui(v)) };
+  }
+
+  it('draws the view it is given and asks for nothing, not even while it records', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
+    try {
+      const { get, rerenderWith } = shared(null);
+      await act(async () => {});
+      expect(strip()).toBeNull();
+      rerenderWith({ ...VIEW, evidence: null, recording: true, progress: { commit: 'abc1234def5', startedAt: '2026-10-28T12:00:00.000Z', line: 1, of: 3, lines: [] } });
+      expect(strip()).toHaveTextContent('Recording the evidence now');
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+      rerenderWith(VIEW);
+      expect(rows()).toHaveLength(3);
+      expect(get).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('Record shows the answer until the page’s view next changes', async () => {
+    const problem = { ...VIEW, problem: { message: 'The app stopped before the recording finished.', fix: null } } as EvidenceView;
+    const { post, get, rerenderWith } = shared(problem);
+    fireEvent.click(screen.getByRole('button', { name: 'Record again' }));
+    expect(await screen.findByText(/Recording the evidence now/)).toBeInTheDocument();
+    expect(post).toHaveBeenCalledWith('/api/job/alpha/evidence/record', {});
+    rerenderWith(VIEW);
+    expect(screen.queryByText(/Recording the evidence now/)).toBeNull();
+    expect(rows()).toHaveLength(3);
+    expect(get).not.toHaveBeenCalled();
+  });
+});

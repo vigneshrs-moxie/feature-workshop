@@ -286,3 +286,17 @@ p.sb-test-note { margin: 0; }
   .sb-test-try { grid-template-columns: minmax(0, 1fr); }
   .sb-test-action .btn { width: 100%; justify-content: center; }
 }
+
+/* ---------- The job page on a laptop (NewJobPage.tsx) ----------
+   The header pinned; under it two scroll areas: the work column and, from 1100 px, the conversation
+   column, 400 px, whose panel fills it and scrolls inside. Below 1100 px the conversation column is
+   hidden (hidden), not removed; the narrow window's layout is its own. */
+.page.sb-job-page { display: flex; flex-direction: column; overflow: hidden; }
+.sb-job-page > .sb-job-top { flex: none; padding: var(--space-4) var(--page-gutter) var(--space-3); border-bottom: 1px solid var(--border-1); }
+.sb-job-cols { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
+.sb-job-work { min-width: 0; min-height: 0; position: relative; overflow-y: auto; display: flex; flex-direction: column; gap: var(--space-5); padding: var(--space-5) var(--page-gutter) var(--space-10); }
+.sb-job-talk { min-width: 0; min-height: 0; position: relative; overflow-y: auto; padding: var(--space-5) var(--page-gutter) var(--space-5) 0; }
+
+@media (min-width: 1100px) {
+  .sb-job-cols { grid-template-columns: minmax(0, 1fr) 400px; }
+}
