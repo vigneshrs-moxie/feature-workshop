@@ -1025,7 +1025,8 @@ a:hover { text-decoration: underline; }
 .gate-off-list { margin: var(--space-1) 0 0; padding-left: var(--space-4); color: var(--text-2); }
 /* The two disclosures: a quiet line each, open on demand (., v), remembered per browser. */
 .gate-adjust, .gate-card .gate-decided { margin: var(--space-3) 0 0; padding-top: var(--space-3); border-top: 1px solid var(--border-1); }
-.gate-fold { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); min-height: 28px; color: var(--text-2); font-size: var(--text-sm); font-weight: var(--weight-medium); cursor: pointer; list-style: none; }
+/* padding-right: room for the quiet key hint (".", "v"), drawn at the summary's top right corner on focus, so it never sits on the words. */
+.gate-fold { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); min-height: 28px; padding-right: var(--space-5); color: var(--text-2); font-size: var(--text-sm); font-weight: var(--weight-medium); cursor: pointer; list-style: none; }
 .gate-fold::-webkit-details-marker { display: none; }
 .gate-fold:hover { color: var(--text-1); }
 .gate-fold:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--radius-sm); }
