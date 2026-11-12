@@ -641,6 +641,8 @@ export async function createRunner(config) {
   // ownCodeDir): null, as with no folder, branch or base. A git that fails throws.
   const BRANCH_COMMITS_KEPT = 50; // the most branches whose commits are kept, the oldest out first
   const branchCommitsCache = new Map(); // codeDir|branch|base -> { head, commits }
+  // The Build step's commits with their files (GET /api/job/:slug/commits), kept the same way.
+  const commitsWithFilesCache = new Map(); // codeDir|branch|base -> { head, commits }
   async function branchCommitsOf(f) {
     const base = f.baseSha ?? f.baseBranch;
     const branch = ownBranch(f);
@@ -3378,7 +3380,16 @@ export async function createRunner(config) {
       const branch = ownBranch(f);
       if (!codeDir || !branch || !(await git.isGitRepo(codeDir))) return { dir: codeDir, commits: [], note: 'No feature branch yet. Commits show up here once building starts.' };
       try {
-        return { dir: codeDir, base: f.baseSha ?? null, head: branch, commits: await git.commitsWithFiles(codeDir, { base: f.baseSha ?? null, head: branch }) };
+        // Read again only when the branch's head moved (as branchCommitsOf): one `git rev-parse` each ask.
+        const head = await git.headOf(codeDir, branch);
+        const key = `${codeDir}|${branch}|${f.baseSha ?? ''}`;
+        const hit = head ? commitsWithFilesCache.get(key) : null;
+        let commits = hit?.head === head ? hit.commits : null;
+        if (!commits) {
+          commits = await git.commitsWithFiles(codeDir, { base: f.baseSha ?? null, head: branch });
+          if (head) keepLatest(commitsWithFilesCache, key, { head, commits }, BRANCH_COMMITS_KEPT);
+        }
+        return { dir: codeDir, base: f.baseSha ?? null, head: branch, commits };
       } catch (err) {
         return { dir: codeDir, commits: [], note: `Couldn’t read the branch: ${String(err.message).split('\n')[0]}` };
       }

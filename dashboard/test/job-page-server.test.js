@@ -376,6 +376,34 @@ test('a job at Build has its plan’s steps by its commits, and its review’s f
   assert.ok(commits.commits.every((c) => Array.isArray(c.files)), 'each commit lists its files');
 });
 
+test('the Build step’s commits are read again only when the branch’s head moves (final fixes C4)', { timeout: 60_000 }, async () => {
+  const cacheRepo = path.join(root, 'commits-cache-repo');
+  await fs.mkdir(cacheRepo, { recursive: true });
+  const env = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
+  const sh = (...args) => execFileSync('git', ['-c', 'commit.gpgsign=false', ...args], { cwd: cacheRepo, stdio: ['ignore', 'pipe', 'ignore'], env }).toString().trim();
+  sh('init', '-q', '-b', 'main');
+  sh('commit', '-q', '--allow-empty', '-m', 'base');
+  sh('switch', '-q', '-c', 'feature/cached');
+  sh('commit', '-q', '--allow-empty', '-m', '[S1] the form');
+  const slug = 'commits-cached';
+  await writeJob(slug, { files: { 'status.json': { schema_version: 1, slug, title: `Job ${slug}`, route: 'small', stage: 'implement', stage_state: 'working', branch: 'feature/cached', repo: { path: cacheRepo, base_branch: 'main' }, updated_at: OLD } } });
+  await foundJob(slug);
+  // No base recorded for the job: the branch's whole history, newest first.
+  const subjects = async () => (await (await fetch(`${base}/api/job/${slug}/commits`)).json()).commits.map((c) => c.subject);
+  assert.deepEqual(await subjects(), ['[S1] the form', 'base']);
+  // git log would now show the commit with other words (a replace leaves the branch's head where it
+  // was): the same head answers what was read before, so git log did not run again.
+  const head = sh('rev-parse', 'feature/cached');
+  const other = sh('commit-tree', `${head}^{tree}`, '-p', `${head}^`, '-m', 'read again');
+  sh('replace', head, other);
+  assert.equal(sh('rev-parse', '--verify', 'feature/cached^{commit}'), head, 'the head has not moved');
+  assert.deepEqual(await subjects(), ['[S1] the form', 'base']);
+  // The head moves: read again.
+  sh('replace', '-d', head);
+  sh('commit', '-q', '--allow-empty', '-m', '[S2] the list');
+  assert.deepEqual(await subjects(), ['[S2] the list', '[S1] the form', 'base']);
+});
+
 test('a job closed as done has every plan step done; one closed as dropped keeps what its commits say (Task 4, fix round 1)', { timeout: 60_000 }, async () => {
   const env = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
   const close = async (slug, as) => {
