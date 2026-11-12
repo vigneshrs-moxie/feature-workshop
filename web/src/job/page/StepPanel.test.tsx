@@ -449,6 +449,31 @@ describe('StepPanel', () => {
     }
   });
 
+  it('an older good answer that lands after a newer failure is kept', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'] });
+    const asks: { ok(v: StageView): void; fail(e: Error): void }[] = [];
+    const { api, wrap } = stores(BUILDING, { get: () => new Promise((ok, fail) => { asks.push({ ok: ok as (v: StageView) => void, fail }); }) });
+    render(wrap(<Live stop="build" />));
+    await act(async () => {});
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(stageCalls(api.get)).toBe(2);
+    // The newer ask fails first: nothing good is in yet, so it says so.
+    await act(async () => { asks[1].fail(new Error('Starbase isn’t answering')); });
+    expect(within(who()).getByRole('alert')).toHaveTextContent('Couldn’t load this step: Starbase isn’t answering');
+    // The older ask's good answer lands after it: kept, and the problem goes.
+    await act(async () => { asks[0].ok(BUILD); });
+    expect(screen.getByText('Writing step 3 of 6')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).toBeNull();
+    // A failure older than a good answer already taken changes nothing.
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(asks).toHaveLength(4);
+    await act(async () => { asks[3].ok({ ...BUILD, agents: [BUILD.agents[0], { ...BUILD.agents[1], doing: 'Writing step 4 of 6' }] }); });
+    await act(async () => { asks[2].fail(new Error('late')); });
+    expect(screen.getByText('Writing step 4 of 6')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
   it('a step not reached says so', () => {
     const notYet = (stop: StopId, label: string) => ({ ...BUILD, stop, label, state: 'next' as const, stateWords: 'Not yet', since: null, agents: [], finished: [], docs: [] });
     show(notYet('test', 'Test'));

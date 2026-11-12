@@ -43,25 +43,23 @@ export function useStage(slug: string, stop: StopId): { view: StageView | null; 
   }
   const [tries, setTries] = useState(0);
 
-  // Each ask is numbered: an answer older than one already taken is dropped (a slow first ask that
-  // lands after a quick second one never puts the older view back).
+  // Each ask is numbered, and only a good answer counts as taken: an answer older than the good one
+  // taken is dropped (a slow first ask that lands after a quick second one never puts the older view
+  // back), and a failure shows only while no newer good answer is in (a newer ask that fails never
+  // throws away an older good answer that lands after it).
   const asked = useRef(0);
   const taken = useRef(0);
   const ask = useCallback((alive: () => boolean) => {
     const mine = ++asked.current;
-    const newest = () => {
-      if (mine < taken.current) return false;
-      taken.current = mine;
-      return true;
-    };
     return api.get<StageView>(path).then(
       (value) => {
-        if (!newest()) return;
+        if (mine < taken.current) return;
+        taken.current = mine;
         remember(api, path, value);
         if (alive()) setHeld((h) => (h.path === path ? { path, load: { state: 'ready', value } } : h));
       },
       (err) => {
-        if (!newest()) return;
+        if (mine < taken.current) return;
         const message = err instanceof Error ? err.message : String(err);
         // A refresh that fails keeps what the step showed.
         if (alive()) setHeld((h) => (h.path === path && h.load.state !== 'ready' ? { path, load: { state: 'error', message } } : h));
