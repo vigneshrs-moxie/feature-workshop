@@ -525,10 +525,12 @@ describe('TestStep', () => {
     expect(site.api.get).not.toHaveBeenCalledWith(`/api/job/${SLUG}/local`);
   });
 
-  it('a job past Test whose hand test never started says Skipped by you', () => {
+  it('a job past Test whose hand test never started says Not run, never Skipped by you', () => {
     show({ j: REVIEWING, view: { ...TEST, state: 'done', handTest: { startedAt: null } } });
-    expect(chip('Your hand test')).toBe('Skipped by you');
-    expect(fact('Your hand test', 'When')).toBe('You went ahead without it');
+    expect(chip('Your hand test')).toBe('Not run');
+    expect(fact('Your hand test', 'When')).toBeNull();
+    expect(kind('Your hand test')).not.toHaveTextContent('Skipped by you');
+    expect(kind('Your hand test')).not.toHaveTextContent('You went ahead without it');
     cleanup();
     // Not known (an older laptop): its plain state, and no When.
     show({ j: REVIEWING, view: { ...TEST, state: 'done', handTest: undefined } });

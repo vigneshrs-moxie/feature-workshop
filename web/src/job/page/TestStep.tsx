@@ -385,8 +385,10 @@ function HandRow({ slug, job, detail, view, now, hosted, tryOpen, onTryOpen }: {
   let tone: Tone = '';
   let when: string | null;
   if (started) { state = 'Started'; tone = 'ok'; when = `Started ${startedAgo}`; } else if (past && hand) {
-    state = autoDecides ? 'Skipped' : 'Skipped by you';
-    when = 'You went ahead without it';
+    // Known, and never started from here. Never "Skipped by you": a job older than this record
+    // reads the same, and he skipped nothing there (the owner's choice, 2026-11-12).
+    state = autoDecides ? 'Skipped' : 'Not run';
+    when = null;
   } else when = before ? 'When you like' : past ? null : 'Not yet';
   if (autoDecides) when = AUTO_SKIPS_HAND_TEST;
 
