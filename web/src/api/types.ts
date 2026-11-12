@@ -1511,6 +1511,8 @@ export interface EvidenceView {
   folderUrl: string;
   /** While Playwright records: which line of how many, and each line's state; null when not; missing from dashboards from before. */
   progress?: EvidenceProgress | null;
+  /** Watch: true on the laptop while a recording runs (GET /api/job/:slug/evidence/live); false on the website; missing from dashboards from before. */
+  watch?: boolean;
 }
 
 /** A recording by line (dashboard/lib/evidence.js): line is the running line's place, else the last finished one's. */

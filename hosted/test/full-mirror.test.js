@@ -607,3 +607,25 @@ test('the website accepts an upload for a video the progress names', async () =>
     assert.equal((await ask({ slug: 'add-export', file: '/abc1234/AC-1/video.webm', type: 'video/webm', size: 10 })).status, 400);
   } finally { l.link.stop(); await s.close(); }
 });
+
+test('the website has no live picture and says where it is', async () => {
+  const runner = mirrorRunner();
+  // The laptop is recording and could be watched there.
+  const progress = { commit: 'abc1234', startedAt: '2026-11-11T09:00:00.000Z', line: 1, of: 1, lines: [
+    { id: 'AC-1', title: 'Export button', state: 'running', video: null, at: '2026-11-11T09:00:01.000Z' },
+  ] };
+  runner.local.evidence.view = async () => ({ evidence: null, commit: 'abc1234', wanted: true, why: null, recording: true, watch: true, problem: null, progress, folder: '/home/someone/ev', folderUrl: 'file:///home/someone/ev/' });
+  const { s, olive, l } = await setUp({ runner });
+  try {
+    const view = (await olive.person.json('/api/job/add-export/evidence')).body;
+    assert.equal(view.recording, true, 'the laptop’s recording shows');
+    assert.equal(view.watch, false, 'Watch is on the laptop only');
+    const live = await olive.person.json('/api/job/add-export/evidence/live');
+    assert.equal(live.status, 404);
+    assert.equal(live.body.error, 'The live picture shows on your laptop.');
+    // Nor can the laptop send one up.
+    const ask = await post(s, olive.token, '/api/runner/evidence/upload', { slug: 'add-export', file: 'abc1234/run/live.jpg', type: 'image/jpeg', size: 10 });
+    assert.equal(ask.status, 404);
+    assert.equal(await count(s, 'SELECT count(*)::int AS n FROM evidence_files'), 0);
+  } finally { l.link.stop(); await s.close(); }
+});

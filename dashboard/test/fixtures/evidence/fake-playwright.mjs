@@ -10,6 +10,7 @@
 // at most). When the file says `exit 1` it stops there, as a Playwright that died part way: exit
 // code 1 and no report. When it says `one` the first line ends, then it waits again (30 seconds at
 // most) until the file says something else, so a test sees the run between its first line and its end.
+// While the run's watch file is fresh it saves a picture to the live file, as the guard does.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -32,6 +33,20 @@ const ran = new Set(fs.readdirSync(config.testDir));
 const parsed = JSON.parse(report);
 parsed.suites = parsed.suites.filter((s) => ran.has(s.file));
 process.stdout.write(`Running ${parsed.suites.length} tests using 1 worker\n`);
+
+// Watch: as the guard does (lib/evidence.js guardModule), with the two paths the run's guard.mjs names,
+// every 500 ms while the watch file was touched under 5 s ago it saves a picture (beside it, then a rename).
+const guard = (() => { try { return fs.readFileSync(path.join(path.dirname(config.testDir), 'guard.mjs'), 'utf8'); } catch { return ''; } })();
+const named = (name) => { const m = new RegExp(`^const ${name} = ("[^"\\n]*");$`, 'm').exec(guard); return m ? JSON.parse(m[1]) : null; };
+const [LIVE, WATCH] = [named('LIVE'), named('WATCH')];
+const FRAME = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from('a live picture, not really'), Buffer.from([0xff, 0xd9])]);
+const frames = LIVE && WATCH ? setInterval(() => {
+  try {
+    if (Date.now() - fs.statSync(WATCH).mtimeMs >= 5000) return;
+    fs.writeFileSync(`${LIVE}.part`, FRAME);
+    fs.renameSync(`${LIVE}.part`, LIVE);
+  } catch { /* nobody watching, or the run's folder is gone: no picture */ }
+}, 500) : null;
 
 const STATUS = { passed: 'passed', skipped: 'skipped', failed: 'failed', timedOut: 'failed', interrupted: 'failed' };
 const say = (o) => process.stdout.write(`\n@@starbase ${JSON.stringify(o)}\n`);
@@ -59,5 +74,6 @@ for (const suite of parsed.suites) {
     first = false;
   }
 }
+clearInterval(frames);
 fs.writeFileSync(reportFile, JSON.stringify(parsed, null, 2));
 process.exit(parsed.suites.some((s) => s.specs.some((x) => !x.ok)) ? 1 : 0);

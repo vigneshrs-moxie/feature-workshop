@@ -14,7 +14,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   BROWSER_FIX, CONFIG_FILE, DB_DOWN, EvidenceError, buildEvidence, evidenceFile, evidenceLines, evidenceWanted, guardedSpec,
   listSpecs, playwrightConfig, prepareRun, readEvidence, readyToRecord, recordEvidence,
-  parseProgressLine, progressReporter, recordingWords,
+  parseProgressLine, progressReporter, recordingWords, guardModule,
 } from '../lib/evidence.js';
 import { defaultsForLevel, describeOptions, evidenceOn, normalize, optionsAtLevel } from '../lib/options.js';
 import { describeDoc, listJobDocs, readJobDoc } from '../lib/docs.js';
@@ -398,4 +398,67 @@ test('evidence: the words say the line once it has begun, and never one that has
   assert.equal(recordingWords({ line: 0, of: 1 }), 'Recording evidence: starting, 1 line');
   assert.equal(recordingWords({ line: 1, of: 3 }), 'Recording evidence: line 1 of 3');
   assert.equal(recordingWords({ line: 4, of: 19 }), 'Recording evidence: line 4 of 19');
+});
+
+// ---------- Watch: the hidden browser's picture (Task 6) ----------
+
+const pause = (ms) => new Promise((r) => { setTimeout(r, ms); });
+const exists = (f) => fs.access(f).then(() => true, () => false);
+async function until(ok, what, ms = 8000) {
+  for (const end = Date.now() + ms; Date.now() < end;) { if (await ok()) return; await pause(50); }
+  assert.fail(what);
+}
+
+test('evidence: the guard saves frames only while someone watches', async () => {
+  const dir = await tmp('guard');
+  const liveFile = path.join(dir, 'live.jpg');
+  const watchFile = path.join(dir, 'watching');
+  // A stand-in for Playwright: test.extend hands its fixtures back, so the page fixture runs here with no browser.
+  const pw = pathToFileURL(path.join(dir, 'playwright.mjs')).href;
+  await fs.writeFile(path.join(dir, 'playwright.mjs'), 'export const test = { extend: (fixtures) => ({ fixtures }) };\nexport const expect = () => {};\n');
+  const text = guardModule(pw, { liveFile, watchFile });
+  assert.ok(text.includes(JSON.stringify(liveFile)) && text.includes(JSON.stringify(watchFile)), 'it names both files');
+  const from = [...text.matchAll(/\bfrom\s+(["'])([^"']*)\1/g)].map((m) => m[2]);
+  assert.deepEqual([...new Set(from)].sort(), ['node:fs', pw].sort(), 'it imports only Playwright and node:fs');
+  assert.doesNotMatch(text, /\bimport\s*\(|\brequire\s*\(/);
+  await fs.writeFile(path.join(dir, 'guard.mjs'), text);
+  const { test: guarded } = await import(pathToFileURL(path.join(dir, 'guard.mjs')).href);
+  const shots = [];
+  let failures = 1; // the first picture can't be saved (the page is busy): it is skipped
+  const page = {
+    route: async () => {}, mainFrame: () => null,
+    screenshot: async (opts) => { shots.push(opts); if (failures-- > 0) throw new Error('Target page, context or browser has been closed'); return Buffer.from(`frame ${shots.length}`); },
+  };
+  await guarded.fixtures.page({ page }, async () => {
+    await pause(1200);
+    assert.equal(shots.length, 0, 'nobody watching: no picture is taken');
+    assert.equal(await exists(liveFile), false);
+    await fs.writeFile(watchFile, ''); // someone presses Watch on the laptop
+    await until(() => exists(liveFile), 'no frame while someone watched');
+    assert.ok(shots.length >= 2, 'the failed one was skipped and the next one saved');
+    assert.ok(shots.every((o) => o.type === 'jpeg' && o.quality === 60), JSON.stringify(shots));
+    assert.match(await fs.readFile(liveFile, 'utf8'), /^frame \d+$/);
+    assert.deepEqual((await fs.readdir(dir)).filter((f) => f.startsWith('live')), ['live.jpg'], 'written beside it, then renamed');
+    // Nobody has asked for 5 seconds: no more pictures.
+    const old = new Date(Date.now() - 6000);
+    await fs.utimes(watchFile, old, old);
+    await pause(700);
+    const quiet = shots.length;
+    await pause(1100);
+    assert.equal(shots.length, quiet, 'a stale watch takes no pictures');
+    await fs.writeFile(watchFile, ''); // watched again as the test ends
+  });
+  const atEnd = shots.length;
+  await pause(1100);
+  assert.equal(shots.length, atEnd, 'the timer stops when the test ends');
+});
+
+test('evidence: a recording’s guard watches run/watching and saves to run/live.jpg', async () => {
+  const job = await makeJob();
+  const specs = await listSpecs(path.join(job.dir, 'evidence'));
+  const run = await prepareRun({ evidenceDir: path.join(job.dir, 'evidence'), commit: 'abc1234def5', specs, baseURL: 'http://localhost:3007', playwrightUrl: 'file:///gc/pw.mjs' });
+  const guard = await fs.readFile(path.join(run.runDir, 'guard.mjs'), 'utf8');
+  assert.ok(guard.includes(JSON.stringify(path.join(run.runDir, 'live.jpg'))));
+  assert.ok(guard.includes(JSON.stringify(path.join(run.runDir, 'watching'))));
+  assert.equal(await exists(path.join(run.runDir, 'watching')), false, 'nobody watches yet');
 });

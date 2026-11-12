@@ -404,3 +404,72 @@ test('evidence server: the laptop’s card hears the end of a recording that die
     w.stop();
   }
 });
+
+// ---------- Watch: the hidden browser's picture (Task 6) ----------
+
+const liveUrl = (slug) => `/api/job/${slug}/evidence/live`;
+const runDirOf = (slug) => path.join(featuresDir, slug, 'evidence', 'abc1234def5', 'run');
+const there = (f) => fs.access(f).then(() => true, () => false);
+/** A GET from this computer, with the Host header a page elsewhere (a rebound name) would send. */
+const getAs = (p, host) => new Promise((resolve, reject) => {
+  const req = http.get(base + p, { headers: { Host: host } }, (res) => { res.resume(); resolve(res.statusCode); });
+  req.on('error', reject);
+});
+
+test('evidence server: the live route answers the newest frame while a recording is watched, and 404 after it ends', async () => {
+  await fs.rm(hold, { force: true });
+  try {
+    await writeJob('watched-job', { level: 2 });
+    const view = await viewWhen('watched-job', runningFirst, 'no recording part way');
+    assert.equal(view.watch, true, 'Watch is there while it records');
+    const first = await get(liveUrl('watched-job'));
+    assert.equal(first.status, 404, 'nobody watched yet, so there is no picture');
+    assert.equal((await first.json()).error, 'No live picture right now.');
+    assert.ok(await there(path.join(runDirOf('watched-job'), 'watching')), 'asking marks it watched');
+    let res = null;
+    for (let i = 0; i < 40; i++) {
+      res = await get(liveUrl('watched-job'));
+      if (res.status === 200) break;
+      await res.arrayBuffer();
+      await pause(250);
+    }
+    assert.equal(res.status, 200, `no frame while watched:\n${output.join('').slice(-2000)}`);
+    assert.equal(res.headers.get('content-type'), 'image/jpeg');
+    assert.equal(res.headers.get('cache-control'), 'no-store');
+    assert.equal(res.headers.get('cross-origin-resource-policy'), 'same-origin', 'no other origin may show it');
+    const bytes = Buffer.from(await res.arrayBuffer());
+    assert.deepEqual([...bytes.subarray(0, 2)], [0xff, 0xd8], 'a JPEG');
+    assert.equal(Number(res.headers.get('content-length')), bytes.length);
+    // Only at the laptop's own address.
+    assert.equal(await getAs(liveUrl('watched-job'), 'starbase.example.test'), 421);
+    // Another job that isn't recording has none, and asking marks nothing.
+    assert.equal((await get(liveUrl('tiny-tweak'))).status, 404);
+    assert.equal(await there(path.join(featuresDir, 'tiny-tweak', 'evidence', 'abc1234def5')), false);
+    assert.equal((await get(liveUrl('no-such-job'))).status, 404);
+  } finally {
+    await setHold('go');
+  }
+  const done = await viewWhen('watched-job', (v) => v.evidence && !v.recording, 'the watched recording never ended');
+  assert.equal(done.watch, false, 'no Watch once it ended');
+  const after = await get(liveUrl('watched-job'));
+  assert.equal(after.status, 404);
+  assert.equal((await after.json()).error, 'No live picture right now.');
+  assert.equal(await there(runDirOf('watched-job')), false, 'the picture and the watch mark went with the run');
+  assert.ok(!JSON.stringify(done).includes('live.jpg'), 'the evidence names no live picture');
+});
+
+test('evidence server: nobody watching, no frame is written', async () => {
+  await fs.rm(hold, { force: true });
+  try {
+    await writeJob('unwatched-job', { level: 2 });
+    await viewWhen('unwatched-job', runningFirst, 'no recording part way');
+    await pause(1200); // more than two of the fake's half-second looks, the view read in between
+    await getJson('/api/job/unwatched-job/evidence');
+    assert.ok(await there(path.join(runDirOf('unwatched-job'), 'guard.mjs')), 'the run is there');
+    assert.equal(await there(path.join(runDirOf('unwatched-job'), 'live.jpg')), false, 'no frame');
+    assert.equal(await there(path.join(runDirOf('unwatched-job'), 'watching')), false, 'reading the view marks nothing');
+  } finally {
+    await setHold('go');
+  }
+  await viewWhen('unwatched-job', (v) => v.evidence && !v.recording, 'the recording never ended');
+});
