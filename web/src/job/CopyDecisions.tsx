@@ -2,10 +2,15 @@
 // (GET /api/jobs/:slug/decisions.md, its `orbit` part, dashboard/lib/decisions.js). It opens a small
 // panel with the text exactly as it will be copied and one Copy button that says Copied for two
 // seconds. Starbase only puts it on your clipboard; it never sends anything to Orbit.
-// Read when the panel opens, so it has the decisions made since.
+// Read when the panel opens, so it has the decisions made since. Under the text, a fold
+// "Everything decided on this job" holds the job's full list (the Decisions tab's, read when the
+// fold first opens), drawn without its own Copy decisions button so no second sheet opens.
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '../components/Button';
+import { Icon } from '../components/Icon';
+import { FoldShow } from '../components/page/Page';
 import { Sheet } from '../components/Sheet';
+import { DecisionsTab } from '../panes/Preview/DecisionsTab';
 import { BRAND } from '../app/brand';
 import { useWorkshop } from '../state/store';
 
@@ -17,6 +22,9 @@ export function CopyDecisions({ slug }: { slug: string }) {
   const [list, setList] = useState<OrbitList | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  // The full list's fold: read once it has been opened, and kept while the panel is open.
+  const [allOpen, setAllOpen] = useState(false);
+  const [allAsked, setAllAsked] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
@@ -27,6 +35,8 @@ export function CopyDecisions({ slug }: { slug: string }) {
     setList(null);
     setError(null);
     setState('idle');
+    setAllOpen(false);
+    setAllAsked(false);
     api.get<{ orbit?: OrbitList }>(`/api/jobs/${encodeURIComponent(slug)}/decisions.md`)
       .then((r) => {
         if (!live) return;
@@ -59,6 +69,14 @@ export function CopyDecisions({ slug }: { slug: string }) {
           {!list && !error && <p className="muted">Reading the decisions…</p>}
           {error && <p className="field-problem" role="alert">Couldn’t read the decisions: {error}</p>}
           {state === 'failed' && <p className="field-problem" role="alert">Couldn’t copy: this browser didn’t allow it. Select the text above and copy it yourself.</p>}
+          <details className="fold copy-decisions-all" open={allOpen} onToggle={(e) => { const o = e.currentTarget.open; setAllOpen(o); if (o) setAllAsked(true); }}>
+            <summary className="fold-head" title="Show or hide everything decided on this job.">
+              <Icon name="list" size={16} />
+              <span className="fold-name">Everything decided on this job</span>
+              <FoldShow />
+            </summary>
+            <div className="fold-body">{allAsked && <DecisionsTab slug={slug} active copy={false} />}</div>
+          </details>
           <div className="sheet-actions">
             <Button kind="quiet" onClick={() => setOpen(false)}>Close</Button>
             <Button kind="primary" disabled={!list} onClick={() => void copy()}>{state === 'copied' ? 'Copied' : 'Copy'}</Button>

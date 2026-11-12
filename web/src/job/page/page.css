@@ -98,3 +98,42 @@
 .sb-pr-where { font-size: var(--text-xs); color: var(--text-2); }
 .sb-pr-state { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
 .sb-pr-meta { font-size: var(--text-xs); color: var(--text-2); }
+
+/* The pinned header (job/page/JobTop.tsx), as drawn: row one the title and the state chip, at the
+   right the Auto switch with On or Off, the gear and How it works; row two the ticket, Copy
+   decisions, Started by Auto, the job's facts and the locked Foreman model, at the right the
+   switch's own line and What Auto decided under it. The switch's checkbox is drawn as a switch
+   (sb-switch's look) in this header only. */
+.sb-job-top { display: flex; align-items: flex-start; gap: var(--space-4); min-width: 0; }
+.sb-top-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.sb-top-title { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
+.sb-top-title .page-title { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-top-title .state-chip { flex: none; }
+.sb-top-facts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); min-width: 0; font-size: var(--text-sm); color: var(--text-2); }
+.sb-top-fact { min-width: 0; overflow-wrap: anywhere; }
+a.sb-top-ticket { color: var(--text-1); text-decoration: none; }
+a.sb-top-ticket:hover { border-color: var(--border-3); }
+.sb-top-ticket .icon { color: var(--text-3); }
+.sb-top-model { display: inline-flex; align-items: center; gap: var(--space-1); white-space: nowrap; }
+.sb-top-model .icon { flex: none; color: var(--text-3); }
+.sb-top-side { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-1); max-width: 55%; min-width: 0; }
+.sb-top-acts { display: flex; align-items: flex-start; justify-content: flex-end; gap: var(--space-2); min-width: 0; }
+.sb-job-top .auto-switch.is-inline { display: inline-grid; grid-template-columns: auto auto; justify-content: end; align-items: center; gap: var(--space-1) var(--space-2); min-width: 0; }
+.sb-job-top .auto-switch-row { width: auto; align-items: center; gap: var(--space-2); font-size: var(--text-sm); }
+.sb-job-top .auto-switch-row .choice { margin-top: 0; }
+.sb-job-top .auto-line { grid-column: 1 / -1; width: 0; min-width: 100%; justify-content: flex-end; text-align: right; }
+.sb-job-top .auto-switch.is-inline > :not(.option-row):not(.auto-spin):not(.auto-line):not(.sr-only) { grid-column: 1 / -1; }
+.auto-switch-word { flex: none; color: var(--text-3); }
+.auto-switch-word.is-on { color: var(--accent-strong); }
+/* The checkbox as a switch: the native input stays underneath, for the keyboard and screen readers. */
+.sb-job-top .auto-switch-row > .choice { width: 30px; height: 18px; padding: 2px; border-color: transparent; border-radius: 9px; background-color: var(--bg-4); place-content: center start; }
+.sb-job-top .auto-switch-row > .choice::before { content: ''; width: 14px; height: 14px; border-radius: 50%; background: var(--surface-1); box-shadow: var(--elev-xs); }
+.sb-job-top .auto-switch-row > .choice:checked { border-color: transparent; background-color: var(--btn-primary-bg); place-content: center end; }
+.sb-job-top .auto-switch-row > .choice:checked::before { width: 14px; height: 14px; border: 0; transform: none; background: var(--surface-1); }
+@media (max-width: 760px) {
+  .sb-job-top { flex-direction: column; gap: var(--space-2); }
+  .sb-top-side { max-width: 100%; align-items: flex-start; }
+  .sb-top-acts { justify-content: flex-start; flex-wrap: wrap; }
+  .sb-job-top .auto-switch.is-inline { justify-content: start; }
+  .sb-job-top .auto-line { justify-content: flex-start; text-align: left; }
+}

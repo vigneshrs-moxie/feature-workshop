@@ -127,6 +127,73 @@ describe('WhatAutoDecided', () => {
     expect([...lines].map((l) => l.textContent)).toEqual([same, same, '']);
   });
 
+  // Task 9: each entry with its step as a chip and what it chose as a chip; the foot.
+  const panelEntries = () => within(screen.getByRole('dialog', { name: 'What Auto decided' })).getAllByRole('listitem').filter((li) => li.classList.contains('auto-entry'));
+  const FOOT_2 = 'The same decisions show in Copy decisions, marked (Auto).';
+
+  it('each entry says when, which step, what was asked, what it chose and why', async () => {
+    const at = new Date(Date.now() - 14 * 60_000).toISOString();
+    const older = new Date(Date.now() - 30 * 60_000).toISOString();
+    show(vi.fn(async () => ({ ...DECIDED, entries: [
+      { at, stage: 'Plan', chose: 'Went ahead', asked: 'Approve plan v1 and start Build?', why: 'Small and reversible.', kind: 'approve', stop: 'plan' },
+      // From an older laptop: no kind, no step. It draws as before: no step chip, the done look.
+      { at: older, stage: 'Spec', chose: 'Approved the spec', asked: 'Approve the spec?', why: 'It matches the ticket.' },
+    ] })));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'What Auto decided' })); });
+    const [entry, old] = panelEntries();
+    expect(within(entry).getByText('14m ago')).toBeInTheDocument();
+    const step = within(entry).getByText('Plan');
+    expect(step.closest('.chip')).not.toBeNull();
+    expect(within(entry).getByText('Asked: Approve plan v1 and start Build?')).toBeInTheDocument();
+    expect(within(entry).getByText(/^Chose:/)).toBeInTheDocument();
+    const chose = within(entry).getByText('Went ahead').closest('.chip')!;
+    expect(chose).toHaveClass('chip-ok');
+    expect(within(entry).getByText('Why: Small and reversible.')).toBeInTheDocument();
+    // The older entry.
+    expect(old).toHaveTextContent('Spec');
+    expect(within(old).getByText('Spec').closest('.chip')).toBeNull();
+    expect(within(old).getByText('Approved the spec').closest('.chip')).toHaveClass('chip-ok');
+    expect(within(old).getByText('Why: It matches the ticket.')).toBeInTheDocument();
+  });
+
+  it('a stop entry’s Chose chip has the stop look', async () => {
+    const reason = 'The plan adds a notes column to the visit list query. A database change always waits for you.';
+    show(vi.fn(async () => ({ ...DECIDED, entries: [{ at: '2026-11-10T10:05:00Z', stage: 'Plan', chose: reason, asked: '', why: reason, kind: 'stop', stop: 'plan' }] })));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'What Auto decided' })); });
+    const [entry] = panelEntries();
+    const chip = within(entry).getByText('Stopped').closest('.chip')!;
+    expect(chip).toHaveClass('chip-needs-you');
+    expect(chip).not.toHaveClass('chip-ok');
+    expect(within(entry).getByText(`Why: ${reason}`)).toBeInTheDocument();
+    // The reason once, never twice in one entry.
+    expect(entry.textContent!.split(reason)).toHaveLength(2);
+    // The summary lines stay as the server sends them.
+    for (const l of DECIDED.summary) expect(screen.getByText(l)).toBeInTheDocument();
+  });
+
+  it('a job a tag started says so at the foot', async () => {
+    // Built in the viewer's own time zone, so the words are the same wherever the test runs.
+    const startedAt = new Date(2026, 10, 10, 9, 14).toISOString();
+    show(vi.fn(async () => ({ ...DECIDED, tag: 'auto', startedAt, ticket: 'ORBIT-907' })));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'What Auto decided' })); });
+    const panel = screen.getByRole('dialog', { name: 'What Auto decided' });
+    expect(within(panel).getByText(`Started by Auto on Nov 10 at 9:14 am: ORBIT-907 carries the tag auto. ${FOOT_2}`)).toBeInTheDocument();
+  });
+
+  it('with no start time the foot has only the second sentence', async () => {
+    // An older laptop's record: no startedAt, no ticket.
+    const { unmount } = show(vi.fn(async () => ({ ...DECIDED, tag: 'auto' })));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'What Auto decided' })); });
+    expect(within(screen.getByRole('dialog', { name: 'What Auto decided' })).getByText(FOOT_2)).toBeInTheDocument();
+    expect(screen.queryByText(/Started by Auto on/)).toBeNull();
+    unmount();
+    // A start time and a ticket, but no tag known: still only the second sentence.
+    show(vi.fn(async () => ({ ...DECIDED, tag: null, startedAt: '2026-11-10T09:14:00Z', ticket: 'ORBIT-907' })));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'What Auto decided' })); });
+    expect(screen.getByText(FOOT_2)).toBeInTheDocument();
+    expect(screen.queryByText(/Started by Auto on/)).toBeNull();
+  });
+
   it('a click or key inside the button and panel does not reach what holds them', async () => {
     const outer = vi.fn();
     const api = { get: vi.fn(async () => DECIDED), post: vi.fn() } as unknown as ApiClient;

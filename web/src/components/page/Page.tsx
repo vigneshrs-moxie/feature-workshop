@@ -144,7 +144,7 @@ function readSeen(): string[] {
 }
 
 /** Open the first time a page with this guide opens in this browser; How it works opens it again. */
-function useGuide(id: string | null): [boolean, (open: boolean) => void] {
+export function useGuide(id: string | null): [boolean, (open: boolean) => void] {
   const [open, setOpen] = useState(() => (id && firstVisit ? !readSeen().includes(id) : false));
   const set = (next: boolean) => {
     if (!next && id) {
@@ -176,7 +176,7 @@ export function GuideCards({ cards }: { cards: readonly GuideCard[] }) {
   );
 }
 
-function Guide({ spec, onClose }: { spec: GuideSpec; onClose: () => void }) {
+export function Guide({ spec, onClose }: { spec: GuideSpec; onClose: () => void }) {
   const done = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;

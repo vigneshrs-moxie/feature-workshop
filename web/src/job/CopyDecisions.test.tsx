@@ -1,6 +1,6 @@
 // "Copy decisions": the panel shows what will be copied, Copy puts exactly that on the clipboard,
 // and the button sits in the job's details and at the top of the Decisions tab.
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../api/client';
 import { createStore, WorkshopContext } from '../state/store';
@@ -51,6 +51,28 @@ describe('CopyDecisions', () => {
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Copy' })); });
     expect(screen.getByRole('alert')).toHaveTextContent(/Couldn’t copy/);
   });
+  it('the full list of decisions is one fold under what it copies, with one Copy decisions button', async () => {
+    const get = vi.fn(async (url: string): Promise<unknown> => (url.endsWith('decisions.md')
+      ? { file: 'decisions.md', path: '/x', text: '| table |', orbit: { text: TEXT, count: 1 } }
+      : { decisions: [{ at: '2026-11-10T10:00:00Z', kind: 'approve', text: 'Approved brief 2' }] }));
+    const api = { get, post: vi.fn() } as unknown as ApiClient;
+    render(<WorkshopContext.Provider value={{ store: createStore(), api }}><CopyDecisions slug="orbit-472-roster" /></WorkshopContext.Provider>);
+    fireEvent.click(screen.getByRole('button', { name: 'Copy decisions' }));
+    const text = await screen.findByLabelText('The text that will be copied');
+    const sheet = screen.getByRole('dialog', { name: 'Copy decisions' });
+    const folds = sheet.querySelectorAll('details');
+    expect(folds).toHaveLength(1);
+    const fold = folds[0];
+    expect(fold.querySelector('summary')).toHaveTextContent('Everything decided on this job');
+    // Under the text it copies.
+    expect(text.compareDocumentPosition(fold) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await act(async () => { fireEvent.click(fold.querySelector('summary')!); });
+    expect(await within(fold).findByText('Approved brief 2')).toBeInTheDocument();
+    expect(get).toHaveBeenCalledWith('/api/job/orbit-472-roster/decisions');
+    // One Copy decisions button on the whole screen: the one that opened this panel.
+    expect(screen.getAllByRole('button', { name: 'Copy decisions' })).toHaveLength(1);
+  });
+
   it('the button is on the Decisions tab (the header has it too, see JobPage.test.tsx)', () => {
     setup(<DecisionsTab slug="orbit-472-roster" active />);
     expect(screen.getByRole('button', { name: 'Copy decisions' })).toBeInTheDocument();

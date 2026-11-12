@@ -30,10 +30,12 @@ interface ViewProps {
   busy?: boolean;
   /** The header's: the hint is not shown, it describes the checkbox (and is its title). Unless blocked: that sentence is shown. */
   quiet?: boolean;
+  /** The new job page's header: On or Off beside the switch (the checkbox's state already says it to a screen reader). */
+  word?: boolean;
   onToggle(next: boolean): void;
 }
 
-function SwitchView({ checked, blocked, disabled, busy, quiet, onToggle }: ViewProps) {
+function SwitchView({ checked, blocked, disabled, busy, quiet, word = false, onToggle }: ViewProps) {
   const off = blocked || disabled;
   const hintId = useId();
   const hidden = quiet && !blocked;
@@ -44,6 +46,7 @@ function SwitchView({ checked, blocked, disabled, busy, quiet, onToggle }: ViewP
         <span className="auto-switch-label">{AUTO_LABEL}</span>
         {!quiet && <span className="auto-switch-hint">{blocked ? AUTO_L3 : AUTO_HINT}</span>}
       </span>
+      {word && <b className={`auto-switch-word${checked && !blocked ? ' is-on' : ''}`} aria-hidden="true">{checked && !blocked ? 'On' : 'Off'}</b>}
     </OptionRow>
     {/* Outside the label, so its words never join the checkbox's name. */}
     {busy && <span className="auto-spin" role="status" aria-label={checked ? 'Turning Auto off…' : 'Turning Auto on…'}><span className="spin-ring" aria-hidden="true" /></span>}
@@ -53,7 +56,7 @@ function SwitchView({ checked, blocked, disabled, busy, quiet, onToggle }: ViewP
   );
 }
 
-function HeaderSwitch({ job, onChange }: { job: Pick<Job, 'slug' | 'level' | 'suggestedLevel' | 'auto'> & { autoQueued?: unknown }; onChange?(on: boolean): void }) {
+function HeaderSwitch({ job, onChange, word = false, tagLine = true }: { job: Pick<Job, 'slug' | 'level' | 'suggestedLevel' | 'auto'> & { autoQueued?: unknown }; onChange?(on: boolean): void; word?: boolean; tagLine?: boolean }) {
   const { api } = useWorkshop();
   const sent = useSent(`auto:${job.slug}`);
   const inflight = useRef(false);
@@ -93,10 +96,11 @@ function HeaderSwitch({ job, onChange }: { job: Pick<Job, 'slug' | 'level' | 'su
   // The record keeps { reason, rule, at }; older pages may have sent the sentence alone.
   const stop = on ? job.auto?.stopped ?? null : null;
   const stopped = !stop ? null : typeof stop === 'string' ? stop : typeof stop.reason === 'string' && stop.reason ? stop.reason : 'it needs you';
-  const tag = on && job.auto?.by === 'tag' && job.auto.tag ? job.auto.tag : null;
+  // The new job page's header says who started it in its own chip (tagLine false).
+  const tag = tagLine && on && job.auto?.by === 'tag' && job.auto.tag ? job.auto.tag : null;
   return (
     <div className="auto-switch is-inline">
-      <SwitchView quiet checked={on} blocked={blocked} disabled={sent.state === 'sending' || waiting} busy={sent.state === 'sending'} onToggle={(next) => { void toggle(next); }} />
+      <SwitchView quiet word={word} checked={on} blocked={blocked} disabled={sent.state === 'sending' || waiting} busy={sent.state === 'sending'} onToggle={(next) => { void toggle(next); }} />
       {/* A polite live region: a refusal, a stop or "Auto is on" is heard once, without taking the focus. */}
       <p className="auto-line" role="status" aria-live="polite">
         {error ? <span className="is-refused">{error}</span> : (
@@ -122,10 +126,14 @@ export interface AutoSwitchProps {
   disabled?: boolean;
   /** Called with the new value: by the form's checkbox, and by the header after the server took it. */
   onChange?(on: boolean): void;
+  /** The job's switch: draws On or Off beside it (the new job page's header). */
+  word?: boolean;
+  /** The job's switch: false leaves out "Started by Auto (tag: x)" under it, for a header whose own chip says it. */
+  tagLine?: boolean;
 }
 
-export function AutoSwitch({ job = null, level = null, checked = false, disabled, onChange }: AutoSwitchProps) {
-  if (job) return <HeaderSwitch job={job} onChange={onChange} />;
+export function AutoSwitch({ job = null, level = null, checked = false, disabled, onChange, word = false, tagLine = true }: AutoSwitchProps) {
+  if (job) return <HeaderSwitch job={job} onChange={onChange} word={word} tagLine={tagLine} />;
   return (
     <div className="auto-switch">
       <SwitchView checked={checked} blocked={aboveAuto(level)} disabled={disabled} onToggle={(next) => onChange?.(next)} />

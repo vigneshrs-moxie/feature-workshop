@@ -107,6 +107,17 @@ describe('AutoSwitch', () => {
     expect(screen.getByText('Started by Auto (tag: auto-ok)')).toBeInTheDocument();
   });
 
+  it('with tagLine off the switch leaves the tag line to the header', () => {
+    const store: Store = createStore();
+    const api = { get: vi.fn(), post: vi.fn() } as unknown as ApiClient;
+    const j = job('alpha', 'running', { level: 1, auto: { on: true, by: 'tag', tag: 'auto-ok' } });
+    render(<WorkshopContext.Provider value={{ store, api }}><AutoSwitch job={j} tagLine={false} /></WorkshopContext.Provider>);
+    expect(screen.queryByText(/Started by Auto/)).toBeNull();
+    expect(screen.getByText('Auto is on')).toBeInTheDocument();
+    // Without word, nothing is drawn beside the switch.
+    expect(screen.queryByText('On')).toBeNull();
+  });
+
   it('L5: a job you started says nothing about a tag, even with an old tag left on the record', () => {
     show(job('alpha', 'running', { level: 1, auto: { on: true, by: 'you', tag: 'old' } }));
     expect(screen.queryByText(/Started by Auto/)).toBeNull();
