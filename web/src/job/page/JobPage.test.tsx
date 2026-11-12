@@ -1651,6 +1651,61 @@ describe('after a click on the go / no go bar', () => {
 
   afterEach(() => { vi.useRealTimers(); });
 
+  // Fix round 1, I1: the words that go out leave the store at the press, so the brief showing as
+  // answered before the send's own answer comes back never copies them into the message box.
+  const MOVED = /was answered while you were writing|unsent words are in the message box/;
+  async function answeredBeforeTheReply(store: Store) {
+    server.answered = [2];
+    act(() => { store.dispatch({ type: 'event', event: ev(250, 'thread', 'alpha', {}) }); });
+    await waitFor(() => expect(within(bar()).queryByRole('button', { name: /^Go: approve/ })).toBeNull());
+    await act(async () => {});
+  }
+
+  it('Send back, with the answer slow to come back: the words are not copied into the message box and the bar says nothing about it', async () => {
+    const { post, answer } = held();
+    const { store } = setup({ jobs: waiting(), gate: GATE, post });
+    fireEvent.click(await sendBack('Use the small table.'));
+    await waitFor(() => expect(gatePosts(post)).toHaveLength(1));
+    await answeredBeforeTheReply(store);
+    expect(messageBox()).toHaveValue('');
+    expect(screen.queryByText(MOVED)).toBeNull();
+    await answer();
+    expect(messageBox()).toHaveValue('');
+    expect(screen.queryByText(MOVED)).toBeNull();
+    expect(localStorage.getItem('fw.gateBox.alpha')).toBeNull();
+  });
+
+  it('Reply words sent with Go, with the answer slow to come back: the words are not copied into the message box and the bar says nothing about it', async () => {
+    const { post, answer } = held();
+    const { store } = setup({ jobs: waiting(), gate: GATE, post });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Reply' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
+    fireEvent.change(await screen.findByRole('textbox', { name: /Your answers or a note/ }), { target: { value: 'Keep the icon small.' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Go: approve/ }));
+    await waitFor(() => expect(gatePosts(post)).toHaveLength(1));
+    expect(gatePosts(post)[0][1]).toEqual(expect.objectContaining({ kind: 'approve', note: 'Keep the icon small.' }));
+    await answeredBeforeTheReply(store);
+    expect(messageBox()).toHaveValue('');
+    expect(screen.queryByText(MOVED)).toBeNull();
+    await answer();
+    expect(messageBox()).toHaveValue('');
+    expect(screen.queryByText(MOVED)).toBeNull();
+  });
+
+  it('a send that fails puts the words back in the box and in the store', async () => {
+    let refuse: (e: unknown) => void = () => {};
+    const post = vi.fn((p: string): Promise<unknown> => (p.endsWith('/gate') ? new Promise((_res, rej) => { refuse = rej; }) : Promise.resolve({ ok: true })));
+    setup({ jobs: waiting(), gate: GATE, post });
+    fireEvent.click(await sendBack('Use the small table.'));
+    await waitFor(() => expect(gatePosts(post)).toHaveLength(1));
+    // While it is out, the words are not kept to be moved.
+    expect(localStorage.getItem('fw.gateBox.alpha') ?? '').not.toContain('Use the small table.');
+    await act(async () => { refuse(new ApiError(503, 'The laptop is away.')); });
+    expect(await screen.findByText('The laptop is away.')).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: /What should change\?/ })).toHaveValue('Use the small table.');
+    expect(localStorage.getItem('fw.gateBox.alpha')).toContain('Use the small table.');
+  });
+
   it('Go spins on the click and cannot be pressed twice', async () => {
     const { post, answer } = held();
     setup({ jobs: waiting(), gate: GATE, post });

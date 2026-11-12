@@ -458,11 +458,19 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   }
 
   /** What happened, said in the slot; a reply given back (the Foreman is working) waits in the composer. */
-  function done(kind: GateKind, r: GateResult) {
+  /** The words left in the boxes once a decision of this kind goes out with what it carries. */
+  function leftAfter(kind: GateKind, carries: Partial<GateRequest>): Notes {
+    return {
+      changes: kind === 'changes' ? '' : notes.changes,
+      message: kind === 'message' || (kind === 'approve' && typeof carries.note === 'string' && carries.note.trim() !== '') ? '' : notes.message,
+    };
+  }
+
+  function done(kind: GateKind, r: GateResult, carries: Partial<GateRequest> = {}) {
     // What went leaves its box, cleared and closed (m3: so a second press can't send it again), and is
     // never kept to be restored or moved to the message box: sent, held, or waiting in the message box.
     if (kind !== 'stop') {
-      const went: Notes = { changes: kind === 'changes' ? '' : notes.changes, message: kind === 'message' || (kind === 'approve' && mode === 'message') ? '' : notes.message };
+      const went = leftAfter(kind, carries);
       const open = mode === kind || (kind === 'approve' && mode === 'message') ? null : mode;
       setNotes(went);
       setMode(open);
@@ -511,9 +519,15 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
     setPressed(button);
     setBusy(true);
     setError(null);
+    // What goes out leaves the store at the press (fix round 1, I1): the job's details can say the
+    // brief is answered before the send's own answer comes back, and words that went out must never
+    // be moved to the message box. The box still shows them until the answer comes.
+    keep(mode, leftAfter(kind, extra));
     try {
-      done(kind, await post(kind, extra));
+      done(kind, await post(kind, extra), extra);
     } catch (err) {
+      // Nothing went: the words are kept again, as the box still shows them.
+      keep(mode, notes);
       if (isStale(err)) return; // said in the slot; the card is refetched
       if (err instanceof ApiError && err.body.code === 'terminal-open') setAskTerminal(true);
       setError(err instanceof ApiError && err.body.code === 'terminal'
