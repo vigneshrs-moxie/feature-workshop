@@ -164,6 +164,45 @@ function pgEnv(url) {
   };
 }
 
+/**
+ * createdb's arguments for a copy of `from` named `to`. fileCopy (Postgres 15 or later): copy the
+ * files instead of the default, row by row (on the owner's 6.9 GB database, 11 s instead of 99 s).
+ */
+export function createdbArgs(from, to, { fileCopy }) {
+  return ['-T', from, ...(fileCopy ? ['--strategy=file_copy'] : []), to];
+}
+
+/**
+ * Why Auto's database couldn't be made. code: 'no-original' (no saved original, and it can't be
+ * saved now), 'busy' (another switch didn't end in time), 'copy' (dropping or copying failed),
+ * 'migration' (a migration failed: migration names it, tail is its last 20 lines).
+ */
+export class AutoDbError extends Error {
+  constructor(code, message, { migration = null, tail = null } = {}) {
+    super(message);
+    this.name = 'AutoDbError';
+    this.code = code;
+    this.migration = migration;
+    this.tail = tail;
+  }
+}
+
+const AUTO_DB_WAIT_MS = 120_000; // how long Auto waits for another database switch to end
+const lastLines = (text, n) => String(text).replace(/\s+$/, '').split('\n').slice(-n).join('\n');
+
+// A fixed program with fixed arguments (no shell), its output kept, not streamed: Auto's database steps.
+function capture(file, args, { env, cwd } = {}) {
+  return new Promise((resolve) => {
+    let output = '';
+    const add = (b) => { output = clip(output + String(b).replace(ANSI, '')); };
+    const child = spawn(file, args, { cwd, env: childEnv(env), stdio: ['ignore', 'pipe', 'pipe'] });
+    child.stdout.on('data', add);
+    child.stderr.on('data', add);
+    child.on('error', (err) => { add(`${err.message}\n`); resolve({ ok: false, code: err.code, output }); });
+    child.on('close', (code) => resolve({ ok: code === 0, code, output }));
+  });
+}
+
 /** Migrations on disk in an app folder: names like 0134_something, in order. */
 async function diskMigrations(appDir) {
   try {
@@ -175,9 +214,16 @@ async function diskMigrations(appDir) {
 // ---------- The service ----------
 
 export class LocalRunner extends EventEmitter {
-  /** state: State (settings key "local"). demo: nothing real runs. registry: lib/repos.js's (the state folder's by default). */
-  constructor({ state, demo = false, registry = null }) {
+  #pgTool;
+  #fileCopy = null; // a promise: whether this Postgres has createdb's file copy (read once)
+
+  /**
+   * state: State (settings key "local"). demo: nothing real runs. registry: lib/repos.js's (the state
+   * folder's by default). pgTool: where a Postgres tool is, by name (tests point it at fakes).
+   */
+  constructor({ state, demo = false, registry = null, pgTool: findPgTool = pgTool }) {
     super();
+    this.#pgTool = findPgTool;
     this.state = state;
     this.demo = demo;
     this.jobs = new Map(); // slug -> { server, cmd }
@@ -525,11 +571,22 @@ export class LocalRunner extends EventEmitter {
     let env;
     try { name = decodeURIComponent(u.pathname.slice(1)); env = pgEnv(url); } catch { return { reason: `${key} has characters ${PRODUCT} can’t read.` }; }
     if (!/^[A-Za-z0-9_]{1,50}$/.test(name)) return { reason: `The database name has characters ${PRODUCT} won’t risk.` };
-    return { url, name, original: `${name}__original`, incoming: `${name}__incoming`, env };
+    // Auto's own database, beside his: autoUrl is his address with that name, and never leaves the server.
+    const auto = `${name}__auto`;
+    u.pathname = `/${auto}`;
+    return { url, name, original: `${name}__original`, incoming: `${name}__incoming`, auto, autoUrl: u.toString(), env };
+  }
+
+  /** Whether createdb can use the file copy here (Postgres 15 or later): asked once per runner. */
+  #canFileCopy(db) {
+    this.#fileCopy ??= this.#psql({ ...db, dbName: 'postgres' }, 'show server_version_num')
+      .then((v) => Number(v) >= 150000)
+      .catch((err) => { this.#fileCopy = null; throw err; });
+    return this.#fileCopy;
   }
 
   async #psql(db, sql) {
-    const r = await sh(await pgTool('psql'), ['-X', '-A', '-t', '-q', '-v', 'ON_ERROR_STOP=1', '-d', db.dbName ?? db.name, '-c', sql], { env: childEnv(db.env), timeout: 30_000 });
+    const r = await sh(await this.#pgTool('psql'), ['-X', '-A', '-t', '-q', '-v', 'ON_ERROR_STOP=1', '-d', db.dbName ?? db.name, '-c', sql], { env: childEnv(db.env), timeout: 30_000 });
     if (!r.ok) throw new Error(r.stderr.trim().split('\n')[0] || 'psql failed');
     return r.stdout.trim();
   }
@@ -630,6 +687,7 @@ export class LocalRunner extends EventEmitter {
     if (!['match', 'original', 'save-original'].includes(action)) throw new Error('Unknown database action.');
     const slot = this.#slot(f.slug);
     if (slot.cmd?.status === 'running') throw new Error('A command is still running here. Stop it first, or wait for it.');
+    if (this.dbBusy) throw new Error('The database is already being switched. Wait for it to finish.'); // Auto may have begun meanwhile
     this.dbBusy = true;
     const labels = { match: 'Matching the database to this job', original: 'Putting the original database back', 'save-original': 'Saving the database as the new original' };
     slot.cmd = { id: Date.now().toString(36), label: labels[action], command: labels[action], cwd: null, output: '', status: 'running', startedAt: new Date().toISOString(), endedAt: null, exitCode: null, stoppable: false };
@@ -638,15 +696,16 @@ export class LocalRunner extends EventEmitter {
       const dbs = (await this.#settings()).db ?? {};
       const saved = dbs[db.name] ?? {};
       const save = async (patch) => { Object.assign(saved, patch); await this.#saveSettings({ db: { ...dbs, [db.name]: saved } }); };
-      const [createdb, dropdb] = [await pgTool('createdb'), await pgTool('dropdb')];
+      const [createdb, dropdb] = [await this.#pgTool('createdb'), await this.#pgTool('dropdb')];
       const step = async (file, args) => { const r = await this.#run(f.slug, file, args, db.env); if (!r.ok) throw new Error(`${path.basename(file)} failed (exit ${r.code}).`); };
       await this.#needQuietDb(f.slug, db);
       let facts = await this.#dbFacts(db);
       const admin = { ...db, dbName: 'postgres' };
+      const fileCopy = await this.#canFileCopy(db);
       // Build a copy under a temporary name, then swap it in: a failed copy never costs a database.
       const swapIn = async (from, to) => {
         await step(dropdb, ['--if-exists', db.incoming]);
-        await step(createdb, ['-T', from, db.incoming]);
+        await step(createdb, createdbArgs(from, db.incoming, { fileCopy }));
         await step(dropdb, ['--if-exists', to]);
         this.#note(f.slug, `$ rename ${db.incoming} to ${to}\n`);
         await this.#psql(admin, `alter database "${db.incoming}" rename to "${to}"`);
@@ -658,7 +717,7 @@ export class LocalRunner extends EventEmitter {
           await swapIn(db.name, db.original);
         } else {
           this.#note(f.slug, `First time: saving your database as it is now, as the original (${db.original}). This copy is never changed by switching.\n`);
-          await step(createdb, ['-T', db.name, db.original]);
+          await step(createdb, createdbArgs(db.name, db.original, { fileCopy }));
         }
         await save({ originalAt: new Date().toISOString(), matches: action === 'save-original' ? { kind: 'original' } : saved.matches ?? { kind: 'original' } });
         if (action === 'save-original') { this.#finish(f.slug, 'done', 'Saved. Switching back to the original now restores the database as it is at this moment.\n'); return; }
@@ -694,6 +753,81 @@ export class LocalRunner extends EventEmitter {
       this.dbCache.clear();
       this.#changed(f.slug);
     }
+  }
+
+  // ----- Auto's database -----
+
+  /**
+   * Make Auto's own database afresh for a job's turn: <name>__auto, copied from the saved original,
+   * then this branch's migrations added with the app's database key set to Auto's address. Returns
+   * { url, name, added }; url never leaves the server. His database and the saved original appear
+   * only as a copy's source: Auto never changes them, never connects to them, and never stops a Try
+   * it app. The one exception: with no saved original, Auto saves one, and only while nothing is
+   * connected to his database and no Try it app runs (createdb never overwrites a database).
+   * One switch at a time: it waits up to waitMs for another to end. Throws AutoDbError.
+   */
+  async autoDatabase(f, { waitMs = AUTO_DB_WAIT_MS } = {}) {
+    if (this.demo) throw new Error('Demo mode: nothing real runs.');
+    const until = Date.now() + waitMs;
+    while (this.dbBusy) {
+      if (Date.now() >= until) throw new AutoDbError('busy', 'Another switch of the local database didn’t end in time, so Auto’s database wasn’t made.');
+      await new Promise((r) => setTimeout(r, Math.min(250, waitMs)));
+    }
+    this.dbBusy = true; // held from the same moment it was seen free
+    this.dbCache.clear();
+    try {
+      const w = await this.where(f);
+      const db = w.app ? await this.#database(w) : { reason: w.reason };
+      if (!db.url) throw new AutoDbError('copy', db.reason ?? `This job’s app has no database ${PRODUCT} can copy for Auto.`);
+      const admin = { ...db, dbName: 'postgres' };
+      const ask = (on, sql) => this.#psql(on, sql).catch((err) => { throw new AutoDbError('copy', `Couldn’t read the local database: ${err.message}`); });
+      const [createdb, dropdb] = [await this.#pgTool('createdb'), await this.#pgTool('dropdb')];
+      const fileCopy = await this.#canFileCopy(db).catch((err) => { throw new AutoDbError('copy', `Couldn’t read the local database: ${err.message}`); });
+      const step = async (file, args) => {
+        const r = await capture(file, args, { env: db.env });
+        if (!r.ok) throw new AutoDbError('copy', `Making Auto’s database ${db.auto} failed: ${path.basename(file)} ended with exit ${r.code} (${lastLines(r.output, 1)}). Your database and the saved original weren’t changed.`);
+      };
+
+      const names = (await ask(admin, `select datname from pg_database where datname in ('${db.name}', '${db.original}')`)).split('\n').filter(Boolean);
+      if (!names.includes(db.original)) {
+        if (!names.includes(db.name)) throw new AutoDbError('no-original', `There’s no saved original of ${db.name}, and ${db.name} isn’t there to save one from.`);
+        const connections = Number(await ask(admin, `select count(*) from pg_stat_activity where datname = '${db.name}' and pid <> pg_backend_pid()`)) || 0;
+        const tryItRuns = [...this.jobs.values()].some((s) => s.server && ['starting', 'running'].includes(s.server.status));
+        const waiting = `There’s no saved original of ${db.name} yet. Auto saves one when nothing is connected to ${db.name} and no Try it app is running.`;
+        if (connections || tryItRuns) throw new AutoDbError('no-original', waiting);
+        const r = await capture(createdb, createdbArgs(db.name, db.original, { fileCopy }), { env: db.env });
+        if (!r.ok) throw new AutoDbError('no-original', `${waiting} Saving it didn’t work this time (${lastLines(r.output, 1)}).`);
+        const dbs = (await this.#settings()).db ?? {};
+        const saved = dbs[db.name] ?? {};
+        await this.#saveSettings({ db: { ...dbs, [db.name]: { ...saved, originalAt: new Date().toISOString(), matches: saved.matches ?? { kind: 'original' } } } });
+      }
+
+      await step(dropdb, ['--if-exists', '--force', db.auto]);
+      await step(createdb, createdbArgs(db.original, db.auto, { fileCopy }));
+      const onAuto = { ...db, dbName: db.auto };
+      const hasLedger = (await ask(onAuto, "select to_regclass('public.applied_migrations') is not null")) === 't';
+      const ledger = hasLedger ? (await ask(onAuto, 'select name from applied_migrations order by name')).split('\n').filter(Boolean) : [];
+      const toAdd = (await diskMigrations(w.app.dir)).filter((n) => !ledger.includes(n));
+      const key = w.tryIt?.dbUrlKey || 'DATABASE_URL';
+      const added = [];
+      for (const name of toAdd) {
+        const r = await capture('npm', ['run', 'db:migrate', '--', name], { env: { ...db.env, [key]: db.autoUrl }, cwd: w.app.dir });
+        if (!r.ok) throw new AutoDbError('migration', `Adding ${name} to Auto’s database failed (exit ${r.code}).`, { migration: name, tail: lastLines(r.output, 20) });
+        added.push(name);
+      }
+      return { url: db.autoUrl, name: db.auto, added };
+    } finally {
+      this.dbBusy = false;
+      this.dbCache.clear();
+    }
+  }
+
+  /** How many connections Auto's database has, not counting the one asking. */
+  async autoConnections(f) {
+    const w = await this.where(f);
+    const db = w.app ? await this.#database(w) : { reason: w.reason };
+    if (!db.url) throw new Error(db.reason ?? `This job’s app has no database ${PRODUCT} can copy for Auto.`);
+    return Number(await this.#psql({ ...db, dbName: 'postgres' }, `select count(*) from pg_stat_activity where datname = '${db.auto}' and pid <> pg_backend_pid()`)) || 0;
   }
 
   #finish(slug, status, text) {
