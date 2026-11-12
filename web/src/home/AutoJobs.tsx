@@ -10,8 +10,8 @@ import type { AutoQueue, Job } from '../api/types';
 import { jobHref } from '../app/router';
 import { Chip } from '../components/Chip';
 import { Icon } from '../components/Icon';
-import { useStackIndex } from '../views/Stack/StackRows';
-import { autoGroups, autoPausedLine, riskyWords, workingHeading } from './autoTab';
+import type { StackIndex } from '../views/Stack/StackRows';
+import { autoGroups, autoPausedLine, riskyWords, TOO_BIG, workingHeading } from './autoTab';
 import { Cards } from './JobsPage';
 
 type Play = 'full' | 'subtle' | 'off';
@@ -22,8 +22,6 @@ export const AUTO_EMPTY = {
   'needs-you': 'Nothing here needs you.',
   ready: 'Nothing is ready yet.',
 } as const;
-
-export const TOO_BIG = 'Too big for Auto';
 
 /** Why a stopped job waits: the card's own lane reason, else the reason its record keeps. */
 function stopReason(job: Job): string | null {
@@ -66,16 +64,17 @@ function Group({ id, heading, label, count, icon, children }: { id: string; head
   );
 }
 
-export function AutoJobs({ jobs, queue, now, play, onPeek, peeked = null }: {
+export function AutoJobs({ jobs, queue, now, play, stacks, onPeek, peeked = null }: {
   jobs: readonly Job[];
   /** The snapshot's Auto queue; null or missing from an older laptop: no places and no paused line. */
   queue?: AutoQueue | null;
   now: Date;
   play: Play;
+  /** The page's stacks, so a stack's card opens into its parts as on the lanes. */
+  stacks?: StackIndex;
   onPeek?: (slug: string) => void;
   peeked?: string | null;
 }) {
-  const stacks = useStackIndex();
   const groups = autoGroups(jobs);
   const paused = autoPausedLine(queue?.paused);
   const working = workingHeading(groups.working.length, typeof queue?.max === 'number' ? queue.max : null);

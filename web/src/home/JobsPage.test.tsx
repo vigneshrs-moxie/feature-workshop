@@ -290,7 +290,7 @@ describe('Jobs: Yours and Auto (design section 2)', () => {
     expect(screen.getByRole('region', { name: 'Working, 2' })).toHaveTextContent('From an older laptop');
     expect(screen.queryByRole('link', { name: 'Auto builds this' })).toBeNull();
     expect(screen.queryByRole('link', { name: 'Auto stopped here' })).toBeNull();
-    // The bar names the longest wait among Yours only (Auto stopped here waited longer).
+    // The bar names Yours' longest wait first, though Auto stopped here waited longer.
     expect(screen.getByRole('region', { name: 'Next step' })).toHaveTextContent('Weekly hours email needs you');
     fireEvent.click(tab('Auto'));
     expect(tab('Auto')).toHaveAttribute('aria-selected', 'true');
@@ -312,6 +312,13 @@ describe('Jobs: Yours and Auto (design section 2)', () => {
     fireEvent.click(tab('Yours'));
     expect(localStorage.getItem('gc.jobs.tab')).toBeNull();
     expect(document.querySelector('.jobs-board')).not.toBeNull();
+    cleanup();
+    // Remembered even with no Auto job today: Auto 0, and its empty lines.
+    localStorage.setItem('gc.jobs.tab', 'auto');
+    setup();
+    expect(tab('Auto')).toHaveAttribute('aria-selected', 'true');
+    expect(count('Auto')).toBe('0');
+    expect(screen.getByText('No Auto job is working.')).toBeInTheDocument();
   });
 
   it('the layout switch shows under Yours only', () => {
@@ -367,4 +374,103 @@ describe('Jobs: Yours and Auto (design section 2)', () => {
       localStorage.clear();
     }
   }, 30_000);
+});
+
+describe('Jobs: Yours and Auto, review fixes', () => {
+  const yourWorking = job('beta', 'running', { title: 'Technician photo', stage: 'implement', lane: 'working', laneReason: 'Building step 3' });
+  const yourWaiting = job('alpha', 'needs-you', { title: 'Customer notes', stage: 'plan', lane: 'needs-you', waitingFor: 'approval', waitingSince: '2026-10-21T09:00:00Z' });
+  const autoWorking = job('a-work', 'running', { title: 'Auto builds this', stage: 'implement', lane: 'working', laneReason: 'Building step 2', auto: { on: true, ran: true, group: 'working' } });
+  const autoStopped = job('a-stop', 'needs-you', { title: 'Auto stopped here', stage: 'plan', lane: 'needs-you', laneReason: 'Auto stopped: the Foreman says it is blocked', waitingFor: 'approval', waitingSince: '2026-10-21T07:00:00Z', auto: { on: true, ran: true, stopped: { reason: 'the Foreman says it is blocked' }, group: 'needs-you' } });
+  const olderLaptop = job('a-none', 'running', { title: 'From an older laptop', stage: 'implement', lane: 'working', auto: { on: true, ran: true } });
+  const tab = (name: string) => screen.getByRole('tab', { name });
+  const bar = () => screen.getByRole('region', { name: 'Next step' });
+
+  it('one bar on both tabs: with nothing of yours waiting it points at a stopped Auto job, and o opens it', () => {
+    setup([yourWorking, autoWorking, autoStopped]);
+    expect(bar()).toHaveTextContent('Auto stopped here needs you');
+    expect(bar()).toHaveTextContent('It is the only one.');
+    expect(screen.queryByText('Nothing needs you right now')).toBeNull();
+    fireEvent.keyDown(document.body, { key: 'o' });
+    expect(window.location.hash).toBe('#/job/a-stop');
+    window.location.hash = '#/';
+    fireEvent.click(tab('Auto'));
+    expect(bar()).toHaveTextContent('Auto stopped here needs you');
+    expect(within(bar()).getByRole('link', { name: /Open/ })).toHaveAttribute('href', '#/job/a-stop');
+    fireEvent.keyDown(document.body, { key: 'o' });
+    expect(window.location.hash).toBe('#/job/a-stop');
+  });
+
+  it('with nothing waiting anywhere the quiet line shows on both tabs', () => {
+    setup([yourWorking, autoWorking]);
+    expect(bar()).toHaveTextContent('Nothing needs you right now');
+    fireEvent.click(tab('Auto'));
+    expect(bar()).toHaveTextContent('Nothing needs you right now');
+    expect(within(bar()).queryByRole('link')).toBeNull();
+  });
+
+  it('one of yours and one of Auto\'s waiting: yours comes first and the count is 2', () => {
+    setup([yourWorking, yourWaiting, autoStopped]);
+    for (const name of ['Yours', 'Auto']) {
+      fireEvent.click(tab(name));
+      expect(bar()).toHaveTextContent('Customer notes needs you');
+      expect(bar()).toHaveTextContent('2 jobs need you.');
+    }
+  });
+
+  it('the station under Yours has no bay for an Auto job; the older laptop\'s job has one', () => {
+    localStorage.setItem('gc.jobs.layout', 'floor');
+    setWebGLForTests(true);
+    vi.mocked(loadScene).mockReset().mockResolvedValue({ createFloorScene: () => fakeScene() } as never);
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1200);
+    try {
+      setup([yourWorking, autoWorking, olderLaptop], 'full');
+      const floor = screen.getByRole('region', { name: 'The station' });
+      expect(within(floor).getByRole('link', { name: /Technician photo/ })).toBeInTheDocument();
+      expect(within(floor).getByRole('link', { name: /From an older laptop/ })).toBeInTheDocument();
+      expect(within(floor).queryByRole('link', { name: /Auto builds this/ })).toBeNull();
+    } finally { setWebGLForTests(null); vi.restoreAllMocks(); }
+  });
+
+  it('One list under Yours leaves Auto\'s jobs out; the older laptop\'s job is in it', () => {
+    localStorage.setItem('gc.jobs.layout', 'list');
+    setup([yourWorking, autoWorking, olderLaptop]);
+    const rows = [...document.querySelectorAll('.jobs-list-row .job-card-title')].map((a) => a.textContent);
+    expect(rows).toEqual(['Technician photo', 'From an older laptop']);
+  });
+
+  it('after a reload the quick look never shows a job from the other tab', () => {
+    localStorage.setItem('gc.jobs.tab', 'auto');
+    window.location.hash = '#/?peek=beta';
+    setup([yourWorking, autoWorking]);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(window.location.hash).toBe('#/');
+    cleanup();
+    localStorage.removeItem('gc.jobs.tab');
+    window.location.hash = '#/?peek=a-work';
+    setup([yourWorking, autoWorking]);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(window.location.hash).toBe('#/');
+    cleanup();
+    // Its own tab's job still opens.
+    localStorage.setItem('gc.jobs.tab', 'auto');
+    window.location.hash = '#/?peek=a-work';
+    setup([yourWorking, autoWorking]);
+    expect(screen.getByRole('dialog', { name: 'Auto builds this: a quick look' })).toBeInTheDocument();
+  });
+
+  it('at phone width the Auto tab\'s cards and rows open their job, with no quick look', () => {
+    vi.stubGlobal('matchMedia', (q: string) => ({ matches: /max-width:\s*760px/.test(q), media: q, addEventListener() {}, removeEventListener() {} }));
+    try {
+      localStorage.setItem('gc.jobs.tab', 'auto');
+      setup([yourWorking, autoWorking, autoStopped]);
+      for (const name of ['Auto builds this', 'Auto stopped here']) {
+        const link = within(document.querySelector<HTMLElement>('.sb-auto-tab')!).getByRole('link', { name });
+        expect(link).toHaveAttribute('href', `#/job/${name === 'Auto builds this' ? 'a-work' : 'a-stop'}`);
+        expect(link.closest('li')).not.toHaveClass('can-peek');
+        fireEvent.keyDown(link, { key: ' ' });
+        fireEvent.click(link.closest('li')!);
+        expect(screen.queryByRole('dialog')).toBeNull();
+      }
+    } finally { vi.unstubAllGlobals(); }
+  });
 });

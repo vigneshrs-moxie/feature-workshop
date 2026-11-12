@@ -28,17 +28,20 @@ export function useJobsTab(): [JobsTab, (t: JobsTab) => void] {
   return [raw === 'auto' ? 'auto' : 'yours', (t) => set(t === 'auto' ? 'auto' : null)];
 }
 
-/** The job shows under Auto: the server gave it one of Auto's groups. */
-export const inAuto = (job: Job): boolean => Boolean(job.auto?.group);
-
 export const AUTO_GROUPS: readonly AutoGroup[] = ['working', 'needs-you', 'ready'];
 
-/** Auto's jobs by the server's group, each in the order given; jobs without a group are left out. */
+/** One of Auto's groups by name; any other value (none, or a group a later server added) is not known. */
+const knownGroup = (g: unknown): g is AutoGroup => (AUTO_GROUPS as readonly unknown[]).includes(g);
+
+/** The job shows under Auto: the server gave it one of Auto's groups. An unknown group reads as none, so the job is under Yours. */
+export const inAuto = (job: Job): boolean => knownGroup(job.auto?.group);
+
+/** Auto's jobs by the server's group, each in the order given; jobs without a known group are left out. */
 export function autoGroups(jobs: readonly Job[]): Record<AutoGroup, Job[]> {
   const out: Record<AutoGroup, Job[]> = { working: [], 'needs-you': [], ready: [] };
   for (const j of jobs) {
     const g = j.auto?.group;
-    if (g && g in out) out[g].push(j);
+    if (knownGroup(g)) out[g].push(j);
   }
   return out;
 }

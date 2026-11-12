@@ -14,7 +14,8 @@
 //
 // Two tabs, each with its count (design section 2): Yours is all of the above without the jobs in
 // Auto's groups; Auto (AutoJobs.tsx) has its three groups and no layout switch. The chosen tab is
-// remembered (autoTab.ts useJobsTab).
+// remembered (autoTab.ts useJobsTab). The next-step bar is on both: it names the next job that needs
+// you from Yours first, then from Auto's Needs you.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Job, JobLane } from '../api/types';
 import { useDetail } from '../app/detail';
@@ -69,7 +70,8 @@ function JobsFloor({ peek, setPeek, hide }: { peek: string | null; setPeek(slug:
   const all = useFloorBenches();
   const benches = useMemo(() => (hide.size ? all.filter((b) => !hide.has(b.slug)) : all), [all, hide]);
   const order = benches.map((b) => b.slug);
-  const peekJob = peek ? jobs.find((j) => j.slug === peek) ?? null : null;
+  // An Auto job's address (?peek=) opens nothing here: it has no bay.
+  const peekJob = peek && !hide.has(peek) ? jobs.find((j) => j.slug === peek) ?? null : null;
   return (
     <>
       <Floor3D benches={benches} onOpenJob={setPeek} keys current={peek} hint="Each bay is a job: a construction bay builds a feature, a repair dock fixes a bug. Pick one for a quick look." />
@@ -250,9 +252,11 @@ export function JobsPage() {
   for (const p of board.arranged) byLane[p.group as JobLane].push(p.item);
   const boardRef = useRef<HTMLDivElement>(null);
   useFlip(boardRef, BOARD.map((l) => `${l}:${byLane[l].map(slugOf).join(',')}`).join('|'));
-  // The bar and its Open (o) are Yours': the Auto tab has its own groups.
-  const pick = tab === 'yours' ? nextJob(yours) : null;
-  const needCount = byLane['needs-you'].length;
+  // One bar on both tabs, with its Open (o): the next job that needs you from Yours first, then
+  // from Auto's Needs you (a stopped job, or one set aside as too big); its count covers both.
+  const autoNeed = byAuto['needs-you'];
+  const pick = nextJob(yours) ?? [...autoNeed].sort((a, b) => age(a) - age(b))[0] ?? null;
+  const needCount = byLane['needs-you'].length + autoNeed.length;
   // Yours' count: the jobs on its four lanes (Resting and Done have their own, under the board).
   const yoursCount = BOARD.reduce((n, l) => n + byLane[l].length, 0);
 
@@ -272,7 +276,8 @@ export function JobsPage() {
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
   const order = (tab === 'auto' ? AUTO_GROUPS.flatMap((g) => byAuto[g]) : BOARD.flatMap((l) => byLane[l])).map((j) => j.slug);
-  const peekJob = peek ? open.find((j) => j.slug === peek) ?? null : null;
+  // The quick look is the shown tab's: an address naming the other tab's job (a reload, Back) opens nothing.
+  const peekJob = peek ? (tab === 'auto' ? open.filter(inAuto) : yours).find((j) => j.slug === peek) ?? null : null;
   const onFloor = tab === 'yours' && layout === 'floor';
   // A quick look at a job that isn't on the board (gone, or a part inside a stack): out of the address.
   // On the floor, the floor keeps its own (a finished job's bench stays until the next visit).
@@ -285,7 +290,7 @@ export function JobsPage() {
     <NextBar line tone="stop" icon="hand" say={`${pick.title || pick.slug} needs you`} sub={`${t0(pick) ? `Waiting ${t0(pick)}. ` : ''}${needCount === 1 ? 'It is the only one.' : `${needCount} jobs need you. This one has waited longest.`}`}>
       <Button kind="primary" keyId="jobs-open" keyShown href={jobHref(pick.slug)} title={`Open ${pick.title || pick.slug}: ${reviews.get(pick.slug)?.desk?.headline ?? pick.laneReason ?? 'it waits for you'} (key: o).`}>Open</Button>
     </NextBar>
-  ) : tab === 'yours' && yours.length ? (
+  ) : open.length ? (
     <NextBar line tone="quiet" icon="circle-check" say="Nothing needs you right now" sub="The crew carries on; a job that needs you shows here first." />
   ) : null;
 
@@ -364,7 +369,8 @@ export function JobsPage() {
       ) : tab === 'auto' ? (
         <>
           {/* On a phone the groups are one after another, and a row opens its job (no quick look, as the lanes' folds). */}
-          <AutoJobs jobs={open} queue={autoQueue} now={now} play={play} onPeek={narrow ? undefined : setPeek} peeked={peek} />
+          {bar}
+          <AutoJobs jobs={open} queue={autoQueue} now={now} play={play} stacks={stacks} onPeek={narrow ? undefined : setPeek} peeked={peek} />
           {peekJob && <JobPeek job={peekJob} order={order} onPick={setPeek} onClose={() => setPeek(null)} />}
         </>
       ) : (

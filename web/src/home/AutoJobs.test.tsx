@@ -8,9 +8,8 @@ import type { AutoQueue, Job } from '../api/types';
 import { UiProvider } from '../app/ui';
 import { createStore, WorkshopContext, type Store } from '../state/store';
 import { job, snapshot } from '../state/test-fixtures';
-import { AUTO_PAUSED } from '../views/Inbox';
 import { AutoJobs } from './AutoJobs';
-import { AUTO_PAUSED_LINE } from './autoTab';
+import { AUTO_PAUSED, AUTO_PAUSED_LINE } from './autoTab';
 
 const QUEUE: AutoQueue = { on: true, tag: 'auto', max: 5, working: 2, unfinished: 3, ceiling: 10, paused: null, testing: 'w1', tickets: [] };
 

@@ -250,7 +250,6 @@ export const tagMatches = (item: Pick<InboxItem, 'tags'>, tag: string): boolean 
 
 /** Auto start's words on the Inbox, exact: N is the setting's max, 5 when it isn't known. */
 export const autoStartLine = (tag: string, max: number = AUTO_MAX.default) => `Auto start is on: tickets tagged "${tag}" start by themselves, up to ${max} at a time.`;
-export { AUTO_PAUSED };
 export const STARTS_BY_ITSELF = 'Starts by itself';
 /** Mine's mark on a ticket whose job Auto is working on (the queue's `working` group). */
 export const AUTO_WORKING = 'Auto is working on this';

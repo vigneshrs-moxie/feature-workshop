@@ -2,8 +2,7 @@
 // the risky calls and the Working heading in words, and the paused line.
 import { describe, expect, it } from 'vitest';
 import { job } from '../state/test-fixtures';
-import { AUTO_PAUSED } from '../views/Inbox';
-import { AUTO_PAUSED_LINE, autoGroups, autoPausedLine, inAuto, riskyWords, workingHeading } from './autoTab';
+import { AUTO_PAUSED, AUTO_PAUSED_LINE, autoGroups, autoPausedLine, inAuto, riskyWords, workingHeading } from './autoTab';
 
 describe('Jobs: the Auto tab, in words', () => {
   it('inAuto and autoGroups follow the server\'s group', () => {
@@ -16,8 +15,12 @@ describe('Jobs: the Auto tab, in words', () => {
       // Auto is on and it isn't stopped, but the server put it in no group: it is Yours.
       job('mine', 'running', { auto: { on: true, group: null } }),
       job('plain', 'idle'),
+      // A group this page doesn't know (a later server's), or an inherited name: not known, so Yours.
+      job('later', 'running', { auto: { on: true, group: 'queued' as never } }),
+      job('odd', 'running', { auto: { on: true, group: 'toString' as never } }),
     ];
     expect(jobs.filter(inAuto).map((j) => j.slug)).toEqual(['w1', 'n1', 't1', 'r1', 'w2']);
+    expect(jobs.filter((j) => !inAuto(j)).map((j) => j.slug)).toEqual(['mine', 'plain', 'later', 'odd']);
     const g = autoGroups(jobs);
     expect(g.working.map((j) => j.slug)).toEqual(['w1', 'w2']);
     expect(g['needs-you'].map((j) => j.slug)).toEqual(['n1', 't1']);
