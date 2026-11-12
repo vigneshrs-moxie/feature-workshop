@@ -16,6 +16,7 @@ import { job, snapshot } from '../../state/test-fixtures';
 import { LookSettings } from '../Settings/LookSettings';
 import { stackView, summary } from './fixtures';
 import { indexStacks, PartOfStack, RUN_AS_STACK_TEXT, StackSuggestion, useStackIndex } from './StackRows';
+import { useStacksList } from './useStacks';
 import { editorHref, nextStep, ownsFile, splitWhy, startLine, summaryChip } from './stackModel';
 
 const building = stackView({ next: { action: 'wait', label: null, key: null, words: 'Building.' } }, ['running', 'ready', 'pending']);
@@ -147,6 +148,36 @@ describe('a part’s Job page, and the Foreman’s suggestion', () => {
     // Once it is answered, the next look asks again.
     await act(async () => { store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [job('orbit-512--csv-writer', 'running')], meta: { token: 't' } as never }) }); });
     expect(asks()).toBe(2);
+  });
+
+  it('a refresh after an action does not reuse an ask sent before it', async () => {
+    const answers: ((v: unknown) => void)[] = [];
+    const get = vi.fn((p: string) => (p === '/api/stacks' ? new Promise((r) => { answers.push(r); }) : Promise.resolve({})));
+    const store = createStore();
+    store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [job('orbit-512--csv-writer', 'idle')], meta: { token: 't' } as never }) });
+    const api = { get, post: vi.fn() } as unknown as ApiClient;
+    function Index() { const index = useStackIndex(); return <output aria-label="index">{index.stackOf(LIST.stacks[0].slug) ? 'a stack' : 'none'}</output>; }
+    function Page() {
+      const { list, refresh } = useStacksList();
+      return <><output aria-label="page">{list ? `${list.stacks.length} stacks` : 'none'}</output><button type="button" onClick={() => refresh()}>Merged</button></>;
+    }
+    render(<WorkshopContext.Provider value={{ store, api }}><Index /><Page /></WorkshopContext.Provider>);
+    await act(async () => {});
+    const asks = () => get.mock.calls.filter(([p]) => p === '/api/stacks').length;
+    // One ask out for both, sent before the action.
+    expect(asks()).toBe(1);
+    // The page's action is done: its refresh asks afresh, not the ask already out.
+    fireEvent.click(screen.getByRole('button', { name: 'Merged' }));
+    await act(async () => {});
+    expect(asks()).toBe(2);
+    // The fresh answer (the stack merged away) lands, then the older one: the page keeps the fresh one.
+    await act(async () => { answers[1]({ stacks: [], globalCap: 3, globalRunning: 0 }); });
+    expect(screen.getByRole('status', { name: 'page' })).toHaveTextContent('0 stacks');
+    await act(async () => { answers[0](LIST); });
+    expect(screen.getByRole('status', { name: 'page' })).toHaveTextContent('0 stacks');
+    // A plain look while an ask is out still shares it.
+    await act(async () => { store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [job('orbit-512--csv-writer', 'running')], meta: { token: 't' } as never }) }); });
+    expect(asks()).toBe(3);
   });
 
   it('says nothing without a suggestion, or once the job is a stack or a part', () => {

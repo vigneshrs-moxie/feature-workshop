@@ -30,12 +30,13 @@ function useLookAgain(look: () => void) {
 /**
  * One ask for the list under way per client: every part of a page that looks while it is out (a job
  * page has several) shares its answer, so the page asks once, not once each. The next look after
- * it is answered asks again.
+ * it is answered asks again. `fresh` (a refresh after an action) never joins an ask sent before:
+ * it starts its own and takes the ask's place, so later looks share the newer one.
  */
 const listAsks = new WeakMap<object, Promise<StacksList>>();
-function askForList(api: ApiClient): Promise<StacksList> {
+function askForList(api: ApiClient, fresh = false): Promise<StacksList> {
   const out = listAsks.get(api);
-  if (out) return out;
+  if (out && !fresh) return out;
   // (Promise.resolve: a test's bare api.get mock answers nothing, which counts as no stacks.)
   const ask = Promise.resolve().then(() => api.get<StacksList>('/api/stacks'));
   listAsks.set(api, ask);
@@ -58,19 +59,33 @@ export function useStacksList(): StacksState {
   const [list, setList] = useState<StacksList | null>(() => lastKnown<StacksList>(api, '/api/stacks') ?? null);
   const [unavailable, setUnavailable] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const busy = useRef(false);
-  const refresh = useCallback(() => {
-    if (busy.current) return;
-    busy.current = true;
-    askForList(api).then(
-      (l) => { setList(remember(api, '/api/stacks', l && Array.isArray(l.stacks) ? l : { stacks: [], globalCap: DEFAULT_SECTIONS_AT_ONCE, globalRunning: 0 })); setError(null); setUnavailable(null); },
+  // Each look is numbered: an answer older than one already taken is dropped (an ask sent before an
+  // action that lands after the fresh one never puts the old list back).
+  const asked = useRef(0);
+  const taken = useRef(0);
+  const out = useRef(0);
+  const look = useCallback((fresh: boolean) => {
+    // A plain look while one is out waits for it; a fresh one (after an action) always asks.
+    if (out.current > 0 && !fresh) return;
+    out.current += 1;
+    const mine = ++asked.current;
+    askForList(api, fresh).then(
+      (l) => {
+        if (mine < taken.current) return;
+        taken.current = mine;
+        setList(remember(api, '/api/stacks', l && Array.isArray(l.stacks) ? l : { stacks: [], globalCap: DEFAULT_SECTIONS_AT_ONCE, globalRunning: 0 })); setError(null); setUnavailable(null);
+      },
       (err) => {
+        if (mine < taken.current) return;
         if (err instanceof ApiError && err.status === 404) setUnavailable(err.message);
         else setError(message(err));
       },
-    ).finally(() => { busy.current = false; });
+    ).finally(() => { out.current -= 1; });
   }, [api]);
-  useLookAgain(refresh);
+  // The polls and a jobs change share an ask; refresh (after an action, Try again) asks afresh.
+  const poll = useCallback(() => look(false), [look]);
+  const refresh = useCallback(() => look(true), [look]);
+  useLookAgain(poll);
   return { list, unavailable, error, refresh };
 }
 
