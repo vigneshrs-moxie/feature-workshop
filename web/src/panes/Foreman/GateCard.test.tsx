@@ -1315,3 +1315,12 @@ describe('a kept slot holding another brief’s words', () => {
     expect(slot).not.toContain('Brief two words.');
   });
 });
+
+// M8: with no level chip on the page (the phone), L↓ does not send him to one.
+describe('L↑ and L↓ with no level chip on the page', () => {
+  it('their titles say a level is needed, not "Pick a level first"', () => {
+    setup({ det: detail({ level: null }), jobExtra: { level: null } });
+    expect(button('Lower the level')).toHaveAttribute('title', 'L↑ and L↓ need a level.');
+    expect(button('Raise the level')).toHaveAttribute('title', 'L↑ and L↓ need a level.');
+  });
+});

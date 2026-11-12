@@ -995,7 +995,8 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
                 aria-pressed={on}
                 aria-disabled={!v.enabled || busy ? true : undefined}
                 onClick={() => { if (v.enabled && !busy) toggle(v.id); }}
-                title={v.hint}
+                // With no level chip on the page (the phone) L↑ and L↓ say what they need, not where to pick it.
+                title={level === null && !chipHere && (v.id === 'up' || v.id === 'down') ? 'L↑ and L↓ need a level.' : v.hint}
               >
                 {on ? '✓ ' : ''}{v.label}
               </Button>

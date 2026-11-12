@@ -333,9 +333,14 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, foldHere = fa
   const folded = folds && !cardShown && !boxHolds && !holds;
   // A Go queued on the website takes the pressed call away: the focus goes to the decision's words
   // on the bar, when it would otherwise be lost.
+  // Only a decision that becomes queued while he is here: drawn with one already open (a refresh, a
+  // phone screen change), the focus is left alone (fix round 1, M8).
   const queuedRef = useRef<HTMLSpanElement>(null);
+  const queuedSeen = useRef<string | null>(queuedOpen ? queued.id : null);
   useEffect(() => {
-    if (!queuedOpen) return;
+    if (!queuedOpen) { queuedSeen.current = null; return; }
+    if (queuedSeen.current === queued.id) return;
+    queuedSeen.current = queued.id;
     const at = document.activeElement;
     if (!at || at === document.body || !at.isConnected) queuedRef.current?.focus();
   }, [queuedOpen, queued?.id]);

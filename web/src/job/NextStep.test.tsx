@@ -63,14 +63,14 @@ function Host({ slug, onWatch, onWrite, foldCard, foldHere }: { slug: string; on
   return j ? <Bar job={j} onWatch={onWatch} onWrite={onWrite} foldCard={foldCard} foldHere={foldHere} /> : null;
 }
 
-function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions = [] as Permission[], gate = null as Gate | null, answered = [] as number[], thread = [] as ThreadItem[], page = undefined as JobDetail['page'], hosted = false, onWatch = undefined as (() => void) | undefined, onWrite = undefined as (() => void) | undefined, foldCard = false, foldHere = false, details = 'ok' as typeof server.details, post = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({ ok: true })) } = {}) {
+function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions = [] as Permission[], gate = null as Gate | null, answered = [] as number[], thread = [] as ThreadItem[], page = undefined as JobDetail['page'], hosted = false, onWatch = undefined as (() => void) | undefined, onWrite = undefined as (() => void) | undefined, queued = null as QueuedView | null, foldCard = false, foldHere = false, details = 'ok' as typeof server.details, post = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({ ok: true })) } = {}) {
   const store: Store = createStore();
   server.store = store;
   server.answered = [...answered];
   server.gate = undefined;
   server.thread = thread;
   server.page = page;
-  server.queued = null;
+  server.queued = queued;
   server.details = details;
   store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs, permissions, meta: { token: 't', settings: { play: { mode: 'subtle' } } } as never }) });
   const detail = (s: string): JobDetail => ({ slug: s, thread: server.thread, threadMore: false, gate: server.gate === undefined ? gate : server.gate, answeredBriefs: [...server.answered], heldReply: null, options: { level: 1 }, page: server.page, queued: server.queued } as JobDetail);
@@ -656,6 +656,16 @@ describe('the moved-words line', () => {
 // Final review A6 (calls Minor 7): on the website a Go queued for the laptop takes the pressed call
 // away; the focus goes to the decision's words, not the page.
 describe('a Go queued on the website', () => {
+  // Fix round 1, M8: drawn with a decision already open (a refresh, a phone screen change), the bar
+  // leaves the focus where it is; it moves only when a decision becomes queued while he is there.
+  it('with a website decision already open when the bar is drawn, the focus is left alone', async () => {
+    const WORDS = 'Go: waiting for your laptop. It runs when the laptop is back.';
+    setup({ jobs: waiting(), gate: GATE, hosted: true, queued: { id: 'q1', kind: 'approve', state: 'waiting', words: WORDS, at: NOW, expiresAt: null, waiting: true, canCancel: true, permissionId: null } });
+    await waitFor(() => expect(bar()).toHaveTextContent(WORDS));
+    await act(async () => {});
+    expect(bar()).not.toContainElement(document.activeElement as HTMLElement);
+  });
+
   it('after Go is queued the focus is on the decision’s words', async () => {
     const WORDS = 'Go: waiting for your laptop. It runs when the laptop is back.';
     const post = vi.fn(async (p: string): Promise<unknown> => {
