@@ -326,11 +326,11 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
       const wanted = evidenceWanted(f.options);
       const folder = evidence ? path.join(f.dir, EVIDENCE_DIR, evidence.commit) : path.join(f.dir, EVIDENCE_DIR);
       // In demo mode only, and only while nothing really records the job: the demo's recording under way.
-      const still = demo && !recording.has(f.slug) && !progress.has(f.slug) ? await readDemoProgress(f.dir) : null;
+      const demoProgress = demo && !recording.has(f.slug) && !progress.has(f.slug) ? await readDemoProgress(f.dir) : null;
       return {
         evidence, commit: await reportCommit(f.dir), wanted: wanted.on, why: wanted.why,
-        recording: recording.has(f.slug) || still !== null, problem: problems.get(f.slug) ?? null, progress: progress.get(f.slug) ?? still,
-        watch: progress.has(f.slug) || still !== null,
+        recording: recording.has(f.slug) || demoProgress !== null, problem: problems.get(f.slug) ?? null, progress: progress.get(f.slug) ?? demoProgress,
+        watch: progress.has(f.slug) || demoProgress !== null,
         folder, folderUrl: pathToFileURL(folder).href + (folder.endsWith(path.sep) ? '' : '/'),
       };
     },
@@ -356,8 +356,8 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
       const f = await jobOf(slug);
       const p = progress.get(f.slug);
       if (!p?.commit) {
-        const still = demo && !recording.has(f.slug) && (await readDemoProgress(f.dir)) ? await readDemoFrame(f.dir) : null;
-        if (still) return still;
+        const demoFrame = demo && !recording.has(f.slug) && (await readDemoProgress(f.dir)) ? await readDemoFrame(f.dir) : null;
+        if (demoFrame) return demoFrame;
         throw new HttpError(404, NO_LIVE);
       }
       const { liveFile, watchFile } = liveFiles(path.join(f.dir, EVIDENCE_DIR), p.commit);

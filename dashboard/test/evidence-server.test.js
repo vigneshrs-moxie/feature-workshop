@@ -482,7 +482,7 @@ const liveAs = (slug, site) => new Promise((resolve, reject) => {
   const req = http.get(base + liveUrl(slug), { headers: site ? { 'Sec-Fetch-Site': site } : {} }, (res) => {
     const chunks = [];
     res.on('data', (c) => chunks.push(c));
-    res.on('end', () => resolve({ status: res.statusCode, type: res.headers['content-type'], body: Buffer.concat(chunks) }));
+    res.on('end', () => resolve({ status: res.statusCode, type: res.headers['content-type'], cacheControl: res.headers['cache-control'], body: Buffer.concat(chunks) }));
   });
   req.on('error', reject);
 });
@@ -680,5 +680,6 @@ test('evidence server, demo mode: the demo’s recording shows on the job’s ev
   assert.equal(r.status, 200);
   assert.equal(r.type, 'image/jpeg');
   assert.ok(r.body.equals(DEMO_JPEG));
+  assert.equal(r.cacheControl, 'no-store', 'never kept by the browser, as the real picture');
   assert.equal((await liveAs('demo-recording-job', 'cross-site')).status, 404, 'another site’s page still can’t ask');
 });

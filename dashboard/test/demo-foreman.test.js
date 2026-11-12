@@ -419,11 +419,8 @@ test('the demo\'s migrate job stops on a database change before the Approver is 
 
 // The whole demo as run-demo.js writes it, in a temp folder of this test's own, with a real runner
 // on it in demo mode (no server, no port): the pretend Foreman, the demo's stand-in Approver.
-async function wholeDemo() {
-  // Not realpath'd: the demo writes only inside the system's temp folder as os.tmpdir() names it.
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'workshop-demo-page-'));
-  // The demo's usage lines go to its own state folder, never anywhere else.
-  process.env.STARBASE_DIR = path.join(root, 'state');
+// The caller sets STARBASE_DIR to the root's state/ (the demo's usage lines go there) and puts it back.
+async function wholeDemo(root) {
   const { buildDemo } = await import('../demo/run-demo.js');
   const demo = await buildDemo({ root });
   assert.equal(demo.root, root);
@@ -442,12 +439,36 @@ async function wholeDemo() {
   };
   const record = async (slug) => JSON.parse(await fs.readFile(path.join(demo.state, 'sessions.json'), 'utf8'))[path.join(demo.features, slug)]?.auto ?? null;
   const cardOf = async (slug) => (await runner.read.features()).features.find((c) => c.slug === slug);
-  return { root, demo, runner, lines, until, record, cardOf };
+  // Auto's last line for a job has its auto-log.md written too (the runner writes it after the audit line).
+  const settled = async (slug) => {
+    const last = (await lines()).filter((l) => l.action === 'auto' && l.slug === slug).at(-1);
+    if (!last) return true;
+    const st = await fs.stat(path.join(demo.features, slug, 'auto-log.md')).catch(() => null);
+    return Boolean(st && st.mtimeMs >= Date.parse(last.at));
+  };
+  return { root, demo, runner, lines, until, record, cardOf, settled };
 }
 
+test('buildDemo refuses a root outside the temp folder and deletes nothing', async () => {
+  const { buildDemo } = await import('../demo/run-demo.js');
+  // A path under this test file: outside the temp folder, and nothing can be made or removed there (its parent is a file).
+  const self = fileURLToPath(import.meta.url);
+  const before = await fs.readFile(self, 'utf8');
+  const root = path.join(self, 'demo-root');
+  await assert.rejects(buildDemo({ root }), /only inside the system’s temp folder/);
+  assert.equal(await fs.readFile(self, 'utf8'), before, 'the file is untouched');
+  await assert.rejects(fs.lstat(root), { code: 'ENOTDIR' });
+});
+
 test('the demo has a job with an overview and plan steps, one with a recording under way, and an Auto job he wrote to that waits for him with its sentence', { timeout: 120_000 }, async () => {
-  const w = await wholeDemo();
+  // Not realpath'd: the demo writes only inside the system's temp folder as os.tmpdir() names it.
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'workshop-demo-page-'));
+  const hadDir = Object.hasOwn(process.env, 'STARBASE_DIR');
+  const oldDir = process.env.STARBASE_DIR;
+  process.env.STARBASE_DIR = path.join(root, 'state');
+  let w = null;
   try {
+    w = await wholeDemo(root);
     // Bulk Archive, at Build: its ticket with who filed it and when, its acceptance lines, and a plan of six steps, three built.
     const bulk = await w.runner.read.job('bulk-archive');
     assert.equal(bulk.stage, 'implement');
@@ -463,10 +484,11 @@ test('the demo has a job with an overview and plan steps, one with a recording u
     assert.deepEqual(bulk.page.plan?.steps?.map((s) => s.id), ['S1', 'S2', 'S3', 'S4', 'S5', 'S6']);
     assert.deepEqual(bulk.page.plan.steps.map((s) => s.state), ['done', 'done', 'done', 'now', 'next', 'next'], 'commits [S1] to [S3] are on its branch; the Builder is on S4');
 
-    // Nightly Export, at Test: a recording under way, line 4 of 19, and Watch's picture.
+    // Nightly Export, at Test (L2, so its evidence is wanted): a recording under way, line 4 of 19, and Watch's picture.
     const nightly = await w.runner.read.job('nightly-export');
     assert.equal(nightly.stage, 'test');
     const view = await w.runner.local.evidence.view('nightly-export');
+    assert.equal(view.wanted, true, view.why);
     assert.equal(view.recording, true);
     assert.equal(view.watch, true);
     assert.equal(view.progress?.line, 4);
@@ -510,9 +532,13 @@ test('the demo has a job with an overview and plan steps, one with a recording u
     const autoDemo = JSON.parse(await fs.readFile(path.join(w.demo.features, 'auto-demo', 'status.json'), 'utf8'));
     assert.equal(autoDemo.stage, 'pr1');
     assert.equal(autoDemo.prs?.[0]?.state, 'open');
+    // Quiet before the folder goes: each Auto job's auto-log.md has caught up with its last line.
+    for (const slug of ['auto-demo', 'auto-demo-migrate', 'auto-yours']) await w.until(() => w.settled(slug), `${slug}’s auto-log.md`);
   } finally {
-    w.runner.stop();
-    await fs.rm(w.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }).catch(() => {});
+    w?.runner.stop();
+    if (hadDir) process.env.STARBASE_DIR = oldDir;
+    else delete process.env.STARBASE_DIR;
+    await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }).catch(() => {});
   }
 });
 

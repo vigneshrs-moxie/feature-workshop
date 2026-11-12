@@ -62,6 +62,12 @@ function setRoot(root) {
   repo = { path: ACME, base_branch: 'main' };
 }
 setRoot(path.join(os.tmpdir(), 'starbase-demo'));
+
+/** The one rule for where the demo may write: a folder inside the system's temp folder (never that folder itself). */
+function insideTemp(dir) {
+  const rel = path.relative(os.tmpdir(), path.resolve(String(dir)));
+  return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+}
 let BASE = null;
 
 const iso = (msAgo) => new Date(Date.now() - msAgo).toISOString();
@@ -870,6 +876,8 @@ async function levelJobs() {
   await writeOptions(path.join(FEATURES, 'bulk-archive'), defaultsForLevel(3), { title: 'Let admins archive many tickets at once.', repo: ACME, kind: 'feature', ticket: BULK_TICKET });
   for (const [slug, level, description] of [
     ['widget-export', 2, 'Add a CSV export to the widgets page.'],
+    // L2, so its evidence is wanted, as the recording under way says (floorJobs writes the job itself).
+    ['nightly-export', 2, 'Email the day’s export to the office every night.'],
     ['saved-filters', 2, 'Let people save the filters they use on the tickets page.'], ['dark-mode-toggle', 1, 'Add a dark mode toggle to the field app.'],
     ['report-scheduler', 3, 'Schedule reports to run every week.'], ['fix-login-loop', 3, 'Fix the login redirect loop for expired sessions.'],
     ['route-optimizer', 3, 'Suggest the shortest route for each technician’s day.'],
@@ -1195,7 +1203,7 @@ async function widgetThread() {
 // Always into the demo's own folder: STARBASE_DIR is pointed there unless it already names a
 // folder inside the demo's temporary one, so ~/.starbase is never touched.
 async function demoUsage() {
-  const inside = process.env.STARBASE_DIR && !path.relative(os.tmpdir(), path.resolve(process.env.STARBASE_DIR)).startsWith('..');
+  const inside = process.env.STARBASE_DIR && insideTemp(process.env.STARBASE_DIR);
   if (!inside) process.env.STARBASE_DIR = path.join(ROOT, 'state');
   const dir = path.resolve(process.env.STARBASE_DIR);
   await fs.mkdir(dir, { recursive: true });
@@ -1376,9 +1384,11 @@ function tick(logFiles) {
 /**
  * Writes the whole demo into `root` (a folder inside the system's temp folder, made anew): its job
  * folders, its code, its Foremen's session logs and its own state folder. Starts nothing. Returns
- * where each part is, and the session logs tick() keeps busy.
+ * where each part is, and the session logs tick() keeps busy. It clears `root` first, so a root
+ * that is not inside the temp folder (insideTemp) is refused before anything is touched.
  */
 export async function buildDemo({ root = path.join(os.tmpdir(), 'starbase-demo') } = {}) {
+  if (!insideTemp(root)) throw new Error(`The demo is built only inside the system’s temp folder (${os.tmpdir()}), so ${root} is left alone.`);
   setRoot(root);
   const logFiles = await build();
   await oldSkill();
