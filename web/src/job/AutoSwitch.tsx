@@ -46,7 +46,7 @@ function SwitchView({ checked, blocked, disabled, busy, quiet, word = false, onT
         <span className="auto-switch-label">{AUTO_LABEL}</span>
         {!quiet && <span className="auto-switch-hint">{blocked ? AUTO_L3 : AUTO_HINT}</span>}
       </span>
-      {word && <b className={`auto-switch-word${checked && !blocked ? ' is-on' : ''}`} aria-hidden="true">{checked && !blocked ? 'On' : 'Off'}</b>}
+      {word && <b className={`sb-auto-switch-word${checked && !blocked ? ' is-on' : ''}`} aria-hidden="true">{checked && !blocked ? 'On' : 'Off'}</b>}
     </OptionRow>
     {/* Outside the label, so its words never join the checkbox's name. */}
     {busy && <span className="auto-spin" role="status" aria-label={checked ? 'Turning Auto off…' : 'Turning Auto on…'}><span className="spin-ring" aria-hidden="true" /></span>}

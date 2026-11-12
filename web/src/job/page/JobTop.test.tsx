@@ -41,13 +41,14 @@ describe('JobTop', () => {
     setup({ j });
     const head = top();
     expect(head).not.toBeNull();
-    expect(within(head).getByRole('heading', { name: 'Technician notes' })).toBeInTheDocument();
+    expect(within(head).getByRole('heading', { level: 1, name: 'Technician notes' })).toBeInTheDocument();
     expect(within(head).getByText('Working', { selector: '.chip' })).toBeInTheDocument();
     expect(within(head).getByText('ORBIT-907')).toBeInTheDocument();
     expect(within(head).getByRole('button', { name: 'Copy decisions' })).toBeInTheDocument();
     const box = within(head).getByRole('checkbox', { name: AUTO_LABEL });
     expect(box.closest('label')).toHaveAttribute('title', AUTO_HINT);
     expect(within(head).getByRole('button', { name: 'Job menu' })).toBeInTheDocument();
+    expect(within(head).queryByText('The job menu is on your laptop.')).toBeNull();
     const how = within(head).getByRole('button', { name: 'How it works' });
     expect(how).toHaveAttribute('title', 'The three things to know about this page.');
     fireEvent.click(how);
@@ -83,6 +84,7 @@ describe('JobTop', () => {
     const chip = screen.getByText('Started by Auto · tag auto');
     expect(chip).toHaveClass('chip');
     expect(chip).toHaveAttribute('title', 'Settings, Workflow, Auto start');
+    expect(chip.querySelector('svg')).not.toBeNull();
     // Auto is on stays under the switch.
     expect(screen.getByText('Auto is on')).toBeInTheDocument();
     unmount();
@@ -134,6 +136,8 @@ describe('JobTop', () => {
     expect(headerState(waiting, [], { kind: null })).toMatchObject({ word: 'Sent', tone: 'info', icon: 'loader' });
     expect(headerState({ ...waiting, auto: { on: true, yours: true } } as Job, [], null)).toMatchObject({ word: 'Needs you', tone: 'needs-you', icon: 'hand' });
     expect(headerState(job('beta', 'running', { lane: 'working', auto: { on: true } }), [], null)).toMatchObject({ word: 'Working', tone: 'info' });
+    // job.auto alone never makes it Needs you: the lane decides.
+    expect(headerState(job('beta', 'running', { lane: 'working', auto: { on: true, yours: true } }), [], null)).toMatchObject({ word: 'Working', tone: 'info' });
     expect(headerState(job('gamma', 'running', { lane: 'in-review' }), [], null)).toMatchObject({ word: 'In review', tone: 'review' });
   });
 
@@ -152,6 +156,10 @@ describe('JobTop', () => {
     unmount();
     const { get } = setup({ j: job('alpha', 'running', { stage: 'plan', level: 1, auto: { on: true, ran: true } }) });
     const what = within(top()).getByRole('button', { name: 'What Auto decided' });
+    // A plain small button with its icon, as drawn (not the quiet look).
+    expect(what).toHaveClass('btn-sm');
+    expect(what).not.toHaveClass('btn-quiet');
+    expect(what.querySelector('svg')).not.toBeNull();
     await act(async () => { fireEvent.click(what); });
     expect(get).toHaveBeenCalledWith('/api/job/alpha/auto');
     // On the job page it opens as the drawer at the right (auto.css places .sb-drawer).
@@ -173,16 +181,35 @@ describe('JobTop', () => {
     const post = vi.fn(async (): Promise<unknown> => ({ ok: true, sent: false, held: true, queued, text: '', message: words }));
     setup({ hosted: true, post, detail: detailOf({ drive: { sessionId: 's-1', model: 'claude-opus-5-5' } }) });
     expect(within(top()).queryByRole('button', { name: 'Job menu' })).toBeNull();
+    // In the gear's place, one sentence: the menu is on the laptop.
+    expect(within(top()).getByText('The job menu is on your laptop.')).toHaveClass('sb-top-laptop');
     // The rest of the header is whole.
     expect(within(top()).getByRole('button', { name: 'How it works' })).toBeInTheDocument();
     expect(within(top()).getByRole('button', { name: 'Copy decisions' })).toBeInTheDocument();
-    expect(screen.getByText('Foreman model: Opus 5.5')).toBeInTheDocument();
+    expect(screen.getByText('Foreman model: Opus 5.5')).toHaveAttribute('title', 'Fixed once the job starts. Change model… on your laptop starts it again.');
     await act(async () => { fireEvent.click(within(top()).getByRole('checkbox', { name: AUTO_LABEL })); });
     expect(post).toHaveBeenCalledWith('/api/job/alpha/auto', { on: true });
     expect(within(top()).getByRole('checkbox', { name: AUTO_LABEL })).not.toBeChecked();
     expect(within(top()).getByText('Off')).toBeInTheDocument();
     expect(screen.getByText(words)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+  });
+
+  it('Copy decisions in the header holds everything decided on this job in a fold, with no second button', async () => {
+    const { get } = setup();
+    get.mockImplementation(async (path: string): Promise<unknown> => {
+      if (path === '/api/stacks') return { stacks: [] };
+      if (path.endsWith('/decisions.md')) return { orbit: { text: 'ORBIT-907 decisions', count: 1 } };
+      if (path.endsWith('/decisions')) return { decisions: [{ at: '2026-11-10T10:00:00Z', kind: 'approve', text: 'Approved brief 2' }] };
+      return null;
+    });
+    fireEvent.click(within(top()).getByRole('button', { name: 'Copy decisions' }));
+    await screen.findByLabelText('The text that will be copied');
+    const fold = screen.getByRole('dialog', { name: 'Copy decisions' }).querySelector('details')!;
+    expect(fold.querySelector('summary')).toHaveTextContent('Everything decided on this job');
+    await act(async () => { fireEvent.click(fold.querySelector('summary')!); });
+    expect(await within(fold).findByText('Approved brief 2')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Copy decisions' })).toHaveLength(1);
   });
 
   it('a second row of facts: kind, the level chip, the repository and where the work is', () => {

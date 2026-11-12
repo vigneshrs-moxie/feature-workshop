@@ -5,8 +5,9 @@
 // "Started by Auto · tag x" on a job a tag started, the kind, the level chip, the repository and
 // where the work is, and the locked Foreman model once the job has started; at the right, under the
 // switch (its own line: Auto is on, Auto stopped: why), What Auto decided, which opens as a drawer.
-// On the website the gear is not there (everything in it is done on the laptop) and the switch
-// queues its change for the laptop, as AutoSwitch does. Nothing here touches the bar's three calls.
+// On the website the gear is not there (everything in it is done on the laptop): its place says so
+// in one sentence, and the model lock's title names the laptop. The switch queues its change for
+// the laptop, as AutoSwitch does. Nothing here touches the bar's three calls.
 import type { Job, JobDetail, Permission, Run } from '../../api/types';
 import { Button } from '../../components/Button';
 import { Chip, type ChipTone } from '../../components/Chip';
@@ -17,7 +18,8 @@ import { whereLine } from '../../home/nudges';
 import type { GateKind } from '../../lib/compose';
 import { JobMenu } from '../../panes/Foreman/JobHeader';
 import { LevelChip } from '../../panes/Foreman/LevelChip';
-import { useWorkshopState } from '../../state/store';
+import { DecisionsTab } from '../../panes/Preview/DecisionsTab';
+import { useWorkshop, useWorkshopState } from '../../state/store';
 import { PartOfStack, useStackIndex } from '../../views/Stack/StackRows';
 import { AutoSwitch } from '../AutoSwitch';
 import { CopyDecisions } from '../CopyDecisions';
@@ -39,6 +41,10 @@ export const NEW_JOB_GUIDE: GuideSpec = {
 };
 
 export const MODEL_LOCK = 'Fixed once the job starts. Change model… in the gear menu starts it again.';
+/** The lock's title on the website, which has no gear. */
+export const MODEL_LOCK_HOSTED = 'Fixed once the job starts. Change model… on your laptop starts it again.';
+/** In the gear's place on the website. */
+export const MENU_ON_LAPTOP = 'The job menu is on your laptop.';
 export const AUTO_START_WHERE = 'Settings, Workflow, Auto start';
 
 /**
@@ -59,6 +65,8 @@ const isWebAddress = (v: unknown): v is string => typeof v === 'string' && /^htt
 
 export function JobTop({ job, detail, run, sent }: { job: Job; detail: JobDetail | null; run: Run | null; sent: { kind: GateKind | null } | null }) {
   const state = useWorkshopState();
+  const { api } = useWorkshop();
+  const hosted = Boolean(api.hosted?.());
   const stacks = useStackIndex();
   const [guideOpen, setGuideOpen] = useGuide(NEW_JOB_GUIDE.id);
   const lane = laneOf(job);
@@ -74,30 +82,32 @@ export function JobTop({ job, detail, run, sent }: { job: Job; detail: JobDetail
     <header className="sb-job-top">
       <div className="sb-top-main">
         <div className="sb-top-title">
-          <h2 className="page-title">{job.title || job.slug}</h2>
+          <h1 className="page-title">{job.title || job.slug}</h1>
           <Chip tone={chip.tone} icon={chip.icon} className={`state-chip is-${lane}`} title={sent ? undefined : LANE_INFO[lane].hint}>{chip.word}</Chip>
         </div>
         <div className="sb-top-facts">
           {ticket && (isWebAddress(ticketUrl)
             ? <a className="chip chip-outline num sb-top-ticket" href={ticketUrl.trim()} target="_blank" rel="noreferrer" title="Open the ticket in Orbit.">{ticket}<Icon name="external" size={12} /></a>
             : <Chip tone="outline" className="num sb-top-ticket">{ticket}</Chip>)}
-          <CopyDecisions slug={job.slug} />
-          {byTag && <Chip tone="accent" className="sb-top-auto" title={AUTO_START_WHERE}>{tag ? `Started by Auto · tag ${tag}` : 'Started by Auto'}</Chip>}
+          <CopyDecisions slug={job.slug} all={<DecisionsTab slug={job.slug} active copy={false} />} />
+          {byTag && <Chip tone="accent" icon="bot" className="sb-top-auto" title={AUTO_START_WHERE}>{tag ? `Started by Auto · tag ${tag}` : 'Started by Auto'}</Chip>}
           {kind && <span className="sb-top-fact">{kind}</span>}
           <LevelChip job={job} ready={Boolean(detail)} />
           {job.repo?.name && <span className="sb-top-fact">{job.repo.name}</span>}
           <span className="sb-top-fact sb-top-where" title="Where the job’s work is, from the finish line and its PRs.">{whereLine(job)}</span>
           <PartOfStack slug={job.slug} index={stacks} />
-          {model && <span className="sb-top-model" title={MODEL_LOCK}><Icon name="lock" size={13} />Foreman model: {model}</span>}
+          {model && <span className="sb-top-model" title={hosted ? MODEL_LOCK_HOSTED : MODEL_LOCK}><Icon name="lock" size={13} />Foreman model: {model}</span>}
         </div>
       </div>
       <div className="sb-top-side">
         <div className="sb-top-acts">
           <AutoSwitch job={job} word tagLine={false} />
-          <JobMenu job={job} dir={detail?.dir} policyOverride={detail?.policyOverride} run={run} worktree={detail?.worktree} started={Boolean(detail?.drive?.sessionId)} gear />
+          {hosted
+            ? <span className="sb-top-laptop">{MENU_ON_LAPTOP}</span>
+            : <JobMenu job={job} dir={detail?.dir} policyOverride={detail?.policyOverride} run={run} worktree={detail?.worktree} started={Boolean(detail?.drive?.sessionId)} gear />}
           <Button kind="quiet" icon="help" className="page-how" onClick={() => setGuideOpen(true)} title="The three things to know about this page.">How it works</Button>
         </div>
-        <WhatAutoDecided slug={job.slug} auto={job.auto} drawer />
+        <WhatAutoDecided slug={job.slug} auto={job.auto} drawer plain />
       </div>
       {guideOpen && <Guide spec={NEW_JOB_GUIDE} onClose={() => setGuideOpen(false)} />}
     </header>

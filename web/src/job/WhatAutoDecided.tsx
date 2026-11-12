@@ -12,7 +12,7 @@ import { Button } from '../components/Button';
 import { Chip } from '../components/Chip';
 import { Sheet } from '../components/Sheet';
 import { STOPS } from '../components/stops/stops';
-import { relativeTime } from '../lib/time';
+import { dayAndTime, fullTime, relativeTime } from '../lib/time';
 import { useWorkshop } from '../state/store';
 import './auto.css';
 
@@ -26,18 +26,9 @@ export const AUTO_EMPTY = 'Auto hasn\'t decided anything on this job yet.';
 /** The foot's second sentence, always there under the list. */
 export const AUTO_FOOT = 'The same decisions show in Copy decisions, marked (Auto).';
 
-/** "Nov 10 at 9:14 am", in the viewer's own time; null when the time can't be read. */
-function startedWords(iso: string): string | null {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
-  const day = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).replace(/\s?([AP])M$/i, (_m, ap: string) => ` ${ap.toLowerCase()}m`);
-  return `${day} at ${time}`;
-}
-
 /** The foot: who started Auto, when and on which ticket (all three known), then the second sentence. */
 function footOf(data: AutoDecided): string {
-  const when = typeof data.startedAt === 'string' && data.startedAt ? startedWords(data.startedAt) : null;
+  const when = typeof data.startedAt === 'string' ? dayAndTime(data.startedAt) : '';
   const first = when && data.ticket && data.tag ? `Started by Auto on ${when}: ${data.ticket} carries the tag ${data.tag}. ` : '';
   return `${first}${AUTO_FOOT}`;
 }
@@ -47,17 +38,18 @@ const stepOf = (e: AutoDecision) => (e.stop ? STOPS.find((s) => s.id === e.stop)
 function Entry({ e }: { e: AutoDecision }) {
   const step = stepOf(e);
   const stop = e.kind === 'stop';
-  // A stop carries its reason as what it chose (and often as why too): it is said once, as Why:.
-  const why = stop ? e.chose || e.why : e.why;
+  // A stop carries its reason as what it chose; why is the same sentence, or (a high-risk stop) the
+  // Approver's own explanation. Why: says each once: the two joined when they differ.
+  const why = stop ? (e.chose && e.why && e.why !== e.chose ? `${e.chose} ${e.why}` : e.chose || e.why) : e.why;
   return (
     <li className="auto-entry" data-kind={e.kind}>
       <div className="auto-entry-head">
-        <span className="muted num" title={e.at}>{agoWords(e.at)}</span>
-        {step ? <Chip className="auto-entry-step">{step}</Chip> : <span className="auto-entry-stage">{e.stage}</span>}
+        <span className="muted num" title={fullTime(e.at) || undefined}>{agoWords(e.at)}</span>
+        {step ? <Chip className="sb-auto-entry-step">{step}</Chip> : <span className="auto-entry-stage">{e.stage}</span>}
       </div>
-      {e.asked && <p className="auto-entry-asked">Asked: {e.asked}</p>}
+      {e.asked && <p className="sb-auto-entry-asked">Asked: {e.asked}</p>}
       {(stop || e.chose) && (
-        <p className="auto-entry-chose">
+        <p className="sb-auto-entry-chose">
           Chose:{' '}
           {stop
             ? <Chip tone="needs-you" icon="octagon"><strong>Stopped</strong></Chip>
@@ -97,7 +89,7 @@ function Panel({ slug, onClose, drawer }: { slug: string; onClose(): void; drawe
             <ul className="auto-entries">
               {entries.map((e, i) => <Entry key={`${e.at}-${i}`} e={e} />)}
             </ul>
-            <p className="auto-foot">{footOf(data)}</p>
+            <p className="sb-auto-foot">{footOf(data)}</p>
           </>
         )}
         <div className="sheet-actions"><Button onClick={onClose}>Close</Button></div>
@@ -106,14 +98,14 @@ function Panel({ slug, onClose, drawer }: { slug: string; onClose(): void; drawe
   );
 }
 
-export function WhatAutoDecided({ slug, auto, size = 'sm', drawer = false }: { slug: string; auto?: Pick<JobAuto, 'ran'> | null; size?: 'sm' | 'md'; /** The new job page's: the panel opens as a drawer at the right on a laptop. */ drawer?: boolean }) {
+export function WhatAutoDecided({ slug, auto, size = 'sm', drawer = false, plain = false }: { slug: string; auto?: Pick<JobAuto, 'ran'> | null; size?: 'sm' | 'md'; /** The new job page's: the panel opens as a drawer at the right on a laptop. */ drawer?: boolean; /** The new job page's: a plain button with its icon, as drawn, instead of the quiet look. */ plain?: boolean }) {
   const [open, setOpen] = useState(false);
   if (!auto?.ran) return null;
   return (
     // Clicks and keys inside the button and its panel stay here: a card or row holding them has its own.
     // Escape is let through: the panel hears it on the document, above this.
     <span className="auto-decided-wrap" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => { if (e.key !== 'Escape') e.stopPropagation(); }}>
-      <Button kind="quiet" size={size} onClick={() => setOpen(true)} title="Every step Auto approved or answered for you on this job, and why.">What Auto decided</Button>
+      <Button kind={plain ? 'secondary' : 'quiet'} icon={plain ? 'checks' : undefined} size={size} onClick={() => setOpen(true)} title="Every step Auto approved or answered for you on this job, and why.">What Auto decided</Button>
       {open && <Panel slug={slug} onClose={() => setOpen(false)} drawer={drawer} />}
     </span>
   );

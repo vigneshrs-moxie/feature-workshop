@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clockTime, fullTime, relativeTime } from './time';
+import { clockTime, dayAndTime, fullTime, relativeTime } from './time';
 
 // vite.config.ts runs the tests in one zone, so a snapshot with a time in it reads the same on
 // every machine. When a system doesn't take TZ, this says so, instead of a snapshot hours out.
@@ -38,5 +38,18 @@ describe('clockTime', () => {
     expect(clockTime(at(2026, 9, 15, 9, 5), now)).toBe('9:05am');
     expect(clockTime(at(2026, 9, 16, 0, 30), now)).toBe('Fri 12:30am');
     expect(clockTime(undefined, now)).toBe('');
+  });
+});
+
+describe('dayAndTime', () => {
+  it('gives the day and the time in words, with a space before am or pm', () => {
+    expect(dayAndTime(at(2026, 10, 10, 9, 14))).toBe('Nov 10 at 9:14 am');
+    expect(dayAndTime(at(2026, 9, 15, 15, 42))).toBe('Oct 15 at 3:42 pm');
+    expect(dayAndTime(at(2026, 9, 16, 0, 30))).toBe('Oct 16 at 12:30 am');
+  });
+
+  it('is empty when the time is unknown or unreadable', () => {
+    expect(dayAndTime(null)).toBe('');
+    expect(dayAndTime('not a date')).toBe('');
   });
 });
