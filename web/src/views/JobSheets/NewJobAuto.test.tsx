@@ -54,4 +54,21 @@ describe('NewJobSheet: Auto', () => {
     expect(options.level).toBe(3);
     expect(options.auto).toBe(true);
   });
+
+  it('on the website it sends auto at L3 too', async () => {
+    const store: Store = createStore();
+    store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [] }) });
+    const onStart = vi.fn(async () => {});
+    const api = { get: vi.fn(async () => { throw new ApiError(404, 'Not found'); }), post: vi.fn(), hosted: () => true } as unknown as ApiClient;
+    const laptops = [{ id: 1, name: 'Olive’s Mac', online: true, repos: [{ name: 'sample-one', default: true }] }];
+    render(<WorkshopContext.Provider value={{ store, api }}><NewJobSheet onClose={vi.fn()} hosted={{ laptops, onStart }} /></WorkshopContext.Provider>);
+    const dialog = screen.getByRole('dialog', { name: 'Start a new job' });
+    fireEvent.change(within(dialog).getByRole('textbox', { name: /What should the crew build/ }), { target: { value: 'Add a Copy ID button' } });
+    fireEvent.click(within(dialog).getByRole('radio', { name: /^L3/ }));
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: /Auto: run to PR #1/ }));
+    expect(within(dialog).getByRole('checkbox', { name: /Auto: run to PR #1/ })).toBeChecked();
+    await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Start job' })); });
+    expect(onStart).toHaveBeenCalledTimes(1);
+    expect(((onStart.mock.calls[0] as unknown[])[0] as { options: unknown }).options).toEqual({ level: 3, auto: true });
+  });
 });

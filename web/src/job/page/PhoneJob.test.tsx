@@ -822,4 +822,10 @@ describe('the phone’s job screen: the Auto queue', () => {
       cleanup();
     }
   });
+
+  it.each([['the laptop app', false], ['the website', true]] as const)('the risky count shows only with What Auto decided (%s)', (_where, hosted) => {
+    setup({ hosted, jobs: [working('build', { level: 1, auto: { on: true, by: 'you', ran: false, risky: 2 } })] });
+    expect(screen.queryByRole('button', { name: 'What Auto decided' })).toBeNull();
+    expect(screen.getByRole('main', { name: 'Job' })).not.toHaveTextContent(/risky call/);
+  });
 });

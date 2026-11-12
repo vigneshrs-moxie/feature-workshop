@@ -49,7 +49,7 @@ function SwitchView({ checked, disabled, busy, quiet, word = false, onToggle }: 
   );
 }
 
-function HeaderSwitch({ job, onChange, word = false, tagLine = true }: { job: Pick<Job, 'slug' | 'level' | 'suggestedLevel' | 'auto'> & { autoQueued?: unknown }; onChange?(on: boolean): void; word?: boolean; tagLine?: boolean }) {
+function HeaderSwitch({ job, onChange, word = false, tagLine = true }: { job: Pick<Job, 'slug' | 'auto'> & { autoQueued?: unknown }; onChange?(on: boolean): void; word?: boolean; tagLine?: boolean }) {
   const { api } = useWorkshop();
   const sent = useSent(`auto:${job.slug}`);
   const inflight = useRef(false);
@@ -110,7 +110,7 @@ function HeaderSwitch({ job, onChange, word = false, tagLine = true }: { job: Pi
 
 export interface AutoSwitchProps {
   /** The job page's switch: posts the change itself. Leave out on the New job form. */
-  job?: Pick<Job, 'slug' | 'level' | 'suggestedLevel' | 'auto'> | null;
+  job?: Pick<Job, 'slug' | 'auto'> | null;
   /** The form's: whether it is ticked, and its disabled state. */
   checked?: boolean;
   disabled?: boolean;

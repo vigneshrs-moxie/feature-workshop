@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type ApiClient } from '../../api/client';
@@ -41,15 +41,17 @@ interface Setup {
   stage?: string;
   /** The job has Auto on. */
   auto?: boolean;
+  /** The job's level on its card (1 unless a test needs another). */
+  jobLevel?: 0 | 1 | 2 | 3;
   /** The job has a Foreman session (it has started): its Foreman model is locked. */
   started?: boolean;
   /** The dashboard's option lists (meta.jobOptions), LISTS unless a test needs more. */
   lists?: typeof LISTS & { skippable?: { id: string; label: string }[] };
 }
 
-function setup({ options = L1, notes = { text: 'Ask before renaming the API.', updatedAt: null }, post, put, tab, stage, started = false, auto = false, lists = LISTS }: Setup = {}) {
+function setup({ options = L1, notes = { text: 'Ask before renaming the API.', updatedAt: null }, post, put, tab, stage, started = false, auto = false, jobLevel = 1, lists = LISTS }: Setup = {}) {
   const store: Store = createStore();
-  store.dispatch({ type: 'snapshot', snapshot: snapshot({ meta: { token: 't', levels: LEVELS, jobOptions: lists }, jobs: [job('alpha', 'idle', { level: 1, ...(stage ? { stage } : {}), ...(auto ? { auto: { on: true } } : {}) })] }) });
+  store.dispatch({ type: 'snapshot', snapshot: snapshot({ meta: { token: 't', levels: LEVELS, jobOptions: lists }, jobs: [job('alpha', 'idle', { level: jobLevel, ...(stage ? { stage } : {}), ...(auto ? { auto: { on: true } } : {}) })] }) });
   const detail: JobDetail = { slug: 'alpha', thread: [], threadMore: false, level: 1, options, ...(started ? { drive: { mode: 'workshop', model: OPUS, sessionId: 'session-1' } } : {}) };
   const get = vi.fn(async (path: string) => {
     if (path === '/api/job/alpha/notes') { if (notes instanceof Error) throw notes; return notes; }
@@ -520,5 +522,16 @@ describe('Job drawer · options', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save options' }));
     await waitFor(() => expect(post).toHaveBeenCalled());
     expect(post.mock.calls[0][1].options).toMatchObject({ level: 1, fable_checks: ['review'], notes: '' });
+  });
+
+  // The Auto queue (Task 17): Auto runs L3 jobs, so an L3 job in Auto skips the hand test like any other.
+  it('an L3 job in Auto: the hand test is replaced by the Auto line; with Auto off the checkbox is there', async () => {
+    await openOptions({ auto: true, jobLevel: 3 });
+    expect(screen.getByText('Auto skips your hand test on this job. The recorded evidence still runs.')).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'I test it by hand before review' })).toBeNull();
+    cleanup();
+    await openOptions({ auto: false, jobLevel: 3 });
+    expect(screen.getByRole('checkbox', { name: 'I test it by hand before review' })).toBeInTheDocument();
+    expect(screen.queryByText(/Auto skips your hand test/)).toBeNull();
   });
 });

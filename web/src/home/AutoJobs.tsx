@@ -11,7 +11,7 @@ import { jobHref } from '../app/router';
 import { Chip } from '../components/Chip';
 import { Icon } from '../components/Icon';
 import type { StackIndex } from '../views/Stack/StackRows';
-import { autoGroups, autoPausedLine, riskyWords, TOO_BIG, workingHeading } from './autoTab';
+import { autoGroups, autoPausedLine, riskyWords, TOO_BIG, tooBigTitle, workingHeading } from './autoTab';
 import { Cards } from './JobsPage';
 
 type Play = 'full' | 'subtle' | 'off';
@@ -97,7 +97,7 @@ export function AutoJobs({ jobs, queue, now, play, stacks, onPeek, peeked = null
                 const why = big ? big.reason : stopReason(j);
                 return (
                   <Row key={j.slug} job={j} onPeek={onPeek} peeked={peeked === j.slug}>
-                    {big && <Chip tone="warn" icon="layers" className="sb-auto-big" title={big.reason}>{TOO_BIG}</Chip>}
+                    {big && <Chip tone="warn" icon="layers" className="sb-auto-big" title={tooBigTitle(big.reason)}>{TOO_BIG}</Chip>}
                     {why && <span className="sb-auto-reason">{why}</span>}
                   </Row>
                 );

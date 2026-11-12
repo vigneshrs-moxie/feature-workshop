@@ -20,7 +20,7 @@ import { Button } from '../../components/Button';
 import { Chip, type ChipTone } from '../../components/Chip';
 import { Icon, type IconName } from '../../components/Icon';
 import { Guide, useGuide, type GuideSpec } from '../../components/page/Page';
-import { riskyWords, TOO_BIG } from '../../home/autoTab';
+import { riskyWords, TOO_BIG, tooBigTitle } from '../../home/autoTab';
 import { chipTone, laneOf, LANE_INFO, stateChip } from '../../home/JobsPage';
 import { whereLine } from '../../home/nudges';
 import type { GateKind } from '../../lib/compose';
@@ -74,7 +74,8 @@ export function headerState(job: Job, permissions: readonly Permission[] | undef
  * The facts the header works out (the phone's job screen shows them too): the ticket's number (the
  * job's own, else the one in the job's page facts); on a job a tag started, "Started by Auto" with
  * the tag's name when the job's detail has it; while Auto has set the job aside as too big, its
- * reason (null when none was given); and the risky calls Auto made, in words, once there are any.
+ * reason (null when none was given); and the risky calls Auto made, in words, once there are any
+ * and What Auto decided shows (Auto has run on the job).
  * How the job began is the record's began, kept when he switches Auto off and on (a record from an
  * older laptop has none: its by says); the tag's name comes with the job's detail.
  */
@@ -85,8 +86,8 @@ export function jobFacts(job: Job, detail: JobDetail | null): { ticket: string |
   const byTag = auto?.began !== undefined ? auto.began === 'tag' : auto?.by === 'tag';
   const startedByAuto = byTag ? (tag ? `Started by Auto · tag ${tag}` : 'Started by Auto') : null;
   const big = auto?.tooBig;
-  const tooBig = big && typeof big === 'object' ? { reason: typeof big.reason === 'string' && big.reason.trim() ? big.reason.trim() : null } : null;
-  const risky = typeof auto?.risky === 'number' && auto.risky > 0 ? riskyWords(auto.risky) : null;
+  const tooBig = big && typeof big === 'object' ? { reason: tooBigTitle(big.reason) ?? null } : null;
+  const risky = auto?.ran === true && typeof auto.risky === 'number' && auto.risky > 0 ? riskyWords(auto.risky) : null;
   return { ticket, startedByAuto, tooBig, risky };
 }
 

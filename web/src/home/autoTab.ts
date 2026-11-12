@@ -16,6 +16,9 @@ export const AUTO_PAUSED = { limit: 'Auto start is paused: the Claude limit warn
 /** A ticket or job set aside because its first brief says it needs a stack. */
 export const TOO_BIG = 'Too big for Auto';
 
+/** The Too big for Auto chip's hover title: the reason, or none when it is missing, empty or only spaces. */
+export const tooBigTitle = (reason: unknown): string | undefined => (typeof reason === 'string' && reason.trim() ? reason.trim() : undefined);
+
 /** How many Auto jobs work at once (Settings, Auto start): 1 to 10, 5 when the setting has none. */
 export const AUTO_MAX = Object.freeze({ min: 1, max: 10, default: 5 });
 

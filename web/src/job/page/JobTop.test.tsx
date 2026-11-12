@@ -376,6 +376,17 @@ describe('JobTop', () => {
       }
     }
   });
+
+  it('the risky count shows only with What Auto decided', () => {
+    for (const hosted of [false, true]) {
+      // A count with Auto not yet run on the job: no button, so no count beside nothing.
+      setup({ j: job('alpha', 'running', { stage: 'build', level: 1, auto: { on: true, ran: false, risky: 2 } }), hosted });
+      expect(within(top()).queryByRole('button', { name: 'What Auto decided' })).toBeNull();
+      expect(top()).not.toHaveTextContent(/risky call/);
+      expect(top().querySelector('.sb-decided-row')).toBeEmptyDOMElement();
+      cleanup();
+    }
+  });
 });
 
 const follows = (a: Element, b: Element) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);

@@ -105,3 +105,18 @@ for (const hosted of [false, true]) {
     });
   });
 }
+
+// Task 17 fix round 1: the Too big for Auto chip follows the job page's rule. A reason missing,
+// empty or only spaces gives no hover title, never "null" or "undefined".
+describe('Jobs: the Auto tab, a set-aside job with no reason', () => {
+  it.each([['the laptop app', false], ['the website', true]] as const)('Too big for Auto has no hover title without a reason (%s)', (_where, hosted) => {
+    for (const reason of [undefined, null, '', '   ']) {
+      const aside = job('t1', 'idle', { title: 'Payroll export', stage: 'spec', lane: 'needs-you', auto: { on: false, ran: true, tooBig: { at: '2026-11-12T09:00:00Z', reason } as never, group: 'needs-you' } });
+      setup({ jobs: [aside], hosted });
+      const chip = within(group('Needs you, 1')).getByText('Too big for Auto');
+      expect(chip).not.toHaveAttribute('title');
+      expect(group('Needs you, 1')).not.toHaveTextContent(/null|undefined/);
+      cleanup();
+    }
+  });
+});

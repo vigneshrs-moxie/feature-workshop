@@ -1,11 +1,11 @@
 // The job page on a phone (Part 3, design 3.4, note 12): four simple screens, one column each,
 // chosen by the address. Not the laptop page squeezed.
-//   The job (#/job/<slug>): back to Jobs and the gear; the title, the state in a word, the ticket and
-//     Too big for Auto while Auto has set it aside; who started it; a branch Starbase only guessed
-//     (BranchGuess, with This is the job's branch, its line alone on the website); the bar with its card; the seven steps as rows; Overview, Copy
-//     decisions, What Auto decided (once Auto has decided, with the risky calls beside it once there
-//     are any) and the Auto switch; Conversation fixed at
-//     the bottom with how many messages are new.
+//   The job (#/job/<slug>): back to Jobs and the gear; the title, the state in a word, the ticket
+//     and Too big for Auto while Auto has set it aside; who started it; a branch Starbase only
+//     guessed (BranchGuess, with This is the job's branch, its line alone on the website); the bar
+//     with its card; the seven steps as rows; Overview, Copy decisions, What Auto decided (once
+//     Auto has decided, with the risky calls beside it once there are any) and the Auto switch;
+//     Conversation fixed at the bottom with how many messages are new.
 //   A step (#/job/<slug>/stage/<step>): back to the job by its title; the step's name, state and time;
 //     the step's own panel and body, as on a laptop. The screen of the step that waits for you
 //     carries the bar and its three calls first, the card folded to one row (the owner's requirement).
