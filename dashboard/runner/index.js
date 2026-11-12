@@ -85,6 +85,7 @@ import { tokenStore } from '../lib/orbit-token.js';
 import { InboxSuggester, SUGGEST_MODEL, askHaiku, demoAsk, suggestPrompt } from '../lib/inbox-suggest.js';
 import { TICKET_FILE, readTicket, ticketDescription } from '../lib/ticket-file.js';
 import { readAcceptance, stepDocs, stepTimes } from '../lib/job-page.js';
+import { checkCounts } from '../lib/job-page.js';
 import { writeFileAtomic } from '../lib/atomic-write.js';
 import { UsageLog, TurnMeter, turnLines, usageDir, starbaseUser, claudeAccountId } from '../lib/usage-log.js';
 import { statusTicketKey, slugTicketKey } from '../lib/orbit.js';
@@ -1066,6 +1067,33 @@ export async function createRunner(config) {
     return { times, docs };
   }
 
+  // The Test step's own facts (design 3.5): the Tester's check counts from test-report.md, with the
+  // report's time (null: no report, or no line marked), and the owner's hand test: when Try it's app
+  // was last started from the page (Starbase's own record, tryStartedAt; null: not started). The
+  // hand test stores no result: his Go or Send back at the Test step is the result. A read that
+  // fails gives that part null.
+  async function testFacts(f) {
+    const part = (read) => read().catch(() => null);
+    const checks = await part(async () => {
+      const text = await readInside(f.dir, 'test-report.md', { noLink: true });
+      const counts = text === null ? null : checkCounts(text);
+      if (!counts) return null;
+      const at = await fsp.stat(path.join(f.dir, 'test-report.md')).then((st) => st.mtime.toISOString(), () => null);
+      return { ...counts, at };
+    });
+    const handTest = await part(async () => {
+      const at = (await state.sessionFor(f.dir))?.tryStartedAt;
+      return { startedAt: typeof at === 'string' ? at : null };
+    });
+    return { checks, handTest };
+  }
+
+  // Try it's app started from the page (the try-it command's start) is the hand test starting. The
+  // evidence recorder starts the app itself (runner/evidence.js), never through here.
+  async function markHandTestStarted(f) {
+    try { await state.setSession(f.dir, { tryStartedAt: new Date().toISOString() }); } catch { /* the page shows it as not started */ }
+  }
+
   async function jobDetail(f) {
     const run = runFor(f);
     const latestPath = f.latestBrief?.path ?? f.briefs.at(-1)?.file ?? null;
@@ -1146,7 +1174,7 @@ export async function createRunner(config) {
       costDetail: { ...f.cost, whatIf: whatIfConductor(f.cost.agents) },
       activity: f.activity.map((a) => (a.state === 'running' && !stillRunning(f, a, run && ACTIVE_RUN.has(run.status) ? run : null) ? { ...a, state: 'stopped' } : a)),
       drive, run, runs: runsOf(f), overview, thread: threadPart.items, threadMore: threadPart.more, locate: f.locate,
-      page: { ...(await pageFacts(f)), ...(await stepFacts(f, audit)) },
+      page: { ...(await pageFacts(f)), ...(await stepFacts(f, audit)), ...(await testFacts(f)) },
       // policy: the setting in force for this job; policyOverride: the job's own (null: it follows yours).
       // While Auto is on, 'auto' (lib/state.js policyFor), the job's own setting kept as it was.
       policy: await state.policyFor(f.dir), policyOverride: settings.jobPolicy?.[f.dir] ?? null, globalPolicy: settings.policy, autoMode: settings.autoMode,
@@ -2759,7 +2787,7 @@ export async function createRunner(config) {
       const audit = (extra = {}) => state.audit({ action: 'local', featureDir: f.dir, slug: f.slug, what: action, ...extra });
       try {
         if (action === 'env') { const r = await local.setupEnv(f); await audit({ changed: r.changed }); return r; }
-        if (action === 'start') { const r = await local.startServer(f); await audit({ port: r.port }); return r; }
+        if (action === 'start') { const r = await local.startServer(f); await audit({ port: r.port }); await markHandTestStarted(f); return r; }
         if (action === 'stop') return { ok: local.stopServer(f.slug) };
         if (action === 'run') {
           const preset = body.preset || null;

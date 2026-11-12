@@ -307,6 +307,9 @@ export function stageView(job, stop, { activity = job.activity ?? [], agents = j
   // stepTimes, stepDocs); left out when the answer has none (an older Starbase: not known).
   const time = job.page?.times?.[stop];
   const docs = job.page?.docs?.[stop];
+  // The Test step's check counts and hand test, as the job answer's page has them; on no other step,
+  // and left out when the answer has none (an older Starbase: not known).
+  const testOwn = stop === 'test' && job.page ? Object.fromEntries(['checks', 'handTest'].filter((k) => Object.hasOwn(job.page, k)).map((k) => [k, job.page[k]])) : {};
 
   const apps = Array.isArray(local?.terminalApps) ? local.terminalApps : [];
   return {
@@ -323,6 +326,7 @@ export function stageView(job, stop, { activity = job.activity ?? [], agents = j
     terminalApps: apps,
     ...(time ? { time } : {}),
     ...(Array.isArray(docs) ? { docs } : {}),
+    ...testOwn,
   };
 }
 

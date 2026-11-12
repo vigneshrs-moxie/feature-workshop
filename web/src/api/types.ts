@@ -1087,6 +1087,30 @@ export interface JobPageFacts {
   times?: Partial<Record<StopId, StepTime>> | null;
   /** The job's documents by step, none: the rest (dashboard/lib/job-page.js stepDocs); null: not read. */
   docs?: Partial<Record<StopId | 'none', JobDocEntry[]>> | null;
+  /** The Tester's check counts from test-report.md (dashboard/lib/job-page.js checkCounts); null: no report, or no line marked. */
+  checks?: TestChecks | null;
+  /** The owner's hand test: when Try it's app was last started from the page; null: not read. */
+  handTest?: HandTest | null;
+}
+
+/**
+ * How the Tester's checks came out: one count per acceptance line (AC-<n>) test-report.md marks
+ * PASS, FAIL or NOT RUN (its last mention wins). at: the report's time.
+ */
+export interface TestChecks {
+  passed?: number;
+  failed?: number;
+  notRun?: number;
+  at?: string | null;
+}
+
+/**
+ * The owner's hand test at the Test step (Try it). startedAt: when Try it's app was last started
+ * from the page (never by the evidence recorder); null: not started. It stores no result: his Go
+ * or Send back at the Test step is the result.
+ */
+export interface HandTest {
+  startedAt?: string | null;
 }
 
 /**
@@ -1978,6 +2002,10 @@ export interface StageView {
   time?: StepTime;
   /** The step's documents (job.page.docs for this step); missing: not known. */
   docs?: JobDocEntry[];
+  /** The Tester's check counts (job.page.checks), on the Test step only; missing: not known. */
+  checks?: TestChecks | null;
+  /** The owner's hand test (job.page.handTest), on the Test step only; missing: not known. */
+  handTest?: HandTest | null;
 }
 
 // ---------- Telemetry (packet P): GET /api/telemetry?window= (dashboard/lib/telemetry.js, lib/insights.js) ----------
