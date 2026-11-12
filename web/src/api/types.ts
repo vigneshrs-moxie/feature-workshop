@@ -1517,6 +1517,7 @@ export interface EvidenceView {
 export interface EvidenceProgress {
   commit: string;
   startedAt: string;
+  /** The running line's place (from 1), else the last finished one's; 0: no line has begun yet. */
   line: number;
   of: number;
   /** Every acceptance line in order; at: when its state last changed (null: not yet). */

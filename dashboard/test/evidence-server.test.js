@@ -325,3 +325,82 @@ test('evidence server: a line’s video is there as soon as the line ends', asyn
     await setHold('go');
   }
 });
+
+// ---------- The laptop's Jobs card hears the progress (fix round 1) ----------
+
+/**
+ * One job's v2 events as they come, as the laptop page reads them: on each `change` for the job the
+ * page fetches the snapshot again, so its card is fetched right then (entry.card, a promise).
+ */
+function watchJob(slug, epoch) {
+  const seen = [];
+  const req = http.get(`${base}/api/events?v=2&since=0&epoch=${epoch}`, (res) => {
+    let buf = '';
+    res.on('data', (chunk) => {
+      buf += chunk;
+      let i;
+      while ((i = buf.indexOf('\n\n')) >= 0) {
+        const data = buf.slice(0, i).split('\n').find((l) => l.startsWith('data: '));
+        buf = buf.slice(i + 2);
+        if (!data) continue;
+        const e = JSON.parse(data.slice(6));
+        if (e.job !== slug) continue;
+        seen.push(e.type === 'change' ? { e, card: cardOf(slug) } : { e });
+      }
+    });
+  });
+  req.on('error', () => {});
+  return { seen, stop: () => req.destroy() };
+}
+/** The first `change` for the job after the first evidence event `after` matches, once it is there. */
+async function changeAfter(w, after, what) {
+  for (let n = 0; n < 400; n++) {
+    const i = w.seen.findIndex((x) => x.e.type === 'evidence' && after(x.e.data));
+    const change = i >= 0 ? w.seen.slice(i + 1).find((x) => x.e.type === 'change') : null;
+    if (change) return change;
+    await pause(50);
+  }
+  return assert.fail(`${what}:\n${JSON.stringify(w.seen.map((x) => [x.e.type, x.e.data?.outcome, x.e.data?.progress?.line ?? x.e.data?.progress]))}`);
+}
+
+test('evidence server: the laptop’s card hears each line as it moves, and the end of the recording', async () => {
+  const w = watchJob('heard-job', (await getJson('/api/snapshot')).epoch);
+  try {
+    await fs.rm(hold, { force: true });
+    try {
+      await writeJob('heard-job', { level: 2 });
+      await viewWhen('heard-job', runningFirst, 'no recording part way');
+      const moved = await changeAfter(w, (d) => d.progress?.line === 1, 'no change after the line moved to 1');
+      assert.equal((await moved.card).testing, 'Recording evidence: line 1 of 3');
+    } finally {
+      await setHold('go');
+    }
+    const ended = await changeAfter(w, (d) => d.outcome === 'progress' && d.progress === null, 'no change after the progress was gone');
+    const card = await ended.card;
+    assert.equal(card.testing, null);
+    assert.doesNotMatch(card.laneReason, /Recording evidence/);
+  } finally {
+    w.stop();
+  }
+});
+
+test('evidence server: the laptop’s card hears the end of a recording that dies part way', async () => {
+  const w = watchJob('heard-dying-job', (await getJson('/api/snapshot')).epoch);
+  try {
+    await fs.rm(hold, { force: true });
+    try {
+      await writeJob('heard-dying-job', { level: 2 });
+      await viewWhen('heard-dying-job', runningFirst, 'no recording part way');
+      await setHold('exit 1');
+      const ended = await changeAfter(w, (d) => d.outcome === 'progress' && d.progress === null, 'no change after the progress was gone');
+      const card = await ended.card;
+      assert.equal(card.testing, null);
+      assert.doesNotMatch(card.laneReason, /Recording evidence/);
+      assert.ok((await getJson('/api/job/heard-dying-job/evidence')).problem, 'the problem is said');
+    } finally {
+      await setHold('go');
+    }
+  } finally {
+    w.stop();
+  }
+});

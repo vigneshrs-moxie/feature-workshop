@@ -440,6 +440,16 @@ function progressStart({ commit, specs, lines, at }) {
 }
 
 /**
+ * The Jobs card's words for a recording's progress: "Recording evidence: line 4 of 19" once a line
+ * has begun; before any has (line 0), "Recording evidence: starting, 19 lines"; null with no progress.
+ */
+export function recordingWords(progress) {
+  if (!progress) return null;
+  if (!(progress.line >= 1)) return `Recording evidence: starting, ${progress.of} ${progress.of === 1 ? 'line' : 'lines'}`;
+  return `Recording evidence: line ${progress.line} of ${progress.of}`;
+}
+
+/**
  * The progress after one reporter line (parseProgressLine), as a new object; null when it names no
  * line of this recording. video: the line's video as copyLineVideo placed it (an end only), else null.
  */
@@ -522,8 +532,10 @@ export async function recordEvidence({ job, server, dbCheck = null, run, playwri
     onProgress(progress);
     // One reporter line after another: a line's end waits for its video to be copied.
     let lineChain = Promise.resolve();
+    // Once the run has ended, a line that still comes (Playwright's `close` after its `error`) changes nothing.
+    let ended = false;
     const onLine = (text) => {
-      const event = parseProgressLine(text);
+      const event = ended ? null : parseProgressLine(text);
       if (!event) return;
       lineChain = lineChain.then(async () => {
         const video = event.at === 'end' ? await copyLineVideo({ evidenceDir, commit, id: event.id, from: event.video, outputDir: prepared.outputDir }) : null;
@@ -532,6 +544,7 @@ export async function recordEvidence({ job, server, dbCheck = null, run, playwri
       }).catch(() => {});
     };
     const ran = await run({ configFile: prepared.configFile, cwd, specs, onLine });
+    ended = true;
     await lineChain;
     const reportJson = await fsp.readFile(prepared.reportFile, 'utf8').then((t) => JSON.parse(t), () => null);
     const errors = JSON.stringify(reportJson?.errors ?? []) + JSON.stringify(reportTests(reportJson).map((t) => t.result?.error?.message ?? ''));

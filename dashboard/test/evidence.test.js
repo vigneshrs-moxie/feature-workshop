@@ -14,7 +14,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   BROWSER_FIX, CONFIG_FILE, DB_DOWN, EvidenceError, buildEvidence, evidenceFile, evidenceLines, evidenceWanted, guardedSpec,
   listSpecs, playwrightConfig, prepareRun, readEvidence, readyToRecord, recordEvidence,
-  parseProgressLine, progressReporter,
+  parseProgressLine, progressReporter, recordingWords,
 } from '../lib/evidence.js';
 import { defaultsForLevel, describeOptions, evidenceOn, normalize, optionsAtLevel } from '../lib/options.js';
 import { describeDoc, listJobDocs, readJobDoc } from '../lib/docs.js';
@@ -369,4 +369,33 @@ test('evidence: a line’s video is copied only from inside the run’s output',
   await recordEvidence({ job, server: fakeServer(), run, playwrightUrl: 'x', cwd: job.dir, onProgress: (p) => seen.push(p) });
   assert.equal(seen.length, 4);
   assert.ok(seen.every((p) => p.lines.every((l) => l.video === null)), 'none named');
+});
+
+test('evidence: a line that comes after the run ended changes nothing', async () => {
+  const job = await makeJob();
+  const seen = [];
+  let late = null;
+  const line = (at, id, status = null) => `@@starbase ${JSON.stringify({ at, id, title: id, status, video: null })}`;
+  // Playwright's `error` ended the run; its `close` brings one more line afterwards.
+  const run = async (opts) => {
+    const ran = await fakeRun()(opts);
+    opts.onLine(line('begin', 'AC-1'));
+    late = new Promise((resolve) => { setTimeout(() => { opts.onLine(line('end', 'AC-1', 'passed')); opts.onLine(line('begin', 'AC-2')); resolve(); }, 20); });
+    return ran;
+  };
+  await recordEvidence({ job, server: fakeServer(), run, playwrightUrl: 'x', cwd: job.dir, onProgress: (p) => seen.push(p) });
+  const atEnd = seen.length;
+  await late;
+  await new Promise((r) => { setTimeout(r, 50); });
+  assert.equal(atEnd, 2, 'the start and the line that came in time');
+  assert.equal(seen.length, atEnd, 'nothing after the run ended');
+});
+
+test('evidence: the words say the line once it has begun, and never one that hasn’t', () => {
+  assert.equal(recordingWords(null), null);
+  assert.equal(recordingWords(undefined), null);
+  assert.equal(recordingWords({ line: 0, of: 3 }), 'Recording evidence: starting, 3 lines');
+  assert.equal(recordingWords({ line: 0, of: 1 }), 'Recording evidence: starting, 1 line');
+  assert.equal(recordingWords({ line: 1, of: 3 }), 'Recording evidence: line 1 of 3');
+  assert.equal(recordingWords({ line: 4, of: 19 }), 'Recording evidence: line 4 of 19');
 });

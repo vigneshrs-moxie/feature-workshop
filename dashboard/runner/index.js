@@ -3332,6 +3332,18 @@ export async function createRunner(config) {
     changed() { invalidate(); notifyChange(); },
   };
   testingOf = (slug) => local_.evidence.progressWords(slug);
+  // A recording's line moving, or its progress gone, changes that job's card (`testing`, its lane): the pages fetch
+  // again. The card reads the progress live, so nothing cached is dropped. Lines that come close together make one
+  // change (at most one per job each 150 ms, always one after the last).
+  const testingMoved = new Map(); // slug -> its pending change
+  on('evidence', (slug, data) => {
+    if (data?.outcome !== 'progress' || !slug || testingMoved.has(slug)) return;
+    testingMoved.set(slug, setTimeout(() => {
+      testingMoved.delete(slug);
+      broadcast('change', { at: Date.now() });
+      events.emit('change', slug, { at: Date.now() });
+    }, 150));
+  });
 
   // ---------- After a restart (runner/replay.js) ----------
 

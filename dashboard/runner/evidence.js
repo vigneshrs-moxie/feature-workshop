@@ -14,7 +14,8 @@
 //     view(slug)          { evidence, commit, wanted, why, recording, problem, progress, folder, folderUrl }
 //                         (progress: by line while Playwright runs, else null; each change is an
 //                         `evidence` event with outcome 'progress', and one with progress null at the end)
-//     progressWords(slug) "Recording evidence: line 4 of 19" while it runs, else null (the Jobs card's `testing`)
+//     progressWords(slug) "Recording evidence: line 4 of 19" while it runs ("…: starting, 19 lines" before
+//                         a line begins), else null (the Jobs card's `testing`)
 //     file(slug, rel)     { abs, type, size } of one picture or video inside evidence/, else 404
 //     record(slug)        records for the commit the report names now (409 "Already recorded for …");
 //                         one that takes longer than a moment carries on by itself ({ started: true })
@@ -30,7 +31,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { HttpError } from '../lib/http-guard.js';
-import { EVIDENCE_DIR, EvidenceError, evidenceFile, evidenceWanted, readEvidence, readyToRecord, recordEvidence, reportCommit, shortCommit } from '../lib/evidence.js';
+import { EVIDENCE_DIR, EvidenceError, evidenceFile, evidenceWanted, readEvidence, readyToRecord, recordEvidence, recordingWords, reportCommit, shortCommit } from '../lib/evidence.js';
 import { fillPattern } from '../lib/profile.js';
 import { killTree, shellFor } from '../lib/platform.js';
 import { PRODUCT } from '../lib/brand.js';
@@ -253,10 +254,9 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
         folder, folderUrl: pathToFileURL(folder).href + (folder.endsWith(path.sep) ? '' : '/'),
       };
     },
-    /** The Jobs card's words while Playwright records the job ("Recording evidence: line 4 of 19"), else null. */
+    /** The Jobs card's words while Playwright records the job ("Recording evidence: line 4 of 19"; lib/evidence.js recordingWords), else null. */
     progressWords(slug) {
-      const p = progress.get(slug);
-      return p ? `Recording evidence: line ${Math.max(1, p.line)} of ${p.of}` : null;
+      return recordingWords(progress.get(slug));
     },
     async file(slug, rel) {
       const f = await jobOf(slug);
