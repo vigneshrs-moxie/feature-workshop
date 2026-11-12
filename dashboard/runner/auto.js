@@ -247,6 +247,9 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       try { await raiseLevel(job, suggested); job.level = suggested; } catch (err) { console.error(`auto level (${job.slug}):`, err.message); return null; }
     }
     const gate = job.gate && !job.gate.stale && job.gate.briefNumber !== null && !job.answered.includes(job.gate.briefNumber) && job.gate.briefNumber !== job.auto.lastBrief ? job.gate : null;
+    // The first brief suggests a stack (Auto queue, Task 12): the ticket is too big for Auto. Set aside before any stop and
+    // before the Approver is asked; never once Auto has answered a brief, nor after he switched it back on (asOne).
+    if (gate && tooBigForAuto(job)) { await setAside(job); return null; }
     const hit = stopFor(job, job.auto, gate);
     if (hit) { await stop(job, hit); return null; }
     // This pass found no step Auto can act on, and nothing is running, locked or paused: the job waits for the person by its
@@ -278,6 +281,40 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       }
     }
     return gate;
+  }
+
+  /** Why the Foreman thinks the ticket is big enough for a stack, when that sets this job aside now: else null. */
+  const tooBigForAuto = (job) => {
+    const why = typeof job.stackSuggested === 'string' ? job.stackSuggested.trim() : '';
+    return why && (job.auto.lastBrief ?? null) === null && job.auto.asOne !== true ? why : null;
+  };
+
+  /**
+   * Too big for Auto (Auto queue, Task 12): Auto switches itself off on the job and marks it (tooBig), under the Auto lock,
+   * with one line; the job takes no place, so the next ticket can start. No Approver, no gate answered. Nothing is written
+   * when Auto went off, stopped or answered a brief meanwhile, or he switched it back on after a set-aside.
+   */
+  async function setAside(job) {
+    const reason = tooBigForAuto(job);
+    const at = now().toISOString();
+    let spent = 0;
+    let wrote = false;
+    await update(job.dir, (prev) => {
+      if (prev?.on !== true || prev.stopped || prev.asOne === true || (prev.lastBrief ?? null) !== null) return null;
+      wrote = true;
+      spent = prev.spent ?? 0;
+      return { ...prev, on: false, tooBig: { at, reason } };
+    });
+    if (!wrote) return;
+    held.delete(job.dir); refused.delete(job.dir);
+    try {
+      await audit(job, 'set-aside', { why: reason, ...(spent > 0 ? { costUsd: spent } : {}) });
+      await paidOff(job, spent);
+    } finally {
+      // Once the record says set aside, the pages show it and its place is free, even when the line could not be written.
+      changed();
+      freed();
+    }
   }
 
   const stopFor = (job, rec, gate) => {

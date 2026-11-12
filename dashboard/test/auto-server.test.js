@@ -4652,3 +4652,115 @@ test('a branch named gh itself is never taken out: a push of it with a gh call b
     await refusedOnCard(w, outcomes, refusedNote('a push together with a gh call is a hard line, and Auto does not allow it.'), 'blocked');
   } finally { await clear(w); await w.stop(); }
 });
+
+// ---------- Auto queue Task 12: a ticket big enough for a stack is set aside as too big for Auto ----------
+
+const STACK_WHY = 'It changes three apps, and each could be a part of its own.';
+/** Brief n of a job on ticket ORBIT-7 whose Foreman thinks it is big enough for a stack. */
+const bigStatus = (n, over = {}) => status(n, { stack_suggested: STACK_WHY, ticket: { key: 'ORBIT-7', title: 'Visit audit columns', url: null }, ...over });
+/** The Inbox holds ORBIT-7, the ticket the job is on, tagged auto (tests only: no Orbit is read). */
+const inboxHolds7 = (w) => w.hooks.orbitInbox.rows.set(7, { row: { id: 'id-7', number: 7, subject: 'Visit audit columns', type: 'feature', status: 'open', tags: [{ id: 't0', name: 'auto', color: 'blue', archived: false }] }, audience: 'tech', why: new Set(['assigned']) });
+const cardOf = async (w) => (await w.runner.read.snapshot()).jobs.find((c) => c.slug === w.slug);
+/** The web's words for Run as a stack instead (web/src/views/Stack/StackRows.tsx RUN_AS_STACK_TEXT): an ordinary message of his. */
+const RUN_AS_STACK = 'Run this as a stack instead: you are its coordinator. Write stack.md (the parts, the files each one owns, what each waits for, and the order they merge in) and stop for my approval on the Stack page.';
+const autoGates = async (w) => (await w.sends()).filter((s) => s.by === 'auto').map((s) => s.gateBrief);
+
+test('a ticket whose first brief suggests a stack is set aside: Auto off, too big, no Approver call, no place taken', { timeout: 30_000 }, async () => {
+  const w = await world({ jobStatus: bigStatus(1) });
+  try {
+    inboxHolds7(w);
+    let asked = 0;
+    w.hooks.autoStartAsked = () => { asked++; };
+    await w.pass();
+    assert.equal(w.asks.length, 0, 'the Approver is not asked');
+    assert.deepEqual(await w.sends(), [], 'no gate is answered');
+    const rec = await w.record();
+    assert.equal(rec.on, false, 'Auto is off');
+    assert.equal(rec.tooBig.reason, STACK_WHY);
+    assert.ok(Number.isFinite(Date.parse(rec.tooBig.at)), 'when it was set aside');
+    assert.equal(rec.asOne, false);
+    assert.notEqual((await w.optionsFile()).auto, true, 'options.json says Auto is off');
+    const lines = await w.autoLines('set-aside');
+    assert.equal(lines.length, 1);
+    assert.equal(lines[0].why, STACK_WHY);
+    const card = await cardOf(w);
+    assert.equal(card.auto.group, 'needs-you');
+    assert.equal(card.auto.tooBig.reason, STACK_WHY);
+    const q = (await w.runner.read.snapshot()).autoQueue;
+    assert.deepEqual([q.working, q.unfinished], [0, 0], 'it takes no place');
+    assert.deepEqual(q.tickets, [{ key: 'ORBIT-7', title: 'Visit audit columns', group: 'too-big', slug: w.slug, reason: STACK_WHY }]);
+    assert.ok(asked > 0, 'its place is freed for the next ticket');
+    // Off now: the next pass leaves it alone.
+    await w.pass();
+    assert.equal(w.asks.length, 0);
+    assert.equal((await w.autoLines('set-aside')).length, 1);
+  } finally { await w.stop(); }
+});
+
+test('switched back on, it runs as one job and is never set aside again', { timeout: 30_000 }, async () => {
+  const w = await world({ jobStatus: bigStatus(1), also: { slug: 'other-job', status: status(1, { stage_state: 'working', waiting_for: null }), options: { level: 1, flow: 'quick', title: 'Other job' } } });
+  try {
+    await w.runner.handle({ type: 'settings', workflow: { autoStart: { on: false, tag: 'auto', max: 1 } } }, { from: 'local' });
+    await w.pass();
+    assert.equal((await w.record()).tooBig?.reason, STACK_WHY, 'set aside first');
+    const before = (await w.runner.read.snapshot()).autoQueue;
+    assert.deepEqual([before.max, before.working], [1, 1], 'every place is taken, by the other job');
+    // His switch: answered (a 200), never refused for places.
+    const res = await w.runner.handle({ type: 'auto', slug: w.slug, on: true }, { from: 'local' });
+    assert.equal(res.ok, true);
+    let rec = await w.record();
+    assert.deepEqual([rec.on, rec.tooBig, rec.asOne], [true, null, true]);
+    await w.pass();
+    assert.deepEqual(await autoGates(w), [1], 'the gate is answered');
+    await w.idle();
+    // A later brief that still suggests a stack changes nothing.
+    await w.writeStatus(bigStatus(2));
+    await new Promise((r) => setTimeout(r, 1700)); // the job list is cached for 1.5 seconds
+    await w.pass();
+    assert.deepEqual(await autoGates(w), [1, 2]);
+    rec = await w.record();
+    assert.deepEqual([rec.on, rec.stopped, rec.tooBig, rec.asOne], [true, null, null, true]);
+    assert.equal((await w.autoLines('set-aside')).length, 1, 'set aside once only');
+    assert.equal((await w.runner.read.snapshot()).autoQueue.working, 2, 'it counts as working');
+    assert.equal((await cardOf(w)).auto.group, 'working');
+  } finally { await w.stop(); }
+});
+
+test('his answer to the brief, or Run as a stack instead, clears the mark and the job moves to Yours', { timeout: 60_000 }, async () => {
+  const ways = [
+    ['his Go', (w) => w.runner.handle({ type: 'approve', slug: w.slug, briefNumber: 1 }, { from: 'local' })],
+    ['his Send back', (w) => w.runner.handle({ type: 'send-back', slug: w.slug, briefNumber: 1, note: 'One job, please.' }, { from: 'local' })],
+    ['Run as a stack instead', (w) => w.runner.handle({ type: 'reply', slug: w.slug, kind: 'message', text: RUN_AS_STACK }, { from: 'local' })],
+  ];
+  for (const [how, act] of ways) {
+    const w = await world({ jobStatus: bigStatus(1) });
+    try {
+      inboxHolds7(w);
+      await w.pass();
+      assert.equal((await w.record()).tooBig?.reason, STACK_WHY, `${how}: set aside first`);
+      await act(w);
+      const rec = await w.record();
+      assert.equal(rec.tooBig, null, `${how}: the mark is cleared`);
+      assert.equal(rec.on, false, `${how}: Auto stays off`);
+      const card = await cardOf(w);
+      assert.deepEqual([card.auto.group, card.auto.tooBig], [null, null], `${how}: the job is in Yours`);
+      assert.deepEqual((await w.runner.read.snapshot()).autoQueue.tickets, [], `${how}: no longer under Too big for Auto`);
+    } finally { await w.stop(); }
+  }
+});
+
+test('a suggestion on a later brief, after Auto answered one, does not set it aside', { timeout: 30_000 }, async () => {
+  const w = await world();
+  try {
+    await w.pass();
+    await w.idle();
+    assert.equal((await w.record()).lastBrief, 1);
+    await w.writeStatus(bigStatus(2));
+    await new Promise((r) => setTimeout(r, 1700)); // the job list is cached for 1.5 seconds
+    await w.pass();
+    assert.deepEqual(await autoGates(w), [1, 2], 'Auto answers the later brief');
+    const rec = await w.record();
+    assert.deepEqual([rec.on, rec.tooBig ?? null], [true, null]);
+    assert.deepEqual(await w.autoLines('set-aside'), []);
+  } finally { await w.stop(); }
+});

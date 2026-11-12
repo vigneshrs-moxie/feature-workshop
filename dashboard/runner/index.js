@@ -1829,6 +1829,17 @@ export async function createRunner(config) {
       await updateAuto(dir, (prev) => (prev?.finished && !prev.acted ? { ...prev, acted: new Date().toISOString() } : null));
     } catch (err) { console.warn(`Auto: ${path.basename(dir)} not marked as acted on: ${err.message}`); }
   }
+  /**
+   * His own send to a job (a message of any kind, Run as a stack instead among them, Go, Send back, stop), never Starbase's
+   * own nor Auto's: a job set aside as too big for Auto is no longer marked (Auto queue, Task 12), so it moves to Yours.
+   * Auto stays off. What he sent has already gone by then, so a failed write is only logged.
+   */
+  async function clearTooBig(dir) {
+    if (!dir) return;
+    try {
+      await updateAuto(dir, (prev) => (prev?.tooBig ? { ...prev, tooBig: null } : null));
+    } catch (err) { console.warn(`Auto: ${path.basename(dir)} still marked as too big for Auto: ${err.message}`); }
+  }
   /** The job folder of a PR feedback card or a review round card (a ship step he answers), else null. */
   const shipCardDir = (requestId) => (driver.feedbackCards?.get(requestId) ?? driver.roundCards?.get(requestId))?.featureDir ?? null;
 
@@ -1869,6 +1880,8 @@ export async function createRunner(config) {
       jobs.push({
         dir: f.dir, slug: f.slug, title: f.title, auto: f.auto, level: Number.isInteger(f.level) ? f.level : null, suggestedLevel: Number.isInteger(f.suggestedLevel) ? f.suggestedLevel : null,
         needsYou: f.needsYou === true,
+        // The first brief thinks the ticket is big enough for a stack (status.json stack_suggested): Auto sets the job aside.
+        stackSuggested: f.stackSuggested ?? null,
         stage: f.stage ?? null, stageState: f.stageState ?? null, ticketKey: f.options?.ticket?.key ?? null,
         // The rules that read the description, the files the Foreman expects to touch and the files the job's branch really
         // changes (changedPathsFor: git, cached a minute per job, as the job page and the Inbox suggestion use): a migration stops Auto.
@@ -2166,6 +2179,7 @@ export async function createRunner(config) {
   let orbitUrl = null;
   const orbit = orbitClient({ baseUrl: () => orbitUrl, getToken: () => orbitStore.get() });
   const orbitInbox = new OrbitInbox({ client: orbit, orbitUrl: () => orbitUrl });
+  if (testHooks && typeof testHooks === 'object') testHooks.orbitInbox = orbitInbox; // tests only, as the driver above
 
   // An Orbit refusal (lib/orbit.js OrbitError) as the answer the page has always had.
   const ORBIT_STATUS = { token: 400, settings: 400, 'not-found': 404, auth: 401, scope: 403, rate: 429 };
@@ -2428,11 +2442,13 @@ export async function createRunner(config) {
       await reopenIfClosed(f);
       invalidate();
       await markActed(f.dir); // his, held for the limit: he has acted
+      await clearTooBig(f.dir);
       const when = new Date(held.resetsAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
       return { ...reply, sent: false, held: true, resetsAt: held.resetsAt, message: held.autoResume ? `Held: it goes to the Foreman when Claude’s usage limit resets (around ${when}).` : `Held: it goes to the Foreman when you press “Carry on now” after Claude’s usage limit resets (around ${when}).` };
     }
     const run = await startSend(f, out, { kind: g.kind, gateBrief: g.briefNumber, by });
     if (!auto) await markActed(f.dir); // his Go, Send back, stop or message
+    if (!auto) await clearTooBig(f.dir);
     return { ...reply, sent: true, run };
   }
 
@@ -2573,6 +2589,7 @@ export async function createRunner(config) {
       const out = sendPlan(f, drive, body, text);
       const run = await startSend(f, out, { kind, gateBrief });
       await markActed(f.dir); // his message, of any kind
+      await clearTooBig(f.dir); // Run as a stack instead is one of these
       return { run };
     },
     approve: (body) => gateDecision('approve', body),
