@@ -1,8 +1,8 @@
-// The new job page on a laptop (Part 3, Task 15a): the header, the overview, the bar, seven steps with
+// The job page on a laptop (Part 3): the header, the overview, the bar, seven steps with
 // one open in place, and the conversation beside them. Which step is open (your pick, the address, the
 // job's step, your last look), what you typed surviving a refresh, a pick and the job moving on, and
 // the owner's one requirement: whichever step is open, a job that waits for you has Send back, Reply
-// and Go on the bar, on an Auto job too. The setup is the Job page's (JobPage.test.tsx), with the
+// and Go on the bar, on an Auto job too. The setup is the one the old job page's tests had, with the
 // step's view and the evidence added. Invented jobs only; no model calls, no browser, no network.
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -17,12 +17,13 @@ import { STOPS } from '../../components/stops/stops';
 import { clearAllSent } from '../../lib/sentState';
 import { writeStored } from '../../lib/stored';
 import { clearGateSent } from '../../panes/Foreman/gateSent';
+import { ServerHtml } from '../../panes/Foreman/ServerHtml';
 import { createStore, WorkshopContext, type Store } from '../../state/store';
 import { ev, job, permission, snapshot } from '../../state/test-fixtures';
 import type { QueuedView } from '../../views/Hosted/QueuedDecision';
 import { seenKey } from './ConversationPanel';
 import { MENU_ON_LAPTOP } from './JobTop';
-import { NewJobPage } from './NewJobPage';
+import { JobPage } from './JobPage';
 import { BUILDING_NOT_WRITTEN, NO_TICKET } from './OverviewCard';
 import { CHECK_NOT_WRITTEN } from './WhatToCheck';
 
@@ -62,7 +63,7 @@ const stageView = (slug: string, stop: StopId): StageView => ({
 });
 
 /**
- * What the test's server knows (as in JobPage.test.tsx), and the evidence it answers. `fail`: the
+ * What the test's server knows, and the evidence it answers. `fail`: the
  * job's details can't be read while it is set.
  */
 const server = {
@@ -87,7 +88,7 @@ const resizeTo = (px: number) => act(() => { media.width = px; for (const fn of 
 /** The page under the router, as App will mount it: the step's address is its `step`. */
 function Routed({ slug }: { slug: string }) {
   const route = useRoute();
-  return <NewJobPage slug={slug} step={route.name === 'stage' ? route.stop : undefined} view={route.name === 'job' ? route.view : undefined} />;
+  return <JobPage slug={slug} step={route.name === 'stage' ? route.stop : undefined} view={route.name === 'job' ? route.view : undefined} />;
 }
 
 function setup({
@@ -124,14 +125,14 @@ function setup({
     return detail(path.split('/')[3]);
   });
   const api = { get, post, ...(hosted ? { hosted: () => true } : {}) } as unknown as ApiClient;
-  const page = routed ? <Routed slug={slug} /> : <NewJobPage slug={slug} step={step} view={view} />;
+  const page = routed ? <Routed slug={slug} /> : <JobPage slug={slug} step={step} view={view} />;
   const ui = (p = page) => <WorkshopContext.Provider value={{ store, api }}><UiProvider>{extra}{p}</UiProvider></WorkshopContext.Provider>;
   const utils = render(ui());
   /** The job as the next snapshot has it (the page fetches it again; nothing else changes). */
   const move = (next: Job[], perms: Permission[] = permissions) => act(() => {
     store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: next, permissions: perms, meta: { token: 't', settings: { play: { mode: 'subtle' } } } as never }) });
   });
-  return { ...utils, get, post, store, move, rerenderWith: (p: Parameters<typeof NewJobPage>[0]) => utils.rerender(ui(<NewJobPage {...p} />)) };
+  return { ...utils, get, post, store, move, rerenderWith: (p: Parameters<typeof JobPage>[0]) => utils.rerender(ui(<JobPage {...p} />)) };
 }
 
 let off = () => {};
@@ -149,7 +150,7 @@ const stageCalls = (get: ReturnType<typeof vi.fn>, stop: StopId) => get.mock.cal
 const working = (stage: string, extra: Partial<Job> = {}) => job('alpha', 'running', { stage, lane: 'working', ...extra });
 const waiting = (extra: Partial<Job> = {}) => [job('alpha', 'needs-you', { stage: 'plan', lane: 'needs-you', waitingFor: 'approval', headline: 'The plan is ready. Start building?', ...extra })];
 
-describe('the new job page on a laptop', () => {
+describe('the job page on a laptop', () => {
   it('the page is the header, the overview, the bar, seven steps with one open, and the conversation', async () => {
     setup({ jobs: [working('plan')] });
     const main = page();
@@ -1025,9 +1026,115 @@ describe('the address after a pick', () => {
   });
 });
 
-// ---------- The old page's blocks (JobPage.test.tsx), with NewJobPage in place of JobPage ----------
+// ---------- Moved from the old job page's tests: no other test had these ----------
+describe('the old job page’s tests, on this page', () => {
+  it('a question from the Foreman: Reply puts the cursor in the message box', () => {
+    setup({ jobs: [job('alpha', 'needs-you', { stage: 'spec', lane: 'needs-you', headline: 'Which login page?' })] });
+    expect(bar()).toHaveTextContent('The Foreman asked you something');
+    expect(bar()).toHaveTextContent('Which login page?');
+    fireEvent.click(within(bar()).getByRole('button', { name: /^Reply/ }));
+    expect(screen.getByRole('textbox', { name: /Your message to the Foreman/ })).toHaveFocus();
+  });
+
+  /** The plan, with a link to a section, one to another document and one to a file that is no document. */
+  const LINKED: JobDoc = {
+    file: 'implementation-plan.md', name: 'Implementation plan', type: 'md', updatedAt: NOW, size: 2048, text: 'plan',
+    html: '<h1 id="h-plan">Plan</h1><p><a href="#s1">Jump to S1</a> · <a href="review.md">The review</a></p><h2 id="h-s1">S1</h2><p>Step one.</p>',
+  };
+  const REVIEW_DOC: JobDocEntry = { file: 'review.md', name: 'Review (combined)', group: 'review', version: null, updatedAt: NOW, size: 400, type: 'md' };
+  const withDocs = (slug: string, stop: StopId): StageView => ({ ...stageView(slug, stop), docs: stop === 'plan' ? DOCS : stop === 'review' ? [REVIEW_DOC] : [] });
+  const linkedPlan = (get: ReturnType<typeof setup>['get']) => {
+    const answer = get.getMockImplementation()!;
+    get.mockImplementation((path: string) => (path.endsWith('/doc?file=implementation-plan.md') ? Promise.resolve(LINKED) : answer(path)));
+  };
+
+  it('in a document a #section link goes to its heading, and a link to another document opens it under its step; a link in a reply too', async () => {
+    const { get } = setup({
+      jobs: [working('plan')], stageOf: withDocs, more: { page: { docs: { plan: [DOCS[0]], review: [REVIEW_DOC], none: [] } } },
+      extra: <ServerHtml html={'<p><a href="./notes.md">notes</a></p>'} />,
+    });
+    linkedPlan(get);
+    await screen.findByText('Overview');
+    fireEvent.click(await within(screen.getByRole('tabpanel', { name: 'Plan' })).findByRole('button', { name: /^Implementation plan/ }));
+    const reader = await screen.findByRole('article', { name: 'Implementation plan' });
+    fireEvent.click(await within(reader).findByRole('link', { name: 'Jump to S1' }));
+    expect(within(reader).getByRole('heading', { name: 'S1' })).toHaveFocus();
+    // Another of the job's documents: the step that owns it opens with it.
+    fireEvent.click(within(reader).getByRole('link', { name: 'The review' }));
+    expect(openStop()).toBe('review');
+    expect(await within(screen.getByRole('tabpanel', { name: 'Review' })).findByText('review.md body')).toBeInTheDocument();
+    // A link in a reply to a file no step owns: it opens under the open step.
+    fireEvent.click(screen.getByRole('link', { name: 'notes' }));
+    expect(openStop()).toBe('review');
+    const notes = await within(screen.getByRole('tabpanel', { name: 'Review' })).findByRole('article', { name: 'notes.md' });
+    expect(await within(notes).findByText('notes.md body')).toBeInTheDocument();
+  });
+
+  it('⌘K Open docs: the open step’s documents, with the focus on the first one', async () => {
+    function Opener() { const ui = useUi(); return <button type="button" onClick={() => ui.openDocs()}>open docs</button>; }
+    const TEST_PLAN: JobDocEntry = { file: 'test-plan.md', name: 'Test plan', group: 'plan', version: null, updatedAt: NOW, size: 800, type: 'md' };
+    setup({ jobs: [working('plan')], stageOf: (slug, stop) => ({ ...stageView(slug, stop), docs: stop === 'plan' ? [DOCS[0], TEST_PLAN] : [] }), extra: <Opener /> });
+    const panel = screen.getByRole('tabpanel', { name: 'Plan' });
+    const first = () => within(panel).getByRole('button', { name: /^Implementation plan/ });
+    await within(panel).findByRole('button', { name: /^Test plan/ });
+    fireEvent.click(screen.getByRole('button', { name: 'open docs' }));
+    expect(openStop()).toBe('plan');
+    await waitFor(() => expect(first()).toHaveFocus());
+    // With a document open: back to the list, the focus on the first one (not the one you read).
+    fireEvent.click(within(panel).getByRole('button', { name: /^Test plan/ }));
+    await within(panel).findByRole('article', { name: 'Test plan' });
+    fireEvent.click(screen.getByRole('button', { name: 'open docs' }));
+    await waitFor(() => expect(first()).toHaveFocus());
+    expect(within(panel).queryByRole('article', { name: /Test plan|test-plan\.md/ })).toBeNull();
+  });
+
+  // Review of Task 18, I1: a request that found no document must not take the focus later.
+  it('Open docs on a step with no documents does not move the focus when one arrives later', async () => {
+    function Opener() { const ui = useUi(); return <button type="button" onClick={() => ui.openDocs()}>open docs</button>; }
+    let planDocs: JobDocEntry[] = [];
+    const { move } = setup({ jobs: [working('plan')], stageOf: (slug, stop) => ({ ...stageView(slug, stop), docs: stop === 'plan' ? planDocs : [] }), extra: <Opener /> });
+    const panel = screen.getByRole('tabpanel', { name: 'Plan' });
+    await waitFor(() => expect(panel.querySelector('.sb-step-body')).not.toBeNull());
+    expect(within(panel).getByText('No documents from this step yet.')).toBeInTheDocument();
+    const opener = screen.getByRole('button', { name: 'open docs' });
+    opener.focus();
+    fireEvent.click(opener);
+    await act(async () => {});
+    // Later the job changes and the step's answer has a document.
+    planDocs = [DOCS[0]];
+    move([working('plan', { updatedAt: new Date(Date.now() + 1000).toISOString() })]);
+    const doc = await within(panel).findByRole('button', { name: /^Implementation plan/ });
+    await act(async () => {});
+    expect(doc).not.toHaveFocus();
+    expect(opener).toHaveFocus();
+  });
+
+  it('Open docs never takes the focus out of a box he is typing in', async () => {
+    function Opener() { const ui = useUi(); return <button type="button" onClick={() => ui.openDocs()}>open docs</button>; }
+    const { get } = setup({ jobs: [working('plan')], extra: <Opener /> });
+    await waitFor(() => expect(screen.getByRole('tabpanel', { name: 'Plan' }).querySelector('.sb-step-body')).not.toBeNull());
+    // The Spec step's answer is held until he is typing.
+    let release = () => {};
+    const held = new Promise<void>((r) => { release = r; });
+    const answer = get.getMockImplementation()!;
+    get.mockImplementation((path: string) => (path.endsWith('/stage/spec') ? held.then(() => ({ ...stageView('alpha', 'spec'), docs: [DOCS[0]] })) : answer(path)));
+    pick('spec');
+    fireEvent.click(screen.getByRole('button', { name: 'open docs' }));
+    const box = messageBox();
+    box.focus();
+    fireEvent.change(box, { target: { value: 'Keep the icon' } });
+    await act(async () => { release(); });
+    const doc = await within(screen.getByRole('tabpanel', { name: 'Spec' })).findByRole('button', { name: /^Implementation plan/ });
+    await act(async () => {});
+    expect(doc).not.toHaveFocus();
+    expect(box).toHaveFocus();
+    expect(box).toHaveValue('Keep the icon');
+  });
+});
+
+// ---------- The old job page's blocks, run against this page ----------
 // Copied as they are: the go / no go bar, after a click on the go / no go bar, Auto on the job page
-// and the permission alert. Only places the new page does not have are pointed at the new place
+// and the permission alert. Only places this page does not have are pointed at the new place
 // (the page head is .sb-job-top; the locked model line is in the header and under the message box).
 describe('the go / no go bar', () => {
   const waiting = () => [job('alpha', 'needs-you', { stage: 'plan', lane: 'needs-you', waitingFor: 'approval', headline: 'The plan is ready. Start building?' })];
@@ -1811,7 +1918,7 @@ describe('Auto on the job page', () => {
   const STOPPED = { on: true, by: 'you' as const, ran: true, stopped: { reason: 'a database change needs you.', rule: 'database', at: NOW } };
   const head = () => document.querySelector('.sb-job-top')!;
 
-  // The new page has no Details: the locked model line is in the header (.sb-job-top) and under the message box.
+  // This page has no Details: the locked model line is in the header (.sb-job-top) and under the message box.
   it('an Auto job has the switch and What Auto decided in the page head, and the locked model line in the header and under the message box', async () => {
     setup({ jobs: [job('alpha', 'running', { stage: 'plan', level: 1, auto: { on: true, by: 'you', ran: true } })], drive: { sessionId: 's1', model: 'claude-opus-5-5' } });
     const box = screen.getByRole('checkbox', { name: /Auto: run to PR #1/ });
@@ -1968,5 +2075,22 @@ describe('a narrow window', () => {
       expect(calls).toEqual([expect.stringMatching(/^No go: send back/), 'Reply', expect.stringMatching(/^Go: approve/)]);
       for (const b of within(bar()).getAllByRole('button')) expect(b).toBeEnabled();
     });
+  });
+});
+
+describe('a branch that was only guessed, on the laptop page', () => {
+  const GUESSED = 'feature/someone-elses-branch';
+  const guessed = { repoPath: '/Users/me/Projects/moxie-portal', branch: GUESSED, locate: { path: '/Users/me/Projects/moxie-portal', branch: GUESSED, branchGuessed: true } } as unknown as Partial<JobDetail>;
+  const detailAsks = (get: ReturnType<typeof vi.fn>) => get.mock.calls.filter(([p]) => p === '/api/job/alpha').length;
+
+  it('This is the job’s branch records the branch and reads the job again', async () => {
+    const { get, post } = setup({ jobs: [working('plan')], more: guessed });
+    const top = page().querySelector<HTMLElement>('.sb-job-top')!;
+    const guess = await within(top).findByRole('group', { name: 'The job’s branch' });
+    expect(within(guess).getByText('Branch (a guess):')).toBeInTheDocument();
+    const before = detailAsks(get);
+    fireEvent.click(within(guess).getByRole('button', { name: 'This is the job\'s branch' }));
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/api/job/alpha/repo', { repoPath: '/Users/me/Projects/moxie-portal', branch: GUESSED }));
+    await waitFor(() => expect(detailAsks(get)).toBeGreaterThan(before));
   });
 });

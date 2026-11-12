@@ -28,6 +28,8 @@ describe('Change model sheet', () => {
   it('Change model… explains the restart and needs the job’s name', async () => {
     const { post } = setup();
     expect(await screen.findByRole('dialog', { name: 'Change the Foreman model' })).toBeInTheDocument();
+    // The sheet says Loading… until the job's details are in: wait for the first line before reading the rest.
+    expect(await screen.findByText('The job starts again from step one on the new model.')).toBeInTheDocument();
     for (const line of [
       'The job starts again from step one on the new model.',
       'Its spec, plan, briefs and decisions so far leave the job. They are kept in an archive folder.',

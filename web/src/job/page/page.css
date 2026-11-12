@@ -300,7 +300,7 @@ p.sb-test-note { margin: 0; }
   .sb-test-action .btn { width: 100%; justify-content: center; }
 }
 
-/* ---------- The job page on a laptop (NewJobPage.tsx) ----------
+/* ---------- The job page on a laptop (JobPage.tsx) ----------
    The header pinned; under it two scroll areas: the work column and, from 1100 px, the conversation
    column, 400 px, whose panel fills it and scrolls inside. Below 1100 px the conversation column is
    hidden (hidden), not removed; the narrow window's layout is its own. */
@@ -314,7 +314,7 @@ p.sb-test-note { margin: 0; }
   .sb-job-cols { grid-template-columns: minmax(0, 1fr) 400px; }
 }
 
-/* ---------- The job page's layouts (NewJobPage.tsx, Task 15b) ----------
+/* ---------- The job page's layouts (JobPage.tsx, Task 15b) ----------
    Each layout only hides, shows or moves parts: the bar and the conversation never move in the tree.
    - The work column's parts (sb-job-part) add no box of their own, so the column's gap still applies.
    - Widened (is-wide, from 1100 px): one column; the bar while the job waits for you, then the

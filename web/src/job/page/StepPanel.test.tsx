@@ -41,9 +41,9 @@ const BUILD: StageView = {
 
 const BUILDING: Job = job(SLUG, 'running', { stage: 'implement', lane: 'working', working: true, updatedAt: ago(1) });
 
-function stores(j: Job, { hosted = false, get, post }: { hosted?: boolean; get?: (path: string) => Promise<unknown>; post?: (path: string) => Promise<unknown> } = {}) {
+function stores(j: Job, { hosted = false, play, get, post }: { hosted?: boolean; play?: 'full' | 'subtle'; get?: (path: string) => Promise<unknown>; post?: (path: string) => Promise<unknown> } = {}) {
   const store = createStore();
-  store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [j], meta: { token: 't' } as never }) });
+  store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [j], meta: { token: 't', ...(play ? { settings: { play: { mode: play } } } : {}) } as never }) });
   const api = {
     get: vi.fn(get ?? (async (path: string): Promise<unknown> => {
       if (/\/doc\?file=implementation-plan\.md$/.test(path)) return { file: 'implementation-plan.md', name: 'Implementation plan', html: '<p>Step 1: the pause dialog.</p>', summary: null };
@@ -57,8 +57,8 @@ function stores(j: Job, { hosted = false, get, post }: { hosted?: boolean; get?:
 }
 
 /** The panel drawn with a view in hand. */
-function show(view: StageView | null, { j = BUILDING, stop = view?.stop ?? 'build', hosted = false, error = null as string | null, extraAgents = undefined as StageAgent[] | undefined } = {}) {
-  const s = stores(j, { hosted });
+function show(view: StageView | null, { j = BUILDING, stop = view?.stop ?? 'build', hosted = false, play = undefined as 'full' | 'subtle' | undefined, error = null as string | null, extraAgents = undefined as StageAgent[] | undefined } = {}) {
+  const s = stores(j, { hosted, play });
   const onRetry = vi.fn();
   render(s.wrap(<StepPanel job={j} stop={stop} view={view} error={error} onRetry={onRetry} now={NOW} extraAgents={extraAgents}><p>The step’s own body</p></StepPanel>));
   return { ...s, onRetry };
@@ -225,10 +225,11 @@ describe('StepPanel', () => {
 
   it('the step asks again when the job changes', async () => {
     let slow: (v: StageView) => void = () => {};
+    let build: StageView = BUILD;
     const { api, store, wrap } = stores(BUILDING, {
       get: async (path: string) => {
         if (path.endsWith('/stage/plan')) return new Promise((r) => { slow = r as (v: StageView) => void; });
-        return path.endsWith('/stage/test') ? { ...BUILD, stop: 'test', label: 'Test', state: 'next', agents: [], finished: [] } : BUILD;
+        return path.endsWith('/stage/test') ? { ...BUILD, stop: 'test', label: 'Test', state: 'next', agents: [], finished: [] } : build;
       },
     });
     const view = render(wrap(<Live stop="build" />));
@@ -251,9 +252,13 @@ describe('StepPanel', () => {
     expect(screen.queryByText('Writing step 3 of 6')).toBeNull();
     expect(screen.getByRole('tabpanel', { name: 'Test' })).toBeInTheDocument();
 
-    // Back on a step seen before: the last answer at once.
+    // Back on a step seen before: the last answer at once, then the fresh answer replaces it.
+    build = { ...BUILD, agents: [BUILD.agents[0], { ...BUILD.agents[1], doing: 'Writing step 4 of 6' }] };
     view.rerender(wrap(<Live stop="build" />));
     expect(screen.getByText('Writing step 3 of 6')).toBeInTheDocument();
+    expect(screen.queryByText('Loading who worked on it…')).toBeNull();
+    expect(await screen.findByText('Writing step 4 of 6')).toBeInTheDocument();
+    expect(screen.queryByText('Writing step 3 of 6')).toBeNull();
   });
 
   it('a document opens in place and Back returns to the list', async () => {
@@ -474,5 +479,41 @@ describe('StepPanel', () => {
     expect(screen.getByText('The step’s own body')).toBeInTheDocument();
     expect(within(screen.getByRole('region', { name: 'Documents from this step' })).getByText('No documents from this step yet.')).toBeInTheDocument();
     expect(panel).not.toHaveTextContent(/NaN|undefined|null/);
+  });
+
+  // Moved from the old step page's tests, which the job page replaced.
+  it('the Foreman opens in a terminal, a crew member is watched read-only; one not ready says why', async () => {
+    const tester = agent('feature-tester', { model: 'Sonnet 5.5', doing: 'Running the tests', ref: 'c3.cccccccc', terminal: { kind: 'watch', ready: false, why: 'Its log isn’t known yet.' } });
+    const { api } = show({ ...BUILD, agents: [...BUILD.agents, tester], finished: [] });
+    const [foreman, builder, notReady] = rows();
+    expect(foreman).toHaveTextContent('Continues its session');
+    expect(builder).toHaveTextContent('Read-only: follows its log');
+    expect(within(notReady).getByRole('button', { name: /Watch in terminal/ })).toBeDisabled();
+    expect(notReady).toHaveTextContent('Its log isn’t known yet.');
+    fireEvent.click(within(foreman).getByRole('button', { name: /Open in terminal/ }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith(`/api/job/${SLUG}/stage/build/terminal`, { ref: 'foreman' }));
+    expect(await screen.findByText(/Opened the Foreman in iTerm\. Its session carries on there\./)).toBeInTheDocument();
+  });
+
+  // Moved from statusWords.test.ts (it read the step page's status words): status is never colour alone.
+  it('each crew member’s status on a step has its own words', () => {
+    show({
+      ...BUILD,
+      agents: [agent('feature-implementer', { ref: 'c1.aaaaaaaa' }), agent('feature-tester', { status: 'waiting', ref: 'c2.bbbbbbbb' })],
+      finished: [agent('feature-planner', { status: 'done', ref: 'c3.cccccccc' }), agent('feature-reviewer', { status: 'stopped', ref: 'c4.dddddddd' })],
+    });
+    const words = rows().map((r) => r.querySelector('.sb-who-status')?.textContent ?? '');
+    expect(words).toEqual(['Working', 'Waiting for you', 'Done', 'Stopped']);
+    expect(new Set(words.map((w) => w.toLowerCase())).size).toBe(words.length);
+  });
+
+  // Moved from the step page's tests: Play full's bay, in 3D, above who worked on it (the plan's "the strip above the crew rows").
+  it('the bay at this step shows only in Play full, above who worked on it', () => {
+    show(BUILD, { play: 'full' });
+    const band = screen.getByRole('region', { name: 'The bay at this stop' });
+    expect(band.compareDocumentPosition(who()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    cleanup();
+    show(BUILD, { play: 'subtle' });
+    expect(screen.queryByRole('region', { name: 'The bay at this stop' })).toBeNull();
   });
 });

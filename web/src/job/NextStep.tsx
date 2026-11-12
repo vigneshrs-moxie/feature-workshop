@@ -54,14 +54,14 @@ function wordsOf(b: Element | null): string {
 const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 
 /**
- * The one next step, on the Job page and each Stage: the permission alert while a permission waits
+ * The one next step, on the job page and the phone's step screens: the permission alert while a permission waits
  * (oldest first), else the go / no go bar while a gate waits, else, while a pull request is in
  * review, the review round's bar (packet Q: its card is answered here, not as a permission), else
- * what is happening in words. `onShip` shows the pull requests (the Ship tab); without it, the
- * button goes to the Job page. While a permission card has the bar's place the gate card stays
+ * what is happening in words. `onShip` shows the pull requests (the Ship step); without it, the
+ * button goes to the job page. While a permission card has the bar's place the gate card stays
  * mounted, only hidden, so a box opened in it and the words typed there are still there after.
  */
-export function NextStep({ job, conversation, now, onShip, onWatch, onWrite, foldCard = false, foldHere = false, evidence }: { job: Job; conversation: Conversation; now: Date; onShip?: () => void; /** Shows the evidence being recorded (laptop only). */ onWatch?: () => void; /** Reply while no gate waits (left out: it puts the focus in the page's message box; the phone's goes to its conversation screen). */ onWrite?: () => void; /** A stop's page: the brief under the bar folds to one row (the Job page has it in full). */ foldCard?: boolean; /** The job page while its conversation takes the screen: the brief is one row each time, whatever the Detail setting, and open only while a box in it is open or he opens the row (not remembered for any other page). */ foldHere?: boolean; /** The page's own evidence view for the gate card's strip (left out: the strip asks for itself). */ evidence?: EvidenceView | null }) {
+export function NextStep({ job, conversation, now, onShip, onWatch, onWrite, foldCard = false, foldHere = false, evidence }: { job: Job; conversation: Conversation; now: Date; onShip?: () => void; /** Shows the evidence being recorded (laptop only). */ onWatch?: () => void; /** Reply while no gate waits (left out: it puts the focus in the page's message box; the phone's goes to its conversation screen). */ onWrite?: () => void; /** The phone's screens: the brief under the bar folds to one row (the laptop's job page has it in full). */ foldCard?: boolean; /** The job page while its conversation takes the screen: the brief is one row each time, whatever the Detail setting, and open only while a box in it is open or he opens the row (not remembered for any other page). */ foldHere?: boolean; /** The page's own evidence view for the gate card's strip (left out: the strip asks for itself). */ evidence?: EvidenceView | null }) {
   const state = useWorkshopState();
   const play = usePlay();
   const review = useReview(job.slug);
@@ -110,8 +110,8 @@ export function useSentShown(job: Job, conversation: Conversation): { kind: Gate
   return own && !review.view ? { kind: decision.kind } : null;
 }
 
-/** "18 min", "2 h", "3 days": how long since `iso` (as the Stage page says it); null when not known. */
-function forHowLong(iso: string | null | undefined, now: Date): string | null {
+/** "18 min", "2 h", "3 days": how long since `iso`; null when not known. */
+export function forHowLong(iso: string | null | undefined, now: Date): string | null {
   if (!iso) return null;
   const ms = now.getTime() - new Date(iso).getTime();
   if (!Number.isFinite(ms) || ms < 0) return null;
@@ -284,7 +284,7 @@ function TryAgain({ after }: { after: AfterSend }) {
  * the bar's three calls press them (Reply opens the message box). Go is off while the card asks a question: a never answers one.
  */
 function GoBar({ job, detail, now, reload, call, foldCard = false, foldHere = false, after, sent, run, evidence, hidden = false }: { job: Job; detail: NonNullable<ReturnType<typeof useJobConversation>['thread']['detail']>; now: Date; reload(): void; call: boolean; foldCard?: boolean; /** See NextStep. */ foldHere?: boolean; after: AfterSend; sent: SentShown | null; run: Run | null; evidence?: EvidenceView | null; /** A permission card has the bar's place: kept, not shown, its keys at rest. */ hidden?: boolean }) {
-  // A stop's page remembers the brief open or folded (useShown); over the job page's conversation
+  // With foldCard the brief is remembered open or folded (useShown); over the job page's conversation
   // it starts as one row each time and is opened there only.
   const [stageShown, setStageShown] = useShown('stage', 'brief');
   const [shownHere, setShownHere] = useState(false);

@@ -26,7 +26,7 @@ import { More } from '../../components/More';
 import { NextBar, Page } from '../../components/page/Page';
 import { Pending, Skeleton } from '../../components/Pending';
 import { Sheet } from '../../components/Sheet';
-import { NextStep } from '../../job/JobPage';
+import { NextStep } from '../../job/NextStep';
 import { isLevel, levelCardKey, levelCardView, levelLabel } from '../../lib/levels';
 import { useStored } from '../../lib/stored';
 import { relativeTime, useNow } from '../../lib/time';

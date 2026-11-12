@@ -1,15 +1,14 @@
 // @vitest-environment node
 // Status is never shown by colour alone (plan §7): every state the screens show has its words and,
 // where it is a chip, an icon too; the words differ inside each family, so a reader can tell them
-// apart without the colour. The Stage's state words come from the dashboard (stage-view.js) and must
-// match the page's own.
+// apart without the colour. A step's state words come from the dashboard (stage-view.js) and must
+// match the page's own. A crew member's status on a step is in StepPanel.test.tsx.
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { Job, JobLane } from '../api/types';
 import { LANE_INFO, stateChip } from '../home/JobsPage';
-import { AGENT_STATUS, STATE_ICON } from '../job/StagePage';
 import { GROUP_GLYPHS, GROUP_LABELS } from '../panes/Jobs/jobStatus';
 import { StopMap } from './stops/StopMap';
 import { STOPS, STOP_STATE_WORDS } from './stops/stops';
@@ -46,20 +45,13 @@ describe('status in words', () => {
     expect(new Set(groups.map((g) => GROUP_GLYPHS[g])).size).toBe(groups.length);
   });
 
-  it('each stop’s state has words and an icon, and the dashboard sends the same words', async () => {
+  it('each stop’s state has words, and the dashboard sends the same words', async () => {
     const states = Object.keys(STOP_STATE_WORDS) as (keyof typeof STOP_STATE_WORDS)[];
-    for (const s of states) { expect(said(STOP_STATE_WORDS[s]), s).toBe(true); expect(STATE_ICON[s], s).toBeTruthy(); }
+    for (const s of states) expect(said(STOP_STATE_WORDS[s]), s).toBe(true);
     expect(distinct(states.map((s) => STOP_STATE_WORDS[s]))).toBe(true);
     const server = fileURLToPath(new URL('../../../dashboard/lib/stage-view.js', import.meta.url));
     const mod = await import(/* @vite-ignore */ pathToFileURL(server).href) as { STOP_STATE_WORDS: Record<string, string> };
     expect(mod.STOP_STATE_WORDS).toEqual(STOP_STATE_WORDS);
-  });
-
-  it('each crew member’s status on a stop has a word and an icon', () => {
-    const statuses = Object.keys(AGENT_STATUS) as (keyof typeof AGENT_STATUS)[];
-    expect(statuses).toEqual(['working', 'waiting', 'done', 'stopped']);
-    for (const s of statuses) { expect(said(AGENT_STATUS[s].word), s).toBe(true); expect(AGENT_STATUS[s].icon, s).toBeTruthy(); }
-    expect(distinct(statuses.map((s) => AGENT_STATUS[s].word))).toBe(true);
   });
 
   it('the map of stops says every stop’s state in words, even with the names hidden', () => {

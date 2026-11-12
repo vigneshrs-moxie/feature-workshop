@@ -1,5 +1,5 @@
 // One commit's change (GET /api/job/:slug/commit/:sha): its files with the lines added (+) and
-// removed (−). Moved out of the Code tab (job/CodeTab.tsx) so the Build step opens it the same way.
+// removed (−). Moved out of the old job page's Code tab so the Build step opens it the same way.
 // Nothing here changes a file.
 import { useEffect, useState } from 'react';
 import { useWorkshop } from '../../state/store';

@@ -459,7 +459,8 @@ export async function loadFeatures({ featuresDir, sessionIndex, now = Date.now()
     f.branch = f.locate.branch ?? f.branch;
     f.worktree = f.locate.worktree ?? f.worktree;
     // The review walkthrough page for the job's branch (the review-walkthrough skill), if one was built.
-    f.walkthrough = await walkthroughInfo(f);
+    // None for a branch only guessed (branchGuessed): the page built for it may be another job's.
+    f.walkthrough = f.locate.branchGuessed ? null : await walkthroughInfo(f);
     f.project = projectFor(f.repoPath ?? s[0]?.parsed.cwd ?? null);
   }
   // Features waiting on you first (longest wait first), then working, then the rest by last update.

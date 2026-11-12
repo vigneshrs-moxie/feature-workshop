@@ -7,6 +7,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../api/client';
 import type { Gate, Job, JobDetail, Permission, ThreadItem } from '../api/types';
+import { setDefaultDetail } from '../app/detail';
 import { installKeyListener } from '../app/keyRegistry';
 import { UiProvider } from '../app/ui';
 import { useJobConversation } from '../panes/Foreman/ForemanPane';
@@ -17,7 +18,7 @@ import type { QueuedView } from '../views/Hosted/QueuedDecision';
 import { clearAllSent } from '../lib/sentState';
 import { clearGateSent } from '../panes/Foreman/gateSent';
 import { AUTO_DECIDING_NOTE } from './autoLine';
-import { NextStep, useSentShown } from './NextStep';
+import { forHowLong, NextStep, useSentShown } from './NextStep';
 import { sentLine, SENT_WORDS } from './sentView';
 
 const NOW = new Date().toISOString();
@@ -45,22 +46,22 @@ const server = {
 };
 
 /** The bar as a page draws it, and what useSentShown says beside it. */
-function Bar({ job: j, onWatch }: { job: Job; onWatch?: () => void }) {
+function Bar({ job: j, onWatch, foldCard }: { job: Job; onWatch?: () => void; foldCard?: boolean }) {
   const conversation = useJobConversation(j);
   const shown = useSentShown(j, conversation);
   return (
     <>
-      <NextStep job={j} conversation={conversation} now={new Date()} onWatch={onWatch} />
+      <NextStep job={j} conversation={conversation} now={new Date()} onWatch={onWatch} foldCard={foldCard} />
       <output data-sent-shown>{shown === null ? 'none' : shown.kind ?? 'unknown'}</output>
     </>
   );
 }
-function Host({ slug, onWatch }: { slug: string; onWatch?: () => void }) {
+function Host({ slug, onWatch, foldCard }: { slug: string; onWatch?: () => void; foldCard?: boolean }) {
   const j = jobBySlug(useWorkshopState(), slug);
-  return j ? <Bar job={j} onWatch={onWatch} /> : null;
+  return j ? <Bar job={j} onWatch={onWatch} foldCard={foldCard} /> : null;
 }
 
-function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions = [] as Permission[], gate = null as Gate | null, answered = [] as number[], thread = [] as ThreadItem[], page = undefined as JobDetail['page'], hosted = false, onWatch = undefined as (() => void) | undefined, details = 'ok' as typeof server.details, post = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({ ok: true })) } = {}) {
+function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions = [] as Permission[], gate = null as Gate | null, answered = [] as number[], thread = [] as ThreadItem[], page = undefined as JobDetail['page'], hosted = false, onWatch = undefined as (() => void) | undefined, foldCard = false, details = 'ok' as typeof server.details, post = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({ ok: true })) } = {}) {
   const store: Store = createStore();
   server.store = store;
   server.answered = [...answered];
@@ -79,7 +80,7 @@ function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions =
     return detail(path.split('/')[3]);
   });
   const api = { get, post, ...(hosted ? { hosted: () => true } : {}) } as unknown as ApiClient;
-  const utils = render(<WorkshopContext.Provider value={{ store, api }}><UiProvider><Host slug="alpha" onWatch={onWatch} /></UiProvider></WorkshopContext.Provider>);
+  const utils = render(<WorkshopContext.Provider value={{ store, api }}><UiProvider><Host slug="alpha" onWatch={onWatch} foldCard={foldCard} /></UiProvider></WorkshopContext.Provider>);
   return { ...utils, get, post, store };
 }
 
@@ -668,5 +669,69 @@ describe('the gate card under a permission card', () => {
     await waitFor(() => expect(screen.queryByRole('region', { name: 'Permission: Run a command' })).toBeNull());
     expect(screen.queryByRole('textbox', { name: /What should change\?/ })).toBeNull();
     for (const b of threeCalls()) await waitFor(() => expect(b).toBeEnabled());
+  });
+});
+
+// Moved from the old step page's tests: with foldCard (the phone's screens use it) the
+// brief under the bar folds to one row in Simple and starts open in Full; the bar's calls and the
+// card's keys still open its boxes.
+describe('the brief folded under the bar (foldCard)', () => {
+  const row = () => screen.getByRole('button', { name: /^The brief/ });
+  const body = () => document.querySelector('.job-gate-body')!;
+
+  it('Simple: the brief under the go / no go bar folds to one labelled row; opening it shows the brief', async () => {
+    setDefaultDetail('simple');
+    setup({ jobs: waiting(), gate: GATE, foldCard: true });
+    await gateShown();
+    expect(row()).toHaveAttribute('aria-expanded', 'false');
+    expect(row()).toHaveTextContent('its questions and details, also on the job’s page');
+    expect(body()).not.toBeVisible();
+    fireEvent.click(row());
+    expect(row()).toHaveAttribute('aria-expanded', 'true');
+    expect(body()).toBeVisible();
+    expect(body()).toHaveTextContent('Plan v2 ready');
+  });
+
+  it('the bar has Send back, Reply and Go; Reply opens its box even with the brief folded', async () => {
+    setDefaultDetail('simple');
+    setup({ jobs: waiting(), gate: GATE, foldCard: true });
+    await gateShown();
+    await waitFor(() => expect(within(bar()).getByRole('button', { name: 'Reply' })).toBeEnabled());
+    expect(within(bar()).getAllByRole('button').map((b) => b.textContent?.replace(/\s+/g, ' ').trim())).toEqual([expect.stringMatching(/^No go: send back/), 'Reply', expect.stringMatching(/^Go:/)]);
+    expect(body()).not.toBeVisible();
+    fireEvent.click(within(bar()).getByRole('button', { name: 'Reply' }));
+    expect(await screen.findByRole('textbox', { name: /Your answers or a note/ })).toBeVisible();
+  });
+
+  it('the o key opens a folded brief too', async () => {
+    setDefaultDetail('simple');
+    setup({ jobs: waiting(), gate: GATE, foldCard: true });
+    await gateShown();
+    await waitFor(() => expect(within(bar()).getByRole('button', { name: 'Reply' })).toBeEnabled());
+    expect(body()).not.toBeVisible();
+    fireEvent.keyDown(document.body, { key: 'o' });
+    expect(await screen.findByRole('textbox', { name: /Your answers or a note/ })).toBeVisible();
+  });
+
+  it('Full: the brief starts open, and its row folds it', async () => {
+    setup({ jobs: waiting(), gate: GATE, foldCard: true });
+    await gateShown();
+    expect(row()).toHaveAttribute('aria-expanded', 'true');
+    expect(body()).toBeVisible();
+    fireEvent.click(row());
+    expect(row()).toHaveAttribute('aria-expanded', 'false');
+    expect(body()).not.toBeVisible();
+  });
+});
+
+// Moved from the old step page's tests: the bar's own "how long" words (its copy was the step page's).
+describe('forHowLong', () => {
+  it('forHowLong says how long in words', () => {
+    const now = new Date('2026-10-21T12:00:00Z');
+    expect(forHowLong('2026-10-21T11:42:00Z', now)).toBe('18 min');
+    expect(forHowLong('2026-10-21T09:00:00Z', now)).toBe('3 h');
+    expect(forHowLong('2026-10-18T09:00:00Z', now)).toBe('3 days');
+    expect(forHowLong('2026-10-21T11:59:30Z', now)).toBe('under a minute');
+    expect(forHowLong(null, now)).toBeNull();
   });
 });

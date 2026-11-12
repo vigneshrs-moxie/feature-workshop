@@ -3,7 +3,7 @@
 // switch, with Conversation fixed at the bottom), a step, the conversation and the overview. And the
 // owner's one requirement: a job that waits for him has Send back, Reply and Go on the job screen and
 // on the screen of the step that waits, on an Auto job too, on the laptop and on the website. The
-// setup is the laptop page's (NewJobPage.test.tsx), with the page under the router as the address
+// setup is the laptop page's (JobPage.test.tsx), with the page under the router as the address
 // picks the screen. Invented jobs only; no model calls, no browser, no network.
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
@@ -84,13 +84,13 @@ function Routed({ slug }: { slug: string }) {
   return <Screens job={j} step={route.name === 'stage' ? route.stop : undefined} view={route.name === 'job' ? route.view : undefined} />;
 }
 
-function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions = [] as Permission[], gate = null as Gate | null, auto = null as JobDetail['auto'] | null, page = undefined as JobDetail['page'], thread = [] as ThreadItem[], hosted = false, at = '#/job/alpha', extra = null as ReactNode, mount = true, post = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({ ok: true })) } = {}) {
+function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions = [] as Permission[], gate = null as Gate | null, auto = null as JobDetail['auto'] | null, page = undefined as JobDetail['page'], thread = [] as ThreadItem[], hosted = false, at = '#/job/alpha', extra = null as ReactNode, mount = true, play = 'subtle' as 'subtle' | 'full', post = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({ ok: true })), detailMore = {} as Partial<JobDetail> } = {}) {
   window.location.hash = at;
   const store: Store = createStore();
   server.store = store;
   server.answered = [];
-  store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs, permissions, meta: { token: 't', settings: { play: { mode: 'subtle' } }, models: [{ id: 'claude-opus-5-5', label: 'Opus 5.5' }] } as never }) });
-  const detail = (s: string): JobDetail => ({ slug: s, thread, threadMore: false, gate, answeredBriefs: [...server.answered], heldReply: null, options: { level: 1 }, auto, page } as JobDetail);
+  store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs, permissions, meta: { token: 't', settings: { play: { mode: play } }, models: [{ id: 'claude-opus-5-5', label: 'Opus 5.5' }] } as never }) });
+  const detail = (s: string): JobDetail => ({ slug: s, thread, threadMore: false, gate, answeredBriefs: [...server.answered], heldReply: null, options: { level: 1 }, auto, page, ...detailMore } as JobDetail);
   const get = vi.fn(async (p: string): Promise<unknown> => {
     const stage = /^\/api\/job\/([^/]+)\/stage\/([a-z]+)$/.exec(p);
     if (stage) {
@@ -307,6 +307,32 @@ describe('the phone’s job screen', () => {
     fireEvent.click(row);
     expect(await screen.findByRole('dialog', { name: 'What Auto decided' })).toBeInTheDocument();
   });
+
+  it('on a phone a guessed branch is shown as a guess with its button', async () => {
+    const branch = 'feature/orbit-470-talent-hide-before-hire';
+    const guess = (branchGuessed: boolean): Partial<JobDetail> => ({ repoPath: '/Users/me/Projects/moxie-portal', branch, locate: { path: '/Users/me/Projects/moxie-portal', branch, branchSource: branchGuessed ? 'workflow-status.md' : 'status.json', branchGuessed } });
+    const { post, get } = setup({ jobs: [job('alpha', 'idle', { stage: 'plan', ticket: 'ORBIT-470' })], detailMore: guess(true) });
+    const main = screen.getByRole('main', { name: 'Job' });
+    const group = await within(main).findByRole('group', { name: 'The job’s branch' });
+    expect(within(group).getByText('Branch (a guess):')).toBeInTheDocument();
+    expect(within(group).getByText(branch)).toBeInTheDocument();
+    // In the head, under the title and the ticket, before the bar.
+    expect(group.closest('.sb-phone-head')).not.toBeNull();
+    expect(follows(within(main).getByText('ORBIT-470'), group)).toBe(true);
+    expect(follows(group, bar())).toBe(true);
+    // Its button records the shown branch and the job is read again.
+    const reads = get.mock.calls.filter(([p]) => p === '/api/job/alpha').length;
+    await act(async () => { fireEvent.click(within(group).getByRole('button', { name: 'This is the job\'s branch' })); });
+    expect(post).toHaveBeenCalledWith('/api/job/alpha/repo', { repoPath: '/Users/me/Projects/moxie-portal', branch });
+    await waitFor(() => expect(get.mock.calls.filter(([p]) => p === '/api/job/alpha').length).toBeGreaterThan(reads));
+    cleanup();
+    // A recorded branch: no guess line.
+    const recorded = setup({ jobs: [job('alpha', 'idle', { stage: 'plan', ticket: 'ORBIT-470' })], detailMore: guess(false) });
+    await waitFor(() => expect(recorded.get).toHaveBeenCalledWith('/api/job/alpha'));
+    await act(async () => {});
+    expect(screen.queryByText('Branch (a guess):')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'This is the job\'s branch' })).toBeNull();
+  });
 });
 
 describe('the job menu’s requests on the phone', () => {
@@ -348,6 +374,14 @@ describe('the phone’s step screen', () => {
     expect(screen.queryByRole('button', { name: /^No go: send back/ })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Reply' })).toBeNull();
     expect(screen.queryByRole('button', { name: /^Go: / })).toBeNull();
+  });
+
+  // The 3D bay is the laptop's (StepPanel draws it in Play full); the phone's screens stay simple, as drawn.
+  it('in Play full the phone’s step screen has no bay', async () => {
+    setup({ jobs: [working('implement')], at: '#/job/alpha/stage/build', play: 'full' });
+    const panel = await screen.findByRole('tabpanel', { name: 'Build' });
+    await waitFor(() => expect(panel.querySelector('.sb-step-body')).not.toBeNull());
+    expect(screen.queryByRole('region', { name: 'The bay at this stop' })).toBeNull();
   });
 
   it('a step’s body comes only once that step’s view is in', async () => {

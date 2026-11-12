@@ -14,7 +14,7 @@ const sameWords = (a: string, b: string) => a.trim().toLowerCase() === b.trim().
 import { useNow } from '../lib/time';
 import { useJobConversation } from '../panes/Foreman/ForemanPane';
 import { WhatAutoDecided } from '../job/WhatAutoDecided';
-import { NextStep } from '../job/JobPage';
+import { NextStep } from '../job/NextStep';
 import { chipTone, laneOf, stateChip } from './JobsPage';
 import { useWorkshopState } from '../state/store';
 

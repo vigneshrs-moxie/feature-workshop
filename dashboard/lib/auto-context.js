@@ -8,8 +8,9 @@
 //   - a worktree named by status.json counts only when git lists it as a worktree of that repository
 //     (real paths compared) and it is this job's: the profile's folder for this job or one of its stack
 //     parts, or its folder name is the job's slug or ends with -<slug>; and never the profile's folder
-//     for another job Starbase knows. The profile's own worktree counts before it exists (the Foreman makes it
-//     there) and, once it exists, under the same test. The main checkout is never one of the job's
+//     for another job Starbase knows, nor a worktree found only through a guessed branch (lib/locate.js).
+//     The profile's own worktree counts before it exists (the Foreman makes it there) and, once it exists,
+//     under the same test. The main checkout is never one of the job's
 //     worktrees, nor is a worktree with a branch that is never the job's own checked out;
 //   - the job's branches are what git says is checked out in those worktrees, and the stack's part
 //     branches that git shows checked out in a worktree of the repository; main, master, staging,
@@ -18,6 +19,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { guessedWorktree } from './locate.js';
 
 const MAC = process.platform === 'darwin';
 const fold = (x) => (MAC ? String(x).toLowerCase() : String(x));
@@ -60,7 +62,9 @@ export async function verifiedJobContext({ featureDir, slug = null, f = null, re
   const repo = jobRepo({ recordedRepo, f, knownRepos });
   if (!repo) return none;
 
-  const named = [f?.worktree, f?.statusWorktree].filter(usable);
+  // A worktree the job was given only through a branch locateJob guessed is never named as the job's.
+  const guessed = guessedWorktree(f);
+  const named = [f?.worktree, f?.statusWorktree].filter(usable).filter((w) => !(guessed && same(w, guessed)));
   const profile = usable(profileWorktree) ? path.resolve(profileWorktree) : null;
   let list = null;
   try { list = await git.worktrees(repo); } catch { list = null; }
