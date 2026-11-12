@@ -333,6 +333,10 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
 
   async function attend(first, firstGate) {
     const n = firstGate.briefNumber;
+    // The Approver's first answer once it asked for a second look, and when that first ask began: it survives a failed second
+    // ask, so the next try asks only the safer question again, and the dead end shows its words.
+    let firstAnswer = null;
+    let firstAt = null;
     for (let tries = 0; tries < 3; tries++) {
       // Everything is read again at each turn: the Approver can take minutes.
       const job = await look(first, n);
@@ -340,7 +344,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       const gate = job.gate;
       const rec = job.auto;
       const hit = stopFor(job, rec, gate);
-      if (hit) return stop(job, hit);
+      if (hit) return stop(job, hit, hit.rule === 'approver' && firstAnswer ? { why: firstWords(firstAnswer) } : {});
       const route = fixedStop({ kind: 'gate', stage: job.stage, nextStage: gate.nextStage });
       if (route) return stop(job, route);
       if (notNow(job)) return;
@@ -360,9 +364,10 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       if (kept?.brief === n && (await youSpokeSince(job, kept.askedAt))) { held.delete(job.dir); refused.delete(job.dir); return; }
       if (kept?.brief === n) {
         ({ task, answer, askedAt } = kept);
+        if (task.safer) { firstAnswer = task.safer; firstAt = askedAt; }
       } else {
         held.delete(job.dir);
-        askedAt = Date.now();
+        askedAt = firstAnswer ? firstAt : Date.now();
         task = taskFor(job, gate);
         // The Approver never judges a step it cannot see whole (C4, N14): a question or a decision it would be shown cut stops instead.
         const cut = approverCut(task);
@@ -386,14 +391,17 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
           await addSpent(job, cost);
           return checked.answer;
         };
-        answer = await ask(task);
-        if (answer === 'dropped') return;
-        if (answer === 'failed') continue;
-        // A stop, or a go the Approver itself calls high risk, is not acted on: it is asked once more, for the safer answer, which
-        // goes whatever its risk (the task carries the first answer, so send writes it down as a risky call). A failure is the
-        // Approver's, as for the first ask: the next try starts afresh.
-        if (askSafer(answer)) {
-          task = { ...task, safer: answer };
+        if (!firstAnswer) {
+          answer = await ask(task);
+          if (answer === 'dropped') return;
+          if (answer === 'failed') continue;
+          // A stop, or a go the Approver itself calls high risk, is not acted on: it is asked once more, for the safer answer.
+          if (askSafer(answer)) { firstAnswer = answer; firstAt = askedAt; }
+        }
+        // The second look (the task carries the first answer, so send writes it down as a risky call): its answer goes whatever
+        // its risk. A failure is the Approver's, as for the first ask; the next try asks only this question again.
+        if (firstAnswer) {
+          task = { ...task, safer: firstAnswer };
           answer = await ask(task);
           if (answer === 'dropped') return;
           if (answer === 'failed') continue;
@@ -438,8 +446,9 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     const answers = {};
     for (const a of answer.answers) answers[a.id] = { choice: a.choice ?? undefined, other: a.other === null ? undefined : oneLine(a.other) };
     const verdicts = {};
-    // Confirmed only on a go (a stop never gets here), and only the ones the Approver was shown.
-    if (answer.decision === 'go') for (const d of gate.decided ?? []) if (!d.confirmed) verdicts[d.id ?? d.decision] = { verdict: 'confirm' };
+    // Confirmed only on a go (a stop never gets here), and only the ones the Approver was shown; never on a second look: its first
+    // answer doubted the step, so the items stay open for the person (the reply says "Not confirmed yet").
+    if (answer.decision === 'go' && !task.safer) for (const d of gate.decided ?? []) if (!d.confirmed) verdicts[d.id ?? d.decision] = { verdict: 'confirm' };
     try {
       await decide.gate('approve', { slug: job.slug, briefNumber: n, answers, verdicts, note: noteFor(task, answer) }, { by: 'auto' });
     } catch (err) {
@@ -493,6 +502,9 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
 
   /** The Approver's words as the worker is told them when Auto says no: one line, no copy of the mark. */
   const NO = (why) => `Auto said no: ${oneLine(why)}`;
+  /** A card the Approver called high risk on both looks (an allow): Auto denies it. The worker's note, and the line's why. */
+  const BOTH_HIGH_NOTE = 'Auto denied this: it looked high risk on both looks. Find another way inside the job\'s folders, or leave it for after PR #1.';
+  const BOTH_HIGH_WHY = 'High risk on both looks, so Auto denied it.';
 
   /**
    * A card has been raised (the driver's 'permission'). For a job with Auto on and not stopped, Auto
@@ -628,7 +640,8 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     let answer = await ask(asked);
     if (!answer) return;
     // A stop, or an allow (or a question's go) the Approver itself calls high risk, is not acted on: it is asked once more, for
-    // the safer answer, which is sent whatever its risk (the task carries the first answer: answerCard writes the risky call).
+    // the safer answer, which is sent (the task carries the first answer: answerCard writes the risky call); an allow it calls
+    // high risk again is sent as a deny.
     if (askSafer(answer)) {
       asked = { ...task, safer: answer };
       answer = await ask(asked);
@@ -722,6 +735,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     let answers = null;
     let chose;
     let lines = null;
+    let why = oneLine(answer.why);
     if (task.kind === 'question') {
       decision = 'allow';
       answers = {};
@@ -733,6 +747,12 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
         lines.push({ question: oneLine(q.text), choice: oneLine(label), reason: oneLine(a.reason) });
       });
       chose = lines.map((l) => l.choice).join('; ');
+    } else if (answer.decision === 'allow' && task.safer && answer.risk === 'high') {
+      // High risk on both looks: the safer option on a card is a deny, and the job carries on.
+      decision = 'deny';
+      note = BOTH_HIGH_NOTE;
+      chose = 'Said no';
+      why = BOTH_HIGH_WHY;
     } else if (answer.decision === 'allow') {
       decision = 'allow';
       chose = 'Allowed';
@@ -761,7 +781,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     });
     await audit(job, task.kind === 'question' ? 'question' : 'permission', {
       asked: oneLine(task.kind === 'question' ? task.questions.map((q) => q.text).join(' / ') : card.plain?.headline ?? card.toolName),
-      chose, why: oneLine(answer.why), risk: answer.risk, ...(lines ? { answers: lines } : {}), costUsd: spent, ...risky,
+      chose, why, risk: answer.risk, ...(lines ? { answers: lines } : {}), costUsd: spent, ...risky,
     });
     await paidOff(job, spent);
   }

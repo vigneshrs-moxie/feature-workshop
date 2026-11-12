@@ -12,7 +12,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createRunner } from '../runner/index.js';
 import { AUTO_MARK, autoRecord } from '../lib/auto.js';
-import { APPROVER_BUDGET_USD } from '../lib/approver.js';
+import { APPROVER_BUDGET_USD, APPROVER_SAFER } from '../lib/approver.js';
 import { FABLE, OPUS } from '../lib/options.js';
 import { createAuto } from '../runner/auto.js';
 import { Busy } from '../lib/driver.js';
@@ -60,7 +60,7 @@ const failure = (problem = 'It ended with an error.', costUsd = 0.1) => ({ ok: f
  * A job in Auto (unless auto is null) with a plan gate at brief 1. ask(task, n): what the fake Approver
  * says on its nth call (n from 1). Returns the pieces a test needs; stop() cleans up.
  */
-async function world({ ask = (task) => goodAnswer(task), auto = autoRecord(null, { on: true, now: OLD }), options = { level: 1, flow: 'quick', title: 'Visit audit columns' }, jobStatus = status(1), title = 'Visit audit columns', also = null, query = null, layout = null } = {}) {
+async function world({ ask = (task) => goodAnswer(task), auto = autoRecord(null, { on: true, now: OLD }), options = { level: 1, flow: 'quick', title: 'Visit audit columns' }, jobStatus = status(1), title = 'Visit audit columns', also = null, query = null, layout = null, approverQuery = null } = {}) {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'sb-auto-srv-')));
   // layout(root): the folders by another plan (a home folder with .claude/feature-work and Projects/<repo> in it).
   const dirs = layout ? layout(root) : Object.fromEntries(['claude', 'features', 'projects', 'agents', 'skills', 'state', 'repo'].map((n) => [n, path.join(root, n)]));
@@ -98,7 +98,8 @@ async function world({ ask = (task) => goodAnswer(task), auto = autoRecord(null,
     claudeSettingsFile: path.join(root, 'claude.json'), legacySettingsFile: null, planUsage: false, orbitStore: 'file',
     integrateDir: dirs.state, integrateRoot: path.join(DASH, '..'), siteLink: false, env: {},
     queryFn: query ? query(texts) : stubQuery(texts),
-    askApprover: async (task, call) => { asks.push({ task, call }); return ask(task, asks.length); },
+    // approverQuery: the runner's own askForAuto runs, on this fake query, instead of the fake Approver.
+    ...(approverQuery ? { approverQuery } : { askApprover: async (task, call) => { asks.push({ task, call }); return ask(task, asks.length); } }),
   });
   let runner = await boot();
   const notes = [];
@@ -2710,21 +2711,21 @@ test('m6: money on a record that is off goes on the on line when Auto is switche
 
 test('m7: when the line that carries the money cannot be written, the money stays in spent (stop, finish, gate, card)', { timeout: 30_000 }, async () => {
   const cases = {
-    // A stop decided by code (the Foreman blocked): the Approver's own stop is asked about once more (Task 6).
-    stop: { job: () => ({ stageState: 'blocked' }), ask: null },
+    // The Approver's second failure running (its own stop is asked about once more, Task 6): its cost stays in spent.
+    stop: { job: () => ({}), ask: null, fail: true, record: { failures: 1 } },
     finished: { job: () => ({ prOpen: true }), ask: null },
     gate: { job: () => ({}), ask: { decision: 'go', answers: [], why: 'Fine.', risk: 'low' } },
   };
   for (const [what, c] of Object.entries(cases)) {
-    let rec = { ...autoRecord(null, { on: true, now: OLD }), spent: 0.2 };
+    let rec = { ...autoRecord(null, { on: true, now: OLD }), spent: 0.2, ...c.record };
     const view = () => ({ dir: unitDir, slug: 'visit-audit', title: 'V', auto: { ...rec }, level: 1, suggestedLevel: null, stage: 'plan', stageState: 'waiting_for_you', triggers: [], statusCard: false, prOpen: false, gate: { briefNumber: 1, stale: false, questions: [], decided: [], headline: 'P', nextStage: 'implement' }, answered: [], artifacts: [], running: false, locked: false, restarting: false, paused: false, worktrees: [], specDirs: [], ...c.job() });
     const auto = createAuto({
       read: async () => (rec.on ? [view()] : []), update: async (d, fn) => { const n = fn({ ...rec }); if (n) rec = n; return { ...rec }; },
-      decide: { gate: async () => {}, permission: async () => {} }, askApprover: async () => (c.ask ? { ok: true, costUsd: 0.1, answer: c.ask } : { ok: false }),
+      decide: { gate: async () => {}, permission: async () => {} }, askApprover: async () => (c.fail ? { ok: false, problem: 'It ended with an error.', costUsd: 0.1 } : c.ask ? { ok: true, costUsd: 0.1, answer: c.ask } : { ok: false }),
       state: { audit: async (l) => { if (l.what === what) throw new Error('the disk said no'); }, auditFor: async () => [] },
     });
     await auto.pass();
-    assert.ok(Math.abs((rec.spent ?? 0) - (c.ask ? 0.3 : 0.2)) < 1e-9, `${what}: ${rec.spent}`);
+    assert.ok(Math.abs((rec.spent ?? 0) - (c.ask || c.fail ? 0.3 : 0.2)) < 1e-9, `${what}: ${rec.spent}`);
   }
   // A card's answer.
   let rec = { ...autoRecord(null, { on: true, now: OLD }), spent: 0.2 };
@@ -3162,6 +3163,22 @@ test('L4: a stop tells the person what to do, with one space and the reason\'s o
   const fixed = unit({ job: () => ({ stageState: 'blocked' }) }); // a stop decided by code (it was L3, no longer a stop)
   await fixed.auto.pass();
   assert.match(fixed.notes[0].body, /^Auto stopped: .*\. Open the job to answer\.$/, 'the same ending for every stop');
+  // Every stop reason Auto writes itself ends with a full stop now (the Approver's own stop, which could lack one, is asked about
+  // once more). A hook's kept stop carries the hook's words as they come, so it is the one that reaches the added full stop.
+  for (const [reason, body] of [['Too risky', 'Auto stopped: Too risky. Open the job to answer.'], ['Too risky.', 'Auto stopped: Too risky. Open the job to answer.']]) {
+    const notes = [];
+    let rec = { ...autoRecord(null, { on: true, now: OLD }) };
+    const card = { id: 'c-l4', slug: 's', featureDir: unitDir, kind: 'permission', toolName: 'WebFetch', input: {}, plain: { headline: 'Fetch' }, hardLine: null, hookStop: { rule: 'blocked', reason } };
+    const auto = createAuto({
+      read: async () => [{ dir: unitDir, slug: 's', title: 'T', auto: { ...rec }, level: 1, suggestedLevel: null, stage: 'plan', answered: [], worktrees: [], specDirs: [], artifacts: [] }],
+      update: async (dir, fn) => { const n = fn({ ...rec }); if (n) rec = n; return { ...rec }; },
+      decide: { gate: async () => {}, permission: async () => {} }, askApprover: async () => ({ ok: false, problem: 'not asked' }),
+      pendingCard: () => ({ ...card }), cardCtx: async () => ({ worktrees: [unitDir], featureDir: unitDir, cwd: unitDir }),
+      state: { audit: async () => {}, auditFor: async () => [] }, notify: (n) => notes.push(n),
+    });
+    await auto.onPermission(card, { leftWaiting: () => {} });
+    assert.equal(notes[0]?.body, body);
+  }
 });
 
 test('L7: an answer on a status card clears only a status stop; a gate decision clears any stop; a permission answer only a stop written on a card', { timeout: 30_000 }, async () => {
@@ -3209,7 +3226,7 @@ test('C1: a message from the gate card\'s own box after a stop leaves the stop: 
 // A stop on brief 1 from the first two asks: the Approver's own stop is asked about once more (Task 6), so the stop is its failing twice.
 function stopFirst(task, n) { return n <= 2 ? failure('It ended with an error.', 0.1) : goodAnswer(task); }
 
-for (const [name, decision] of [['C1-d: a judgment stop on brief 1; the person asks, then allows a card raised in the reply', 'allow'], ['C1-e: the same, and the person says no to the card', 'deny']]) {
+for (const [name, decision] of [['C1-d: an Approver stop on brief 1; the person asks, then allows a card raised in the reply', 'allow'], ['C1-e: the same, and the person says no to the card', 'deny']]) {
   test(`N1 (${name}): the stop stays, the Approver is not asked again, Auto sends nothing`, { timeout: 60_000 }, async () => {
     const outcomes = [];
     const w = await world({ ask: stopFirst, query: cardQuery([FETCH], outcomes) });
@@ -4343,35 +4360,38 @@ test('a card whose folders cannot be read, or that the hook stopped, is refused 
 const STOP_FIRST = { ok: true, costUsd: 0.2, answer: { decision: 'stop', answers: [], why: 'The plan deletes real data.', risk: 'high' } };
 
 test('the safer ask failing twice stops Auto with the approver rule', { timeout: 60_000 }, async () => {
-  // Once: the failure is counted as the Approver's, and the next try starts afresh; its safer answer goes.
-  const once = await world({ ask: (task, n) => (n === 1 || n === 3 ? STOP_FIRST : n === 2 ? failure('It ended with an error.', 0.1) : goodAnswer(task)) });
+  // Once: the failure is counted as the Approver's, and the next try asks only the safer question again, with the same first answer.
+  const once = await world({ ask: (task, n) => (n === 1 ? STOP_FIRST : n === 2 ? failure('It ended with an error.', 0.1) : goodAnswer(task)) });
   try {
     await once.pass();
-    assert.equal(once.asks.length, 4);
-    assert.deepEqual(once.asks.map((a) => Boolean(a.task.safer)), [false, true, false, true]);
+    assert.equal(once.asks.length, 3);
+    assert.deepEqual(once.asks.map((a) => Boolean(a.task.safer)), [false, true, true]);
+    assert.deepEqual(once.asks[2].task.safer, STOP_FIRST.answer, 'the first answer survives the failed second ask');
     assert.equal((await once.sends()).length, 1);
     const rec = await once.record();
     assert.deepEqual({ stopped: rec.stopped, failures: rec.failures, risky: rec.risky }, { stopped: null, failures: 0, risky: 1 });
     const [gate] = await once.autoLines('gate');
     assert.equal(gate.risky, true);
-    assert.ok(Math.abs(gate.costUsd - 0.62) < 1e-9, 'every ask is paid for, the failed one too');
+    assert.equal(gate.first, 'Stop: The plan deletes real data.');
+    assert.ok(Math.abs(gate.costUsd - 0.42) < 1e-9, 'every ask is paid for, the failed one too');
   } finally { await once.stop(); }
-  // Twice: two failures running are the existing dead end. A safer answer of stop is a failure too.
-  const twice = await world({ ask: (task, n) => (n % 2 === 1 ? STOP_FIRST : n === 2 ? failure('It ended with an error.', 0.1) : { ok: true, costUsd: 0.1, answer: { decision: 'stop', answers: [], why: 'Still no.', risk: 'high' } }) });
+  // Twice: two failures running are the existing dead end. A safer answer of stop is a failure too. Three asks: first, safer, safer.
+  const twice = await world({ ask: (task, n) => (n === 1 ? STOP_FIRST : n === 2 ? failure('It ended with an error.', 0.1) : { ok: true, costUsd: 0.1, answer: { decision: 'stop', answers: [], why: 'Still no.', risk: 'high' } }) });
   try {
     await twice.pass();
-    assert.equal(twice.asks.length, 4, 'one second ask for each first answer, never a third');
-    assert.deepEqual(twice.asks.map((a) => Boolean(a.task.safer)), [false, true, false, true]);
+    assert.equal(twice.asks.length, 3, 'one first ask, then only the safer question');
+    assert.deepEqual(twice.asks.map((a) => Boolean(a.task.safer)), [false, true, true]);
     assert.deepEqual(await twice.sends(), []);
     const rec = await twice.record();
     assert.equal(rec.stopped.rule, 'approver');
     assert.equal(rec.stopped.reason, 'the Approver failed twice running (the decision must be go).');
     assert.equal(rec.risky, 0, 'no risky call was made');
     const [stop] = await twice.autoLines('stop');
-    assert.ok(Math.abs(stop.costUsd - 0.6) < 1e-9, 'every ask is paid for');
+    assert.equal(stop.why, 'Stop: The plan deletes real data.', 'the stop line carries the Approver\'s own first words');
+    assert.ok(Math.abs(stop.costUsd - 0.4) < 1e-9, 'every ask is paid for');
     assert.equal((await twice.told(1)).length, 1);
     await twice.pass();
-    assert.equal(twice.asks.length, 4, 'while stopped the pass does nothing');
+    assert.equal(twice.asks.length, 3, 'while stopped the pass does nothing');
   } finally { await twice.stop(); }
   // On cards: the first failure leaves its card to the person, the second stops Auto; neither card is answered.
   const outcomes = [];
@@ -4459,4 +4479,130 @@ test('an outside refusal tells the crew the row for the sentence that hit, never
     assert.deepEqual(u.sent.map((s) => [s.decision, s.note]), [['deny', refusedNote(crew)]]);
     assert.equal(u.lines[0].why, crew);
   }
+});
+
+// ---------- Task 6, fix round 1 ----------
+
+test('K6b: a safer go after a stop on a decided item leaves it not confirmed', { timeout: 30_000 }, async () => {
+  const w = await world({ ask: (task, n) => (n === 1 ? { ok: true, costUsd: 0.2, answer: { decision: 'stop', answers: [], why: 'I disagree with D-1.', risk: 'high' } } : goodAnswer(task, { why: 'The recommended answers change least.' })) });
+  try {
+    await w.pass();
+    assert.equal(w.asks.length, 2);
+    assert.equal(w.asks[1].task.decided.length, 1, 'the second look is shown the item');
+    const [send] = await w.sends();
+    assert.equal(send.by, 'auto');
+    assert.match(send.text, /Not confirmed yet: D-1\./);
+    assert.doesNotMatch(send.text, /Decided on my behalf, confirmed/);
+    const [gate] = await w.autoLines('gate');
+    assert.equal(gate.risky, true);
+    assert.equal(gate.first, 'Stop: I disagree with D-1.');
+  } finally { await w.stop(); }
+  // The same in the pass alone: no verdict at all is sent on a second look; a plain go still confirms (K6).
+  const u = unit({ decide: () => {}, ask: (_t, n) => ({ ok: true, costUsd: 0.1, answer: n === 1 ? { decision: 'stop', answers: [], why: 'I disagree with D-1.', risk: 'high' } : { decision: 'go', answers: [], why: 'Fine.', risk: 'low' } }), job: () => ({ gate: { briefNumber: 1, stale: false, questions: [], decided: DECIDED, headline: 'Plan v1', nextStage: 'implement' } }) });
+  await u.auto.pass();
+  assert.deepEqual(u.decides[0].verdicts, {}, 'nothing confirmed');
+  assert.equal(u.record().risky, 1);
+});
+
+const BOTH_HIGH = 'Auto denied this: it looked high risk on both looks. Find another way inside the job\'s folders, or leave it for after PR #1.';
+
+test('a card called high risk on both looks is denied, and the job carries on', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const w = await world({ jobStatus: MID_REPLY, query: cardQuery([FETCH], outcomes), ask: (_t, n) => ({ ok: true, costUsd: 0.1, answer: { decision: 'allow', why: n === 1 ? 'It reaches an outside site.' : 'Still reaches outside.', risk: 'high' } }) });
+  try {
+    await raise(w);
+    await w.until(() => outcomes.length === 1, 'the card to be answered');
+    assert.equal(outcomes[0].result.behavior, 'deny', 'nothing allowed');
+    assert.equal(outcomes[0].result.message, BOTH_HIGH);
+    assert.equal(w.asks.length, 2);
+    assert.equal(w.asks[1].task.safer.decision, 'allow');
+    await w.idle();
+    const lines = await w.until(async () => { const l = await w.autoLines('permission'); return l.length ? l : null; }, 'Auto\'s permission line');
+    assert.equal(lines.length, 1);
+    assert.deepEqual({ chose: lines[0].chose, why: lines[0].why, risky: lines[0].risky, first: lines[0].first }, { chose: 'Said no', why: 'High risk on both looks, so Auto denied it.', risky: true, first: 'Allow, high risk: It reaches an outside site.' });
+    const perms = (await w.lines()).filter((l) => l.action === 'permission');
+    assert.deepEqual(perms.map((l) => [l.by, l.decision]), [['auto', 'deny']]);
+    const rec = await w.record();
+    assert.equal(rec.stopped, null, 'the job carries on');
+    assert.equal(rec.risky, 1);
+    assert.equal((await w.autoLines('stop')).length, 0);
+  } finally { await clear(w); await w.stop(); }
+});
+
+test('Auto switched off while the second ask thinks: nothing is sent, risky stays 0, the second ask\'s cost is on a cost line', { timeout: 30_000 }, async () => {
+  let w;
+  w = await world({
+    ask: async (task, n) => {
+      if (n === 1) return STOP_FIRST;
+      await w.runner.handle({ type: 'auto', slug: w.slug, on: false }, { from: 'local' });
+      return goodAnswer(task);
+    },
+  });
+  try {
+    await w.pass();
+    assert.equal(w.asks.length, 2);
+    assert.deepEqual(await w.sends(), [], 'nothing sent');
+    const rec = await w.record();
+    assert.equal(rec.on, false);
+    assert.equal(rec.risky, 0);
+    assert.equal((await w.autoLines('gate')).length, 0);
+    const [off] = await w.autoLines('off');
+    assert.equal(off.costUsd, 0.2, 'the first ask\'s cost, on the off line');
+    const [cost] = await w.autoLines('cost');
+    assert.equal(cost.costUsd, 0.12, 'the second ask\'s cost, on a cost line');
+    assert.equal(cost.why, 'The Approver answered after Auto was switched off.');
+  } finally { await w.stop(); }
+});
+
+test('he answers the card himself while the second ask thinks: Auto sends nothing and counts nothing', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  let w;
+  w = await world({
+    jobStatus: MID_REPLY,
+    query: cardQuery([FETCH], outcomes),
+    ask: async (_t, n) => {
+      if (n === 1) return { ok: true, costUsd: 0.1, answer: { decision: 'stop', why: 'Unrelated.', risk: 'medium' } };
+      const [card] = await waiting(w);
+      await w.runner.handle({ type: 'deny', requestId: card.id }, { from: 'local' });
+      return allow();
+    },
+  });
+  try {
+    await raise(w);
+    await w.until(() => outcomes.length === 1, 'his answer');
+    await w.until(() => w.asks.length === 2, 'the second ask');
+    await w.idle();
+    await new Promise((r) => setTimeout(r, 200));
+    assert.equal(outcomes[0].result.behavior, 'deny');
+    const perms = (await w.lines()).filter((l) => l.action === 'permission');
+    assert.deepEqual(perms.map((l) => l.by ?? 'you'), ['you'], 'Auto sent nothing');
+    assert.deepEqual(await w.autoLines('permission'), []);
+    const rec = await w.record();
+    assert.equal(rec.risky, 0);
+    assert.equal(rec.cards ?? 0, 0);
+    assert.equal(rec.stopped, null);
+    assert.ok(Math.abs(rec.spent - 0.22) < 1e-9, 'both asks are paid for, in spent');
+  } finally { await w.stop(); }
+});
+
+test('the default askForAuto passes safer through: the second ask\'s system text holds APPROVER_SAFER', { timeout: 30_000 }, async () => {
+  const seen = [];
+  const approverQuery = ({ options }) => {
+    seen.push(options);
+    const second = seen.length > 1;
+    const structured = second
+      ? { decision: 'go', answers: ['1', '2'].map((id) => ({ id, choice: 'a', other: null, reason: 'Changes least.' })), why: 'The smaller change.', risk: 'low' }
+      : { decision: 'stop', answers: [], why: 'Unsure.', risk: 'high' };
+    return (async function* () { yield { type: 'result', subtype: 'success', is_error: false, total_cost_usd: 0.1, structured_output: structured }; })();
+  };
+  const w = await world({ approverQuery });
+  try {
+    await w.pass();
+    assert.equal(seen.length, 2);
+    assert.equal(seen[0].systemPrompt.includes(APPROVER_SAFER), false);
+    assert.ok(seen[1].systemPrompt.includes(APPROVER_SAFER));
+    assert.deepEqual(seen[1].outputFormat.schema.properties.decision.enum, ['go']);
+    assert.equal((await w.sends()).length, 1);
+    assert.equal((await w.autoLines('gate'))[0].risky, true);
+  } finally { await w.stop(); }
 });
