@@ -85,7 +85,8 @@ export function NextStep({ job, conversation, now, onShip, onWatch, onWrite, fol
   const bar: ReactNode = alert || gate ? null
     : review.view ? <ReviewBar view={review.view} act={review.act} problem={review.problem} />
     : <StateBar job={job} now={now} checks={thread.detail?.page?.checks ?? null} onShip={onShip} onWatch={onWatch} onWrite={onWrite} hosted={Boolean(api.hosted?.())} after={after} />;
-  return <>{alert}{gate}{bar}<MovedWordsLine slug={job.slug} />{live}{problem}</>;
+  // The line about words moved to the message box: only where the page has one (it passes onWrite).
+  return <>{alert}{gate}{bar}{onWrite && <MovedWordsLine slug={job.slug} />}{live}{problem}</>;
 }
 
 /**

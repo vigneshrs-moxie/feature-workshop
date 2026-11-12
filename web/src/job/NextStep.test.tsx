@@ -48,22 +48,22 @@ const server = {
 };
 
 /** The bar as a page draws it, and what useSentShown says beside it. */
-function Bar({ job: j, onWatch, foldCard, foldHere }: { job: Job; onWatch?: () => void; foldCard?: boolean; foldHere?: boolean }) {
+function Bar({ job: j, onWatch, onWrite, foldCard, foldHere }: { job: Job; onWatch?: () => void; onWrite?: () => void; foldCard?: boolean; foldHere?: boolean }) {
   const conversation = useJobConversation(j);
   const shown = useSentShown(j, conversation);
   return (
     <>
-      <NextStep job={j} conversation={conversation} now={new Date()} onWatch={onWatch} foldCard={foldCard} foldHere={foldHere} />
+      <NextStep job={j} conversation={conversation} now={new Date()} onWatch={onWatch} onWrite={onWrite} foldCard={foldCard} foldHere={foldHere} />
       <output data-sent-shown>{shown === null ? 'none' : shown.kind ?? 'unknown'}</output>
     </>
   );
 }
-function Host({ slug, onWatch, foldCard, foldHere }: { slug: string; onWatch?: () => void; foldCard?: boolean; foldHere?: boolean }) {
+function Host({ slug, onWatch, onWrite, foldCard, foldHere }: { slug: string; onWatch?: () => void; onWrite?: () => void; foldCard?: boolean; foldHere?: boolean }) {
   const j = jobBySlug(useWorkshopState(), slug);
-  return j ? <Bar job={j} onWatch={onWatch} foldCard={foldCard} foldHere={foldHere} /> : null;
+  return j ? <Bar job={j} onWatch={onWatch} onWrite={onWrite} foldCard={foldCard} foldHere={foldHere} /> : null;
 }
 
-function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions = [] as Permission[], gate = null as Gate | null, answered = [] as number[], thread = [] as ThreadItem[], page = undefined as JobDetail['page'], hosted = false, onWatch = undefined as (() => void) | undefined, foldCard = false, foldHere = false, details = 'ok' as typeof server.details, post = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({ ok: true })) } = {}) {
+function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions = [] as Permission[], gate = null as Gate | null, answered = [] as number[], thread = [] as ThreadItem[], page = undefined as JobDetail['page'], hosted = false, onWatch = undefined as (() => void) | undefined, onWrite = undefined as (() => void) | undefined, foldCard = false, foldHere = false, details = 'ok' as typeof server.details, post = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({ ok: true })) } = {}) {
   const store: Store = createStore();
   server.store = store;
   server.answered = [...answered];
@@ -82,7 +82,7 @@ function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions =
     return detail(path.split('/')[3]);
   });
   const api = { get, post, ...(hosted ? { hosted: () => true } : {}) } as unknown as ApiClient;
-  const utils = render(<WorkshopContext.Provider value={{ store, api }}><UiProvider><Host slug="alpha" onWatch={onWatch} foldCard={foldCard} foldHere={foldHere} /></UiProvider></WorkshopContext.Provider>);
+  const utils = render(<WorkshopContext.Provider value={{ store, api }}><UiProvider><Host slug="alpha" onWatch={onWatch} onWrite={onWrite} foldCard={foldCard} foldHere={foldHere} /></UiProvider></WorkshopContext.Provider>);
   return { ...utils, get, post, store };
 }
 
@@ -606,6 +606,27 @@ describe('the open box’s send row', () => {
         localStorage.clear();
       }
     } finally { restore(); }
+  });
+});
+
+// Fix round 1, M6: the line about words moved to the message box shows only where the page has one
+// (the job page and the phone pass onWrite), never on the job peek or a part's page.
+describe('the moved-words line', () => {
+  const MOVED = 'Brief 2 was answered while you were writing. Your words are in the message box.';
+  it('the moved-words line is not shown where there is no message box', async () => {
+    for (const hosted of [false, true]) {
+      localStorage.setItem('fw.draft.alpha', 'Use the small table.');
+      localStorage.setItem('fw.gateMoved.alpha', JSON.stringify({ brief: 2, draft: 'Use the small table.' }));
+      setup({ jobs: [job('alpha', 'idle', { stage: 'plan' })], hosted });
+      await act(async () => {});
+      expect(screen.queryByText(MOVED)).toBeNull();
+      cleanup();
+      // Where the page has a message box (onWrite), it shows.
+      setup({ jobs: [job('alpha', 'idle', { stage: 'plan' })], hosted, onWrite: () => {} });
+      expect(await screen.findByText(MOVED)).toBeVisible();
+      cleanup();
+      localStorage.clear();
+    }
   });
 });
 
