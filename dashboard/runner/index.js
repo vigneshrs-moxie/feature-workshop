@@ -95,6 +95,7 @@ import { writeFileAtomic } from '../lib/atomic-write.js';
 import { UsageLog, TurnMeter, turnLines, usageDir, starbaseUser, claudeAccountId } from '../lib/usage-log.js';
 import { statusTicketKey, slugTicketKey } from '../lib/orbit.js';
 import { AUTO_MAX, AUTO_START_FILE, AutoStarter, countAuto, normalizeAutoStart, pausedFor } from '../lib/auto-start.js';
+import { autoQueueView } from '../lib/auto-queue.js';
 import { activeWarnings } from '../lib/usage-warnings.js';
 import { telemetry as telemetryOf } from '../lib/telemetry.js';
 import { ClaudeCodeUsage, CLAUDE_CODE_NOTE, CLAUDE_CODE_WORDS, readSetting as claudeCodeSetting, writeSetting as setClaudeCodeSetting } from '../lib/claude-code-usage.js';
@@ -1815,6 +1816,21 @@ export async function createRunner(config) {
   }
 
   /**
+   * He acted on a job after PR #1 (design section 1): a message to the Foreman, Go, Send back, a nudge's yes, or a ship
+   * step (a review round's action, a PR feedback card's answer). A record Auto finished and he has not acted on since gets
+   * acted (now), under the Auto lock, so the job leaves Ready for you to try (lib/auto.js autoGroup). Starbase's own sends,
+   * Auto's and Try it never call this. What he did has already happened by then, so a failed write is only logged.
+   */
+  async function markActed(dir) {
+    if (!dir) return;
+    try {
+      await updateAuto(dir, (prev) => (prev?.finished && !prev.acted ? { ...prev, acted: new Date().toISOString() } : null));
+    } catch (err) { console.warn(`Auto: ${path.basename(dir)} not marked as acted on: ${err.message}`); }
+  }
+  /** The job folder of a PR feedback card or a review round card (a ship step he answers), else null. */
+  const shipCardDir = (requestId) => (driver.feedbackCards?.get(requestId) ?? driver.roundCards?.get(requestId))?.featureDir ?? null;
+
+  /**
    * Switch a job's Auto off for a reason of Starbase's own (a restart, closing the job): one `off` line that carries the
    * Approver's money not yet on a line, under the job's Auto lock, and options.json without Auto. Resolves whether Auto was on.
    * Nothing is written for a job that never had Auto on and owes nothing.
@@ -2395,10 +2411,12 @@ export async function createRunner(config) {
       await state.audit({ action: 'send-held', featureDir: f.dir, slug: f.slug, kind: g.kind, text, autoResume: held.autoResume, resetsAt: held.resetsAt, ...(g.briefNumber ? { gateBrief: g.briefNumber } : {}) });
       await reopenIfClosed(f);
       invalidate();
+      await markActed(f.dir); // his, held for the limit: he has acted
       const when = new Date(held.resetsAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
       return { ...reply, sent: false, held: true, resetsAt: held.resetsAt, message: held.autoResume ? `Held: it goes to the Foreman when Claude’s usage limit resets (around ${when}).` : `Held: it goes to the Foreman when you press “Carry on now” after Claude’s usage limit resets (around ${when}).` };
     }
     const run = await startSend(f, out, { kind: g.kind, gateBrief: g.briefNumber, by });
+    if (!auto) await markActed(f.dir); // his Go, Send back, stop or message
     return { ...reply, sent: true, run };
   }
 
@@ -2538,6 +2556,7 @@ export async function createRunner(config) {
       const drive = await driveState(f);
       const out = sendPlan(f, drive, body, text);
       const run = await startSend(f, out, { kind, gateBrief });
+      await markActed(f.dir); // his message, of any kind
       return { run };
     },
     approve: (body) => gateDecision('approve', body),
@@ -2547,11 +2566,15 @@ export async function createRunner(config) {
     // POST /api/permissions/:id
     async allow(body) {
       const decision = body.scope === 'run' ? 'allow-run' : 'allow';
+      const ship = shipCardDir(body.requestId);
       if (!(await driver.decide(body.requestId, { decision, note: body.note ?? '', answers: body.answers ?? null }))) throw new HttpError(404, 'That request was already answered or has expired.');
+      await markActed(ship);
       return { ok: true };
     },
     async deny(body) {
+      const ship = shipCardDir(body.requestId);
       if (!(await driver.decide(body.requestId, { decision: 'deny', note: body.note ?? '', answers: body.answers ?? null }))) throw new HttpError(404, 'That request was already answered or has expired.');
+      await markActed(ship);
       return { ok: true };
     },
 
@@ -2598,6 +2621,7 @@ export async function createRunner(config) {
     async steer(body) {
       const steer = await driver.steer(body.runId, body.text);
       if (!steer) throw new HttpError(404, 'That reply already finished. Send your message as a new one.', { code: 'finished' });
+      await markActed(driver.list().find((r) => r.id === body.runId)?.featureDir); // his message, into the reply
       return { steer };
     },
 
@@ -3138,6 +3162,7 @@ export async function createRunner(config) {
       invalidate();
       if (tracked.failed) await unsendNudge(f.dir, id); // the reply already ended in error (a spawn failure): not sent after all
       await state.audit({ action: 'nudge', featureDir: f.dir, slug: f.slug, nudge: id, text: nudge.action.send, runId: run.id });
+      if (!tracked.failed) await markActed(f.dir); // his yes, on its way to the Foreman
       return { ok: true, sent: true, text: nudge.action.send, run };
     },
 
@@ -3217,9 +3242,14 @@ export async function createRunner(config) {
     async snapshot(pageMeta) {
       const list = await features();
       const jobs = groupCards(await boardCards(list));
+      // The Auto queue (lib/auto-queue.js): the places and the Inbox's Auto groups. testing: the test place's holder (auto.testHolder, once there is one).
+      const autoQueue = autoQueueView({
+        setting: autoStartSetting, paused: autoStartView().paused, cards: jobs, items: await withJobs(orbitInbox.view().items ?? []),
+        failed: autoStarter.failedList(), started: autoStarter.startedList(), testing: auto.testHolder?.() ?? null,
+      });
       return {
         meta: await meta(pageMeta), jobs,
-        needsYou: jobs.filter((j) => j.group === 'needs-you').length,
+        needsYou: jobs.filter((j) => j.group === 'needs-you').length, autoQueue,
         permissions: driver.pendingPermissions(), usage: limits.view(), planUsage: planUsage.view(), runTypical, generatedAt: new Date().toISOString(),
       };
     },
@@ -3540,7 +3570,9 @@ export async function createRunner(config) {
     integrator,
     /** Review rounds (packet Q): the panel's routes (site/routes-review.js). */
     review: {
-      list: () => reviewRounds.list(), view: (slug) => reviewRounds.view(slug), act: (slug, action, body) => reviewRounds.act(slug, action, body),
+      list: () => reviewRounds.list(), view: (slug) => reviewRounds.view(slug),
+      // A review round's action is a ship step: done, the job leaves Ready for you to try.
+      act: async (slug, action, body) => { const out = await reviewRounds.act(slug, action, body); await markActed((await featureBySlug(slug))?.dir); return out; },
       setSettings: (body) => reviewRounds.setSettings(body),
       github: () => flow.view().github ?? null,
       httpError: (err) => (err instanceof ReviewRefused ? new HttpError(err.status, err.message, err.code ? { code: err.code } : undefined) : err),

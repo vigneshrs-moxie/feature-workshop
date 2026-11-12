@@ -350,3 +350,21 @@ test('the starter counts the places its jobs() gives: working against N, unfinis
   await c.starter.run();
   assert.deepEqual(c.started, [], 'ten unfinished: nothing starts');
 });
+
+test('failedList: empty until the memory is read, then each failed ticket with its reason', async () => {
+  const r = await rig({ items: [item(1)], failWith: 'Orbit said no.' });
+  assert.deepEqual(r.starter.failedList(), []);
+  await r.starter.run();
+  assert.deepEqual(r.starter.failedList(), [{ key: 'ORBIT-1', reason: 'Orbit said no.' }]);
+  const bad = await rig();
+  await fs.writeFile(bad.file, 'not json');
+  await bad.starter.run();
+  assert.deepEqual(bad.starter.failedList(), [], 'a memory that cannot be read lists nothing');
+});
+
+test('startedList: the tickets Auto started, for the queue\'s next up', async () => {
+  const r = await rig({ items: [item(1)] });
+  assert.deepEqual(r.starter.startedList(), []);
+  await r.starter.run();
+  assert.deepEqual(r.starter.startedList(), [{ key: 'ORBIT-1' }]);
+});

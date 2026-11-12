@@ -80,7 +80,20 @@ export function lastJob(last, jobs = []) {
   return same.find((j) => !j.closed) ?? same[0] ?? null;
 }
 
-const tried = (memory, key) => memory.started.some((e) => e.key === key) || memory.failed.some((e) => e.key === key);
+const tried = (memory, key) => (memory?.started ?? []).some((e) => e.key === key) || (memory?.failed ?? []).some((e) => e.key === key);
+
+/**
+ * Whether a ticket would start by itself when a place is free: Auto start on with a tag, the ticket
+ * assigned to you, open, with no open job, carrying the tag, and not tried before (memory). Pure. The one
+ * rule pickNext and the Auto queue's `next` share; pickNext also leaves out a ticket that had a job.
+ */
+export function startsByItself(item, setting, memory) {
+  const s = normalizeAutoStart(setting);
+  return s.on && Boolean(s.tag) && Array.isArray(item?.why) && item.why.includes('assigned')
+    && !CLOSED.has(item.status) && !item.job
+    && tagMatches(item, s.tag)
+    && !tried(memory, item.key);
+}
 
 /**
  * What to do next. Pure.
@@ -103,10 +116,7 @@ export function pickNext({ items = [], setting, memory, ticketsWithJobs = new Se
   if (tagsShown !== true) return { wait: 'no-tags-shown' };
   if (working >= s.max) return { wait: 'busy' };
   if (unfinished >= AUTO_CEILING) return { wait: 'ceiling' };
-  const hit = items.find((i) => Array.isArray(i?.why) && i.why.includes('assigned')
-    && !CLOSED.has(i.status) && !i.job
-    && tagMatches(i, s.tag)
-    && !ticketsWithJobs.has(i.key) && !tried(memory, i.key));
+  const hit = items.find((i) => startsByItself(i, s, memory) && !ticketsWithJobs.has(i.key));
   return hit ? { start: hit } : { wait: 'nothing' };
 }
 
@@ -149,6 +159,12 @@ export class AutoStarter {
 
   /** The sentence a failed start gave, for the row (null when the ticket has none). Known after the first run. */
   failedReason(key) { return this.memory?.failed?.find?.((e) => e.key === key)?.reason ?? null; }
+
+  /** Every failed start, { key, reason }, for the Auto queue's Couldn't start (empty until the memory is read). */
+  failedList() { return Array.isArray(this.memory?.failed) ? this.memory.failed.map((e) => ({ key: e.key, reason: e.reason ?? null })) : []; }
+
+  /** Every ticket Auto started, { key }, so the queue's Next up leaves them out (empty until the memory is read). */
+  startedList() { return Array.isArray(this.memory?.started) ? this.memory.started.map((e) => ({ key: e.key })) : []; }
 
   /** Start on the row works as usual and clears a failed ticket. */
   async clearFailed(key) {

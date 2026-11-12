@@ -3856,3 +3856,97 @@ test('a restart whose branch is a guess but whose worktree status.json names mov
     assert.ok(!res.notes.includes('Starbase isn\'t sure which branch is this job\'s, so it left branches and folders alone.'), JSON.stringify(res.notes));
   } finally { await w.stop(); }
 });
+
+// ---------- The Auto queue (Task 3): Ready for you to try until he acts, and the snapshot's autoQueue ----------
+
+const PR1_OPEN = [{ number: 1, url: 'https://github.com/o/r/pull/1', state: 'open' }];
+/** A record Auto finished at PR #1 (off, finished, not acted on). */
+const finishedRecord = () => ({ ...autoRecord(autoRecord(null, { on: true, by: 'tag', tag: 'auto', now: OLD }), { on: false }), finished: OLD, acted: null });
+const groupOf = async (w) => (await w.runner.read.snapshot()).jobs.find((c) => c.slug === w.slug)?.auto?.group ?? null;
+const actedOn = (w) => w.until(async () => (await groupOf(w)) === null && typeof (await w.record())?.acted === 'string', 'the job to leave Ready');
+
+test('after PR #1 the job stays Ready until he writes to it; trying it does not move it', { timeout: 30_000 }, async () => {
+  const w = await world({ jobStatus: status(1, { stage: 'pr1', stage_state: 'working', waiting_for: null, prs: PR1_OPEN }) });
+  try {
+    await w.pass();
+    assert.equal((await w.record()).finished !== null, true, 'Auto finished at PR #1');
+    assert.equal(await groupOf(w), 'ready');
+    // Try it's start: the hand test begins, the job stays where it is.
+    w.local.startServer = async () => ({ port: 4999 });
+    await w.runner.handle({ type: 'try-it', slug: w.slug, action: 'start' }, { from: 'local' });
+    await new Promise((r) => setTimeout(r, 1600));
+    assert.equal(await groupOf(w), 'ready');
+    assert.equal((await w.record()).acted ?? null, null);
+    const before = Date.now();
+    await w.runner.handle({ type: 'reply', slug: w.slug, text: 'I tried it. Carry on to PR #2.' }, { from: 'local' });
+    await actedOn(w);
+    const at = Date.parse((await w.record()).acted);
+    assert.ok(at >= before - 1000 && at <= Date.now() + 1000);
+  } finally { await w.stop(); }
+});
+
+test('Go on a gate after PR #1 takes the job out of Ready', { timeout: 30_000 }, async () => {
+  const w = await world({ auto: finishedRecord() });
+  try {
+    assert.equal(await groupOf(w), 'ready');
+    await w.runner.handle({ type: 'approve', slug: w.slug, briefNumber: 1 }, { from: 'local' });
+    await actedOn(w);
+  } finally { await w.stop(); }
+});
+
+test('Send back on a gate after PR #1 takes the job out of Ready', { timeout: 30_000 }, async () => {
+  const w = await world({ auto: finishedRecord() });
+  try {
+    assert.equal(await groupOf(w), 'ready');
+    await w.runner.handle({ type: 'send-back', slug: w.slug, briefNumber: 1, note: 'Not like this.' }, { from: 'local' });
+    await actedOn(w);
+  } finally { await w.stop(); }
+});
+
+test('a nudge he says yes to takes the job out of Ready; one he dismisses does not', { timeout: 30_000 }, async () => {
+  const w = await world({ auto: finishedRecord(), jobStatus: status(1, { stage: 'pr1', stage_state: 'working', waiting_for: null, prs: [{ number: 1, url: 'https://github.com/o/r/pull/1', state: 'merged' }] }) });
+  try {
+    assert.equal(await groupOf(w), 'ready');
+    const nudges = (await w.runner.read.snapshot()).jobs.find((c) => c.slug === w.slug).nudges.map((n) => n.id);
+    assert.ok(nudges.includes('pr2-open'), JSON.stringify(nudges));
+    await w.runner.handle({ type: 'nudge', slug: w.slug, nudge: 'pr1-merge', answer: 'dismiss' }, { from: 'local' });
+    assert.equal((await w.record()).acted ?? null, null, 'a dismissal is not acting on it');
+    await w.runner.handle({ type: 'nudge', slug: w.slug, nudge: 'pr2-open', answer: 'yes' }, { from: 'local' });
+    await actedOn(w);
+  } finally { await w.stop(); }
+});
+
+test('acted keeps the first time he acted', { timeout: 30_000 }, async () => {
+  const w = await world({ auto: finishedRecord(), jobStatus: status(1, { stage: 'pr1', stage_state: 'working', waiting_for: null, prs: PR1_OPEN }) });
+  try {
+    await w.runner.handle({ type: 'reply', slug: w.slug, text: 'Go on.' }, { from: 'local' });
+    await actedOn(w);
+    const first = (await w.record()).acted;
+    await w.idle();
+    await w.runner.handle({ type: 'reply', slug: w.slug, text: 'And another thing.' }, { from: 'local' });
+    await w.idle();
+    assert.equal((await w.record()).acted, first);
+  } finally { await w.stop(); }
+});
+
+test('the snapshot carries autoQueue', { timeout: 30_000 }, async () => {
+  const w = await world({ jobStatus: status(1, { stage_state: 'working', waiting_for: null }) });
+  try {
+    const snap = await w.runner.read.snapshot();
+    assert.deepEqual(Object.keys(snap.autoQueue), ['on', 'tag', 'max', 'working', 'unfinished', 'ceiling', 'paused', 'testing', 'tickets']);
+    assert.deepEqual(snap.autoQueue, { on: false, tag: '', max: 5, working: 1, unfinished: 1, ceiling: 10, paused: null, testing: null, tickets: [] });
+    const keys = [];
+    JSON.stringify(snap.autoQueue, (k, v) => { keys.push(k); return v; });
+    for (const bad of ['diff', 'patch', 'env', 'token', 'source']) assert.ok(!keys.includes(bad), bad);
+  } finally { await w.stop(); }
+});
+
+test('his answer on a PR feedback card is a ship step: the job leaves Ready', { timeout: 30_000 }, async () => {
+  const w = await world({ auto: finishedRecord(), jobStatus: status(1, { stage: 'pr1', stage_state: 'working', waiting_for: null, prs: PR1_OPEN }) });
+  try {
+    assert.equal(await groupOf(w), 'ready');
+    const card = w.driver.parkFeedbackCard({ featureDir: w.dir, slug: w.slug, title: 'Visit audit columns' }, { key: 'pr1:check:lint@abc111', kind: 'check', pr: { number: 1, label: 'PR #1', url: null }, name: 'lint', link: null, runId: '4242', head: 'abc111', log: 'exit 1' });
+    await w.runner.handle({ type: 'deny', requestId: card.id }, { from: 'local' });
+    await actedOn(w);
+  } finally { await w.stop(); }
+});
