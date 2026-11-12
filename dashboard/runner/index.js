@@ -2901,8 +2901,10 @@ export async function createRunner(config) {
         // While the evidence recording holds the app (runner/evidence.js holdsApp), Stop is refused and
         // Start hands the running app to him: the recording then leaves it running when it ends.
         if (action === 'start') {
+          const r = await local.startServer(f);
+          // Handed over only once his start has the app: a start that fails leaves it the recording's.
           if (local_.evidence.holdsApp(f.slug)) local_.evidence.handAppOver(f.slug);
-          const r = await local.startServer(f); await audit({ port: r.port }); await markHandTestStarted(f); return r;
+          await audit({ port: r.port }); await markHandTestStarted(f); return r;
         }
         if (action === 'stop') {
           if (local_.evidence.holdsApp(f.slug)) throw new HttpError(409, APP_HELD);
