@@ -718,10 +718,15 @@ export async function createRunner(config) {
     review: await reviewOf(f.dir),
     hexCommit: hexKnown.get(f.dir) ?? null,
   });
+  // The jobs as the ledger's last read saw them, by slug: its lanes go through ownLane (lib/locate.js),
+  // so a job whose branch is only a guess is never credited from another job's lane.
+  let playSeen = new Map();
+  const playLanes = () => [...flowLanes.keys()].map((slug) => ownLane(playSeen.get(slug) ?? { slug }, flowLanes)).filter(Boolean);
   // Every job: the cached list when it is fresh (fresh: true asks for that only), else a full read.
   async function playJobs({ fresh }) {
     const list = fresh ? (cached && Date.now() - cached.at < 1500 ? cached.list : null) : await features();
     if (list && !fresh) await lookForHex(list);
+    if (list) playSeen = new Map(list.map((f) => [f.slug, f]));
     return list ? Promise.all(list.map(playJobOf)) : null;
   }
   // One job whose files changed: its status.json and review.md again, the rest as last read.
@@ -743,7 +748,7 @@ export async function createRunner(config) {
       job: playJobFiles,
       settings: () => playNow,
       workflow: () => ({ finishLine: finishLineNow }),
-      flow: () => [...flowLanes.values()],
+      flow: playLanes,
     },
     onUnlock: (achievement) => { if (playOn()) events.emit('play', null, { achievement }); },
     // A quest done: the page celebrates it (a toast), from the ledger alone.
