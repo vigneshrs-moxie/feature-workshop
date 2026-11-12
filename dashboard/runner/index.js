@@ -58,7 +58,7 @@ import { typicalRuns } from '../lib/run-typical.js';
 import { proofStamp } from '../lib/proof.js';
 import { suggestLevel, changedPaths, diffSummary } from '../lib/levels.js';
 import { checkDiff, chooseLevel } from '../lib/auto-level.js';
-import { AUTO_MARK, autoAllowed, autoCardView, autoOption, autoRecord } from '../lib/auto.js';
+import { AUTO_MARK, autoAllowed, autoCardView, autoOption, autoRecord, wroteWhileWaiting } from '../lib/auto.js';
 import { createAuto } from './auto.js';
 import { askApprover as askApproverLib, approverOptions, setApproverStateDir } from '../lib/approver.js';
 import { autoCost, autoLog, autoLogRecord, writeAutoLog } from '../lib/auto-log.js';
@@ -1383,7 +1383,12 @@ export async function createRunner(config) {
 
   // Every job's card, most urgent first (jobs being started from here come first).
   async function boardCards(list) {
-    const cards = [...startingCards(list), ...list.map((f) => boardCard(f, runFor(f)))];
+    // A step the person wrote to while it waited is theirs at once (lib/auto.js wroteWhileWaiting), before Auto's pass writes the
+    // stop: auto.yours. Only a card with Auto on, not stopped and a gate waiting reads the job's audit lines.
+    const yours = async (f) => f.auto?.on === true && !f.auto.stopped && isGateWaiting(f) && !closedOff(f)
+      && wroteWhileWaiting(await state.auditFor(f.dir, Infinity), { briefAt: f.currentBrief?.at, since: f.auto.since });
+    const withYours = (c, mine) => ({ ...c, auto: { ...c.auto, yours: mine } });
+    const cards = [...startingCards(list).map((c) => withYours(c, false)), ...await Promise.all(list.map(async (f) => withYours(boardCard(f, runFor(f)), await yours(f))))];
     const rank = (c) => (c.needsYou ? 0 : c.working || c.stageState === 'working' ? 1 : c.stageState === 'done' ? 3 : 2);
     cards.sort((a, b) => rank(a) - rank(b) || (a.needsYou ? String(a.waitingSince ?? '').localeCompare(String(b.waitingSince ?? '')) : 0));
     // Each card's lane on Jobs and the reason in words (lib/snapshot.js laneFor, packet M).
@@ -3423,6 +3428,18 @@ export async function createRunner(config) {
     changed() { invalidate(); notifyChange(); },
   };
   testingOf = (slug) => local_.evidence.progressWords(slug);
+  // A recording's line moving, or its progress gone, changes that job's card (`testing`, its lane): the pages fetch
+  // again. The card reads the progress live, so nothing cached is dropped. Lines that come close together make one
+  // change (at most one per job each 150 ms, always one after the last).
+  const testingMoved = new Map(); // slug -> its pending change
+  on('evidence', (slug, data) => {
+    if (data?.outcome !== 'progress' || !slug || testingMoved.has(slug)) return;
+    testingMoved.set(slug, setTimeout(() => {
+      testingMoved.delete(slug);
+      broadcast('change', { at: Date.now() });
+      events.emit('change', slug, { at: Date.now() });
+    }, 150));
+  });
 
   // ---------- After a restart (runner/replay.js) ----------
 

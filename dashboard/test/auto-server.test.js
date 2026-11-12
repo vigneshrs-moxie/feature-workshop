@@ -3546,3 +3546,85 @@ test('N5: "the commit is on the org\'s main" asks git about the org remote\'s ow
     assert.equal(ctx.orgShas[job], false);
   } finally { await w.stop(); }
 });
+
+// ---------- 6b: a step he wrote to is his at once, on the board too ----------
+
+test('I5: with two Auto jobs waiting, his message to the second stops it in the pass\'s first round, before the first job\'s Approver answers', { timeout: 30_000 }, async () => {
+  let release;
+  const held = new Promise((r) => { release = r; });
+  const dirs = ['/jobs/first', '/jobs/second'];
+  const recs = Object.fromEntries(dirs.map((d) => [d, autoRecord(null, { on: true, now: OLD })]));
+  // His message to the second job, after its brief was raised and after Auto was switched on.
+  const his = { featureDir: dirs[1], action: 'send', kind: 'message', at: new Date(Date.now() - 1000).toISOString(), gateBrief: null, text: 'Hold on, I am checking the ticket.' };
+  const lines = [];
+  const notes = [];
+  const asks = [];
+  const decides = [];
+  let answered = false;
+  const view = (dir) => ({
+    dir, slug: path.basename(dir), title: path.basename(dir), auto: { ...recs[dir] }, level: 1, suggestedLevel: null, stage: 'plan', stageState: 'waiting_for_you', ticketKey: null,
+    triggers: [], statusCard: false, prOpen: false, gate: { briefNumber: 1, stale: false, questions: [], decided: [], headline: 'Plan v1', nextStage: 'implement' },
+    answered: [], briefPath: null, artifacts: [], running: false, locked: false, restarting: false, paused: false, worktrees: [], specDirs: [],
+  });
+  const auto = createAuto({
+    // The jobs in this order: the first job's Approver is asked before the second job is attended.
+    read: async (dir) => (dir ? dirs.filter((d) => d === dir) : dirs).map(view),
+    update: async (dir, fn) => { const next = fn({ ...recs[dir] }); if (next) recs[dir] = next; return { ...recs[dir] }; },
+    decide: { gate: async (_kind, body) => { decides.push(body.slug); }, permission: async () => {} },
+    askApprover: async (task) => {
+      asks.push(task.job.slug);
+      if (task.job.slug === 'first') { await held; answered = true; }
+      return { ok: true, costUsd: 0.1, answer: { decision: 'go', answers: [], why: 'Fine.', risk: 'low' } };
+    },
+    state: { audit: async (l) => { lines.push(l); }, auditFor: async (dir) => [his].filter((l) => l.featureDir === dir) },
+    notify: (n) => notes.push(n),
+  });
+  const p = auto.pass();
+  try {
+    for (let i = 0; i < 100 && recs[dirs[1]].stopped?.reason !== YOURS; i++) await new Promise((r) => setTimeout(r, 20));
+    assert.deepEqual({ rule: recs[dirs[1]].stopped?.rule, reason: recs[dirs[1]].stopped?.reason }, { rule: 'blocked', reason: YOURS }, 'the second job stopped while the first job\'s Approver was still held');
+    assert.equal(answered, false, 'the first job\'s Approver has not answered');
+    assert.equal(asks.includes('second'), false, 'the second job\'s Approver is never asked');
+  } finally { release(); await p; }
+  assert.deepEqual(asks, ['first']);
+  assert.deepEqual(decides, ['first'], 'the first job is still approved; nothing is sent for the second');
+  assert.deepEqual(lines.filter((l) => l.what === 'stop').map((l) => l.slug), ['second']);
+  assert.equal(notes.length, 1);
+  assert.equal(notes[0].body, `Auto stopped: ${YOURS} Open the job to answer.`);
+});
+
+test('the board says a step he wrote to is his before Auto\'s next pass', { timeout: 60_000 }, async () => {
+  let release;
+  const held = new Promise((r) => { release = r; });
+  const w = await world({
+    also: { slug: 'zzz-other', status: status(1, { title: 'Other' }), options: { level: 1, flow: 'quick', title: 'Other' } },
+    ask: async (task) => { await held; return goodAnswer(task); },
+  });
+  const recordOf = async (dir) => JSON.parse(await fs.readFile(path.join(w.dirs.state, 'sessions.json'), 'utf8'))[dir]?.auto ?? null;
+  const cardOf = async (slug) => (await w.runner.read.features()).features.find((c) => c.slug === slug);
+  try {
+    // A pass is under way and holds on the Approver for whichever job it took first: the other job's step waits behind it.
+    const p = w.pass();
+    await w.until(() => w.asks.length === 1, 'the first job\'s ask');
+    const first = w.asks[0].task.job.slug;
+    const mine = first === w.slug ? 'zzz-other' : w.slug;
+    const mineDir = mine === w.slug ? w.dir : w.otherDir;
+    // He writes to the other job; the Foreman's reply to him ends. No pass has reached that job since.
+    await w.runner.handle({ type: 'reply', slug: mine, text: 'Hold on, I am checking the ticket.' }, { from: 'local' });
+    await w.idle();
+    const card = await cardOf(mine);
+    assert.equal((await recordOf(mineDir)).stopped, null, 'no stop is written yet');
+    assert.equal(card.auto.yours, true);
+    assert.deepEqual({ lane: card.lane, laneReason: card.laneReason }, { lane: 'needs-you', laneReason: `Auto stopped: ${YOURS}` });
+    const theirs = await cardOf(first);
+    assert.equal(theirs.auto.yours, false, 'a step he did not write to is not his');
+    assert.equal(theirs.laneReason, 'Auto is deciding: the plan');
+    release();
+    await p;
+    // The stop that follows says the same words.
+    await w.until(async () => (await recordOf(mineDir))?.stopped?.reason === YOURS, 'the stop');
+    await w.until(async () => (await cardOf(mine)).auto.yours === false, 'the card to read the stop');
+    const after = await cardOf(mine);
+    assert.deepEqual({ lane: after.lane, laneReason: after.laneReason }, { lane: 'needs-you', laneReason: `Auto stopped: ${YOURS}` });
+  } finally { release(); await w.stop(); }
+});

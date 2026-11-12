@@ -11,11 +11,15 @@
 //     local      its LocalRunner (Try it)
 //     on         its event door: a 'change' (a job folder changed) looks for jobs ready to record
 //   returns the door the site's routes use (site/routes-evidence.js, through runner.local.evidence):
-//     view(slug)          { evidence, commit, wanted, why, recording, problem, progress, folder, folderUrl }
+//     view(slug)          { evidence, commit, wanted, why, recording, problem, progress, watch, folder, folderUrl }
 //                         (progress: by line while Playwright runs, else null; each change is an
-//                         `evidence` event with outcome 'progress', and one with progress null at the end)
-//     progressWords(slug) "Recording evidence: line 4 of 19" while it runs, else null (the Jobs card's `testing`)
+//                         `evidence` event with outcome 'progress', and one with progress null at the end;
+//                         watch: true while Playwright runs, so the laptop's page can show Watch)
+//     progressWords(slug) "Recording evidence: line 4 of 19" while it runs ("…: starting, 19 lines" before
+//                         a line begins), else null (the Jobs card's `testing`)
 //     file(slug, rel)     { abs, type, size } of one picture or video inside evidence/, else 404
+//     live(slug)          { abs, type: 'image/jpeg', size } of the hidden browser's picture while it records
+//                         and someone watches (each ask marks it watched for 5 s), else 404; laptop only
 //     record(slug)        records for the commit the report names now (409 "Already recorded for …");
 //                         one that takes longer than a moment carries on by itself ({ started: true })
 //
@@ -26,11 +30,12 @@
 // mode nothing real runs, so only that script can record there.
 
 import { spawn } from 'node:child_process';
+import fsp from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { HttpError } from '../lib/http-guard.js';
-import { EVIDENCE_DIR, EvidenceError, evidenceFile, evidenceWanted, readEvidence, readyToRecord, recordEvidence, reportCommit, shortCommit } from '../lib/evidence.js';
+import { EVIDENCE_DIR, EvidenceError, LIVE_FRESH_MS, NO_LIVE, evidenceFile, evidenceWanted, liveFiles, readEvidence, readyToRecord, recordEvidence, recordingWords, reportCommit, shortCommit } from '../lib/evidence.js';
 import { fillPattern } from '../lib/profile.js';
 import { killTree, shellFor } from '../lib/platform.js';
 import { PRODUCT } from '../lib/brand.js';
@@ -250,17 +255,37 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
       return {
         evidence, commit: await reportCommit(f.dir), wanted: wanted.on, why: wanted.why,
         recording: recording.has(f.slug), problem: problems.get(f.slug) ?? null, progress: progress.get(f.slug) ?? null,
+        watch: progress.has(f.slug),
         folder, folderUrl: pathToFileURL(folder).href + (folder.endsWith(path.sep) ? '' : '/'),
       };
     },
-    /** The Jobs card's words while Playwright records the job ("Recording evidence: line 4 of 19"), else null. */
+    /** The Jobs card's words while Playwright records the job ("Recording evidence: line 4 of 19"; lib/evidence.js recordingWords), else null. */
     progressWords(slug) {
-      const p = progress.get(slug);
-      return p ? `Recording evidence: line ${Math.max(1, p.line)} of ${p.of}` : null;
+      return recordingWords(progress.get(slug));
     },
     async file(slug, rel) {
       const f = await jobOf(slug);
       try { return await evidenceFile(f.dir, rel); } catch (err) { throw httpError(err); }
+    },
+    /**
+     * Watch (the laptop only): the hidden browser's newest picture while Playwright records the job.
+     * Each ask touches the run's watch file, so the guard saves a picture every half second for the
+     * next 5 s (lib/evidence.js guardModule); the picture is answered when one was saved in the last
+     * 5 s, else a 404. Both paths are the server's own (evidence/<commit>/run/), never the asker's,
+     * and nothing is made when no recording runs (the run's folder goes with the run).
+     */
+    async live(slug) {
+      const f = await jobOf(slug);
+      const p = progress.get(f.slug);
+      if (!p?.commit) throw new HttpError(404, NO_LIVE);
+      const { liveFile, watchFile } = liveFiles(path.join(f.dir, EVIDENCE_DIR), p.commit);
+      // Only into the run's folder while it is there: no folder is made for it. Touched, or made new
+      // ('wx' never follows a link a spec left there), never written through.
+      const t = new Date();
+      await fsp.utimes(watchFile, t, t).catch(() => fsp.writeFile(watchFile, '', { flag: 'wx' })).catch(() => {});
+      const st = await fsp.lstat(liveFile).catch(() => null);
+      if (!st?.isFile() || Date.now() - st.mtimeMs >= LIVE_FRESH_MS || !progress.has(f.slug)) throw new HttpError(404, NO_LIVE);
+      return { abs: liveFile, type: 'image/jpeg', size: st.size };
     },
     /**
      * Record now. A quick answer (already recorded, not for this job, the database copy down…) comes

@@ -16,6 +16,7 @@
 //   listSpecs, evidenceLines      the specs on disk; the test report's Evidence section
 //   playwrightConfig, guardModule, prepareRun   the config and the spec copies a recording runs
 //   progressReporter, parseProgressLine         which line runs now: the reporter and its lines read back
+//   liveFiles                     Watch (laptop only): the run's live picture and its watch mark
 //   buildEvidence, collectEvidence             evidence.json from Playwright's report and output
 //   recordEvidence(deps)          one recording, start to finish, with the server, the database
 //                                 check and Playwright handed in (runner/evidence.js gives the real ones)
@@ -207,16 +208,61 @@ export function parseProgressLine(line) {
   };
 }
 
+// ---------- Watch: the hidden browser's picture, on the laptop only ----------
+
+/** The run's live picture and its watch mark, in evidence/<commit>/run/ (gone with the run). */
+export const LIVE_FILE = 'live.jpg';
+export const WATCH_FILE = 'watching';
+/** How often the guard saves a picture while someone watches (ms). */
+export const LIVE_EVERY_MS = 500;
+/** How long one ask for a picture keeps the guard saving, and how old a picture may be (ms). */
+export const LIVE_FRESH_MS = 5000;
+export const NO_LIVE = 'No live picture right now.';
+
+/** A recording's live picture and watch mark, from the server's own paths: { runDir, liveFile, watchFile }. */
+export function liveFiles(evidenceDir, commit) {
+  const runDir = path.join(evidenceDir, commit, 'run');
+  return { runDir, liveFile: path.join(runDir, LIVE_FILE), watchFile: path.join(runDir, WATCH_FILE) };
+}
+
 /**
  * The module the spec copies import instead of `@playwright/test`: the dashboard's own Playwright
  * (playwrightUrl), whose `page` stops any navigation of the page to anything but this computer.
+ * With liveFile and watchFile, while watchFile was touched under 5 s ago (the laptop's Watch asks),
+ * the page's picture is saved to liveFile every 500 ms (written beside it, then renamed); a picture
+ * that can't be saved is skipped, and the timer stops when the test ends.
  */
-export function guardModule(playwrightUrl) {
+export function guardModule(playwrightUrl, { liveFile = null, watchFile = null } = {}) {
   const u = JSON.stringify(playwrightUrl);
+  const live = Boolean(liveFile && watchFile);
+  const watch = live ? `
+// Watch (the laptop only): while ${PRODUCT} asked for a picture in the last few seconds, the page's picture every half second.
+const LIVE = ${JSON.stringify(liveFile)};
+const WATCH = ${JSON.stringify(watchFile)};
+async function watched() {
+  try { return Date.now() - (await fs.promises.stat(WATCH)).mtimeMs < ${LIVE_FRESH_MS}; } catch { return false; }
+}
+function saveFrames(page) {
+  let busy = false;
+  let stopped = false;
+  const timer = setInterval(async () => {
+    if (busy || stopped) return;
+    busy = true;
+    try {
+      if (!(await watched())) return;
+      const shot = await page.screenshot({ type: 'jpeg', quality: 60 });
+      if (stopped) return;
+      await fs.promises.writeFile(LIVE + '.part', shot);
+      await fs.promises.rename(LIVE + '.part', LIVE);
+    } catch { /* a picture that couldn't be saved is skipped */ } finally { busy = false; }
+  }, ${LIVE_EVERY_MS});
+  return () => { stopped = true; clearInterval(timer); };
+}
+` : '';
   return `// Written by ${PRODUCT} (lib/evidence.js): the specs' @playwright/test, with every page kept on this computer.
 import { test as base, expect } from ${u};
-export * from ${u};
-const HERE = new Set(['127.0.0.1', 'localhost', '[::1]']);
+${live ? "import fs from 'node:fs';\n" : ''}export * from ${u};
+const HERE = new Set(['127.0.0.1', 'localhost', '[::1]']);${watch}
 export const test = base.extend({
   page: async ({ page }, use) => {
     await page.route('**/*', (route) => {
@@ -228,8 +274,7 @@ export const test = base.extend({
       }
       return route.continue();
     });
-    await use(page);
-  },
+${live ? '    const stop = saveFrames(page);\n    try { await use(page); } finally { stop(); }\n' : '    await use(page);\n'}  },
 });
 export { expect };
 export default test;
@@ -250,14 +295,14 @@ export function guardedSpec(text, guardPath = '../guard.mjs') {
  */
 export async function prepareRun({ evidenceDir, commit, specs, baseURL, playwrightUrl }) {
   const commitDir = path.join(evidenceDir, commit);
-  const runDir = path.join(commitDir, 'run');
+  const { runDir, liveFile, watchFile } = liveFiles(evidenceDir, commit);
   const specDir = path.join(runDir, 'specs');
   const outputDir = path.join(runDir, 'output');
   const reportFile = path.join(commitDir, 'report.json');
   await fsp.rm(runDir, { recursive: true, force: true });
   await fsp.mkdir(specDir, { recursive: true });
   await fsp.rm(reportFile, { force: true });
-  await fsp.writeFile(path.join(runDir, 'guard.mjs'), guardModule(playwrightUrl));
+  await fsp.writeFile(path.join(runDir, 'guard.mjs'), guardModule(playwrightUrl, { liveFile, watchFile }));
   for (const s of specs) await fsp.writeFile(path.join(specDir, path.basename(s.file)), guardedSpec(await fsp.readFile(s.file, 'utf8')));
   const progressFile = path.join(runDir, PROGRESS_FILE);
   await fsp.writeFile(progressFile, progressReporter());
@@ -440,6 +485,16 @@ function progressStart({ commit, specs, lines, at }) {
 }
 
 /**
+ * The Jobs card's words for a recording's progress: "Recording evidence: line 4 of 19" once a line
+ * has begun; before any has (line 0), "Recording evidence: starting, 19 lines"; null with no progress.
+ */
+export function recordingWords(progress) {
+  if (!progress) return null;
+  if (!(progress.line >= 1)) return `Recording evidence: starting, ${progress.of} ${progress.of === 1 ? 'line' : 'lines'}`;
+  return `Recording evidence: line ${progress.line} of ${progress.of}`;
+}
+
+/**
  * The progress after one reporter line (parseProgressLine), as a new object; null when it names no
  * line of this recording. video: the line's video as copyLineVideo placed it (an end only), else null.
  */
@@ -522,8 +577,10 @@ export async function recordEvidence({ job, server, dbCheck = null, run, playwri
     onProgress(progress);
     // One reporter line after another: a line's end waits for its video to be copied.
     let lineChain = Promise.resolve();
+    // Once the run has ended, a line that still comes (Playwright's `close` after its `error`) changes nothing.
+    let ended = false;
     const onLine = (text) => {
-      const event = parseProgressLine(text);
+      const event = ended ? null : parseProgressLine(text);
       if (!event) return;
       lineChain = lineChain.then(async () => {
         const video = event.at === 'end' ? await copyLineVideo({ evidenceDir, commit, id: event.id, from: event.video, outputDir: prepared.outputDir }) : null;
@@ -532,6 +589,7 @@ export async function recordEvidence({ job, server, dbCheck = null, run, playwri
       }).catch(() => {});
     };
     const ran = await run({ configFile: prepared.configFile, cwd, specs, onLine });
+    ended = true;
     await lineChain;
     const reportJson = await fsp.readFile(prepared.reportFile, 'utf8').then((t) => JSON.parse(t), () => null);
     const errors = JSON.stringify(reportJson?.errors ?? []) + JSON.stringify(reportTests(reportJson).map((t) => t.result?.error?.message ?? ''));

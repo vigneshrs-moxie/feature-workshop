@@ -93,3 +93,25 @@ export function withoutMark(text) {
   while (end.endsWith(AUTO_MARK)) end = end.slice(0, -AUTO_MARK.length).trimEnd();
   return end;
 }
+
+/**
+ * Sends that are Starbase's own, not the person's words: a nudge, a resume (after a restart, or the carry-on after a usage
+ * limit), a status fix, PR feedback, a review round, a stack's start and its own news (ready, merged, stuck, checks failed).
+ * A stack's messages that carry the person's own note or go (stack-plan, -plan-change, -push, -push-no, -sendback) are theirs.
+ */
+export const OWN_SENDS = new Set(['nudge', 'resume', 'resume-after-restart', 'status-fix', 'pr-feedback', 'review-round', 'stack-section', 'stack-ready', 'stack-merged', 'stack-stuck', 'stack-checks-failed']);
+
+/** Auto's stop when the person wrote to a job while its step waited (I5). The board's lane says it from the moment they write. */
+export const YOURS_NOW = 'you wrote to this job while this step waited, so it is yours to decide.';
+
+/**
+ * Did the person write to a job while its step waited? A message of their own in the job's audit `lines` (a send not by Auto
+ * whose kind is not one of Starbase's own, OWN_SENDS; or one they steered into a running reply, which only their steer command
+ * writes) later than both the current brief's time (`briefAt`, its file's time) and when Auto was last switched on or carried
+ * on (`since`). A time not known sets no bound. Pure: the lines are given.
+ */
+export function wroteWhileWaiting(lines, { briefAt = null, since = null } = {}) {
+  const times = [Date.parse(briefAt ?? ''), Date.parse(since ?? '')].filter(Number.isFinite);
+  const from = times.length ? Math.max(...times) : -Infinity;
+  return (lines ?? []).some((l) => l.by !== 'auto' && ((l.action === 'send' && !OWN_SENDS.has(l.kind)) || l.action === 'steer') && Date.parse(l.at) > from);
+}

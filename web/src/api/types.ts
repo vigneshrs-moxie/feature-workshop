@@ -49,6 +49,7 @@ export interface JobAuto {
   /** The board card's view only: whether the job's level allows Auto, and the sentence when it doesn't. */
   allowed?: boolean;
   why?: string | null;
+  yours?: boolean; // the board card's only: he wrote while its step waited, so the step is his, not Auto's
 }
 
 /** GET /api/job/:slug/auto: the three lines and every decision Auto made on the job. */
@@ -1585,12 +1586,15 @@ export interface EvidenceView {
   folderUrl: string;
   /** While Playwright records: which line of how many, and each line's state; null when not; missing from dashboards from before. */
   progress?: EvidenceProgress | null;
+  /** Watch: true on the laptop while a recording runs (GET /api/job/:slug/evidence/live); false on the website; missing from dashboards from before. */
+  watch?: boolean;
 }
 
 /** A recording by line (dashboard/lib/evidence.js): line is the running line's place, else the last finished one's. */
 export interface EvidenceProgress {
   commit: string;
   startedAt: string;
+  /** The running line's place (from 1), else the last finished one's; 0: no line has begun yet. */
   line: number;
   of: number;
   /** Every acceptance line in order; at: when its state last changed (null: not yet). */

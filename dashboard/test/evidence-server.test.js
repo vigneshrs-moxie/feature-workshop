@@ -325,3 +325,151 @@ test('evidence server: a line’s video is there as soon as the line ends', asyn
     await setHold('go');
   }
 });
+
+// ---------- The laptop's Jobs card hears the progress (fix round 1) ----------
+
+/**
+ * One job's v2 events as they come, as the laptop page reads them: on each `change` for the job the
+ * page fetches the snapshot again, so its card is fetched right then (entry.card, a promise).
+ */
+function watchJob(slug, epoch) {
+  const seen = [];
+  const req = http.get(`${base}/api/events?v=2&since=0&epoch=${epoch}`, (res) => {
+    let buf = '';
+    res.on('data', (chunk) => {
+      buf += chunk;
+      let i;
+      while ((i = buf.indexOf('\n\n')) >= 0) {
+        const data = buf.slice(0, i).split('\n').find((l) => l.startsWith('data: '));
+        buf = buf.slice(i + 2);
+        if (!data) continue;
+        const e = JSON.parse(data.slice(6));
+        if (e.job !== slug) continue;
+        seen.push(e.type === 'change' ? { e, card: cardOf(slug) } : { e });
+      }
+    });
+  });
+  req.on('error', () => {});
+  return { seen, stop: () => req.destroy() };
+}
+/** The first `change` for the job after the first evidence event `after` matches, once it is there. */
+async function changeAfter(w, after, what) {
+  for (let n = 0; n < 400; n++) {
+    const i = w.seen.findIndex((x) => x.e.type === 'evidence' && after(x.e.data));
+    const change = i >= 0 ? w.seen.slice(i + 1).find((x) => x.e.type === 'change') : null;
+    if (change) return change;
+    await pause(50);
+  }
+  return assert.fail(`${what}:\n${JSON.stringify(w.seen.map((x) => [x.e.type, x.e.data?.outcome, x.e.data?.progress?.line ?? x.e.data?.progress]))}`);
+}
+
+test('evidence server: the laptop’s card hears each line as it moves, and the end of the recording', async () => {
+  const w = watchJob('heard-job', (await getJson('/api/snapshot')).epoch);
+  try {
+    await fs.rm(hold, { force: true });
+    try {
+      await writeJob('heard-job', { level: 2 });
+      await viewWhen('heard-job', runningFirst, 'no recording part way');
+      const moved = await changeAfter(w, (d) => d.progress?.line === 1, 'no change after the line moved to 1');
+      assert.equal((await moved.card).testing, 'Recording evidence: line 1 of 3');
+    } finally {
+      await setHold('go');
+    }
+    const ended = await changeAfter(w, (d) => d.outcome === 'progress' && d.progress === null, 'no change after the progress was gone');
+    const card = await ended.card;
+    assert.equal(card.testing, null);
+    assert.doesNotMatch(card.laneReason, /Recording evidence/);
+  } finally {
+    w.stop();
+  }
+});
+
+test('evidence server: the laptop’s card hears the end of a recording that dies part way', async () => {
+  const w = watchJob('heard-dying-job', (await getJson('/api/snapshot')).epoch);
+  try {
+    await fs.rm(hold, { force: true });
+    try {
+      await writeJob('heard-dying-job', { level: 2 });
+      await viewWhen('heard-dying-job', runningFirst, 'no recording part way');
+      await setHold('exit 1');
+      const ended = await changeAfter(w, (d) => d.outcome === 'progress' && d.progress === null, 'no change after the progress was gone');
+      const card = await ended.card;
+      assert.equal(card.testing, null);
+      assert.doesNotMatch(card.laneReason, /Recording evidence/);
+      assert.ok((await getJson('/api/job/heard-dying-job/evidence')).problem, 'the problem is said');
+    } finally {
+      await setHold('go');
+    }
+  } finally {
+    w.stop();
+  }
+});
+
+// ---------- Watch: the hidden browser's picture (Task 6) ----------
+
+const liveUrl = (slug) => `/api/job/${slug}/evidence/live`;
+const runDirOf = (slug) => path.join(featuresDir, slug, 'evidence', 'abc1234def5', 'run');
+const there = (f) => fs.access(f).then(() => true, () => false);
+/** A GET from this computer, with the Host header a page elsewhere (a rebound name) would send. */
+const getAs = (p, host) => new Promise((resolve, reject) => {
+  const req = http.get(base + p, { headers: { Host: host } }, (res) => { res.resume(); resolve(res.statusCode); });
+  req.on('error', reject);
+});
+
+test('evidence server: the live route answers the newest frame while a recording is watched, and 404 after it ends', async () => {
+  await fs.rm(hold, { force: true });
+  try {
+    await writeJob('watched-job', { level: 2 });
+    const view = await viewWhen('watched-job', runningFirst, 'no recording part way');
+    assert.equal(view.watch, true, 'Watch is there while it records');
+    const first = await get(liveUrl('watched-job'));
+    assert.equal(first.status, 404, 'nobody watched yet, so there is no picture');
+    assert.equal((await first.json()).error, 'No live picture right now.');
+    assert.ok(await there(path.join(runDirOf('watched-job'), 'watching')), 'asking marks it watched');
+    let res = null;
+    for (let i = 0; i < 40; i++) {
+      res = await get(liveUrl('watched-job'));
+      if (res.status === 200) break;
+      await res.arrayBuffer();
+      await pause(250);
+    }
+    assert.equal(res.status, 200, `no frame while watched:\n${output.join('').slice(-2000)}`);
+    assert.equal(res.headers.get('content-type'), 'image/jpeg');
+    assert.equal(res.headers.get('cache-control'), 'no-store');
+    assert.equal(res.headers.get('cross-origin-resource-policy'), 'same-origin', 'no other origin may show it');
+    const bytes = Buffer.from(await res.arrayBuffer());
+    assert.deepEqual([...bytes.subarray(0, 2)], [0xff, 0xd8], 'a JPEG');
+    assert.equal(Number(res.headers.get('content-length')), bytes.length);
+    // Only at the laptop's own address.
+    assert.equal(await getAs(liveUrl('watched-job'), 'starbase.example.test'), 421);
+    // Another job that isn't recording has none, and asking marks nothing.
+    assert.equal((await get(liveUrl('tiny-tweak'))).status, 404);
+    assert.equal(await there(path.join(featuresDir, 'tiny-tweak', 'evidence', 'abc1234def5')), false);
+    assert.equal((await get(liveUrl('no-such-job'))).status, 404);
+  } finally {
+    await setHold('go');
+  }
+  const done = await viewWhen('watched-job', (v) => v.evidence && !v.recording, 'the watched recording never ended');
+  assert.equal(done.watch, false, 'no Watch once it ended');
+  const after = await get(liveUrl('watched-job'));
+  assert.equal(after.status, 404);
+  assert.equal((await after.json()).error, 'No live picture right now.');
+  assert.equal(await there(runDirOf('watched-job')), false, 'the picture and the watch mark went with the run');
+  assert.ok(!JSON.stringify(done).includes('live.jpg'), 'the evidence names no live picture');
+});
+
+test('evidence server: nobody watching, no frame is written', async () => {
+  await fs.rm(hold, { force: true });
+  try {
+    await writeJob('unwatched-job', { level: 2 });
+    await viewWhen('unwatched-job', runningFirst, 'no recording part way');
+    await pause(1200); // more than two of the fake's half-second looks, the view read in between
+    await getJson('/api/job/unwatched-job/evidence');
+    assert.ok(await there(path.join(runDirOf('unwatched-job'), 'guard.mjs')), 'the run is there');
+    assert.equal(await there(path.join(runDirOf('unwatched-job'), 'live.jpg')), false, 'no frame');
+    assert.equal(await there(path.join(runDirOf('unwatched-job'), 'watching')), false, 'reading the view marks nothing');
+  } finally {
+    await setHold('go');
+  }
+  await viewWhen('unwatched-job', (v) => v.evidence && !v.recording, 'the recording never ended');
+});
