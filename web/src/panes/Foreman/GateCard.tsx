@@ -273,18 +273,27 @@ export function useKeptBoxWords(job: Job, detail: JobDetail | null) {
   const closed = Boolean(job.closed);
   useEffect(() => {
     if (!detail) return;
-    const kept = readKeptBox(raw);
+    // Read when it runs (M3): a second run for the same change finds the words already moved.
+    const kept = readKeptBox(readStored(gateBoxKey(slug)));
     if (!kept) return;
     const gate = openGate(detail, closed);
     if (gate && gateKey(gate) === kept.gate) return;
-    writeStored(gateBoxKey(slug), null);
-    const words = [kept.notes.changes, kept.notes.message].map((w) => w.trim()).filter(Boolean).join('\n\n');
-    if (!words) return;
-    const draft = (readStored(draftKey(slug)) ?? '').replace(/\s+$/, '');
-    const text = draft ? `${draft}\n\n${words}` : words;
-    writeStored(draftKey(slug), text);
-    writeStored(gateMovedKey(slug), JSON.stringify({ brief: kept.brief, draft: text, ...(kept.mine ? { mine: true } : {}) } satisfies MovedWords));
+    moveKeptWords(slug, kept);
   }, [raw, detail, closed, slug]);
+}
+
+/**
+ * Kept words whose brief is gone go into the message box's draft, after what is there with a blank
+ * line between, and the bar's line is set (gateMovedKey); the slot is emptied. Nothing is dropped.
+ */
+function moveKeptWords(slug: string, kept: KeptBox) {
+  writeStored(gateBoxKey(slug), null);
+  const words = [kept.notes.changes, kept.notes.message].map((w) => w.trim()).filter(Boolean).join('\n\n');
+  if (!words) return;
+  const draft = (readStored(draftKey(slug)) ?? '').replace(/\s+$/, '');
+  const text = draft ? `${draft}\n\n${words}` : words;
+  writeStored(draftKey(slug), text);
+  writeStored(gateMovedKey(slug), JSON.stringify({ brief: kept.brief, draft: text, ...(kept.mine ? { mine: true } : {}) } satisfies MovedWords));
 }
 
 function GateCard({ job, detail, gate, now, reload, report, running, callsOutside = false, extrasTo = null, onOpenBox, evidence, keysOff = false, answerKeysOff = false }: {

@@ -11,7 +11,7 @@ import { writeStored } from '../../lib/stored';
 import { createStore, WorkshopContext, type Store } from '../../state/store';
 import { job, LEVELS, REVIEWERS, snapshot } from '../../state/test-fixtures';
 import { Composer, draftKey } from './Composer';
-import { CHANGES_TYPED, GateSlot } from './GateCard';
+import { CHANGES_TYPED, gateBoxKey, GateSlot, useKeptBoxWords } from './GateCard';
 import { clearGateSent, gateSentKey } from './gateSent';
 import { clearAllSent, useSent } from '../../lib/sentState';
 
@@ -1267,5 +1267,22 @@ describe('GateCard: focus stays where he types', () => {
     expect(card()!.querySelector('.gate-usage')!.getAttribute('title')).not.toMatch(/stage/);
     await act(async () => { fireEvent.click(button(/^Approve quick plan/)); });
     expect(screen.getByRole('list', { name: 'How the job runs from the next step' })).toHaveTextContent('Level: L2 Standard (small flow)');
+  });
+});
+
+// Fix round 1 (final review A): the words kept in the card's boxes.
+describe('words kept in the card’s boxes', () => {
+  const kept = (brief: number, words: string, extra: Record<string, unknown> = {}) => writeStored(gateBoxKey('alpha'), JSON.stringify({ gate: `#${brief}`, brief, mode: 'changes', notes: { changes: words, message: '' }, ...extra }));
+
+  // M3: the mover reads the store when it runs, not the value it was drawn with.
+  it('the mover appends the words once, even when it runs twice for one change', () => {
+    kept(2, 'Use the small table.');
+    writeStored(draftKey('alpha'), 'Earlier.');
+    const j = job('alpha', 'needs-you');
+    const d = detail(null);
+    function Mover() { useKeptBoxWords(j, d); return null; }
+    render(<><Mover /><Mover /></>);
+    expect(localStorage.getItem(draftKey('alpha'))).toBe('Earlier.\n\nUse the small table.');
+    expect(localStorage.getItem(gateBoxKey('alpha'))).toBeNull();
   });
 });
