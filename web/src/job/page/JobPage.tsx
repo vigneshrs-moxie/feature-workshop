@@ -39,6 +39,7 @@ import { readStored, useStored, writeStored } from '../../lib/stored';
 import { useNow } from '../../lib/time';
 import { focusMessageBox } from '../../panes/Foreman/Composer';
 import { useCurrentJob, useJobConversation } from '../../panes/Foreman/ForemanPane';
+import { useKeptBoxWords } from '../../panes/Foreman/GateCard';
 import { jobBySlug } from '../../state/reducer';
 import { useWorkshopState } from '../../state/store';
 import { isRoundCard } from '../../views/Review/useReview';
@@ -89,6 +90,8 @@ function JobScreen({ job, step, view }: { job: Job; step: StopId | undefined; vi
   const conversation = useJobConversation(job);
   useCurrentJob(job, conversation);
   const sent = useSentShown(job, conversation);
+  // Words left in the card's boxes when its brief is answered or replaced go to the message box.
+  useKeptBoxWords(job, conversation.thread.detail ?? null);
   // A phone (760 px and under): its own simple screens, and nothing only the laptop uses runs.
   const narrow = useNarrow();
   if (narrow) return <PhoneJob job={job} conversation={conversation} now={now} step={step} view={view} sent={sent} />;

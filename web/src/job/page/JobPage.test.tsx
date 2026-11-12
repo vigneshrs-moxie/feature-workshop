@@ -982,6 +982,98 @@ describe('what the folded card says after a press', () => {
   });
 });
 
+// Final review A4: words typed in the card's boxes are kept per job and brief.
+describe('words typed in the card’s boxes', () => {
+  const MODES = [['the laptop app', false], ['the website', true]] as const;
+  const changesBox = () => screen.findByRole('textbox', { name: /What should change\?/ });
+  async function sendBackWith(words: string) {
+    const back = await screen.findByRole('button', { name: /^No go: send back/ });
+    await waitFor(() => expect(back).toBeEnabled());
+    fireEvent.click(back);
+    fireEvent.change(await changesBox(), { target: { value: words } });
+  }
+
+  it.each(MODES)('words typed in What should change? survive a refresh (%s)', async (_where, hosted) => {
+    setup({ jobs: waiting(), gate: GATE, hosted });
+    await sendBackWith('Use the small table.');
+    cleanup();
+    setup({ jobs: waiting(), gate: GATE, hosted });
+    expect(await changesBox()).toHaveValue('Use the small table.');
+    // Restored, it does not take the focus from the page.
+    expect(await changesBox()).not.toHaveFocus();
+  });
+
+  it.each(MODES)('when Auto answers while he types, his words move to the message box and the bar says so (%s)', async (_where, hosted) => {
+    const { store } = setup({ jobs: [AUTO_STATES[0][1]], gate: GATE, hosted, auto: { on: true, tag: null } });
+    fireEvent.change(messageBox(), { target: { value: 'Earlier words.' } });
+    await sendBackWith('Use the small table.');
+    // Auto approves brief 2: the job is fetched again with the brief answered.
+    server.answered = [2];
+    server.thread = [{ id: 'you-auto', kind: 'you', at: NOW, text: 'Approved.', sendKind: 'approve', gateBrief: 2, by: 'auto' } as ThreadItem];
+    act(() => { store.dispatch({ type: 'event', event: ev(300, 'thread', 'alpha', {}) }); });
+    await waitFor(() => expect(messageBox()).toHaveValue('Earlier words.\n\nUse the small table.'));
+    const said = screen.getByText('Brief 2 was answered while you were writing. Your words are in the message box.');
+    expect(said).toBeVisible();
+    expect(screen.queryByRole('textbox', { name: /What should change\?/ })).toBeNull();
+    // Once: a refresh does not move them again, and the line goes once he writes.
+    fireEvent.change(messageBox(), { target: { value: 'Earlier words.\n\nUse the small table. And the icon.' } });
+    await waitFor(() => expect(screen.queryByText(/was answered while you were writing/)).toBeNull());
+    cleanup();
+    setup({ jobs: [AUTO_STATES[0][1]], gate: GATE, hosted, auto: { on: true, tag: null } });
+    server.answered = [2];
+    await act(async () => {});
+    expect(messageBox()).toHaveValue('Earlier words.\n\nUse the small table. And the icon.');
+  });
+
+  it.each(MODES)('the line about words moved to the message box goes when he dismisses it (%s)', async (_where, hosted) => {
+    const { store } = setup({ jobs: waiting(), gate: GATE, hosted });
+    await sendBackWith('Use the small table.');
+    // A new brief replaces the card.
+    server.gate = { ...GATE, briefNumber: 3, headline: 'Plan v3 ready' };
+    act(() => { store.dispatch({ type: 'event', event: ev(300, 'thread', 'alpha', {}) }); });
+    await waitFor(() => expect(messageBox()).toHaveValue('Use the small table.'));
+    expect(screen.getByText('Brief 2 was answered while you were writing. Your words are in the message box.')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Got it' }));
+    expect(screen.queryByText(/was answered while you were writing/)).toBeNull();
+  });
+
+  it.each(MODES)('sent or cancelled words are not restored (%s)', async (_where, hosted) => {
+    // Cancelled.
+    setup({ jobs: waiting(), gate: GATE, hosted });
+    await sendBackWith('Use the small table.');
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    cleanup();
+    setup({ jobs: waiting(), gate: GATE, hosted });
+    await screen.findByRole('button', { name: /^Go: approve/ });
+    await act(async () => {});
+    expect(screen.queryByRole('textbox', { name: /What should change\?/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /^No go: send back/ }));
+    expect(await changesBox()).toHaveValue('');
+    cleanup();
+    localStorage.clear();
+    clearAllSent();
+    clearGateSent();
+    // Sent (a Reply: the brief stays open, so the card is drawn again).
+    const post = vi.fn(async (p: string): Promise<unknown> => (p === '/api/job/alpha/gate' ? { ok: true, sent: true, text: 'sent' } : { ok: true }));
+    setup({ jobs: waiting(), gate: GATE, hosted, post });
+    await screen.findByRole('button', { name: /^Go: approve/ });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Reply' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
+    fireEvent.change(await screen.findByRole('textbox', { name: /Your answers or a note/ }), { target: { value: 'What does the old column feed?' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send the reply' }));
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/api/job/alpha/gate', expect.objectContaining({ kind: 'message' })));
+    await waitFor(() => expect(screen.queryByRole('textbox', { name: /Your answers or a note/ })).toBeNull());
+    cleanup();
+    clearAllSent();
+    clearGateSent();
+    setup({ jobs: waiting(), gate: GATE, hosted });
+    await screen.findByRole('button', { name: /^Go: approve/ });
+    await act(async () => {});
+    expect(screen.queryByRole('textbox', { name: /Your answers or a note/ })).toBeNull();
+    expect(messageBox()).toHaveValue('');
+  });
+});
+
 describe('when the job’s details are slow, fail, or come from an older laptop', () => {
   it('the job’s details failing leaves the bar, the steps and the conversation in place', async () => {
     setup({ jobs: [working('plan')], fail: true });

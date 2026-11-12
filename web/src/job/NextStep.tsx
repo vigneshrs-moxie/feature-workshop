@@ -19,8 +19,9 @@ import { PermissionAlert } from '../components/permissions/PermissionAlert';
 import { stopOf } from '../components/stops/stops';
 import { laneOf } from '../home/JobsPage';
 import type { useJobConversation } from '../panes/Foreman/ForemanPane';
-import { focusMessageBox } from '../panes/Foreman/Composer';
-import { GateSlot, pressReply } from '../panes/Foreman/GateCard';
+import { draftKey, focusMessageBox } from '../panes/Foreman/Composer';
+import { GateSlot, gateMovedKey, movedWordsLine, pressReply, readMovedWords } from '../panes/Foreman/GateCard';
+import { useStored } from '../lib/stored';
 import { sessionOf, useGateSent, type GateSent } from '../panes/Foreman/gateSent';
 import { isActiveRun } from '../panes/Foreman/thread';
 import type { GateKind } from '../lib/compose';
@@ -84,7 +85,26 @@ export function NextStep({ job, conversation, now, onShip, onWatch, onWrite, fol
   const bar: ReactNode = alert || gate ? null
     : review.view ? <ReviewBar view={review.view} act={review.act} problem={review.problem} />
     : <StateBar job={job} now={now} checks={thread.detail?.page?.checks ?? null} onShip={onShip} onWatch={onWatch} onWrite={onWrite} hosted={Boolean(api.hosted?.())} after={after} />;
-  return <>{alert}{gate}{bar}{live}{problem}</>;
+  return <>{alert}{gate}{bar}<MovedWordsLine slug={job.slug} />{live}{problem}</>;
+}
+
+/**
+ * Once the card went with his words still in its boxes (the brief answered by Auto or elsewhere, or
+ * replaced): one line saying they are in the message box, until he writes there or puts it away.
+ */
+function MovedWordsLine({ slug }: { slug: string }) {
+  const [raw, setRaw] = useStored(gateMovedKey(slug));
+  const [draft] = useStored(draftKey(slug));
+  const moved = readMovedWords(raw);
+  const wrote = moved !== null && (draft ?? '') !== moved.draft;
+  useEffect(() => { if (wrote) setRaw(null); }, [wrote, setRaw]);
+  if (!moved || wrote) return null;
+  return (
+    <div className="gate-notice is-ok sb-moved-words" role="status">
+      <p className="gate-notice-text">{movedWordsLine(moved.brief)}</p>
+      <Button kind="quiet" onClick={() => setRaw(null)} title="Close this note.">Got it</Button>
+    </div>
+  );
 }
 
 type Conversation = ReturnType<typeof useJobConversation>;

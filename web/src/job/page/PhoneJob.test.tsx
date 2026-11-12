@@ -473,6 +473,21 @@ describe('the phone’s step screen', () => {
     expect(bar()).not.toHaveTextContent(/Say go/);
   });
 
+  // Final review A4: the card's words are kept across the phone's screens.
+  it.each([['the laptop app', false], ['the website', true]] as const)('words typed in What should change? survive the phone’s screens (%s)', async (_where, hosted) => {
+    setup({ jobs: [AUTO_OFF[1]], gate: GATE, hosted });
+    await threeCallsOn();
+    fireEvent.click(screen.getByRole('button', { name: /^No go: send back/ }));
+    fireEvent.change(await screen.findByRole('textbox', { name: /What should change\?/ }), { target: { value: 'Use the small table.' } });
+    // A step's screen, then the overview, then back to the job.
+    go('#/job/alpha/stage/spec');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Spec' })).toBeInTheDocument();
+    go('#/job/alpha/overview');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Overview' })).toBeInTheDocument();
+    go('#/job/alpha');
+    expect(await screen.findByRole('textbox', { name: /What should change\?/ })).toHaveValue('Use the small table.');
+  });
+
   it('after Go the chip reads Sent and the step’s row and screen read Approved', async () => {
     let n = 0;
     const sentPost = vi.fn(async (p: string, body?: unknown): Promise<unknown> => {
