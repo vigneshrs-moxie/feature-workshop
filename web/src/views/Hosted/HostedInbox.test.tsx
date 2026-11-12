@@ -3,7 +3,9 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApi } from '../../api/client';
-import type { InboxAnswer, InboxFilter, InboxItem, InboxLaptop, InboxStart, InboxSuggestion, OrbitStatus } from '../../api/types';
+import type { AutoQueue, AutoTicket, InboxAnswer, InboxFilter, InboxItem, InboxLaptop, InboxStart, InboxSuggestion, OrbitStatus } from '../../api/types';
+import { AUTO_PAUSED } from '../../home/autoTab';
+import { HOSTED_READ_MS } from '../Inbox';
 import { HostedApp } from './HostedApp';
 import { dayWords, savedWords } from './OrbitPage';
 import { parseHostedHash } from './route';
@@ -27,7 +29,7 @@ const ticket = (n: number, extra: Partial<InboxItem> = {}): InboxItem => ({
 const REPOS = [{ name: 'orbit', default: true }, { name: 'starbase', default: false }];
 const lap = (id: number, name: string, online: boolean): Laptop => ({ id, name, os: 'macOS', version: '0.1.0', pairedAt: ago(86_400_000 * 5), lastSeenAt: ago(online ? 5_000 : 3_600_000), online });
 
-interface Site { suggest?: InboxSuggestion | null; status: OrbitStatus; items: InboxItem[]; filter?: InboxFilter; laptops: Laptop[]; repos?: { name: string; default: boolean }[]; calls: { method: string; path: string; body?: Record<string, unknown> }[]; startFails?: string; /** What the laptop's settings (mirrored) say about Auto start. */ autoStart?: { on: boolean; tag: string; max?: number }; /** What the laptop mirrors after an Auto start change: what was sent (default), nothing yet (false), or something else. */ autoTakes?: false | { on: boolean; tag: string }; /** Start answers only once this settles. */ hold?: Promise<void>; /** The next Auto start command answers only once this settles (taken once). */ autoHold?: Promise<void> }
+interface Site { suggest?: InboxSuggestion | null; status: OrbitStatus; items: InboxItem[]; filter?: InboxFilter; laptops: Laptop[]; repos?: { name: string; default: boolean }[]; calls: { method: string; path: string; body?: Record<string, unknown> }[]; startFails?: string; /** What the laptop's settings (mirrored) say about Auto start. */ autoStart?: { on: boolean; tag: string; max?: number }; /** What the laptop mirrors after an Auto start change: what was sent (default), nothing yet (false), or something else. */ autoTakes?: false | { on: boolean; tag: string }; /** Start answers only once this settles. */ hold?: Promise<void>; /** The next Auto start command answers only once this settles (taken once). */ autoHold?: Promise<void>; /** The Auto queue in the laptop's snapshot; missing: an older laptop's snapshot, with none. */ queue?: AutoQueue }
 
 function site(over: Partial<Site> = {}) {
   const s: Site = { status: STATUS, items: [ticket(12), ticket(13, { severity: 'low' })], laptops: [lap(7, 'Olive’s Mac', true)], calls: [], ...over };
@@ -40,7 +42,7 @@ function site(over: Partial<Site> = {}) {
     s.calls.push({ method, path, body });
     if (path === '/api/meta') return json(200, { mode: 'hosted', person: OLIVE, signIn: '/api/auth/start', missing: [] });
     if (path === '/api/orbit/inbox' || path === '/api/orbit/inbox?refresh=1') return json(200, answer());
-    if (path === '/api/snapshot') return json(200, { meta: { settings: { workflow: { finishLine: 'pr1-merged', ...(s.autoStart ? { autoStart: s.autoStart } : {}) } } } });
+    if (path === '/api/snapshot') return json(200, { meta: { settings: { workflow: { finishLine: 'pr1-merged', ...(s.autoStart ? { autoStart: s.autoStart } : {}) } } }, ...(s.queue ? { autoQueue: s.queue } : {}) });
     if (path === '/api/orbit/auto-start' && method === 'POST') {
       const held = s.autoHold;
       if (held) { s.autoHold = undefined; await held; }
@@ -678,3 +680,108 @@ describe('Up to N jobs at a time on the website', () => {
   });
 });
 
+
+// Task 19: the site's Inbox has the laptop's Auto tab from the snapshot's queue, read again with
+// the ticket list, and its Mine line says when Auto start is paused, as on the laptop.
+describe('the Auto queue on the website', () => {
+  const at = (key: string, group: AutoTicket['group'], extra: Partial<AutoTicket> = {}): AutoTicket => ({ key, title: `Sample ticket ${key.slice(6)}`, group, slug: null, reason: null, ...extra });
+  const queue = (tickets: AutoTicket[], extra: Partial<AutoQueue> = {}): AutoQueue => ({ on: true, tag: 'auto', max: 5, working: 1, unfinished: 1, ceiling: 10, paused: null, testing: null, tickets, ...extra });
+  const items = [ticket(12, { tags: ['auto'] }), ticket(13, { tags: ['auto'] }), ticket(14, { tags: ['auto'] }), ticket(15, { tags: ['auto'] })];
+  const row = (key: string) => screen.getAllByRole('row').find((r) => r.getAttribute('data-ticket') === key)!;
+  const snapshots = (s: Site) => s.calls.filter((c) => c.path === '/api/snapshot').length;
+
+  it('the site\'s Inbox shows the Auto tab from the snapshot\'s queue', async () => {
+    const big = 'The Foreman thinks this ticket is big enough for a stack.';
+    const { api } = site({ items, queue: queue([at('ORBIT-13', 'next'), at('ORBIT-12', 'working', { slug: 'orbit-12-x' }), at('ORBIT-14', 'too-big', { slug: 'orbit-14-y', reason: big })]) });
+    render(<HostedApp api={api} />);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Auto' }));
+    expect(within(screen.getByRole('region', { name: 'Next up' })).getByText('ORBIT-13')).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Auto is working on these' })).getByRole('link', { name: 'Sample ticket 12' })).toHaveAttribute('href', '#/job/orbit-12-x');
+    const tooBig = screen.getByRole('region', { name: 'Too big for Auto' });
+    expect(within(tooBig).getByRole('link', { name: 'Sample ticket 14' })).toHaveAttribute('href', '#/job/orbit-14-y');
+    expect(tooBig).toHaveTextContent(big);
+    // Each group only when it has rows: no start failed here.
+    expect(screen.queryByRole('region', { name: 'Couldn’t start' })).toBeNull();
+    cleanup();
+    const all = site({ items, queue: queue([at('ORBIT-13', 'next'), at('ORBIT-12', 'working', { slug: 'orbit-12-x' }), at('ORBIT-14', 'too-big', { slug: 'orbit-14-y', reason: big }), at('ORBIT-15', 'failed', { reason: 'The laptop was off.' })]) });
+    render(<HostedApp api={all.api} />);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Auto' }));
+    expect([...document.querySelectorAll('.sb-inbox-auto-group')].map((g) => g.getAttribute('aria-label'))).toEqual(['Next up', 'Auto is working on these', 'Too big for Auto', 'Couldn’t start']);
+    expect(screen.getByRole('region', { name: 'Couldn’t start' })).toHaveTextContent('The laptop was off.');
+  });
+
+  it('no queue in the snapshot: no Auto tab', async () => {
+    const { s, api } = site({ items });
+    render(<HostedApp api={api} />);
+    await screen.findAllByRole('table');
+    await waitFor(() => expect(snapshots(s)).toBeGreaterThan(0));
+    await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+    expect(screen.getByRole('tab', { name: 'Mine' })).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Auto' })).toBeNull();
+  });
+
+  it('Mine marks a ticket Auto is working on', async () => {
+    const { api } = site({ items, queue: queue([at('ORBIT-12', 'working', { slug: 'orbit-12-x' }), at('ORBIT-13', 'next')]) });
+    render(<HostedApp api={api} />);
+    await screen.findAllByRole('table');
+    expect(await within(row('ORBIT-12')).findByText('Auto is working on this')).toBeInTheDocument();
+    expect(within(row('ORBIT-13')).queryByText('Auto is working on this')).toBeNull();
+  });
+
+  it('the Auto tab shows the paused line on the site', async () => {
+    const { api } = site({ items, queue: queue([at('ORBIT-13', 'next')], { paused: 'limit' }) });
+    render(<HostedApp api={api} />);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Auto' }));
+    expect(document.querySelector('.sb-inbox-auto .sb-auto-paused')).toHaveTextContent('Auto is paused: the usage limit is near');
+  });
+
+  it('the website\'s Mine line says Auto start is paused when the queue says so, in the laptop\'s words', async () => {
+    const { api } = site({ items, autoStart: { on: true, tag: 'auto' }, queue: queue([], { paused: 'orbit' }) });
+    render(<HostedApp api={api} />);
+    expect(await screen.findByText(AUTO_PAUSED.orbit)).toBeInTheDocument();
+    expect(screen.queryByText(/Auto start is on:/)).toBeNull();
+    cleanup();
+    const limit = site({ items, autoStart: { on: true, tag: 'auto' }, queue: queue([], { paused: 'limit' }) });
+    render(<HostedApp api={limit.api} />);
+    expect(await screen.findByText(AUTO_PAUSED.limit)).toBeInTheDocument();
+    cleanup();
+    // Not paused: the Auto start line, as before.
+    const on = site({ items, autoStart: { on: true, tag: 'auto' }, queue: queue([]) });
+    render(<HostedApp api={on.api} />);
+    expect(await screen.findByText('Auto start is on: tickets tagged "auto" start by themselves, up to 5 at a time.')).toBeInTheDocument();
+  });
+
+  it('the queue is read again when the ticket list refreshes', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const { s, api } = site({ items, queue: queue([at('ORBIT-12', 'next'), at('ORBIT-13', 'next')]) });
+      render(<HostedApp api={api} />);
+      await screen.findAllByRole('table');
+      await screen.findByRole('tab', { name: 'Auto' });
+      expect(within(row('ORBIT-12')).queryByText('Auto is working on this')).toBeNull();
+      // Auto starts ORBIT-12 on the laptop: the next tick of the list reads the queue too.
+      s.queue = queue([at('ORBIT-12', 'working', { slug: 'orbit-12-x' }), at('ORBIT-13', 'next')]);
+      await act(async () => { vi.advanceTimersByTime(HOSTED_READ_MS); });
+      expect(await within(row('ORBIT-12')).findByText('Auto is working on this')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('tab', { name: 'Auto' }));
+      expect(within(screen.getByRole('region', { name: 'Auto is working on these' })).getByRole('link', { name: 'Sample ticket 12' })).toHaveAttribute('href', '#/job/orbit-12-x');
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('Read now, and the page coming back into view, read the queue again', async () => {
+    const { s, api } = site({ items, queue: queue([at('ORBIT-12', 'next')]) });
+    render(<HostedApp api={api} />);
+    await screen.findByRole('tab', { name: 'Auto' });
+    s.queue = queue([at('ORBIT-12', 'working', { slug: 'orbit-12-x' })]);
+    fireEvent.click(screen.getByRole('button', { name: 'Read now' }));
+    expect(await within(row('ORBIT-12')).findByText('Auto is working on this')).toBeInTheDocument();
+    s.queue = queue([at('ORBIT-12', 'next')]);
+    const before = snapshots(s);
+    const shown = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+    try {
+      document.dispatchEvent(new Event('visibilitychange'));
+      await waitFor(() => expect(snapshots(s)).toBe(before + 1));
+      await waitFor(() => expect(within(row('ORBIT-12')).queryByText('Auto is working on this')).toBeNull());
+    } finally { shown.mockRestore(); }
+  });
+});

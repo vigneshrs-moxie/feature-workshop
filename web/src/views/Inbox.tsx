@@ -278,6 +278,8 @@ export interface HostedInbox {
   autoStart?: { on: boolean; tag: string; max?: number } | null;
   /** The Auto queue from the site's snapshot (null or missing: not known, so no Auto tab). */
   autoQueue?: AutoQueue | null;
+  /** Called each time the ticket list is read (its tick, Read now, after a Start or Cancel), so the page reads the queue with it. */
+  onRead?: () => void;
 }
 
 /** The hosted Inbox reads the site's list this often, and asks for a fresh read from Orbit every fourth time (once a minute). */
@@ -316,8 +318,12 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
   const [peek, setPeek] = usePeekAddress();
   const [refreshing, setRefreshing] = useState(false);
   const focused = useRef<InboxItem | null>(null);
+  // The site's queue is read with every read of the list, so it is never staler than the list.
+  const onRead = useRef(hosted?.onRead);
+  onRead.current = hosted?.onRead;
 
   const loadMine = useCallback(async (refresh = false) => {
+    onRead.current?.();
     try {
       const data = await api.get<InboxAnswer>(`/api/orbit/inbox${refresh ? '?refresh=1' : ''}`);
       setMine({ state: 'ready', data });
@@ -452,6 +458,9 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
 
   const auto = isHosted ? hosted?.autoStart ?? null : ready?.autoStart ?? null;
   const autoMax = typeof auto?.max === 'number' ? auto.max : AUTO_MAX.default;
+  // Why Auto start is paused: the laptop's Inbox answer says; on the site, the snapshot's queue. One we have no words for: not paused.
+  const paused = isHosted ? queue?.paused : ready?.autoStart?.paused;
+  const pausedWhy = paused && Object.hasOwn(AUTO_PAUSED, paused) ? paused : null;
   // Mine marks the tickets whose job Auto is working on (the server's group, never worked out here).
   const autoWorking = useMemo(() => new Set((queue?.tickets ?? []).filter((t) => t.group === 'working').map((t) => t.key)), [queue]);
   const todo = items.filter(toStart);
@@ -488,7 +497,7 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
           {hosted?.notice && <p className="field-problem" role="alert">{hosted.notice}</p>}
           {tab === 'mine' && auto?.on && auto.tag.trim() && (
             <p className="muted inbox-auto-line" role="status">
-              {isHosted || !ready?.autoStart?.paused ? autoStartLine(auto.tag.trim(), autoMax) : AUTO_PAUSED[ready.autoStart.paused]}
+              {pausedWhy ? AUTO_PAUSED[pausedWhy] : autoStartLine(auto.tag.trim(), autoMax)}
             </p>
           )}
           {tab === 'mine' && <p className="muted">{SCOPE_LINE}</p>}

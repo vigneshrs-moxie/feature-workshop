@@ -2,12 +2,26 @@
 // more than one. Each card says whether its laptop is online, in words with an icon (never colour
 // alone): an offline laptop's jobs show as they last were. Read every 15 seconds, and when the tab
 // comes back. Each card opens the job's own page (packet 2B), where you can decide.
-import { useCallback, useEffect, useRef, useState } from 'react';
+//
+// Yours and Auto (design section 10): the mirror pages' store runs on this page too (HostedApp), and
+// once the laptop's snapshot carries its Auto queue the page has the laptop's two tabs, each with
+// its count, the choice remembered as on the laptop (home/autoTab.ts). Yours is the list above
+// without the rows whose job the snapshot puts in one of Auto's groups (joined by slug: with the same
+// slug on two laptops the first row takes it); Auto is the laptop's Auto tab (home/AutoJobs.tsx) from
+// the snapshot, whose rows open the job's page here. The list never waits for the snapshot: until it
+// comes, if it fails, or from an older laptop with no queue, the page is the list alone, with no tabs.
+import { useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Button } from '../../components/Button';
 import { Icon } from '../../components/Icon';
 import { Hero, Page, type GuideSpec } from '../../components/page/Page';
+import { AutoJobs } from '../../home/AutoJobs';
+import { AUTO_GROUPS, autoGroups, inAuto, useJobsTab, type JobsTab } from '../../home/autoTab';
+import { TABS } from '../../home/JobsPage';
 import { relativeTime, useNow } from '../../lib/time';
 import { useDelayedFlag } from '../../lib/useDelayedFlag';
+import { usePlayIfAny } from '../../play/usePlay';
+import type { WorkshopState } from '../../state/reducer';
+import { WorkshopContext } from '../../state/store';
 import { isSignedOut, words, type HostedProps } from './shared';
 import type { LaptopJobs, MirroredJob } from './types';
 
@@ -63,9 +77,38 @@ function JobCard({ job, laptop, now }: { job: MirroredJob; laptop: LaptopJobs; n
 
 type Load = { state: 'loading' } | { state: 'ready'; laptops: LaptopJobs[] } | { state: 'error'; message: string };
 
+/** The laptop's tabs; on the site Yours has no layouts to choose from. */
+const SITE_TABS = TABS.map((t) => (t.id === 'yours' ? { ...t, title: 'The jobs you run yourself, from every laptop you paired.' } : t));
+
+const NO_STORE = () => () => {};
+const NOTHING = () => null;
+
+/** The mirror's state while the site's store runs above this page (HostedApp), else null. */
+function useMirror(): WorkshopState | null {
+  const w = useContext(WorkshopContext);
+  return useSyncExternalStore(w ? w.store.subscribe : NO_STORE, w ? w.store.getState : NOTHING, w ? w.store.getState : NOTHING);
+}
+
+/** Each laptop's rows without those Auto has (by slug); a slug on two laptops is taken once, from the first. */
+function withoutAuto(laptops: readonly LaptopJobs[], auto: ReadonlySet<string>): LaptopJobs[] {
+  const taken = new Set<string>();
+  return laptops.map((l) => ({
+    ...l,
+    jobs: l.jobs.filter((j) => {
+      if (!auto.has(j.slug) || taken.has(j.slug)) return true;
+      taken.add(j.slug);
+      return false;
+    }),
+  }));
+}
+
 export function HostedJobsPage({ api, onSignedOut }: HostedProps) {
   const [load, setLoad] = useState<Load>({ state: 'loading' });
   const now = useNow(30_000);
+  const mirror = useMirror();
+  const playState = usePlayIfAny();
+  const play: 'full' | 'subtle' | 'off' = playState?.full ? 'full' : playState?.on ? 'subtle' : 'off';
+  const [chosen, setTab] = useJobsTab();
   const slow = useDelayedFlag(load.state === 'loading');
   const alive = useRef(true);
   const read = useCallback(async () => {
@@ -87,10 +130,21 @@ export function HostedJobsPage({ api, onSignedOut }: HostedProps) {
     return () => { alive.current = false; clearInterval(t); document.removeEventListener('visibilitychange', onShow); };
   }, [read]);
 
+  // The tabs: only with the list shown and a snapshot that carries the Auto queue.
+  const queue = mirror?.status === 'ready' ? mirror.autoQueue : null;
+  const boardJobs = mirror?.jobs ?? [];
+  const tabs = Boolean(queue) && load.state === 'ready' && load.laptops.length > 0;
+  const tab: JobsTab = tabs ? chosen : 'yours';
+  const laptops = load.state !== 'ready' ? [] : tabs ? withoutAuto(load.laptops, new Set(boardJobs.filter(inAuto).map((j) => j.slug))) : load.laptops;
+  const yoursCount = laptops.reduce((n, l) => n + l.jobs.length, 0);
+  const byAuto = autoGroups(boardJobs);
+  const autoCount = AUTO_GROUPS.reduce((n, g) => n + byAuto[g].length, 0);
+
   const site = window.location.origin;
   let body;
   if (load.state === 'loading') body = slow ? <p className="muted" role="status">Loading your jobs…</p> : null;
   else if (load.state === 'error') body = <div role="alert"><p className="field-problem">Couldn’t load your jobs: {load.message}</p><Button onClick={() => void read()}>Try again</Button></div>;
+  else if (tab === 'auto') body = <AutoJobs jobs={boardJobs} queue={queue} now={now} play={play} />;
   else if (!load.laptops.length) {
     body = (
       <Hero icon="terminal" title="Pair a laptop to see your jobs here" actions={<Button href="#/settings/laptops" icon="settings" title="Settings → Laptops: the laptops paired with the site.">Your laptops</Button>}>
@@ -100,10 +154,10 @@ export function HostedJobsPage({ api, onSignedOut }: HostedProps) {
       </Hero>
     );
   } else {
-    const many = load.laptops.length > 1;
+    const many = laptops.length > 1;
     body = (
       <div className="hosted-laptops">
-        {load.laptops.map((l) => (
+        {laptops.map((l, i) => (
           <section key={l.id} className="hosted-laptop" aria-label={`Jobs on ${l.name}`} data-laptop={l.name}>
             <header className="hosted-laptop-head">
               <h3 className="hosted-laptop-name">{many ? l.name : `On ${l.name}`}</h3>
@@ -111,6 +165,8 @@ export function HostedJobsPage({ api, onSignedOut }: HostedProps) {
             </header>
             {l.jobs.length ? (
               <ul className="hosted-jobs">{l.jobs.map((j) => <JobCard key={j.id} job={j} laptop={l} now={now} />)}</ul>
+            ) : load.laptops[i].jobs.length ? (
+              <p className="muted hosted-empty">No jobs of yours on this laptop. Auto’s are under Auto. <LaptopState laptop={l} now={now} /></p>
             ) : (
               <p className="muted hosted-empty">No open jobs on this laptop. <LaptopState laptop={l} now={now} /></p>
             )}
@@ -120,7 +176,25 @@ export function HostedJobsPage({ api, onSignedOut }: HostedProps) {
     );
   }
   return (
-    <Page label="Jobs" title="Jobs" guide={GUIDE} head={<span className="page-note">From your laptops · only yours</span>}>
+    <Page
+      label="Jobs" title="Jobs" guide={GUIDE}
+      head={(
+        <>
+          {/* In the heading row, so the list below never moves when they come (on a phone, a row of their own). */}
+          {tabs && (
+            <div className="seg sb-jobs-tabs sb-hosted-jobs-tabs" role="tablist" aria-label="Jobs">
+              {SITE_TABS.map((t) => (
+                <button key={t.id} type="button" role="tab" className="tab seg-tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)} title={t.title}>
+                  <span className="seg-name">{t.name}</span>
+                  <span className="seg-count" aria-hidden="true">{t.id === 'auto' ? autoCount : yoursCount}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <span className="page-note">From your laptops · only yours</span>
+        </>
+      )}
+    >
       {body}
     </Page>
   );

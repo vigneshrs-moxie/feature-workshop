@@ -211,7 +211,7 @@ export function Cards({ jobs, now, play, stacks, reviews, onPeek, peeked }: { jo
 const t0 = (j: Job) => { const t = since(j); return t ? relativeTime(t, new Date()) : null; };
 
 /** The two tabs over the layouts (design section 2): his own jobs, and the ones Auto runs to PR #1. */
-const TABS: readonly { id: JobsTab; name: string; title: string }[] = [
+export const TABS: readonly { id: JobsTab; name: string; title: string }[] = [
   { id: 'yours', name: 'Yours', title: 'The jobs you run yourself, in the layout you chose.' },
   { id: 'auto', name: 'Auto', title: 'The jobs Auto runs to PR #1: working, needing you, and ready for you to try.' },
 ];

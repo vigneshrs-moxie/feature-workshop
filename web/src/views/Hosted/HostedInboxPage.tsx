@@ -53,16 +53,24 @@ export function HostedInboxPage({ api: given, onSignedOut }: HostedProps) {
   // Auto start's setting, from the laptop's settings the site mirrors: it marks the rows that start by themselves.
   const [autoStart, setAutoStart] = useState<AutoStartSetting | null>(null);
   // And the Auto queue the site's snapshot carries (the Inbox's Auto tab); none from an older laptop: no tab.
+  // Both are read with each read of the ticket list (the Inbox calls onRead: on open, its tick, Read
+  // now, after a Start or Cancel) and when the page comes back into view. Only the latest read counts.
   const [autoQueue, setAutoQueue] = useState<AutoQueue | null>(null);
-  useEffect(() => {
-    let live = true;
+  const reads = useRef(0);
+  const readQueue = useCallback(() => {
+    const n = ++reads.current;
     Promise.resolve(api.get<Pick<Snapshot, 'meta' | 'autoQueue'>>('/api/snapshot')).then((s) => {
-      if (!live) return;
+      if (n !== reads.current) return;
       setAutoStart(s?.meta?.settings?.workflow?.autoStart ?? null);
       setAutoQueue(s?.autoQueue ?? null);
     }).catch(() => {});
-    return () => { live = false; };
-  }, [api, version]);
+  }, [api]);
+  useEffect(() => {
+    const onShow = () => { if (document.visibilityState === 'visible') readQueue(); };
+    document.addEventListener('visibilitychange', onShow);
+    // Leaving the page: a read still out is not shown.
+    return () => { document.removeEventListener('visibilitychange', onShow); reads.current++; };
+  }, [readQueue]);
 
   const send = useCallback(async (item: InboxItem, choices: StartChoices) => {
     await api.post('/api/orbit/start', { key: item.key, ...choices });
@@ -100,7 +108,7 @@ export function HostedInboxPage({ api: given, onSignedOut }: HostedProps) {
 
   // Built once per form: a new object on every render would reset the repository the person picked.
   const startForm = useMemo(() => (form ? { laptops: form.laptops, onStart: (choices: StartChoices) => send(form.item, choices) } : null), [form, send]);
-  const hosted: HostedInbox = { settingsHref: ORBIT_SETTINGS_HREF, onStart: (i) => { void onStart(i); }, onCancel: (i) => { void onCancel(i); }, version, notice, sending, autoStart, autoQueue };
+  const hosted: HostedInbox = { settingsHref: ORBIT_SETTINGS_HREF, onStart: (i) => { void onStart(i); }, onCancel: (i) => { void onCancel(i); }, version, notice, sending, autoStart, autoQueue, onRead: readQueue };
   return (
     <WorkshopContext.Provider value={workshop}>
       <InboxView hosted={hosted} openStream={NO_STREAM} />

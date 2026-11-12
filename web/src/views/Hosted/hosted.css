@@ -54,6 +54,11 @@
 .hosted-job-foot { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); font-size: var(--text-xs); }
 .hosted-empty { margin: 0; }
 @media (max-width: 600px) { .hosted-jobs { grid-template-columns: minmax(0, 1fr); } }
+/* Yours and Auto: in the heading row; on a phone the full width, on a row of their own under the title. */
+@media (max-width: 760px) {
+  .page-head .sb-hosted-jobs-tabs { order: 1; display: flex; width: 100%; }
+  .sb-hosted-jobs-tabs .seg-tab { flex: 1; justify-content: center; }
+}
 
 /* Online or not: the words carry it; the icon's shape differs too (a dot, a dashed ring). */
 .hosted-online { display: inline-flex; align-items: center; gap: 4px; }
