@@ -21,7 +21,7 @@ import { clearAllSent } from '../lib/sentState';
 import { clearGateSent } from '../panes/Foreman/gateSent';
 import { AUTO_DECIDING_NOTE } from './autoLine';
 import { forHowLong, NextStep, useSentShown } from './NextStep';
-import { sentLine, SENT_WORDS } from './sentView';
+import { AT_WORK_WORDS, sentLine, SENT_WORDS } from './sentView';
 
 const NOW = new Date().toISOString();
 const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
@@ -333,14 +333,20 @@ describe('what the bar says after a send', () => {
     expect(bar().querySelector('.next-sub')).toHaveTextContent(/^Your go reached the Foreman\. Review starts next\. Auto carries on from Review\.$/);
   });
 
-  it('after the Foreman’s run starts the second line still names the answers and the next step', async () => {
-    const { store } = setup({ jobs: waiting(), gate: TWO_QUESTIONS, post: sentPost() });
-    await goWithTwoAnswers();
-    await within(bar()).findByText(SENT_WORDS);
-    expect(store.getState().runs.alpha).toEqual(expect.objectContaining({ status: 'running' }));
-    await act(async () => {});
-    expect(within(bar()).getByText(SENT_WORDS)).toBeInTheDocument();
-    expect(bar().querySelector('.next-sub')).toHaveTextContent(/^Your go and your two answers reached the Foreman\. Build starts next\.$/);
+  // Final review A6 (calls Minor 1): once the run it started works, the bar says so.
+  it('after the Foreman’s run starts the bar says the Foreman is at work on it, and the second line still names the answers and the next step', async () => {
+    for (const hosted of [false, true]) {
+      const { store } = setup({ jobs: waiting(), gate: TWO_QUESTIONS, post: sentPost(), hosted });
+      await goWithTwoAnswers();
+      await within(bar()).findByText(AT_WORK_WORDS);
+      expect(store.getState().runs.alpha).toEqual(expect.objectContaining({ status: 'running' }));
+      expect(within(bar()).queryByText(SENT_WORDS)).toBeNull();
+      expect(bar().querySelector('.next-sub')).toHaveTextContent(/^Your go and your two answers reached the Foreman\. Build starts next\.$/);
+      cleanup();
+      clearAllSent();
+      clearGateSent();
+      localStorage.clear();
+    }
   });
 
   it('after Reply the card stays open', async () => {
@@ -351,7 +357,7 @@ describe('what the bar says after a send', () => {
     fireEvent.click(reply);
     fireEvent.change(await screen.findByRole('textbox', { name: /Your answers or a note/ }), { target: { value: 'What does the old column feed?' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send the reply' }));
-    await within(bar()).findByText(SENT_WORDS);
+    await within(bar()).findByText(AT_WORK_WORDS);
     expect(bar().querySelector('.next-sub')).toHaveTextContent(/^Your reply reached the Foreman\. Nothing is approved, so the card stays open\.$/);
     expect(document.querySelector('.job-gate-body [data-gate="approve"]')).not.toBeNull();
   });
@@ -364,7 +370,7 @@ describe('what the bar says after a send', () => {
     fireEvent.click(back);
     fireEvent.change(await screen.findByRole('textbox', { name: /What should change\?/ }), { target: { value: 'Record line 4 again.' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send back' }));
-    await within(bar()).findByText(SENT_WORDS);
+    await within(bar()).findByText(AT_WORK_WORDS);
     expect(bar().querySelector('.next-sub')).toHaveTextContent(/^Sent back: the Foreman stays at Test and revises\. Nothing is approved\.$/);
   });
 
@@ -373,7 +379,7 @@ describe('what the bar says after a send', () => {
     const yourGo: ThreadItem = { id: 'you-1', kind: 'you', at: NOW, text: 'Approved, with two answers.', sendKind: 'approve', gateBrief: 2 } as ThreadItem;
     const { store } = setup({ jobs: waiting(), gate: TWO_QUESTIONS, answered: [2], thread: [yourGo] });
     act(() => { store.dispatch({ type: 'event', event: ev(20, 'run', 'alpha', { id: 'r_x', slug: 'alpha', status: 'running' }) }); });
-    await waitFor(() => expect(bar()).toHaveTextContent(SENT_WORDS));
+    await waitFor(() => expect(bar()).toHaveTextContent(AT_WORK_WORDS));
     expect(bar().querySelector('.next-sub')).toHaveTextContent(/^Your go reached the Foreman\.$/);
     expect(bar()).not.toHaveTextContent('answers');
     expect(bar()).not.toHaveTextContent('starts next');
@@ -386,17 +392,17 @@ describe('what the bar says after a send', () => {
     await waitFor(() => expect(go).toBeEnabled());
     expect(shownKind()).toBe('none');
     fireEvent.click(go);
-    await within(bar()).findByText(SENT_WORDS);
+    await within(bar()).findByText(AT_WORK_WORDS);
     expect(shownKind()).toBe('approve');
     // The run started: the send's own state has cleared, and the bar still says Sent.
     await act(async () => {});
-    expect(within(bar()).getByText(SENT_WORDS)).toBeInTheDocument();
+    expect(within(bar()).getByText(AT_WORK_WORDS)).toBeInTheDocument();
     expect(shownKind()).toBe('approve');
     // The job moves on to Build: the bar shows the next step.
     server.gate = null;
     act(() => { store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: waiting({ stage: 'implement', waitingFor: null, lane: 'working' }), meta: { token: 't', settings: { play: { mode: 'subtle' } } } as never }) }); });
     act(() => { store.dispatch({ type: 'event', event: ev(300, 'thread', 'alpha', {}) }); });
-    await waitFor(() => expect(bar()).not.toHaveTextContent(SENT_WORDS));
+    await waitFor(() => expect(bar()).not.toHaveTextContent(AT_WORK_WORDS));
     expect(shownKind()).toBe('none');
   });
 
@@ -603,6 +609,28 @@ describe('the open box’s send row', () => {
   });
 });
 
+// Final review A6 (calls Minor 7): on the website a Go queued for the laptop takes the pressed call
+// away; the focus goes to the decision's words, not the page.
+describe('a Go queued on the website', () => {
+  it('after Go is queued the focus is on the decision’s words', async () => {
+    const WORDS = 'Go: waiting for your laptop. It runs when the laptop is back.';
+    const post = vi.fn(async (p: string): Promise<unknown> => {
+      if (p !== '/api/job/alpha/gate') return { ok: true };
+      server.queued = { id: 'q1', kind: 'approve', state: 'waiting', words: WORDS, at: NOW, expiresAt: null, waiting: true, canCancel: true, permissionId: null };
+      return { ok: true, sent: false, held: true, queued: { id: 'q1', state: 'waiting' }, text: '', message: 'Go: waiting for your laptop.' };
+    });
+    setup({ jobs: waiting(), gate: GATE, hosted: true, post });
+    await gateShown();
+    const go = within(bar()).getByRole('button', { name: /^Go: / });
+    await waitFor(() => expect(go).toBeEnabled());
+    go.focus();
+    fireEvent.click(go);
+    await waitFor(() => expect(within(bar()).queryByRole('button', { name: /^Go: / })).toBeNull());
+    await waitFor(() => expect(document.activeElement).toHaveTextContent(WORDS));
+    expect(bar()).toContainElement(document.activeElement as HTMLElement);
+  });
+});
+
 // Task 7 fix round 1.
 describe('the bar: Auto’s go, the Foreman among the crew, and the small words', () => {
   const autoGo: ThreadItem = { id: 'you-auto', kind: 'you', at: NOW, text: 'Approved.', sendKind: 'approve', gateBrief: 2, by: 'auto' } as ThreadItem;
@@ -612,7 +640,7 @@ describe('the bar: Auto’s go, the Foreman among the crew, and the small words'
   it('a brief Auto approved is not said to be your go; one you approved still is after a reload', async () => {
     const { store } = setup({ jobs: waiting({ auto }), gate: GATE, answered: [2], thread: [autoGo] });
     act(() => { store.dispatch({ type: 'event', event: ev(20, 'run', 'alpha', { id: 'r_auto', slug: 'alpha', status: 'running' }) }); });
-    await waitFor(() => expect(bar()).toHaveTextContent('Sent by Auto. Waiting for the Foreman to start.'));
+    await waitFor(() => expect(bar()).toHaveTextContent('Sent by Auto. The Foreman is at work on it.'));
     expect(bar()).not.toHaveTextContent('Your go');
     expect(shownKind()).toBe('none');
     cleanup();
@@ -620,7 +648,7 @@ describe('the bar: Auto’s go, the Foreman among the crew, and the small words'
     act(() => { again.store.dispatch({ type: 'event', event: ev(20, 'run', 'alpha', { id: 'r_his', slug: 'alpha', status: 'running' }) }); });
     await waitFor(() => expect(bar().querySelector('.next-sub')).toHaveTextContent(/^Your go reached the Foreman\. Auto carries on from the next step\.$/));
     // Both lines: his go is the last answer, so the first line is his own sent line, not Auto's.
-    expect(bar().querySelector('.next-head')).toHaveTextContent(/^Sent\. Waiting for the Foreman to start\.$/);
+    expect(bar().querySelector('.next-head')).toHaveTextContent(/^Sent\. The Foreman is at work on it\.$/);
     expect(bar()).not.toHaveTextContent('Sent by Auto');
     expect(shownKind()).toBe('approve');
   });
@@ -771,12 +799,13 @@ describe('the sent line names the step that comes next, never the one you are at
     }
   });
 
+  // With the run it started at work (final review A6, calls Minor 1): "…The Foreman is at work on it."
   it('a brief Auto approved says Sent by Auto, and is never his', async () => {
     const autoGo = { id: 'you-auto', kind: 'you', at: NOW, text: 'Approved.', sendKind: 'approve', gateBrief: 2, by: 'auto' } as ThreadItem;
     const { store } = setup({ jobs: waiting({ auto: autoOn }), gate: GATE, answered: [2], thread: [autoGo] });
     act(() => { store.dispatch({ type: 'event', event: ev(20, 'run', 'alpha', { id: 'r_auto', slug: 'alpha', status: 'running' }) }); });
-    await waitFor(() => expect(bar().querySelector('.next-head')).toHaveTextContent(/^Sent by Auto\. Waiting for the Foreman to start\.$/));
-    expect(live()).toHaveTextContent('Sent by Auto. Waiting for the Foreman to start.');
+    await waitFor(() => expect(bar().querySelector('.next-head')).toHaveTextContent(/^Sent by Auto\. The Foreman is at work on it\.$/));
+    expect(live()).toHaveTextContent('Sent by Auto. The Foreman is at work on it.');
     expect(shownKind()).toBe('none');
   });
 });
@@ -909,6 +938,25 @@ describe('the brief folded under the bar (foldCard)', () => {
       fireEvent.click(within(document.querySelector<HTMLElement>('.job-gate-body .gate-note')!).getByRole('button', { name: 'Cancel' }));
       await waitFor(() => expect(row()).toBeEnabled());
       cleanup();
+    }
+  });
+
+  // Final review A6 (calls Minor 8): an answer he cannot see is never picked by a key.
+  it('the answer keys 1, 2 and 3 do nothing while the brief is folded', async () => {
+    for (const hosted of [false, true]) {
+      setDefaultDetail('simple');
+      setup({ jobs: waiting(), gate: TWO_QUESTIONS, foldCard: true, hosted });
+      await gateShown();
+      expect(row()).toHaveAttribute('aria-expanded', 'false');
+      const first = () => screen.getAllByRole('radio', { name: /Yes/, hidden: true })[0];
+      fireEvent.keyDown(document.body, { key: '1' });
+      await act(async () => {});
+      expect(first()).not.toBeChecked();
+      fireEvent.click(row());
+      fireEvent.keyDown(document.body, { key: '1' });
+      await waitFor(() => expect(first()).toBeChecked());
+      cleanup();
+      localStorage.clear();
     }
   });
 

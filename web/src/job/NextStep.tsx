@@ -259,7 +259,7 @@ function useAfterSend(job: Job, run: Run | null, reload: () => void, queuedId: s
     }
   }
   const waits = out === 'sent' || out === 'stuck' || (retrying && out === 'sending');
-  const lines = stateLines(decision, job);
+  const lines = stateLines(decision, job, isActiveRun(run));
   const words = lines?.words ?? STUCK_WORDS;
   const shown = !waits ? null : out === 'sent' ? 'sent' : 'stuck';
   const tryShown = out === 'stuck' || retrying;
@@ -330,6 +330,14 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, foldHere = fa
   const queuedOpen = isOpen(queued);
   const holds = go.holds || queuedOpen || needsLook(queued);
   const folded = folds && !cardShown && !boxHolds && !holds;
+  // A Go queued on the website takes the pressed call away: the focus goes to the decision's words
+  // on the bar, when it would otherwise be lost.
+  const queuedRef = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (!queuedOpen) return;
+    const at = document.activeElement;
+    if (!at || at === document.body || !at.isConnected) queuedRef.current?.focus();
+  }, [queuedOpen, queued?.id]);
   useLayoutEffect(() => {
     const el = body.current;
     if (!el) return;
@@ -379,7 +387,7 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, foldHere = fa
         tone={stopped ? 'stop' : 'go'}
         icon={stopped ? 'hand' : 'clipboard'}
         label={call && !waits ? 'Go / no go' : null}
-        say={waits ? sentSay : queuedOpen ? queued.words : stopped ?? (gate?.headline || (typeof job.headline === 'string' && job.headline) || 'The Foreman waits for your go-ahead')}
+        say={waits ? sentSay : queuedOpen ? <span ref={queuedRef} tabIndex={-1}>{queued.words}</span> : stopped ?? (gate?.headline || (typeof job.headline === 'string' && job.headline) || 'The Foreman waits for your go-ahead')}
         sub={waits ? (sent?.more ?? after.more) : queuedOpen ? null : stopped ? AUTO_STOPPED_SUB : autoLaneReason(job) ?? (gate?.nextProposed ? `Say go and the Foreman goes ahead: ${gate.nextProposed}` : job.laneReason)}
       >
         {/* Try again: the send itself is stuck, or the answered brief has stalled with no run at work. */}
@@ -419,7 +427,8 @@ function GoBar({ job, detail, now, reload, call, foldCard = false, foldHere = fa
         </button>
       )}
       <div ref={body} className="job-gate-body" hidden={folded}>
-        <GateSlot job={job} detail={detail} now={now} reload={reload} callsOutside onOpenBox={() => { if (folded) setCardShown(true); }} onWrite={onWrite} evidence={evidence} keysOff={hidden} />
+        {/* Folded, the card's answer keys rest: no key picks an answer he cannot see. */}
+        <GateSlot job={job} detail={detail} now={now} reload={reload} callsOutside answerKeysOff={folded} onOpenBox={() => { if (folded) setCardShown(true); }} onWrite={onWrite} evidence={evidence} keysOff={hidden} />
       </div>
     </div>
   );

@@ -2,7 +2,8 @@
 // bar and the Desk's card read the same rule, so they say the same lines.
 //   sending   the pressed call spins (the places draw that themselves)
 //   sent      "Sent. Waiting for the Foreman to start." and a second line by what was sent (sentLine:
-//             the answers and the next step for a Go, the step a send back stays at)
+//             the answers and the next step for a Go, the step a send back stays at); once a run
+//             is at work, "Sent. The Foreman is at work on it." (Auto's: "Sent by Auto. …")
 //   stuck     "Nothing has moved yet." (Try again, where the place has one)
 //   answered  the brief is answered (the job's detail says so, or the server took a deciding answer
 //             to this brief) or the run his reply started is at work: the sent lines, no calls. A
@@ -26,6 +27,9 @@ import { isActiveRun } from '../panes/Foreman/thread';
 export const SENT_WORDS = 'Sent. Waiting for the Foreman to start.';
 /** The same, on a brief Auto answered (the thread says Auto sent it), so it never reads as his. */
 export const AUTO_SENT_WORDS = 'Sent by Auto. Waiting for the Foreman to start.';
+/** Once the run it started works (final review A6, calls Minor 1): his, and Auto's. */
+export const AT_WORK_WORDS = 'Sent. The Foreman is at work on it.';
+export const AUTO_AT_WORK_WORDS = 'Sent by Auto. The Foreman is at work on it.';
 export const STUCK_WORDS = 'Nothing has moved yet.';
 /** The words the gate card already uses for a reply held until the limit resets (GateCard.tsx). */
 export const HELD_WORDS = 'Held until Claude’s usage limit resets.';
@@ -111,8 +115,8 @@ export function autoAnswered(detail: JobDetail | null | undefined, decision: Pic
 export interface SentLines { words: string; more: string | null }
 
 /** From the send's own state: sent (until the job moves) or stuck. */
-export function stateLines(decision: Pick<GateSent, 'state' | 'kind' | 'accepted'>, job: SentJob): SentLines | null {
-  if (decision.state === 'sent') return { words: SENT_WORDS, more: decision.kind ? moreFor(decision.kind, decision.accepted, job) : null };
+export function stateLines(decision: Pick<GateSent, 'state' | 'kind' | 'accepted'>, job: SentJob, working = false): SentLines | null {
+  if (decision.state === 'sent') return { words: working ? AT_WORK_WORDS : SENT_WORDS, more: decision.kind ? moreFor(decision.kind, decision.accepted, job) : null };
   if (decision.state === 'stuck') return { words: STUCK_WORDS, more: null };
   return null;
 }
@@ -136,7 +140,9 @@ export function sentView(job: SentJob, detail: JobDetail | null | undefined, run
   // This page's own answer names what it kept; after a reload the thread still gives its kind.
   const kept = a && (thisGate || replying) ? a : null;
   const kind = kept?.kind ?? answeredKind(detail, decision);
-  return { words: !kept && autoAnswered(detail, decision) ? AUTO_SENT_WORDS : SENT_WORDS, more: kind ? moreFor(kind, kept, job) : null };
+  const auto = !kept && autoAnswered(detail, decision);
+  const working = isActiveRun(run);
+  return { words: auto ? (working ? AUTO_AT_WORK_WORDS : AUTO_SENT_WORDS) : working ? AT_WORK_WORDS : SENT_WORDS, more: kind ? moreFor(kind, kept, job) : null };
 }
 
 /** A stalled answered brief with no decision on this page to send again (M2: the box is not always below). */
@@ -216,7 +222,7 @@ export function useSentView(job: Job, detail: JobDetail | null | undefined, run:
 /** What a place shows after a send: its own state first, then what the job says. */
 export function useWaitingLines(job: Job, detail: JobDetail | null | undefined, run: Run | null, decision: GateSent, reload?: () => void): SentShown | null {
   const shown = useSentView(job, detail, run, decision, reload);
-  const own = stateLines(decision, job);
+  const own = stateLines(decision, job, isActiveRun(run));
   return own ? { ...own, canRetry: false } : shown;
 }
 

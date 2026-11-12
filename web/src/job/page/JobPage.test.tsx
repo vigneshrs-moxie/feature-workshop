@@ -431,7 +431,7 @@ describe('the bar on every step', () => {
 
     setup({ jobs: waiting(), gate: GATE, post: sentPost });
     fireEvent.click(await screen.findByRole('button', { name: /^Go: approve/ }));
-    await within(bar()).findByText('Sent. Waiting for the Foreman to start.');
+    await within(bar()).findByText('Sent. The Foreman is at work on it.');
     await waitFor(() => expect(chip()).toHaveTextContent('Sent'));
     expect(tabOf('plan')).toHaveAccessibleName(/^Plan: Approved/);
     expect(panelChip()).toHaveTextContent('Approved');
@@ -444,7 +444,7 @@ describe('the bar on every step', () => {
     fireEvent.click(await screen.findByRole('button', { name: /^No go: send back/ }));
     fireEvent.change(await screen.findByRole('textbox', { name: /What should change\?/ }), { target: { value: 'Use the small table.' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send back' }));
-    await within(bar()).findByText('Sent. Waiting for the Foreman to start.');
+    await within(bar()).findByText('Sent. The Foreman is at work on it.');
     await waitFor(() => expect(chip()).toHaveTextContent('Sent'));
     expect(tabOf('plan')).toHaveAccessibleName(/^Plan: Waiting for you/);
     expect(panelChip()).toHaveTextContent('Waiting for you');
@@ -1521,6 +1521,8 @@ describe('the go / no go bar', () => {
 describe('after a click on the go / no go bar', () => {
   const waiting = (extra = {}) => [job('alpha', 'needs-you', { stage: 'plan', lane: 'needs-you', waitingFor: 'approval', headline: 'The plan is ready. Start building?', ...extra })];
   const SENT_LINE = 'Sent. Waiting for the Foreman to start.';
+  /** Once the run it started works (final review A6, calls Minor 1). */
+  const AT_WORK_LINE = 'Sent. The Foreman is at work on it.';
   /** A POST to the gate that answers only when told to. */
   function held() {
     let answer: (v: unknown) => void = () => {};
@@ -1652,7 +1654,7 @@ describe('after a click on the go / no go bar', () => {
     const post = sentPost({ answers: false });
     setup({ jobs: waiting(), gate: GATE, post });
     fireEvent.click(await screen.findByRole('button', { name: /^Go: approve/ }));
-    await within(bar()).findByText(SENT_LINE);
+    await within(bar()).findByText(AT_WORK_LINE);
     await act(async () => {});
     expect(document.querySelector('[data-gate="approve"]')).not.toBeNull();
     fireEvent.keyDown(document.body, { key: 'a' });
@@ -1665,7 +1667,7 @@ describe('after a click on the go / no go bar', () => {
     setup({ jobs: waiting(), gate: GATE, post });
     const go = await screen.findByRole('button', { name: /^Go: approve/ });
     fireEvent.click(go);
-    await within(bar()).findByText(SENT_LINE);
+    await within(bar()).findByText(AT_WORK_LINE);
     // The calls are gone from the bar; a second click or the a key sends nothing.
     expect(calls()).toHaveLength(0);
     fireEvent.click(go);
@@ -1674,11 +1676,11 @@ describe('after a click on the go / no go bar', () => {
     expect(gatePosts(post)).toHaveLength(1);
   });
 
-  it('after the server accepts, the bar says "Sent. Waiting for the Foreman to start."', async () => {
+  it('after the server accepts, the bar says it was sent and the Foreman is at work on it', async () => {
     setup({ jobs: waiting(), gate: GATE, post: sentPost() });
     fireEvent.click(await screen.findByRole('button', { name: /^Go: approve/ }));
-    expect(await within(bar()).findByText(SENT_LINE)).toBeInTheDocument();
-    expect(live()).toHaveTextContent(SENT_LINE);
+    expect(await within(bar()).findByText(AT_WORK_LINE)).toBeInTheDocument();
+    expect(live()).toHaveTextContent(AT_WORK_LINE);
     // The calls are gone: nothing spins and nothing can be pressed again.
     expect(calls()).toHaveLength(0);
   });
@@ -1839,12 +1841,12 @@ describe('after a click on the go / no go bar', () => {
     await answer();
   });
 
-  it('after the server accepts a send back, the bar says "Sent. Waiting for the Foreman to start."', async () => {
+  it('after the server accepts a send back, the bar says it was sent and the Foreman is at work on it', async () => {
     setup({ jobs: waiting(), gate: GATE, post: sentPost() });
     fireEvent.click(await sendBack());
-    expect(await within(bar()).findByText(SENT_LINE)).toBeInTheDocument();
+    expect(await within(bar()).findByText(AT_WORK_LINE)).toBeInTheDocument();
     expect(bar()).toHaveTextContent('Sent back: the Foreman stays at Plan and revises. Nothing is approved.');
-    expect(live()).toHaveTextContent(`${SENT_LINE} Sent back: the Foreman stays at Plan and revises. Nothing is approved.`);
+    expect(live()).toHaveTextContent(`${AT_WORK_LINE} Sent back: the Foreman stays at Plan and revises. Nothing is approved.`);
   });
 
   it('after the server accepts a reply, the bar says nothing is approved', async () => {
@@ -1853,9 +1855,9 @@ describe('after a click on the go / no go bar', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
     fireEvent.change(await screen.findByRole('textbox', { name: /Your answers or a note/ }), { target: { value: 'A note.' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send the reply' }));
-    expect(await within(bar()).findByText(SENT_LINE)).toBeInTheDocument();
+    expect(await within(bar()).findByText(AT_WORK_LINE)).toBeInTheDocument();
     expect(bar()).toHaveTextContent('Your reply reached the Foreman. Nothing is approved, so the card stays open.');
-    expect(live()).toHaveTextContent(`${SENT_LINE} Your reply reached the Foreman. Nothing is approved, so the card stays open.`);
+    expect(live()).toHaveTextContent(`${AT_WORK_LINE} Your reply reached the Foreman. Nothing is approved, so the card stays open.`);
   });
 
   it('after the Foreman answers a reply, Reply, Go and Send back can be pressed again', async () => {
@@ -1864,7 +1866,7 @@ describe('after a click on the go / no go bar', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
     fireEvent.change(await screen.findByRole('textbox', { name: /Your answers or a note/ }), { target: { value: 'A note.' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send the reply' }));
-    await within(bar()).findByText(SENT_LINE);
+    await within(bar()).findByText(AT_WORK_LINE);
     // The Foreman picks the message up (the run the reply started): the bar keeps its words, no calls.
     expect(store.getState().runs.alpha).toEqual(expect.objectContaining({ id: 'r_sent_1', status: 'running' }));
     expect(bar()).toHaveTextContent('Your reply reached the Foreman. Nothing is approved, so the card stays open.');
@@ -1927,11 +1929,11 @@ describe('after a click on the go / no go bar', () => {
     const go = await screen.findByRole('button', { name: /^Go: approve/ });
     const watch = watchBar();
     fireEvent.click(go);
-    await within(bar()).findByText(SENT_LINE);
+    await within(bar()).findByText(AT_WORK_LINE);
     expect(store.getState().runs.alpha).toEqual(expect.objectContaining({ status: 'running' }));
     await act(async () => {});
-    expect(within(bar()).getByText(SENT_LINE)).toBeInTheDocument();
-    expect(live()).toHaveTextContent(SENT_LINE);
+    expect(within(bar()).getByText(AT_WORK_LINE)).toBeInTheDocument();
+    expect(live()).toHaveTextContent(AT_WORK_LINE);
     expect(calls()).toHaveLength(0);
     expect(bar()).toHaveTextContent('Your go reached the Foreman. Build starts next.');
     expect(bar()).not.toHaveTextContent('Nothing is approved');
@@ -1946,10 +1948,10 @@ describe('after a click on the go / no go bar', () => {
     const send = await sendBack();
     const watch = watchBar();
     fireEvent.click(send);
-    await within(bar()).findByText(SENT_LINE);
+    await within(bar()).findByText(AT_WORK_LINE);
     expect(store.getState().runs.alpha).toEqual(expect.objectContaining({ status: 'running' }));
     await act(async () => {});
-    expect(within(bar()).getByText(SENT_LINE)).toBeInTheDocument();
+    expect(within(bar()).getByText(AT_WORK_LINE)).toBeInTheDocument();
     expect(bar()).toHaveTextContent('Sent back: the Foreman stays at Plan and revises. Nothing is approved.');
     expect(calls()).toHaveLength(0);
     expect(watch.stop().comeBack).toEqual([]);
@@ -1962,10 +1964,10 @@ describe('after a click on the go / no go bar', () => {
     fireEvent.change(await screen.findByRole('textbox', { name: /Your answers or a note/ }), { target: { value: 'A note.' } });
     const watch = watchBar();
     fireEvent.click(screen.getByRole('button', { name: 'Send the reply' }));
-    await within(bar()).findByText(SENT_LINE);
+    await within(bar()).findByText(AT_WORK_LINE);
     expect(store.getState().runs.alpha).toEqual(expect.objectContaining({ status: 'running' }));
     await act(async () => {});
-    expect(within(bar()).getByText(SENT_LINE)).toBeInTheDocument();
+    expect(within(bar()).getByText(AT_WORK_LINE)).toBeInTheDocument();
     expect(bar()).toHaveTextContent('Your reply reached the Foreman. Nothing is approved, so the card stays open.');
     expect(calls()).toHaveLength(0);
     expect(watch.stop().comeBack).toEqual([]);
@@ -1978,7 +1980,7 @@ describe('after a click on the go / no go bar', () => {
     act(() => { store.dispatch({ type: 'event', event: ev(20, 'run', 'alpha', { id: 'r_x', slug: 'alpha', status: 'running' }) }); });
     act(() => { store.dispatch({ type: 'event', event: ev(21, 'thread', 'alpha', {}) }); });
     // The bar is drawn again once the job is fetched: look it up each time.
-    await waitFor(() => expect(bar()).toHaveTextContent(SENT_LINE));
+    await waitFor(() => expect(bar()).toHaveTextContent(AT_WORK_LINE));
     expect(calls()).toHaveLength(0);
     expect(within(bar()).queryByRole('button', { name: 'Try again' })).toBeNull();
     expect(bar()).not.toHaveTextContent('Say go and the Foreman goes ahead');
@@ -1990,10 +1992,11 @@ describe('after a click on the go / no go bar', () => {
     const post = sentPost();
     const { store } = setup({ jobs: waiting(), gate: GATE, post });
     fireEvent.click(await screen.findByRole('button', { name: /^Go: approve/ }));
-    await within(bar()).findByText(SENT_LINE);
+    await within(bar()).findByText(AT_WORK_LINE);
     // The run ends; the brief is still the answered one and nothing new starts.
     act(() => { store.dispatch({ type: 'event', event: ev(200, 'run', 'alpha', { id: 'r_sent_1', slug: 'alpha', status: 'done', endedAt: new Date().toISOString() }) }); });
     act(() => { vi.advanceTimersByTime(29_000); });
+    // The run is over: the line waits for the Foreman again.
     expect(bar()).toHaveTextContent(SENT_LINE);
     expect(within(bar()).queryByRole('button', { name: 'Try again' })).toBeNull();
     act(() => { vi.advanceTimersByTime(2_000); });
@@ -2033,7 +2036,7 @@ describe('after a click on the go / no go bar', () => {
     const post = sentPost();
     const { store } = setup({ jobs: waiting(), gate: GATE, post, drive: { sessionId: 's1', model: 'claude-opus-5-5' } });
     fireEvent.click(await screen.findByRole('button', { name: /^Go: approve/ }));
-    await waitFor(() => expect(bar()).toHaveTextContent(SENT_LINE));
+    await waitFor(() => expect(bar()).toHaveTextContent(AT_WORK_LINE));
     // Started again: a new Foreman session, the same brief number open again, nothing answered.
     server.answered = [];
     server.drive = { sessionId: 's2', model: 'claude-fable-5-2' };
@@ -2041,7 +2044,7 @@ describe('after a click on the go / no go bar', () => {
     act(() => { store.dispatch({ type: 'event', event: ev(201, 'thread', 'alpha', {}) }); });
     const go = await screen.findByRole('button', { name: /^Go: approve/ });
     await waitFor(() => expect(go).toBeEnabled());
-    expect(bar()).not.toHaveTextContent(SENT_LINE);
+    expect(bar()).not.toHaveTextContent(AT_WORK_LINE);
     fireEvent.click(go);
     await waitFor(() => expect(gatePosts(post)).toHaveLength(2));
   });
@@ -2055,7 +2058,7 @@ describe('after a click on the go / no go bar', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
     fireEvent.change(await screen.findByRole('textbox', { name: /Your answers or a note/ }), { target: { value: 'A note.' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send the reply' }));
-    await waitFor(() => expect(bar()).toHaveTextContent(SENT_LINE));
+    await waitFor(() => expect(bar()).toHaveTextContent(AT_WORK_LINE));
     // Another page decided the brief; the reply's run ends and nothing new comes.
     server.answered.push(2);
     act(() => { store.dispatch({ type: 'event', event: ev(200, 'run', 'alpha', { id: 'r_sent_1', slug: 'alpha', status: 'done', endedAt: new Date().toISOString() }) }); });
@@ -2097,7 +2100,7 @@ describe('after a click on the go / no go bar', () => {
     const post = sentPost();
     const { store } = setup({ jobs: waiting(), gate: GATE, post });
     fireEvent.click(await screen.findByRole('button', { name: /^Go: approve/ }));
-    await waitFor(() => expect(bar()).toHaveTextContent(SENT_LINE));
+    await waitFor(() => expect(bar()).toHaveTextContent(AT_WORK_LINE));
     // The run ends; what the page reads then still shows brief 2 answered (the server's list lags).
     act(() => { store.dispatch({ type: 'event', event: ev(200, 'run', 'alpha', { id: 'r_sent_1', slug: 'alpha', status: 'done', endedAt: new Date().toISOString() }) }); });
     await act(async () => {});
@@ -2128,12 +2131,12 @@ describe('after a click on the go / no go bar', () => {
     const go = await screen.findByRole('button', { name: /^Go: approve/ });
     const watch = watchBar();
     fireEvent.click(go);
-    await waitFor(() => expect(bar()).toHaveTextContent(SENT_LINE));
+    await waitFor(() => expect(bar()).toHaveTextContent(AT_WORK_LINE));
     expect(store.getState().runs.alpha).toEqual(expect.objectContaining({ status: 'running' }));
     // The job is fetched again (a thread event): its gate still has the same words and no number.
     act(() => { store.dispatch({ type: 'event', event: ev(300, 'thread', 'alpha', {}) }); });
     await act(async () => {});
-    expect(bar()).toHaveTextContent(SENT_LINE);
+    expect(bar()).toHaveTextContent(AT_WORK_LINE);
     expect(calls()).toHaveLength(0);
     expect(watch.stop().comeBack).toEqual([]);
   });
@@ -2143,7 +2146,7 @@ describe('after a click on the go / no go bar', () => {
     const { store } = setup({ jobs: waiting(), gate: UNNUMBERED, post });
     const go = await screen.findByRole('button', { name: /^Go: approve/ });
     fireEvent.click(go);
-    await waitFor(() => expect(bar()).toHaveTextContent(SENT_LINE));
+    await waitFor(() => expect(bar()).toHaveTextContent(AT_WORK_LINE));
     act(() => { store.dispatch({ type: 'event', event: ev(300, 'thread', 'alpha', {}) }); });
     await act(async () => {});
     fireEvent.click(go);
@@ -2157,7 +2160,7 @@ describe('after a click on the go / no go bar', () => {
   it('no brief number: once the gate’s words change, it asks again', async () => {
     const { store } = setup({ jobs: waiting(), gate: UNNUMBERED, post: sentPost() });
     fireEvent.click(await screen.findByRole('button', { name: /^Go: approve/ }));
-    await waitFor(() => expect(bar()).toHaveTextContent(SENT_LINE));
+    await waitFor(() => expect(bar()).toHaveTextContent(AT_WORK_LINE));
     act(() => { store.dispatch({ type: 'event', event: ev(200, 'run', 'alpha', { id: 'r_sent_1', slug: 'alpha', status: 'done', endedAt: new Date().toISOString() }) }); });
     server.gate = { ...UNNUMBERED, headline: 'Build done', nextProposed: 'Run the tests' } as Gate;
     act(() => { store.dispatch({ type: 'event', event: ev(301, 'thread', 'alpha', {}) }); });

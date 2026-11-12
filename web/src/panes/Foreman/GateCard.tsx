@@ -147,7 +147,7 @@ export function pressReply(root: Element | null | undefined) {
  * `onWrite`: the page's own way to its message box, for a decision handed to it (the job page shows
  * the box first when it is out of sight); left out, the cursor goes to the box on the page.
  */
-export function GateSlot({ job, detail, now, reload, callsOutside = false, extrasTo = null, onOpenBox, onWrite, evidence, keysOff = false }: { job: Job; detail: JobDetail; now: Date; reload(): void; callsOutside?: boolean; /** The page opens a folded card before a key opens its box. */ onOpenBox?(): void; onWrite?(): void; /** The Desk's Details sheet (packet R): Adjust the next step and How this works are drawn there instead. */ extrasTo?: HTMLElement | null; evidence?: EvidenceView | null; keysOff?: boolean }) {
+export function GateSlot({ job, detail, now, reload, callsOutside = false, extrasTo = null, onOpenBox, onWrite, evidence, keysOff = false, answerKeysOff = false }: { job: Job; detail: JobDetail; now: Date; reload(): void; callsOutside?: boolean; /** The page opens a folded card before a key opens its box. */ onOpenBox?(): void; onWrite?(): void; /** The card is folded: 1, 2 and 3 never pick an answer he cannot see. */ answerKeysOff?: boolean; /** The Desk's Details sheet (packet R): Adjust the next step and How this works are drawn there instead. */ extrasTo?: HTMLElement | null; evidence?: EvidenceView | null; keysOff?: boolean }) {
   const { runs } = useWorkshopState();
   const [notice, setNotice] = useState<GateNotice | null>(null);
   const [memoRaw, setMemo] = useStored(gateDraftKey(job.slug));
@@ -205,7 +205,7 @@ export function GateSlot({ job, detail, now, reload, callsOutside = false, extra
           </div>
         </section>
       ) : (
-        <GateCard key={`${job.slug}#${gate.briefNumber ?? '-'}`} job={job} detail={detail} gate={gate} now={now} reload={reload} report={setNotice} running={running} callsOutside={callsOutside} extrasTo={extrasTo} onOpenBox={onOpenBox} evidence={evidence} keysOff={keysOff} />
+        <GateCard key={`${job.slug}#${gate.briefNumber ?? '-'}`} job={job} detail={detail} gate={gate} now={now} reload={reload} report={setNotice} running={running} callsOutside={callsOutside} extrasTo={extrasTo} onOpenBox={onOpenBox} evidence={evidence} keysOff={keysOff} answerKeysOff={answerKeysOff} />
       ))}
     </>
   );
@@ -278,9 +278,9 @@ export function useKeptBoxWords(job: Job, detail: JobDetail | null) {
   }, [raw, detail, closed, slug]);
 }
 
-function GateCard({ job, detail, gate, now, reload, report, running, callsOutside = false, extrasTo = null, onOpenBox, evidence, keysOff = false }: {
+function GateCard({ job, detail, gate, now, reload, report, running, callsOutside = false, extrasTo = null, onOpenBox, evidence, keysOff = false, answerKeysOff = false }: {
   job: Job; detail: JobDetail; gate: Gate; now: Date; reload(): void; report(n: GateNotice): void; callsOutside?: boolean; extrasTo?: HTMLElement | null; onOpenBox?(): void;
-  evidence?: EvidenceView | null; keysOff?: boolean;
+  evidence?: EvidenceView | null; keysOff?: boolean; answerKeysOff?: boolean;
   /** The Foreman is working on a reply for this job right now. */
   running: boolean;
 }) {
@@ -394,6 +394,9 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   // What Auto decided on this job, in Copy decisions' words (only on a job Auto ran on; none from an older Starbase).
   const autoDecided = Array.isArray(detail.auto?.decided) ? detail.auto.decided.filter((l): l is string => typeof l === 'string' && l !== '') : [];
   const [autoOpen, setAutoOpen] = useState(false);
+  // Pick a level first opens the page's level chip: offered only where the page has one (not the phone).
+  const [chipHere, setChipHere] = useState(false);
+  useEffect(() => { setChipHere(document.querySelector('.level-chip') !== null); });
 
   // The ⋯ menu: closes on Escape (focus back on ⋯) or a click elsewhere.
   useEffect(() => {
@@ -588,6 +591,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
     'gate-revise': () => { onOpenBox?.(); openMode('changes'); },
     'gate-guidance': () => { onOpenBox?.(); openMode('message'); },
     'gate-answer': (e) => {
+      if (answerKeysOff) return false;
       const n = unansweredQuestion(gate, c);
       const q = n === null ? null : gate.questions[n - 1];
       const o = q?.options[Number(e.key) - 1];
@@ -942,8 +946,8 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
         </div>
         {level === null && (
           <p className="muted gate-hint">
-            L↑ and L↓ need a level.{' '}
-            <button type="button" className="link-button" onClick={openLevelChip} title="Open the level chip in the job header to pick this job’s level.">Pick a level first</button>
+            L↑ and L↓ need a level.
+            {chipHere && <>{' '}<button type="button" className="link-button" onClick={openLevelChip} title="Open the level chip in the job header to pick this job’s level.">Pick a level first</button></>}
           </p>
         )}
         {/* A stop carries no option changes, so its lines aren't shown while you stop. */}

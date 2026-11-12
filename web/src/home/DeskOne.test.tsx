@@ -86,7 +86,7 @@ describe('the Desk card after a send', () => {
     fireEvent.click(await within(card).findByRole('button', { name: /^Go: approve/ }));
     await waitFor(() => expect(post).toHaveBeenCalledWith('/api/job/alpha/gate', expect.objectContaining({ kind: 'approve' })));
     expect(store.getState().runs.alpha).toEqual(expect.objectContaining({ status: 'running' }));
-    expect(await within(card).findByText('Sent. Waiting for the Foreman to start.')).toBeInTheDocument();
+    expect(await within(card).findByText('Sent. The Foreman is at work on it.')).toBeInTheDocument();
     for (const name of [/^Go: /, /^No go/, /^Reply/]) expect(within(card).queryByRole('button', { name })).toBeNull();
     // M1: the card no longer asks for the go-ahead that was given.
     expect(card).not.toHaveTextContent('Go / no go');
@@ -116,7 +116,7 @@ describe('the Desk card after a send', () => {
     fireEvent.click(await within(card).findByRole('button', { name: /^No go/ }));
     fireEvent.change(await screen.findByRole('textbox', { name: /What should change\?/ }), { target: { value: 'Smaller.' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send back' }));
-    expect(await within(card).findByText('Sent. Waiting for the Foreman to start.')).toBeInTheDocument();
+    expect(await within(card).findByText('Sent. The Foreman is at work on it.')).toBeInTheDocument();
     expect(card).toHaveTextContent('Sent back: the Foreman stays at Plan and revises. Nothing is approved.');
   });
 });
@@ -215,8 +215,8 @@ describe('the Desk and the bar', () => {
     fireEvent.click(await within(card).findByRole('button', { name: /^Go: approve/ }));
     await waitFor(() => expect(post).toHaveBeenCalledWith('/api/job/alpha/gate', expect.objectContaining({ kind: 'approve' })));
     const bar = screen.getByRole('region', { name: 'Next step' });
-    await within(card).findByText('Sent. Waiting for the Foreman to start.');
-    await within(bar).findByText('Sent. Waiting for the Foreman to start.');
+    await within(card).findByText('Sent. The Foreman is at work on it.');
+    await within(bar).findByText('Sent. The Foreman is at work on it.');
     const line = 'Your go reached the Foreman. Build starts next.';
     await waitFor(() => expect(card.querySelector('.desk-sub')).toHaveTextContent(new RegExp(`^${line}$`)));
     expect(bar.querySelector('.next-sub')).toHaveTextContent(new RegExp(`^${line}$`));
@@ -234,7 +234,7 @@ describe('the Desk card after Auto’s go', () => {
     get.mockImplementation(async (path: string) => ({ ...detail(path.split('/')[3]), answeredBriefs: [2], thread: [autoGo] }) as JobDetail);
     act(() => { store.dispatch({ type: 'event', event: ev(20, 'run', 'alpha', { id: 'r_auto', slug: 'alpha', status: 'running' }) }); });
     act(() => { store.dispatch({ type: 'event', event: ev(21, 'thread', 'alpha', {}) }); });
-    await within(card).findByText('Sent by Auto. Waiting for the Foreman to start.');
+    await within(card).findByText('Sent by Auto. The Foreman is at work on it.');
     expect(card).not.toHaveTextContent('Your go');
   });
 });

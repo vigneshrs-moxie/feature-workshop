@@ -500,7 +500,7 @@ describe('the phone’s step screen', () => {
     });
     setup({ jobs: [AUTO_OFF[1]], gate: GATE, post: sentPost });
     fireEvent.click(await screen.findByRole('button', { name: /^Go: approve/ }));
-    await within(bar()).findByText('Sent. Waiting for the Foreman to start.');
+    await within(bar()).findByText('Sent. The Foreman is at work on it.');
     const main = screen.getByRole('main', { name: 'Job' });
     await waitFor(() => expect(main.querySelector('.state-chip')).toHaveTextContent('Sent'));
     expect(screen.getByRole('button', { name: /^Plan: / })).toHaveAccessibleName(/^Plan: Approved/);
