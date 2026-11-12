@@ -15,7 +15,7 @@ import { setGuideFirstVisit } from '../../components/page/Page';
 import { DeskView } from '../../home/DeskView';
 import { deskQueue } from '../../home/homeModel';
 import { JobsPage } from '../../home/JobsPage';
-import { JobPage } from '../../job/JobPage';
+import { JobPage } from '../../job/page/JobPage';
 import { createStore, WorkshopContext } from '../../state/store';
 import { snapshot } from '../../state/test-fixtures';
 import { WorkflowSettings } from '../Settings/WorkflowSettings';
@@ -151,16 +151,17 @@ describe('the Ship stop: changes asked for', () => {
 });
 
 describe('on the Job page', () => {
-  it('the round’s card is answered in the bar, not as a permission alert; the Ship tab holds the panel and the GitHub line', async () => {
+  it('the round’s card is answered in the bar, not as a permission alert; the Ship step holds the panel and the GitHub line', async () => {
     const p = { id: 'round-1', slug: SLUG, kind: 'question', roundCard: true, plain: { headline: 'Raj asked for changes on PR #2 · 4 comments, 1 question' } } as Permission;
     setup(<JobPage slug={SLUG} />, { v: view('asked'), permissions: [p] });
     const bar = await screen.findByText('Raj asked for changes on PR #2 · 4 comments, 1 question', { selector: '.next-head' });
     expect(bar.closest('.review-bar')).not.toBeNull();
     expect(document.querySelector('.perm-alert, [data-ask="permission"]')).toBeNull();
-    expect(screen.getByRole('tab', { name: 'Ship' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: /^Ship/ })).toHaveAttribute('aria-selected', 'true');
     expect(await screen.findByRole('region', { name: 'Round 1 · PR #2' })).toBeInTheDocument();
     expect(screen.getByRole('status', { name: 'GitHub' })).toHaveTextContent('GitHub checked 3 min ago');
-    expect(screen.getByText('Review', { selector: '.state-chip' })).toBeInTheDocument();
+    // The job page's header says the lane in a word (JobTop's headerState): the job needs you.
+    expect(screen.getByText('Needs you', { selector: '.state-chip' })).toBeInTheDocument();
   });
 });
 

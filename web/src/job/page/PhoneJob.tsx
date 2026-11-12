@@ -1,4 +1,4 @@
-// The new job page on a phone (Part 3, design 3.4, note 12): four simple screens, one column each,
+// The job page on a phone (Part 3, design 3.4, note 12): four simple screens, one column each,
 // chosen by the address. Not the laptop page squeezed.
 //   The job (#/job/<slug>): back to Jobs and the gear; the title, the state in a word and the ticket;
 //     who started it; the bar with its card; the seven steps as rows; Overview, Copy decisions, What
@@ -9,7 +9,7 @@
 //     carries the bar and its three calls first, the card folded to one row (the owner's requirement).
 //   The conversation (#/job/<slug>/conversation): the conversation panel, full screen.
 //   The overview (#/job/<slug>/overview): the ticket, what we're building and what to check, open.
-// NewJobPage draws it in a narrow window (760 px and under), in place of the laptop's layout.
+// JobPage draws it in a narrow window (760 px and under), in place of the laptop's layout.
 // Each row goes by `navigate` (a new history entry), so Back returns to the job. A screen's back row
 // goes back in the history when the screen before was this job's (the history does not grow), else
 // to the job's screen. The bar's Reply while no gate waits opens the conversation's screen with the

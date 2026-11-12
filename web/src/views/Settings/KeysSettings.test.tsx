@@ -50,7 +50,7 @@ describe('Settings → Keys', () => {
     const all = screen.getByRole('region', { name: 'Every key' });
     for (const id of KEY_IDS) expect(within(all).getAllByText(KEYS[id].label).length, id).toBeGreaterThan(0);
     expect(within(all).getByRole('region', { name: 'The Inbox' })).toHaveTextContent('Start a job on the ticket');
-    expect(within(all).getByRole('region', { name: 'A stop of a job' })).toHaveTextContent('The stop after this one');
+    expect(within(all).getByRole('region', { name: 'A stop of a job' })).toHaveTextContent('The step after this one');
     expect(all).toHaveTextContent('never work while you type');
   });
 });

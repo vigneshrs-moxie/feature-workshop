@@ -79,15 +79,14 @@ export const KEYS = {
   'next-job': { keys: ['j'], label: 'Open the next job', scope: 'rows' },
   'prev-job': { keys: ['k'], label: 'Open the previous job', scope: 'rows' },
   // The open job
-  'notes': { keys: ['n'], label: 'Open the job’s Notes and options', scope: 'job', where: 'On a job; on a stop, n shows who finished there.' },
-  'write': { keys: ['c', 'i'], label: 'Put the cursor in the message box', scope: 'job', where: 'On a job or a stop; elsewhere c is New job.' },
+  'notes': { keys: ['n'], label: 'Open the job’s Notes and options', scope: 'job', where: 'On a job.' },
+  'write': { keys: ['c', 'i'], label: 'Put the cursor in the message box', scope: 'job', where: 'On a job; elsewhere c is New job.' },
   'screens-focus': { keys: ['Enter'], label: 'Step into the screens (the page’s own keys then work)', scope: 'job', where: 'With the Screens tab showing and nothing else focused.' },
   'screens-leave': { keys: ['Escape'], label: 'Step out of the screens, back to the page', scope: 'job', where: 'Inside the screens.', listOnly: true },
   'send': { keys: ['Mod+Enter'], label: 'In the message box: preview and send, or steer a reply in progress', scope: 'job', always: true, listOnly: true },
-  // A stop of a job (the Stage)
-  'stage-prev': { keys: ['['], label: 'The stop before this one', scope: 'stage' },
-  'stage-next': { keys: [']'], label: 'The stop after this one', scope: 'stage' },
-  'stage-finished': { keys: ['n'], label: 'Show or hide who finished here', scope: 'stage', where: 'On a stop; on a job, n is Notes and options.' },
+  // The job page's steps: [ and ] move the open step
+  'stage-prev': { keys: ['['], label: 'The step before this one', scope: 'stage' },
+  'stage-next': { keys: [']'], label: 'The step after this one', scope: 'stage' },
   // A stack (views/Stack): the next-step bar's one button and its second
   'stack-approve': { keys: ['a'], label: 'Approve the plan: the parts start building', scope: 'stack', where: 'While the plan waits for your check.' },
   'stack-change': { keys: ['r'], label: 'Change something, or Not yet: send the Foreman a note', scope: 'stack', where: 'On the plan, or on a part that is ready to merge.' },

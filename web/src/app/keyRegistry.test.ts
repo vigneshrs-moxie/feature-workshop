@@ -207,7 +207,7 @@ describe('the key registry', () => {
   it('no page key fires while you type or with a dialog open: every binding in the registry, scope by scope', () => {
     // Everything but ⌘ bindings, the always-on ones (Esc, Enter, the arrows: what any page has) and list-only ones.
     const pageKeys = KEY_IDS.filter((id) => { const d = keyDef(id); return !d.listOnly && !d.always && !d.keys.some((k) => k.startsWith('Mod+')); });
-    expect(pageKeys).toEqual(expect.arrayContaining<KeyId>(['inbox-start', 'stage-prev', 'stage-next', 'stage-finished', 'alert-allow', 'alert-deny', 'jobs-open', 'gate-approve', 'desk-approve']));
+    expect(pageKeys).toEqual(expect.arrayContaining<KeyId>(['inbox-start', 'stage-prev', 'stage-next', 'alert-allow', 'alert-deny', 'jobs-open', 'gate-approve', 'desk-approve']));
     for (const id of pageKeys) {
       const run = vi.fn();
       const reg = registerKeys(KEYS[id].scope, { current: { [id]: run } });
@@ -222,6 +222,22 @@ describe('the key registry', () => {
       reg.unregister();
       resetChord();
       expect(run, id).not.toHaveBeenCalled();
+    }
+  });
+
+  it('n is Notes and options on every job screen, and no key is listed for a screen that is gone', () => {
+    // The step page and its Finished here fold are gone: a step opens in place on the job page.
+    expect(KEY_IDS).not.toContain('stage-finished');
+    const onTheJob = KEY_IDS.filter((id) => (KEYS[id].scope === 'job' || KEYS[id].scope === 'stage') && (KEYS[id].keys as readonly string[]).includes('n'));
+    expect(onTheJob).toEqual(['notes']);
+    expect(KEYS.notes.label).toBe('Open the job’s Notes and options');
+    expect(KEYS.notes.where).toBe('On a job.');
+    expect(KEYS.write.where).toBe('On a job; elsewhere c is New job.');
+    expect(KEYS['stage-prev'].label).toBe('The step before this one');
+    expect(KEYS['stage-next'].label).toBe('The step after this one');
+    for (const id of KEY_IDS) {
+      const d = keyDef(id);
+      expect(`${d.label} ${d.where ?? ''}`, id).not.toMatch(/on a stop\b|or a stop\b|finished (here|there)/i);
     }
   });
 

@@ -66,7 +66,7 @@ const OVERVIEW_FOLD = 'gc.fold.job-overview';
 
 type Conversation = ReturnType<typeof useJobConversation>;
 
-export function NewJobPage({ slug, step, view }: { slug: string; step?: StopId; view?: JobView }) {
+export function JobPage({ slug, step, view }: { slug: string; step?: StopId; view?: JobView }) {
   const state = useWorkshopState();
   const job = jobBySlug(state, slug);
   if (!job) {
@@ -78,7 +78,7 @@ export function NewJobPage({ slug, step, view }: { slug: string; step?: StopId; 
       </Page>
     );
   }
-  // Another job starts the page afresh (as the Job page does): its own pick, Watch and Try it.
+  // Another job starts the page afresh: its own pick, Watch and Try it.
   return <JobScreen key={slug} job={job} step={isStopId(step) ? step : undefined} view={isJobView(view) ? view : undefined} />;
 }
 

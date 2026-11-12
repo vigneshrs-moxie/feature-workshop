@@ -1,4 +1,4 @@
-// The new job page's pinned header (Part 3, as drawn). Row one: the title and the state in a word
+// The job page's pinned header (Part 3, as drawn). Row one: the title and the state in a word
 // (Sent once his decision is out, Needs you in the needs-you lane, else the lane's word); at the
 // right the Auto switch with On or Off beside it, the gear (Job menu, the laptop only) and How it
 // works. Row two: the ticket (a link to Orbit when the page knows a web address), Copy decisions,
@@ -28,8 +28,8 @@ import { WhatAutoDecided } from '../WhatAutoDecided';
 import { foremanModel } from './foremanModel';
 import './page.css';
 
-/** The new job page's guide (How it works); its own id, so it opens once by itself on the new page. */
-export const NEW_JOB_GUIDE: GuideSpec = {
+/** The job page's guide (How it works); its own id (the old page's was 'job'), so it opens once by itself on this page. */
+export const JOB_GUIDE: GuideSpec = {
   id: 'job-page-2',
   title: 'How the job page works',
   done: 'Got it',
@@ -89,7 +89,7 @@ export function JobTop({ job, detail, run, sent }: { job: Job; detail: JobDetail
   const { api } = useWorkshop();
   const hosted = Boolean(api.hosted?.());
   const stacks = useStackIndex();
-  const [guideOpen, setGuideOpen] = useGuide(NEW_JOB_GUIDE.id);
+  const [guideOpen, setGuideOpen] = useGuide(JOB_GUIDE.id);
   const { ticket, startedByAuto } = jobFacts(job, detail);
   const ticketUrl = detail?.page?.ticket?.url;
   const kind = job.kind ? KIND_WORDS[job.kind] ?? job.kind : null;
@@ -125,7 +125,7 @@ export function JobTop({ job, detail, run, sent }: { job: Job; detail: JobDetail
         </div>
         <WhatAutoDecided slug={job.slug} auto={job.auto} drawer plain />
       </div>
-      {guideOpen && <Guide spec={NEW_JOB_GUIDE} onClose={() => setGuideOpen(false)} />}
+      {guideOpen && <Guide spec={JOB_GUIDE} onClose={() => setGuideOpen(false)} />}
     </header>
   );
 }

@@ -90,7 +90,7 @@ describe('CopyDecisions', () => {
     expect(readFileSync(path.join(process.cwd(), 'src/job/CopyDecisions.tsx'), 'utf8')).not.toMatch(/from '\.\.\/panes\/Preview\/DecisionsTab'/);
   });
 
-  it('the button is on the Decisions tab (the header has it too, see JobPage.test.tsx)', () => {
+  it('the button is on the Decisions tab (the header has it too, see JobTop.test.tsx)', () => {
     setup(<DecisionsTab slug="orbit-472-roster" active />);
     expect(screen.getByRole('button', { name: 'Copy decisions' })).toBeInTheDocument();
   });

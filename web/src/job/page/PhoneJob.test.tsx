@@ -3,7 +3,7 @@
 // switch, with Conversation fixed at the bottom), a step, the conversation and the overview. And the
 // owner's one requirement: a job that waits for him has Send back, Reply and Go on the job screen and
 // on the screen of the step that waits, on an Auto job too, on the laptop and on the website. The
-// setup is the laptop page's (NewJobPage.test.tsx), with the page under the router as the address
+// setup is the laptop page's (JobPage.test.tsx), with the page under the router as the address
 // picks the screen. Invented jobs only; no model calls, no browser, no network.
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { readFileSync } from 'node:fs';

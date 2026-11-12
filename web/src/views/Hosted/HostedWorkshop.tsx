@@ -12,7 +12,7 @@ import { useKeyListener } from '../../app/keyRegistry';
 import { UiProvider } from '../../app/ui';
 import { TooltipLayer } from '../../components/Tooltip';
 import { DeskPage } from '../../home/DeskPage';
-import { NewJobPage } from '../../job/page/NewJobPage';
+import { JobPage } from '../../job/page/JobPage';
 import { useNow } from '../../lib/time';
 import { useDelayedFlag } from '../../lib/useDelayedFlag';
 import { PlayLedgerProvider } from '../../play/PlayLedger';
@@ -74,8 +74,8 @@ function Body({ route }: { route: MirrorRoute }) {
   switch (route.name) {
     case 'desk': page = <DeskPage />; break;
     // The job page at a job's address and at each step's: the same key, so it stays mounted between them.
-    case 'job': page = <NewJobPage key={route.slug} slug={route.slug} view={route.view} />; break;
-    case 'stage': page = <NewJobPage key={route.slug} slug={route.slug} step={route.stop} />; break;
+    case 'job': page = <JobPage key={route.slug} slug={route.slug} view={route.view} />; break;
+    case 'stage': page = <JobPage key={route.slug} slug={route.slug} step={route.stop} />; break;
     case 'stacks': page = <StacksPage />; break;
     case 'stack': page = <StackPage key={route.slug} slug={route.slug} />; break;
     default: page = <PartPage key={`${route.slug}/${route.n}`} slug={route.slug} n={route.n} />;

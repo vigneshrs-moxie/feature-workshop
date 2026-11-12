@@ -50,8 +50,8 @@ describe('the ? sheet', () => {
     }
     expect(within(screen.getByRole('region', { name: 'The Inbox' })).getByText('Start a job on the ticket').closest('.key-row')).toHaveTextContent(/^s/);
     const stage = screen.getByRole('region', { name: 'A stop of a job' });
-    expect(within(stage).getByText('The stop before this one').closest('.key-row')).toHaveTextContent('[');
-    expect(within(stage).getByText('The stop after this one').closest('.key-row')).toHaveTextContent(']');
+    expect(within(stage).getByText('The step before this one').closest('.key-row')).toHaveTextContent('[');
+    expect(within(stage).getByText('The step after this one').closest('.key-row')).toHaveTextContent(']');
     expect(within(screen.getByRole('region', { name: 'The permission alert' })).getByText('Allow once')).toBeInTheDocument();
     expect(within(screen.getByRole('region', { name: 'The Jobs page' })).getByText(/Open the job the next-step bar names/)).toBeInTheDocument();
   });

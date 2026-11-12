@@ -1,24 +1,15 @@
-/* The Job page (job/JobPage.tsx) and its Code tab, and the permission alert
+/* Parts the job page (job/page/JobPage.tsx) and its neighbours share: the bar's gate card, a
+   commit's change, the two columns a stack's part page keeps, and the permission alert
    (components/permissions/PermissionAlert.tsx). Every value is a token; controls are at least
    var(--control-h) tall; status is a word with an icon, never a colour alone. */
 
-/* ---------- The map of seven stops ---------- */
-.job-map { padding: var(--space-4) var(--space-3) var(--space-3); border: 1px solid var(--border-2); border-radius: var(--card-radius); background: var(--surface-1); box-shadow: var(--elev-xs); }
-/* Play full: faint grid lines behind the map. */
-.job-map.has-grid { background-image: linear-gradient(var(--grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--grid-line) 1px, transparent 1px); background-size: 24px 24px; }
-.job-map .stop-dot { width: 36px; height: 36px; }
-.job-map .stop + .stop::before { top: 17px; }
-.job-map .stop-name { font-size: var(--text-xs); }
-.job-map .stop-link { min-height: var(--control-h); }
 /* The crew member's face on its stop's circle (Play full). */
 .stop-face { position: absolute; top: -8px; right: -10px; display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--bg-1); border: 1px solid var(--border-2); overflow: hidden; pointer-events: none; }
 .stop-dot { position: relative; }
 
-/* ---------- The two columns (packet R): the work on the left, the conversation on the right ---------- */
+/* ---------- The two columns (packet R; a stack's part page): the work on the left, the conversation on the right ---------- */
 .job-layout { display: flex; flex-direction: column; gap: var(--space-5); min-width: 0; }
 .job-main, .job-side { display: flex; flex-direction: column; gap: var(--space-5); min-width: 0; }
-.page-job.is-wide .job-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 420px); align-items: start; gap: var(--space-6); }
-.page-job.is-wide .job-side { position: sticky; top: var(--space-4); max-height: calc(100vh - var(--topbar-h) - var(--space-8)); gap: var(--space-4); }
 .job-convo { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 280px; overflow: hidden; border: 1px solid var(--border-2); border-radius: var(--card-radius); background: var(--surface-1); box-shadow: var(--elev-xs); }
 .job-side-head { display: flex; align-items: center; gap: var(--space-2); min-height: 44px; padding: 0 var(--space-4); border-bottom: 1px solid var(--border-1); color: var(--text-2); }
 .job-side-head h3 { margin: 0; color: var(--text-1); font-size: var(--text-base); }
@@ -26,56 +17,15 @@
 /* Not sticky here, but still the box its own decoration is drawn in (a theme's frost or edge on ::before). */
 .job-convo .composer { position: relative; padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border-1); background: var(--surface-2); }
 .job-convo .composer-input { min-height: 72px; }
-.job-side-card { display: flex; flex-direction: column; gap: var(--space-4); flex: none; padding: var(--space-4); border: 1px solid var(--border-2); border-radius: var(--card-radius); background: var(--surface-1); box-shadow: var(--elev-xs); }
-.job-side-group { display: flex; flex-direction: column; gap: var(--space-2); }
-.job-side-group h4 { margin: 0; }
-.job-crew { display: flex; flex-direction: column; gap: var(--space-2); margin: 0; padding: 0; list-style: none; font-size: var(--text-sm); }
-.job-crew li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 var(--space-2); }
-.job-crew-who { font-weight: var(--weight-medium); }
-.job-crew-doing { grid-column: 1; overflow-wrap: anywhere; }
-.job-crew time { grid-column: 2; grid-row: 1; font-size: var(--text-xs); }
 .job-facts-line { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); margin: 0; color: var(--text-2); font-size: var(--text-sm); }
-.job-where { margin: 0; font-size: var(--text-sm); }
 
 /* ---------- The go / no go bar and the gate card under it ---------- */
 .job-go { display: flex; flex-direction: column; gap: var(--space-3); }
 .job-gate-body:empty { display: none; }
 /* While Auto decides the step that waits (C1): under the calls, his own answer still counts. */
 .job-go-auto { margin: 0; font-size: var(--text-sm); }
-/* The head's Auto switch and What Auto decided (C1): one row that wraps, never wider than the head. */
-.page-job .page-head .job-auto { min-width: 0; }
 
-/* ---------- The tabs ---------- */
-.job-tabs-wrap { display: flex; flex-direction: column; gap: var(--space-3); }
-.job-tabs { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-1); border-bottom: 1px solid var(--border-2); }
-.job-tab {
-  min-height: 38px; margin-bottom: -1px; padding: 0 var(--space-3); border: 0; border-bottom: 2px solid transparent; background: none;
-  color: var(--text-2); font: inherit; font-size: var(--text-sm); font-weight: var(--weight-medium); cursor: pointer;
-  transition: color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
-}
-.job-tab:hover { color: var(--text-1); border-bottom-color: var(--border-3); }
-.job-tab:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
-.job-tab[aria-selected='true'] { border-bottom-color: var(--accent); color: var(--text-1); }
-/* A stop the job hasn't reached: greyed, and its title says so. */
-.job-tab.is-later { color: var(--text-3); }
-.job-tab-more { font-weight: var(--weight-bold); }
-.job-tab-panel { min-width: 0; display: flex; flex-direction: column; gap: var(--space-3); }
-.job-try { margin-top: var(--space-2); }
-
-/* ---------- The Code tab ---------- */
-.job-tiles { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-bottom: var(--space-3); }
-.job-tile { display: flex; align-items: center; gap: var(--space-2); min-width: 140px; padding: var(--space-2) var(--space-3); border: 1px solid var(--border-1); border-radius: var(--radius-md); background: var(--bg-1); }
-.job-tile div { display: flex; flex-direction: column; }
-.job-tile span { font-size: var(--text-xs); color: var(--text-2); }
-.code-commits { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--space-1); }
-.code-commit {
-  display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: var(--control-h); padding: 0 var(--space-3);
-  border: 1px solid var(--border-1); border-radius: var(--radius-md); background: var(--bg-1); color: inherit; font: inherit; text-align: left; cursor: pointer;
-}
-.code-commit:hover { background: var(--hover-bg); }
-.code-commit:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-.code-commit.is-open { border-color: var(--border-2); }
-.code-subject { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* ---------- A commit's change (job/page/CommitChanges.tsx) ---------- */
 .code-change { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-2) 0 var(--space-2) var(--space-4); }
 .code-file summary { min-height: var(--control-h); display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1); cursor: pointer; overflow-wrap: anywhere; }
 .code-lines { margin: 0; max-height: 420px; position: relative; overflow: auto; padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); background: var(--bg-2); font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.5; }
@@ -117,72 +67,20 @@
 @media (max-width: 760px) {
   .perm-what { grid-template-columns: 1fr; }
   .perm-alert-actions .spacer { display: none; }
-  /* The map becomes a list down the page: circle, name and state on one line each. */
-  .job-map .stop-map { flex-direction: column; gap: var(--space-1); }
-  .job-map .stop { justify-content: flex-start; }
-  .job-map .stop + .stop::before { display: none; }
-  .job-map .stop-link { flex-direction: row; gap: var(--space-3); width: 100%; font-size: var(--text-sm); }
-  .job-map .stop-dot { width: 32px; height: 32px; }
   .perm-alert { padding: var(--space-3) var(--space-4); }
   .perm-what { grid-template-columns: 1fr; }
   .perm-alert-actions .btn { flex: 1; justify-content: center; }
-  .job-tabs { flex-wrap: nowrap; position: relative; overflow-x: auto; }
 }
 
-/* ---------- The Stage (job/StagePage.tsx) ---------- */
-.page-stage .page-title { display: inline-flex; align-items: center; gap: var(--space-2); }
-.page-stage .page-head .stop-map { flex: none; }
-.stage-for { font-size: var(--text-sm); }
-.stage-back { margin: 0; order: -1; font-size: var(--text-sm); }
-.stage-back a { display: inline-flex; align-items: center; gap: var(--space-1); min-height: var(--control-h); }
-.stage-steps { display: inline-flex; gap: var(--space-1); }
-.stage-steps .btn { display: inline-flex; }
-.stage-steps .is-off { color: var(--text-3); cursor: default; }
+/* A state chip's colours by its class (the Jobs cards and the job page's header say is-<lane>). */
 .state-chip.is-done { color: var(--status-ok); background: var(--status-ok-bg); }
 .state-chip.is-now { color: var(--lane-working-fg); background: var(--lane-working-bg); }
 .state-chip.is-waiting { color: var(--text-1); background: var(--lane-needs-you-bg); }
 .state-chip.is-next, .state-chip.is-skipped { color: var(--text-2); }
 
-.stage-who { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-4); border: 1px solid var(--border-1); border-radius: var(--card-radius); background: var(--bg-1); }
-.stage-who-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
-.stage-who-head h3 { margin: 0; font-size: var(--text-lg); }
-
-.stage-note, .stage-empty { margin: 0; }
-/* While a stop is read (components/Pending.tsx): about the height of Who's on it with two rows, so it doesn't jump. */
-.stage-who-skeleton { min-height: 12rem; }
-.stage-rows { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--space-2); }
-.stage-row {
-  display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto minmax(180px, auto); align-items: center; gap: var(--space-3);
-  padding: var(--space-3) var(--space-4); border: 1px solid var(--border-1); border-radius: var(--radius-md); background: var(--bg-0);
-}
-.stage-face { display: inline-grid; place-items: center; width: 56px; }
-.stage-initials { display: inline-grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--border-2); background: var(--bg-2); color: var(--text-2); font-size: var(--text-sm); font-weight: var(--weight-bold); }
-.stage-row-say { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.stage-row-who { display: inline-flex; align-items: center; gap: var(--space-2); }
-.stage-row-doing { color: var(--text-2); font-size: var(--text-sm); }
-.stage-row-time { display: inline-flex; align-items: center; gap: var(--space-1); font-variant-numeric: tabular-nums; font-size: var(--text-xs); }
-.stage-status.is-working { color: var(--lane-working-fg); background: var(--lane-working-bg); }
-.stage-status.is-waiting { color: var(--text-1); background: var(--lane-needs-you-bg); }
-.stage-status.is-done { color: var(--status-ok); background: var(--status-ok-bg); }
-.stage-row-term { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
-.stage-row-term .btn { display: inline-flex; }
-.stage-row-term-note { font-size: var(--text-xs); }
-.stage-finished .fold-body { padding-top: var(--space-2); }
-
-@media (max-width: 760px) {
-  .page-stage .page-head .stop-map, .stage-for { display: none; }
-  .stage-row { grid-template-columns: minmax(0, 1fr) auto; }
-  .stage-face, .stage-initials { display: none; }
-  .stage-row-time { display: none; }
-  .stage-row-term { grid-column: 1 / -1; }
-  .stage-row-term .btn { width: 100%; justify-content: center; }
-  .stage-who-head .btn { width: 100%; justify-content: center; }
-}
-
 /* Reduced motion: nothing on these pages moves. */
 @media (prefers-reduced-motion: reduce) {
-  .job-tab, .code-commit, .job-map .stop-dot, .stage-row { transition: none; }
-  .stop-face *, .stage-face * { animation: none !important; }
+  .stop-face * { animation: none !important; }
 }
 
 /* The lock card above the message box (panes/Foreman/Composer.tsx): the box is off while it shows. */
@@ -193,30 +91,10 @@
 .thread-earlier { align-self: center; margin-bottom: var(--space-2); }
 .thread-earlier > .icon { transform: rotate(180deg); }
 .thread-earlier.is-open > .icon { transform: none; }
-.job-details .job-side-card { padding: 0; border: 0; background: none; box-shadow: none; }
 
-/* ---------- The Job page, calmer (packet R and the design philosophy) ---------- */
-/* The stops as a thin strip on the header line. */
-.job-strip { display: inline-flex; align-items: center; margin-left: var(--space-2); }
-.job-strip .stop-map.is-compact .stop { width: 24px; }
-.job-strip .stop-map.is-compact .stop + .stop::before { width: 24px; top: 9px; border-top-width: 1.5px; }
-.job-strip .stop-link { border-radius: 50%; }
 /* The title once: the go / no go bar carries the ask, so the card under it starts at its questions. */
 .job-gate-body .gate-card .perm-headline, .job-gate-body .gate-card .gate-next { display: none; }
 .job-gate-body .gate-card .gate-meta .thread-time { display: none; }
-/* The right column: the now line, Details, then the conversation with the message box pinned at its foot. */
-.job-now { min-height: 24px; padding: 0 var(--space-1); }
-.job-details-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
-.job-details .job-map { padding: var(--space-3) 0; border: 0; background: none; box-shadow: none; }
-.page-job.is-wide .job-side { height: calc(100vh - var(--topbar-h) - 120px); min-height: 560px; max-height: none; }
-/* The message list keeps at least 160 px, so the conversation is never squeezed: when Details is
-   open in a short window, Details gives way and scrolls inside itself. */
-.page-job.is-wide .job-convo { flex: 1 1 0; min-height: min-content; }
-.page-job.is-wide .job-convo-thread { max-height: none; flex: 1 1 0; min-height: 160px; }
-.page-job.is-wide .job-details { flex: 0 1 auto; max-height: 45vh; position: relative; overflow: auto; }
-/* The level chip sits at Details' left edge: its menu opens rightward. The menu is a fixed layer
-   once open (LevelChip.tsx), so Details keeps its size and its scroll while the menu shows. */
-.job-details .level-pop { left: 0; right: auto; }
 .job-gate-body[hidden] { display: none; }
 .stage-brief-row { margin-top: calc(-1 * var(--space-2)); }
 /* "The brief" stays on one line, even at 390 px: only the muted words after it give way. */

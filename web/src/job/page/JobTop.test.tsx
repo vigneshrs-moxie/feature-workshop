@@ -1,4 +1,4 @@
-// The new job page's pinned header (Task 9): the title and the state in a word, the ticket, Copy
+// The job page's pinned header (Task 9): the title and the state in a word, the ticket, Copy
 // decisions, the Auto switch with On or Off, the gear and How it works; the second row's facts and
 // the locked Foreman model; What Auto decided under the switch. On the laptop and on the website.
 // Invented jobs only; no model calls, no network.
@@ -10,7 +10,7 @@ import { clearAllSent } from '../../lib/sentState';
 import { createStore, WorkshopContext, type Store } from '../../state/store';
 import { job, snapshot } from '../../state/test-fixtures';
 import { AUTO_HINT, AUTO_L3, AUTO_LABEL } from '../AutoSwitch';
-import { headerState, JobTop, NEW_JOB_GUIDE } from './JobTop';
+import { headerState, JobTop, JOB_GUIDE } from './JobTop';
 
 const MODELS = [{ id: 'claude-opus-5-5', label: 'Opus 5.5' }];
 
@@ -54,10 +54,10 @@ describe('JobTop', () => {
     fireEvent.click(how);
     const guide = screen.getByRole('dialog', { name: 'How the job page works' });
     expect(within(guide).getByRole('button', { name: 'Got it' })).toBeInTheDocument();
-    expect(NEW_JOB_GUIDE.id).toBe('job-page-2');
-    expect(NEW_JOB_GUIDE.title).toBe('How the job page works');
-    expect(NEW_JOB_GUIDE.done).toBe('Got it');
-    expect(NEW_JOB_GUIDE.cards.map((c) => [c.title, c.say])).toEqual([
+    expect(JOB_GUIDE.id).toBe('job-page-2');
+    expect(JOB_GUIDE.title).toBe('How the job page works');
+    expect(JOB_GUIDE.done).toBe('Got it');
+    expect(JOB_GUIDE.cards.map((c) => [c.title, c.say])).toEqual([
       ['Your next move is at the top', 'The bar says what the job waits for. Send back, Reply and Go are there whenever it waits for you.'],
       ['Seven steps, each opens in place', 'Click a step to see who worked on it, what they are doing now and what it produced.'],
       ['The conversation stays beside you', 'The whole history with the Foreman, newest at the bottom. Widen it when you want to read.'],

@@ -1,7 +1,8 @@
 // The documents from one step (design 3.2): a row each with its name, version and when it changed
 // (the Docs tab's own rows). A click opens it in place, in the Docs tab's reader, with Back to the
-// list; a new `request` (a document link, ⌘K) opens its file, or the list when it has none. The
-// wireframes page is not a document: it opens in the Screens page, as in the Docs tab.
+// list; a new `request` (a document link, ⌘K) opens its file, or the list when it has none, with the
+// focus on its first document once there is one. The wireframes page is not a document: it opens
+// in the Screens page, as in the Docs tab.
 import { useEffect, useRef, useState } from 'react';
 import type { JobDocEntry } from '../../api/types';
 import { useUi } from '../../app/ui';
@@ -18,12 +19,15 @@ export function StepDocs({ slug, docs, request }: { slug: string; docs: JobDocEn
   // A request this list hasn't acted on (one present when it mounts counts as new: StepPanel hands
   // a request down only once, so picking the step again does not bring it back).
   const seen = useRef<number | null>(null);
+  // A request with no file (⌘K Open docs): the focus goes to the first document once the list shows.
+  const focusFirst = useRef(false);
   const n = request?.n ?? null;
   const wanted = request?.file ?? null;
   useEffect(() => {
     if (n === null || n === seen.current) return;
     seen.current = n;
     if (wanted) lastPicked.current = wanted;
+    focusFirst.current = !wanted;
     setFile(wanted);
   }, [n, wanted]);
 
@@ -33,6 +37,13 @@ export function StepDocs({ slug, docs, request }: { slug: string; docs: JobDocEn
     const picked = lastPicked.current;
     [...(list.current?.querySelectorAll<HTMLButtonElement>('.doc-item') ?? [])].find((b) => b.dataset.file === picked)?.focus();
   }, [file]);
+  useEffect(() => {
+    if (!focusFirst.current || file !== null) return;
+    const first = list.current?.querySelector<HTMLButtonElement>('.doc-item');
+    if (!first) return;
+    focusFirst.current = false;
+    first.focus();
+  });
 
   const pick = (f: string) => {
     if (docs.find((d) => d.file === f)?.type === 'html') { ui.openScreens(slug); return; }
