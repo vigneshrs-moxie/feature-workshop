@@ -20,7 +20,8 @@ function cssFiles(dir: string): string[] {
 
 /** Where the braces first go wrong: a `}` with nothing open, or blocks still open at the end; null when they balance. */
 export function braceProblem(css: string): string | null {
-  const text = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  // Comments go, their line breaks stay: a line named here is the file's own line.
+  const text = css.replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, ''));
   let depth = 0;
   let line = 1;
   for (const ch of text) {
@@ -37,6 +38,8 @@ describe('the stylesheets’ braces', () => {
     expect(braceProblem('@media (x) {\n  d { e: f; }\n\ng { h: i; }')).toBe('1 block still open at the end');
     expect(braceProblem('a { b: c; }\n}')).toBe('a } with nothing open on line 2');
     expect(braceProblem('/* { */ a { b: c; }')).toBeNull();
+    // A comment over several lines keeps its lines, so the line named is the file's own.
+    expect(braceProblem('/* one\ntwo\nthree */\na { b: c; }\n}')).toBe('a } with nothing open on line 5');
   });
 
   it('every stylesheet under web/src closes each block it opens', () => {

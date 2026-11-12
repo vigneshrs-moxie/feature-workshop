@@ -134,8 +134,15 @@ function JobConversation({ job, conversation, now, wide, onWide, full = false }:
   const items = thread.items;
   const count = shownItems(items).length;
   const key = seenKey(job.slug);
-  // Your last look before this view: the new line and count stay put while you read.
-  const [lastLook] = useState(() => readStored(key));
+  // Your last look before this view: the new line and count stay put while you read. The job page
+  // keeps the panel mounted and only shows or hides it, so each time the full form opens it is a new
+  // view: read the last look again then (the column at 1100 px and up shows neither).
+  const [lastLook, setLastLook] = useState(() => readStored(key));
+  const [lookFor, setLookFor] = useState(full);
+  if (lookFor !== full) {
+    setLookFor(full);
+    if (full) setLastLook(readStored(key));
+  }
   const fresh = newCount(items, lastLook);
 
   const { listRef, bodyRef, onScroll, onResize } = useConvoScroll(items);
