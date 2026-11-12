@@ -1516,7 +1516,11 @@ export async function createRunner(config) {
 
   // Open jobs, and jobs closed in the last 30 days (their work may still be on its way to main).
   const FLOW_CLOSED_DAYS = 30;
+  // Tests only: STARBASE_FLOW_QUIET=1 stops the map's minute recount and the recount after a change, so
+  // the map recounts only at the start, on POST /api/flow/refresh and when a job's branch is set (repo).
+  const FLOW_QUIET = env.STARBASE_FLOW_QUIET === '1';
   const flow = new FlowWatch({
+    ...(FLOW_QUIET ? { localEveryMs: null } : {}),
     jobsFor: async () => (await featuresShared())
       .filter((f) => !f.closed || Date.now() - Date.parse(f.closed.at ?? 0) < FLOW_CLOSED_DAYS * 86400000)
       // A branch Starbase only guessed (lib/locate.js) may be another job's: no lane, so no finish, notices, nudges,
@@ -2045,7 +2049,7 @@ export async function createRunner(config) {
   // Jobs changed: recount locally (no network), at most every 15 seconds.
   let flowLocalAt = 0;
   function flowJobsChanged() {
-    if (Date.now() - flowLocalAt < 15000) return;
+    if (FLOW_QUIET || Date.now() - flowLocalAt < 15000) return;
     flowLocalAt = Date.now();
     flow.refresh({ network: false }).catch(() => {});
   }

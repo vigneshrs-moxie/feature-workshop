@@ -174,6 +174,22 @@ test('flow: FlowWatch refreshes one at a time and emits the view', async () => {
   assert.equal(seen.length, before);
 });
 
+test('flow: the minute timer runs by default, and not at all with localEveryMs null (a test’s quiet map)', async () => {
+  const jobsFor = async () => [];
+  const usual = new FlowWatch({ jobsFor });
+  const quiet = new FlowWatch({ jobsFor, localEveryMs: null });
+  try {
+    usual.start();
+    quiet.start();
+    assert.equal(usual.localEveryMs, 60_000);
+    assert.equal(usual.timers.length, 1, 'the minute timer');
+    assert.equal(quiet.timers.length, 0, 'no minute timer');
+  } finally {
+    usual.stop();
+    quiet.stop();
+  }
+});
+
 test('flow: a failing refresh never rejects, and the next one still runs', async () => {
   let n = 0;
   const watch = new FlowWatch({ jobsFor: async () => { n++; if (n === 1) throw new Error('boom'); return []; } });
