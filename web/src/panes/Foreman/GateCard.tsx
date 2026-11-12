@@ -173,7 +173,7 @@ export function GateSlot({ job, detail, now, reload, callsOutside = false, extra
         <div ref={noticeEl} className={`gate-notice is-${notice.tone}`} role={notice.tone === 'problem' ? 'alert' : 'status'} tabIndex={-1}>
           <p className="gate-notice-text">{notice.text}</p>
           {notice.lines && notice.lines.length > 0 && (
-            <ul className="gate-notice-lines" aria-label="How the job runs from the next stage">
+            <ul className="gate-notice-lines" aria-label="How the job runs from the next step">
               {notice.lines.map((l) => <li key={l}>{l}</li>)}
             </ul>
           )}
@@ -254,7 +254,13 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   // What opened the Send back or Reply box (the bar's call, or the card's link): Cancel gives focus back to it.
   const opener = useRef<HTMLElement | null>(null);
   // The question whose own-answer box takes focus when it opens: picked by a click, Space or Enter, never by an arrow key.
+  // Set only when the pick will open the box; cleared once used or when the box loses focus, so it never moves focus later.
   const focusOwn = useRef<string | null>(null);
+  /** He picked his own answer to question q by a click, Space or Enter: its box takes focus (at once when it is open already). */
+  const wantOwnBox = (q: string, picked: boolean, box: HTMLElement | null) => {
+    if (picked) { focusOwn.current = null; box?.focus(); return; }
+    focusOwn.current = q;
+  };
 
   const levels = meta?.levels;
   const level = isLevel(gate.level) ? gate.level : isLevel(job.level) ? job.level : null;
@@ -553,7 +559,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
         <h3 className="perm-headline" id={headId}>{gate.headline ? <InlineText text={gate.headline} /> : 'The Foreman waits for your decision'}</h3>
         {gate.nextProposed && <p className="muted gate-next" title="What the Foreman proposes to do once you approve.">Next, as proposed: <InlineText text={gate.nextProposed} /></p>}
         {gate.proof && <ProofStamp proof={gate.proof} />}
-        {gate.usage && <p className="perm-warn gate-usage" title="Claude’s usage limit, for a next stage that uses a lot of it.">{gate.usage}</p>}
+        {gate.usage && <p className="perm-warn gate-usage" title="Claude’s usage limit, for a next step that uses a lot of it.">{gate.usage}</p>}
         {stale && (
           <p className="perm-warn gate-stale-note" role="status">
             Plan changed since this was proposed. Approve is off; ask for changes or wait for the new brief.{' '}
@@ -586,12 +592,16 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
             ))}
             <div className="answer-option answer-other">
               {q.options.length > 0 && (
-                <label className="answer-other-pick" title="Answer in your own words instead." onPointerDown={() => { focusOwn.current = q.id; }}>
+                <label
+                  className="answer-other-pick" title="Answer in your own words instead."
+                  // A click by a pointer (detail 1 or more); the click an arrow key or Space makes has detail 0.
+                  onClick={(e) => { if (e.detail > 0) wantOwnBox(q.id, c.choices[q.id] === OTHER, document.getElementById(otherId)); }}
+                >
                   <Choice
                     type="radio" name={group} value={OTHER} checked={c.choices[q.id] === OTHER} onChange={() => setChoice(q.id, OTHER)}
                     onKeyDown={(e) => {
                       if (e.key !== ' ' && e.key !== 'Enter') return;
-                      focusOwn.current = q.id;
+                      wantOwnBox(q.id, c.choices[q.id] === OTHER, document.getElementById(otherId));
                       if (e.key === 'Enter') { e.preventDefault(); setChoice(q.id, OTHER); }
                     }}
                   />
@@ -611,6 +621,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
                   value={c.others[q.id] ?? ''}
                   onChange={(e) => setOther(q.id, e.target.value, q.options.length > 0)}
                   ref={(el) => { if (el && focusOwn.current === q.id) { focusOwn.current = null; el.focus(); } }}
+                  onBlur={() => { if (focusOwn.current === q.id) focusOwn.current = null; }}
                   title="Your answer in your own words."
                 />
               )}

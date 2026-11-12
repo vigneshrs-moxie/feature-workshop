@@ -309,3 +309,21 @@ describe('the folded evidence opens by itself when something is wrong', () => {
     expect(within(now).getByRole('button', { name: 'Show' })).toHaveAttribute('aria-expanded', 'false');
   });
 });
+
+// Task 8, follow-up round: Record again never folds the evidence over the button he pressed.
+describe('Record again inside the open fold', () => {
+  it('a failed recording opens the fold; Record again keeps it open and shows the recording note', async () => {
+    const problem = { commit: 'abc1234def5', message: 'Playwright’s Chromium isn’t installed on this computer.', fix: null, at: '2026-10-28T12:00:00Z' };
+    const post = vi.fn(async () => ({ ...VIEW, evidence: null, problem: null, ok: true, started: true, recording: true }));
+    const store: Store = createStore();
+    const api = { get: vi.fn(async (): Promise<unknown> => ({ ...VIEW, evidence: null, problem })), post } as unknown as ApiClient;
+    render(<WorkshopContext.Provider value={{ store, api }}><EvidenceStrip slug="alpha" fold /></WorkshopContext.Provider>);
+    const region = await screen.findByRole('region', { name: 'Evidence: not recorded yet' });
+    const again = within(region).getByRole('button', { name: 'Record again' });
+    expect(again).toBeVisible();
+    await act(async () => { fireEvent.click(again); });
+    const recording = screen.getByRole('region', { name: /^Evidence: recording/ });
+    expect(within(recording).getByRole('button', { name: 'Hide' })).toHaveAttribute('aria-expanded', 'true');
+    expect(within(recording).getByText('Recording now. The rows fill in when it is done.')).toBeVisible();
+  });
+});

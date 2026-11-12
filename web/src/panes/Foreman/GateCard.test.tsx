@@ -413,7 +413,7 @@ describe('GateCard', () => {
     await act(async () => { fireEvent.click(button(/^Approve quick plan/)); });
     const note = screen.getByText('Your approval went to the Foreman.').closest<HTMLElement>('.gate-notice')!;
     expect(note).toHaveAttribute('role', 'status');
-    expect(within(note).getByRole('list', { name: 'How the job runs from the next stage' })).toHaveTextContent('Level: L2 Standard (small flow)');
+    expect(within(note).getByRole('list', { name: 'How the job runs from the next step' })).toHaveTextContent('Level: L2 Standard (small flow)');
     expect(note).toHaveFocus();
     expect(reload).toHaveBeenCalled();
     show(detail({}, { answeredBriefs: [2] }));
@@ -983,7 +983,7 @@ describe('GateCard: questions first, the evidence in one line', () => {
     const own = within(q1).getByRole('radio', { name: 'Your own answer' });
     expect(within(q1).queryByRole('textbox')).toBeNull();
     fireEvent.pointerDown(own);
-    fireEvent.click(own);
+    fireEvent.click(own, { detail: 1 });
     expect(own).toBeChecked();
     expect(yes.closest('label'), 'Picked moves with the pick').not.toHaveTextContent('Picked');
     expect(own.closest('label')).toHaveTextContent('Picked');
@@ -1104,7 +1104,7 @@ describe('GateCard: focus and the box’s own problems', () => {
     fireEvent.click(yes);
     expect(ownBox()).toBeNull();
     fireEvent.pointerDown(own);
-    fireEvent.click(own);
+    fireEvent.click(own, { detail: 1 });
     expect(ownBox()).toHaveFocus();
     // Space.
     fireEvent.click(yes);
@@ -1160,5 +1160,56 @@ describe('GateCard: focus and the box’s own problems', () => {
     expect(help).toHaveTextContent('the Foreman stays at this step');
     expect(help.textContent).not.toMatch(/this stage/);
     expect(button('Revise with feedback').getAttribute('title')).not.toMatch(/stage/);
+  });
+});
+
+// ---------- Task 8, follow-up round: a pick made earlier never moves focus later; step, not stage ----------
+
+describe('GateCard: focus stays where he types', () => {
+  beforeEach(disclosuresOpen);
+
+  it('pressing the picked own answer again, then typing elsewhere: every letter lands where he typed', () => {
+    setup();
+    const q1 = screen.getByRole('group', { name: '1. Keep the old column?' });
+    const own = within(q1).getByRole('radio', { name: 'Your own answer' });
+    // A mouse click picks it and opens its box.
+    fireEvent.pointerDown(own);
+    fireEvent.click(own, { detail: 1 });
+    const box1 = within(q1).getByRole('textbox', { name: 'Your own answer to question 1' });
+    expect(box1).toHaveFocus();
+    // Pressed again, already picked: the box takes focus at once, and nothing is left to move it later.
+    box1.blur();
+    fireEvent.pointerDown(own);
+    fireEvent.click(own, { detail: 1 });
+    expect(box1).toHaveFocus();
+    // Space on it again, and a press let go elsewhere: the same.
+    own.focus();
+    fireEvent.keyDown(own, { key: ' ' });
+    fireEvent.pointerDown(own);
+    // He types in question 2: each letter stays there.
+    const box2 = screen.getByRole('textbox', { name: 'Your answer to question 2' });
+    box2.focus();
+    for (const typed of ['C', 'Co', 'Copy']) {
+      fireEvent.change(box2, { target: { value: typed } });
+      expect(box2).toHaveFocus();
+    }
+    expect(box2).toHaveValue('Copy');
+    expect(box1).toHaveValue('');
+    // And in Reply's box.
+    fireEvent.click(button('Other guidance'));
+    const reply = within(card()!).getByRole('textbox', { name: /Your answers or a note/ });
+    for (const typed of ['I', 'Is']) {
+      fireEvent.change(reply, { target: { value: typed } });
+      expect(reply).toHaveFocus();
+    }
+    expect(box1).toHaveValue('');
+  });
+
+  it('says step, not stage, where he reads it', async () => {
+    const post = vi.fn(async () => ({ ...SENT, summary: ['Level: L2 Standard (small flow)'] }));
+    setup({ post, det: oneQ({ usage: 'Claude’s five-hour limit is at 85%: Build may pause part-way.' }) });
+    expect(card()!.querySelector('.gate-usage')!.getAttribute('title')).not.toMatch(/stage/);
+    await act(async () => { fireEvent.click(button(/^Approve quick plan/)); });
+    expect(screen.getByRole('list', { name: 'How the job runs from the next step' })).toHaveTextContent('Level: L2 Standard (small flow)');
   });
 });

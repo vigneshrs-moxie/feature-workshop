@@ -161,6 +161,8 @@ export function EvidenceStrip({ slug, tested = null, refresh = null, fold = fals
 
   async function record() {
     if (busy) return;
+    // Pressed inside the open fold: it stays open while the view turns to recording (his choice from now on).
+    if (fold) setOpen(open);
     setBusy(true);
     setNote(null);
     try {
