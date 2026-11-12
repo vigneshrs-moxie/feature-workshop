@@ -1798,7 +1798,7 @@ export async function createRunner(config) {
   const approverEmptyDir = path.join(state.dir, 'approver-empty');
   const askForAuto = config.askApprover ?? (async (task, { roots, job }) => {
     await fsp.mkdir(approverEmptyDir, { recursive: true });
-    const options = { ...approverOptions({ featureDir: job.dir, worktrees: job.worktrees, specDirs: job.specDirs, emptyDir: approverEmptyDir, kind: task.kind }), ...(claudePath ? { pathToClaudeCodeExecutable: claudePath } : {}) };
+    const options = { ...approverOptions({ featureDir: job.dir, worktrees: job.worktrees, specDirs: job.specDirs, emptyDir: approverEmptyDir, kind: task.kind, safer: Boolean(task.safer) }), ...(claudePath ? { pathToClaudeCodeExecutable: claudePath } : {}) };
     return askApproverLib(task, { query: approverQuery, options, roots });
   });
 

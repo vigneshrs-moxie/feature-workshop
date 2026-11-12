@@ -51,9 +51,20 @@ const TIMED_OUT = /^It took longer/;
  */
 const DECIDES = new Set(DECIDING_KINDS);
 // OWN_SENDS (Starbase's own sends) and YOURS_NOW (Auto's stop when the person wrote to a job while its step waited, I5) are lib/auto.js's.
-/** An Approver answer that would act (go, allow) but calls its own risk high is a stop, not an action. */
-const HIGH_RISK = 'the Approver called this high risk, so it needs you.';
+/**
+ * An Approver answer that would act (go, allow) but calls its own risk high, or a stop: not acted on. Auto asks once more for the
+ * safer answer (APPROVER_SAFER, Auto queue Task 6), sends that one whatever its risk, and writes it down as a risky call.
+ */
 const tooRisky = (answer) => answer?.risk === 'high' && (answer.decision === 'go' || answer.decision === 'allow');
+const askSafer = (answer) => answer?.decision === 'stop' || tooRisky(answer);
+/** What the Approver first said, for a risky call's line: `Stop: <why>`, `Go, high risk: <why>`, `Allow, high risk: <why>`. */
+function firstWords(answer) {
+  const why = oneLine(answer?.why);
+  if (answer?.decision === 'stop') return `Stop: ${why}`;
+  return `${answer?.decision === 'allow' ? 'Allow' : 'Go'}, high risk: ${why}`;
+}
+/** A risky call's count, one more (a record from before has none). */
+const riskyPlusOne = (prev) => (Number.isInteger(prev?.risky) && prev.risky > 0 ? prev.risky : 0) + 1;
 /** Auto's stop for a job nothing moves (I3): after ten minutes, or at once for a reply cut off by a crash or restart. */
 const IDLE = 'nothing is running on this job and no step waits, so it needs you.';
 const CUT_OFF = 'Starbase stopped while this job was working, so it needs you: press Resume.';
@@ -357,24 +368,36 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
         const cut = approverCut(task);
         if (cut) return stop(job, { rule: 'blocked', reason: `this ${cut} is too long for the Approver to read, so it needs you.` });
         const roots = approverRoots({ featureDir: job.dir, worktrees: job.worktrees, specDirs: job.specDirs });
-        const res = await askApprover(task, { roots, job });
-        // A run that timed out is charged the ceiling it was given, whatever partial cost it reported.
-        const cost = res?.ok === false && TIMED_OUT.test(res.problem ?? '') ? APPROVER_BUDGET_USD : Number.isFinite(res?.costUsd) ? res.costUsd : 0;
-        const checked = res?.ok ? checkAnswer(task, res.answer) : null;
-        // Immediately before anything is written or sent: is the answer still for something that waits?
-        if (!(await look(job, n))) { await settleDropped(job, cost); return; }
-        // The person wrote to the job while the Approver was thinking: it never saw that. Dropped (its cost in spent); once the
-        // Foreman's reply to them ends, the next pass leaves the step to them unless that reply raised a new brief.
-        if (await youSpokeSince(job, askedAt)) { await settleDropped(job, cost); return; }
-        if (!checked?.ok) {
-          await update(job.dir, (prev) => (prev ? { ...prev, failures: (prev.failures ?? 0) + 1, problem: res?.ok ? checked.problem : res?.problem ?? 'It ended with an error.', spent: (prev.spent ?? 0) + cost } : null));
-          continue;
+        // One ask, by the same rules for the first and the second: the answer, or 'dropped' or 'failed'.
+        const ask = async (t) => {
+          const res = await askApprover(t, { roots, job });
+          // A run that timed out is charged the ceiling it was given, whatever partial cost it reported.
+          const cost = res?.ok === false && TIMED_OUT.test(res.problem ?? '') ? APPROVER_BUDGET_USD : Number.isFinite(res?.costUsd) ? res.costUsd : 0;
+          const checked = res?.ok ? checkAnswer(t, res.answer) : null;
+          // Immediately before anything is written or sent: is the answer still for something that waits?
+          if (!(await look(job, n))) { await settleDropped(job, cost); return 'dropped'; }
+          // The person wrote to the job while the Approver was thinking: it never saw that. Dropped (its cost in spent); once the
+          // Foreman's reply to them ends, the next pass leaves the step to them unless that reply raised a new brief.
+          if (await youSpokeSince(job, askedAt)) { await settleDropped(job, cost); return 'dropped'; }
+          if (!checked?.ok) {
+            await update(job.dir, (prev) => (prev ? { ...prev, failures: (prev.failures ?? 0) + 1, problem: res?.ok ? checked.problem : res?.problem ?? 'It ended with an error.', spent: (prev.spent ?? 0) + cost } : null));
+            return 'failed';
+          }
+          await addSpent(job, cost);
+          return checked.answer;
+        };
+        answer = await ask(task);
+        if (answer === 'dropped') return;
+        if (answer === 'failed') continue;
+        // A stop, or a go the Approver itself calls high risk, is not acted on: it is asked once more, for the safer answer, which
+        // goes whatever its risk (the task carries the first answer, so send writes it down as a risky call). A failure is the
+        // Approver's, as for the first ask: the next try starts afresh.
+        if (askSafer(answer)) {
+          task = { ...task, safer: answer };
+          answer = await ask(task);
+          if (answer === 'dropped') return;
+          if (answer === 'failed') continue;
         }
-        answer = checked.answer;
-        await addSpent(job, cost);
-        if (answer.decision === 'stop') return stop(job, { rule: 'judgment', reason: oneLine(answer.why) });
-        // A go the Approver itself calls high risk is not acted on: the person decides (its own reason goes on the line).
-        if (tooRisky(answer)) return stop(job, { rule: 'judgment', reason: HIGH_RISK }, { why: oneLine(answer.why) });
       }
       const sent = await send(job, gate, task, answer, askedAt);
       if (sent === 'failed') continue;
@@ -438,12 +461,14 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       return 'failed';
     }
     held.delete(job.dir); refused.delete(job.dir);
+    // The second ask's answer (task.safer holds the first): a risky call, counted with the brief it answered.
+    const risky = task.safer ? { risky: true, first: firstWords(task.safer) } : null;
     let spent = 0;
     await update(job.dir, (prev) => {
       if (!prev) return null;
       spent = prev.spent ?? 0;
       const count = prev.step?.stage === job.stage ? prev.step.count + 1 : 1;
-      return { ...prev, lastBrief: gate.briefNumber, failures: 0, problem: null, cards: 0, cardsBrief: gate.briefNumber, step: { stage: job.stage, count } };
+      return { ...prev, lastBrief: gate.briefNumber, failures: 0, problem: null, cards: 0, cardsBrief: gate.briefNumber, step: { stage: job.stage, count }, ...(risky ? { risky: riskyPlusOne(prev) } : {}) };
     });
     const labelOf = (q, id) => (q?.options ?? []).find((o) => String(o.id) === String(id))?.label ?? id;
     await audit(job, 'gate', {
@@ -457,6 +482,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
         return { question: oneLine(q?.text ?? a.id), choice: oneLine(a.choice !== null ? labelOf(q, a.choice) : a.other), reason: oneLine(a.reason) };
       }),
       costUsd: spent,
+      ...risky,
     });
     await paidOff(job, spent);
     return 'sent';
@@ -561,37 +587,48 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     const cut = approverCut(task);
     if (cut) return stopOnCard(job, { rule: 'blocked', reason: `this ${cut} is too long for the Approver to read, so it needs you.` }, leave, { cardId: card.id });
     const roots = approverRoots({ featureDir: job.dir, worktrees: job.worktrees, specDirs: job.specDirs });
-    const res = await askApprover(task, { roots, job });
-    const cost = res?.ok === false && TIMED_OUT.test(res.problem ?? '') ? APPROVER_BUDGET_USD : Number.isFinite(res?.costUsd) ? res.costUsd : 0;
-    const checked = res?.ok ? checkAnswer(task, res.answer) : null;
-    // The Approver can take minutes: is the card still waiting, and is Auto still on and not stopped?
-    const [fresh] = await read(job.dir);
-    if (!waits() || !fresh || fresh.auto?.on !== true || fresh.auto.stopped || fresh.restarting) {
-      await settleDropped(job, cost);
-      if (waits()) leave(); // the card still waits for the person: told once
-      return;
+    // One ask, by the same rules for the first and the second: the answer, or null once the card is done with here.
+    const ask = async (t) => {
+      const res = await askApprover(t, { roots, job });
+      const cost = res?.ok === false && TIMED_OUT.test(res.problem ?? '') ? APPROVER_BUDGET_USD : Number.isFinite(res?.costUsd) ? res.costUsd : 0;
+      const checked = res?.ok ? checkAnswer(t, res.answer) : null;
+      // The Approver can take minutes: is the card still waiting, and is Auto still on and not stopped?
+      const [fresh] = await read(job.dir);
+      if (!waits() || !fresh || fresh.auto?.on !== true || fresh.auto.stopped || fresh.restarting) {
+        await settleDropped(job, cost);
+        if (waits()) leave(); // the card still waits for the person: told once
+        return null;
+      }
+      // The person wrote to the job since Auto took the card up (while it waited, or while the Approver thought): the
+      // Approver never saw that. The card is left to them.
+      if (await youSpokeSince(job, takenAt, { steer: true })) {
+        await settleDropped(job, cost);
+        leave();
+        return null;
+      }
+      if (!checked?.ok) {
+        let count = 0;
+        const problem = res?.ok ? checked.problem : res?.problem ?? 'It ended with an error.';
+        await update(job.dir, (prev) => { if (!prev) return null; count = (prev.failures ?? 0) + 1; return { ...prev, failures: count, problem, spent: (prev.spent ?? 0) + cost }; });
+        // The same sentence as for a gate (stopFor): the problem without its closing full stop.
+        const hitAgain = fixedStop({ kind: 'job', failures: count, problem: String(problem).replace(/\.$/, '') });
+        if (hitAgain) await stopOnCard(job, hitAgain, leave, { cardId: card.id }); else leave();
+        return null;
+      }
+      await addSpent(job, cost);
+      return checked.answer;
+    };
+    let asked = task;
+    let answer = await ask(asked);
+    if (!answer) return;
+    // A stop, or an allow (or a question's go) the Approver itself calls high risk, is not acted on: it is asked once more, for
+    // the safer answer, which is sent whatever its risk (the task carries the first answer: answerCard writes the risky call).
+    if (askSafer(answer)) {
+      asked = { ...task, safer: answer };
+      answer = await ask(asked);
+      if (!answer) return;
     }
-    // The person wrote to the job since Auto took the card up (while it waited, or while the Approver thought): the
-    // Approver never saw that. The card is left to them.
-    if (await youSpokeSince(job, takenAt, { steer: true })) {
-      await settleDropped(job, cost);
-      leave();
-      return;
-    }
-    if (!checked?.ok) {
-      let count = 0;
-      const problem = res?.ok ? checked.problem : res?.problem ?? 'It ended with an error.';
-      await update(job.dir, (prev) => { if (!prev) return null; count = (prev.failures ?? 0) + 1; return { ...prev, failures: count, problem, spent: (prev.spent ?? 0) + cost }; });
-      // The same sentence as for a gate (stopFor): the problem without its closing full stop.
-      const hitAgain = fixedStop({ kind: 'job', failures: count, problem: String(problem).replace(/\.$/, '') });
-      return hitAgain ? stopOnCard(job, hitAgain, leave, { cardId: card.id }) : leave();
-    }
-    const answer = checked.answer;
-    await addSpent(job, cost);
-    if (answer.decision === 'stop') return stopOnCard(job, { rule: 'judgment', reason: oneLine(answer.why) }, leave, { cardId: card.id });
-    // An allow (or a question's go) the Approver itself calls high risk is not acted on: the card is left to the person.
-    if (tooRisky(answer)) return stopOnCard(job, { rule: 'judgment', reason: HIGH_RISK }, leave, { why: oneLine(answer.why), cardId: card.id });
-    await answerCard(job, full, task, answer, { leave, lastAnswered });
+    await answerCard(job, full, asked, answer, { leave, lastAnswered });
   }
 
   /**
@@ -704,15 +741,17 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       if (pendingCard(card.id)) leave(); // refused but still waiting: the person is told once
       return;
     }
+    // The second ask's answer (task.safer holds the first): a risky call, counted with the card.
+    const risky = task.safer ? { risky: true, first: firstWords(task.safer) } : null;
     let spent = 0;
     await update(job.dir, (prev) => {
       if (!prev) return null;
       spent = prev.spent ?? 0;
-      return { ...prev, failures: 0, problem: null, cards: ((prev.cardsBrief ?? 0) === lastAnswered ? prev.cards ?? 0 : 0) + 1, cardsBrief: lastAnswered };
+      return { ...prev, failures: 0, problem: null, cards: ((prev.cardsBrief ?? 0) === lastAnswered ? prev.cards ?? 0 : 0) + 1, cardsBrief: lastAnswered, ...(risky ? { risky: riskyPlusOne(prev) } : {}) };
     });
     await audit(job, task.kind === 'question' ? 'question' : 'permission', {
       asked: oneLine(task.kind === 'question' ? task.questions.map((q) => q.text).join(' / ') : card.plain?.headline ?? card.toolName),
-      chose, why: oneLine(answer.why), risk: answer.risk, ...(lines ? { answers: lines } : {}), costUsd: spent,
+      chose, why: oneLine(answer.why), risk: answer.risk, ...(lines ? { answers: lines } : {}), costUsd: spent, ...risky,
     });
     await paidOff(job, spent);
   }

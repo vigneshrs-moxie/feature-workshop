@@ -154,20 +154,23 @@ export function approverEnv(env = process.env) {
 const str = (maxLength) => ({ type: 'string', maxLength });
 const nullable = (maxLength) => ({ type: ['string', 'null'], maxLength });
 
-/** The answer's JSON schema for a kind of task: no other fields allowed, at any depth. */
-export function answerSchema(kind) {
+/**
+ * The answer's JSON schema for a kind of task: no other fields allowed, at any depth. safer: the second look (APPROVER_SAFER),
+ * whose shape has no stop.
+ */
+export function answerSchema(kind, { safer = false } = {}) {
   const why = { ...str(400), minLength: 1 };
   const risk = { type: 'string', enum: ['low', 'medium', 'high'] };
   if (kind === 'permission') {
     return {
       type: 'object', additionalProperties: false, required: ['decision', 'why', 'risk'],
-      properties: { decision: { type: 'string', enum: ['allow', 'deny', 'stop'] }, why, risk },
+      properties: { decision: { type: 'string', enum: safer ? ['allow', 'deny'] : ['allow', 'deny', 'stop'] }, why, risk },
     };
   }
   return {
     type: 'object', additionalProperties: false, required: ['decision', 'answers', 'why', 'risk'],
     properties: {
-      decision: { type: 'string', enum: ['go', 'stop'] },
+      decision: { type: 'string', enum: safer ? ['go'] : ['go', 'stop'] },
       answers: {
         type: 'array',
         items: {
@@ -184,14 +187,15 @@ export function answerSchema(kind) {
 /**
  * The Approver session's options for one job. roots = [featureDir, ...worktrees, ...specDirs];
  * emptyDir is an empty folder Starbase makes for it; kind picks the answer's shape (askApprover
- * sets it again from the task). env defaults to this process's.
+ * sets it again from the task). safer: the second look, APPROVER_SAFER after the system text and no stop in the shape.
+ * env defaults to this process's.
  */
-export function approverOptions({ featureDir, worktrees = [], specDirs = [], emptyDir, abort, kind = 'gate', env = process.env }) {
+export function approverOptions({ featureDir, worktrees = [], specDirs = [], emptyDir, abort, kind = 'gate', safer = false, env = process.env }) {
   const roots = approverRoots({ featureDir, worktrees, specDirs });
   const options = {
     model: FABLE,
     cwd: emptyDir,
-    systemPrompt: APPROVER_SYSTEM,
+    systemPrompt: safer ? `${APPROVER_SYSTEM}\n\n${APPROVER_SAFER}` : APPROVER_SYSTEM,
     tools: [...TOOLS],
     allowedTools: [],
     disallowedTools: [...DISALLOWED],
@@ -204,7 +208,7 @@ export function approverOptions({ featureDir, worktrees = [], specDirs = [], emp
     maxTurns: APPROVER_MAX_TURNS,
     maxBudgetUsd: APPROVER_BUDGET_USD,
     env: approverEnv(env),
-    outputFormat: { type: 'json_schema', schema: answerSchema(kind) },
+    outputFormat: { type: 'json_schema', schema: answerSchema(kind, { safer }) },
   };
   if (abort) options.abortController = abort;
   return options;
@@ -229,6 +233,9 @@ export const APPROVER_SYSTEM = [
   '',
   'Answer in the agreed shape and nothing else: `why` is one or two plain sentences, and `risk` is low, medium or high.',
 ].join('\n');
+
+/** The second look (Auto queue, Task 6): after APPROVER_SYSTEM when the first answer was a stop, or a go or allow it called high risk. */
+export const APPROVER_SAFER = 'This is a second look. Your first answer would have stopped the job, or called its own go high risk. Starbase does not stop before PR #1, and PR #1 is never merged without the person. Choose the answer that changes least and can be undone: on a gate say go, and for each question pick the option that changes least; on a permission card allow only what is plainly safe, else deny. In why, say what you chose instead and why it is the safer one.';
 
 // Control characters, line and direction marks, and the zero-width ones (m8: a tag split by one would not be caught).
 const CONTROL = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u200B-\u200D\u2028\u2029\u202A-\u202E\u2066-\u2069\uFEFF]/;
@@ -370,6 +377,8 @@ export function approverPrompt(task, { roots = null } = {}) {
   if (t.request) {
     said.push('', `Request: ${material(t.request.tool, APPROVER_SHOWN.tool)}`, `Headline: ${material(t.request.headline, APPROVER_SHOWN.headline)}`, 'Preview:', material(t.request.preview, APPROVER_SHOWN.preview));
   }
+  // The second look (APPROVER_SAFER): its own first answer, as material like the rest.
+  if (t.safer) said.push('', `Your first answer: ${material(t.safer.decision, 20)}, ${material(t.safer.risk, 20)} risk: ${material(t.safer.why, 400)}`);
   const level = Number.isInteger(job.level) ? `L${job.level}` : 'no level yet';
   // Outside the material block nothing keeps a line break, and a ticket key that is not one is "none" (I8).
   const line = (v, max) => material(v, max).replace(/[\r\n\t\u0085]+/g, ' ');
@@ -431,7 +440,9 @@ export function checkAnswer(task, raw) {
   const shape = shapeProblem(raw, FIELDS[kind], 'it');
   if (shape) return no(shape);
   const { decision, why, risk } = raw;
-  if (typeof decision !== 'string' || !DECISIONS[kind].includes(decision)) return no(`the decision must be ${DECISIONS[kind].join(' or ')}`);
+  // The second look (task.safer) has no stop.
+  const decisions = task.safer ? DECISIONS[kind].filter((d) => d !== 'stop') : DECISIONS[kind];
+  if (typeof decision !== 'string' || !decisions.includes(decision)) return no(`the decision must be ${decisions.join(' or ')}`);
   const whyProblem = textProblem(why, 'why', 400);
   if (whyProblem) return no(whyProblem);
   if (!why.trim()) return no('why is empty');
@@ -487,7 +498,7 @@ export async function askApprover(task, { query, options = {}, timeoutMs = APPRO
   const run = (async () => {
     const q = query({
       prompt: approverPrompt(task, { roots }),
-      options: { ...options, abortController: abort, outputFormat: { type: 'json_schema', schema: answerSchema(task?.kind) } },
+      options: { ...options, abortController: abort, outputFormat: { type: 'json_schema', schema: answerSchema(task?.kind, { safer: Boolean(task?.safer) }) } },
     });
     for await (const msg of q) {
       if (msg?.type !== 'result') continue;

@@ -104,6 +104,8 @@ export function autoLog(lines = [], { title = '', now = null, record = null, sto
     const e = { at: text(l.at), stage: stageLabel(l.stage), chose: stop ? reasonOf(l.reason ?? l.why) : text(l.chose), asked: text(l.asked), why: text(l.why) };
     if (text(l.risk)) e.risk = text(l.risk);
     if (Array.isArray(l.answers) && l.answers.length) e.answers = l.answers.map((a) => ({ question: text(a?.question), choice: text(a?.choice), reason: text(a?.reason) }));
+    // A risky call (Auto queue, Task 6): Auto asked the Approver once more, and `first` is what it said first.
+    if (l.risky === true) { e.risky = true; e.first = text(l.first); }
     e.kind = KIND[l.what];
     e.stop = typeof l.stage === 'string' ? stopOf(l.stage) : null;
     return { e, i };

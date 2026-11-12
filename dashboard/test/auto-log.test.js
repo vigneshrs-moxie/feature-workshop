@@ -200,3 +200,16 @@ test('a refusal is an entry of kind refuse, its chose Refused: and the headline'
   assert.equal(autoLog([...LINES, refuse]).entries[0].kind, 'refuse');
   assert.match(autoLogMarkdown(autoLog([...LINES, refuse])), /Refused: Run npm run db:migrate/);
 });
+
+test('a risky call\'s entry carries risky and what the Approver first said', () => {
+  const risky = { at: at(11, 8, 20), action: 'auto', what: 'gate', stage: 'plan', briefNumber: 4, asked: 'Brief 4: go ahead?', chose: 'Approved', why: 'I kept the old column instead, which can be undone.', risk: 'low', risky: true, first: 'Stop: The plan drops the old column.', costUsd: 0.02 };
+  const perm = { at: at(11, 8, 25), action: 'auto', what: 'permission', stage: 'implement', asked: 'Fetch a page', chose: 'Said no', why: 'Not plainly safe.', risk: 'medium', risky: true, first: 'Allow, high risk: It reaches an outside site.' };
+  const rec = autoLogRecord([...LINES, risky, perm], {});
+  assert.deepEqual([rec.entries[0].risky, rec.entries[0].first], [true, 'Allow, high risk: It reaches an outside site.']);
+  assert.deepEqual([rec.entries[1].risky, rec.entries[1].first, rec.entries[1].kind], [true, 'Stop: The plan drops the old column.', 'approve']);
+  // An ordinary decision carries neither.
+  for (const e of rec.entries.slice(2)) { assert.equal('risky' in e, false); assert.equal('first' in e, false); }
+  assert.equal(autoLog([...LINES, risky]).entries[0].first, 'Stop: The plan drops the old column.');
+  // The site's cut keeps them.
+  assert.deepEqual([capAutoLog(rec).entries[1].risky, capAutoLog(rec).entries[1].first], [true, 'Stop: The plan drops the old column.']);
+});
