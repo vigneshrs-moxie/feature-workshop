@@ -2210,6 +2210,8 @@ describe('after a click on the go / no go bar', () => {
     act(() => { store.dispatch({ type: 'event', event: ev(201, 'thread', 'alpha', {}) }); });
     const go = await screen.findByRole('button', { name: /^Go: approve/ });
     await waitFor(() => expect(go).toBeEnabled());
+    // Neither sent line (fix round 1, M2): the old answer is not kept.
+    expect(bar()).not.toHaveTextContent(SENT_LINE);
     expect(bar()).not.toHaveTextContent(AT_WORK_LINE);
     fireEvent.click(go);
     await waitFor(() => expect(gatePosts(post)).toHaveLength(2));
