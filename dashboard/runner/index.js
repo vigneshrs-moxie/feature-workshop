@@ -86,6 +86,7 @@ import { InboxSuggester, SUGGEST_MODEL, askHaiku, demoAsk, suggestPrompt } from 
 import { TICKET_FILE, readTicket, ticketDescription } from '../lib/ticket-file.js';
 import { readAcceptance, stepDocs, stepTimes } from '../lib/job-page.js';
 import { planView, prRows } from '../lib/job-page.js';
+import { keepLatest, planDone } from '../lib/job-page.js';
 import { reviewRows } from '../lib/play.js';
 import { stopOf } from '../lib/stage-view.js';
 import { writeFileAtomic } from '../lib/atomic-write.js';
@@ -660,8 +661,11 @@ export async function createRunner(config) {
   // branch's own commits (base..branch, as hexCommitOf reads them), read only for a job at Build or
   // later, on a full job read: one `git rev-parse` each time, and one `git log` (at most 500
   // commits) only when the branch's head moved. No folder, branch or base, or a git that fails: no
-  // commits. The review's rows from review.md (lib/play.js reviewRows); the PRs from status.json and
-  // the flow map's lane. A part that fails is null, so an older job still has a whole page.
+  // commits. A job closed as done, or whose PR #1 is merged, has every step done and reads none
+  // (lib/job-page.js planDone). The review's rows from review.md (lib/play.js reviewRows); the PRs
+  // from status.json and the flow map's lane. A part that fails is null, so an older job still has
+  // a whole page.
+  const PLAN_COMMITS_KEPT = 50; // the most branches whose commits are kept, the oldest out first
   const planCommitsCache = new Map(); // codeDir|branch|base -> { head, commits: [{ step }] }
   async function planCommitsOf(f) {
     const base = f.baseSha ?? f.baseBranch;
@@ -673,7 +677,7 @@ export async function createRunner(config) {
     const hit = planCommitsCache.get(key);
     if (hit && hit.head === head) return hit.commits;
     const commits = (await git.commits(codeDir, { base, head: f.branch, limit: 500 })).map((c) => ({ step: c.step }));
-    planCommitsCache.set(key, { head, commits });
+    keepLatest(planCommitsCache, key, { head, commits }, PLAN_COMMITS_KEPT);
     return commits;
   }
   const factPart = (read) => read().catch(() => null);
@@ -685,6 +689,7 @@ export async function createRunner(config) {
         return planView({
           text, version: docVersion(f.dir, file, f.recordedArtifacts), stage: f.stage,
           building: stopOf(f.stage) === 'build' && f.stageState === 'working' && !closedOff(f),
+          finished: planDone({ closed: closedOff(f) ? f.closed : null, prs: f.prs, lane: flowLanes.get(f.slug) ?? null }),
           readCommits: () => planCommitsOf(f),
         });
       }

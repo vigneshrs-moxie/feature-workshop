@@ -259,7 +259,7 @@ test('a job at Build has its plan’s steps by its commits, and its review’s f
   const planRepo = path.join(root, 'plan-repo');
   await fs.mkdir(planRepo, { recursive: true });
   const env = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
-  const sh = (...args) => execFileSync('git', args, { cwd: planRepo, stdio: ['ignore', 'pipe', 'ignore'], env }).toString();
+  const sh = (...args) => execFileSync('git', ['-c', 'commit.gpgsign=false', ...args], { cwd: planRepo, stdio: ['ignore', 'pipe', 'ignore'], env }).toString();
   sh('init', '-q', '-b', 'main');
   sh('commit', '-q', '--allow-empty', '-m', '[S2] an older job’s step on main: not this job’s');
   sh('switch', '-q', '-c', 'feature/plan');
@@ -282,4 +282,32 @@ test('a job at Build has its plan’s steps by its commits, and its review’s f
   const commits = await (await fetch(`${base}/api/job/${slug}/commits`)).json();
   assert.equal(commits.commits[0].subject, '[S1] the form');
   assert.ok(commits.commits.every((c) => Array.isArray(c.files)), 'each commit lists its files');
+});
+
+test('a job closed as done has every plan step done; one closed as dropped keeps what its commits say (Task 4, fix round 1)', { timeout: 60_000 }, async () => {
+  const env = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
+  const close = async (slug, as) => {
+    const res = await fetch(`${base}/api/job/${slug}/close`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Starbase-Token': token }, body: JSON.stringify({ as }) });
+    assert.equal(res.status, 200, JSON.stringify(await res.json()));
+  };
+  for (const as of ['done', 'dropped']) {
+    const slug = `plan-closed-${as}`;
+    const own = path.join(root, `${slug}-repo`);
+    await fs.mkdir(own, { recursive: true });
+    const sh = (...args) => execFileSync('git', ['-c', 'commit.gpgsign=false', ...args], { cwd: own, stdio: ['ignore', 'pipe', 'ignore'], env }).toString();
+    sh('init', '-q', '-b', 'main');
+    sh('commit', '-q', '--allow-empty', '-m', 'base');
+    sh('switch', '-q', '-c', 'feature/plan');
+    sh('commit', '-q', '--allow-empty', '-m', '[S1] the form');
+    await writeJob(slug, {
+      files: {
+        'status.json': { schema_version: 1, slug, title: `Job ${slug}`, route: 'small', stage: 'implement', stage_state: 'working', branch: 'feature/plan', repo: { path: own, base_branch: 'main' }, updated_at: OLD },
+        'implementation-plan.md': '### S1: The form\n### S2: The list\n',
+      },
+    });
+    assert.deepEqual((await foundJob(slug)).page.plan.steps.map((s) => s.state), ['done', 'now']);
+    await close(slug, as);
+    const states = (await getJob(slug)).page.plan.steps.map((s) => s.state);
+    assert.deepEqual(states, as === 'done' ? ['done', 'done'] : ['done', 'next'], as);
+  }
 });

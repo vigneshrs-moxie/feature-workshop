@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readAcceptance, stepTimes, stepDocs } from '../lib/job-page.js';
 import { planSteps, stepStates, planView, prRows } from '../lib/job-page.js';
+import { planDone, keepLatest } from '../lib/job-page.js';
 import { parseLog } from '../lib/git.js';
 
 test('readAcceptance reads both lists and drops the FR brackets', () => {
@@ -265,4 +266,40 @@ test('prRows maps the flow map’s review and checks words', () => {
   // PR #2 comes from the lane's pr2; PR #3 from status.json only.
   const rows = prRows([{ number: 3, url: 'https://github.com/o/r/pull/30', state: 'open' }], { pr1: null, pr2: LANE_PR({ number: 9, url: 'https://github.com/o/r/pull/9', state: 'merged' }) });
   assert.deepEqual(rows.map((r) => [r.n, r.number, r.state]), [[1, null, 'not-started'], [2, 9, 'merged'], [3, 30, 'open']]);
+});
+
+// ---------- Fix round 1 (Task 4) ----------
+
+test('planSteps drops a heading’s closing #s, and a ``` line inside a ~~~ block doesn’t end it', () => {
+  assert.deepEqual(planSteps('### S1: The form ###\n### S2: C# client\n'), [{ id: 'S1', name: 'The form' }, { id: 'S2', name: 'C# client' }]);
+  const text = ['~~~', '```', '### S9: inside the ~~~ block', '~~~', '### S1: After the block', '````', '```', '### S8: still inside', '````'].join('\n');
+  assert.deepEqual(planSteps(text), [{ id: 'S1', name: 'After the block' }]);
+});
+
+test('a job closed as done, or whose PR #1 is merged, has every plan step done; one closed as dropped keeps what the commits say', async () => {
+  const merged = [{ number: 1, url: 'https://github.com/o/r/pull/7', state: 'merged' }];
+  assert.equal(planDone({ closed: { as: 'done', at: H('12:00') }, prs: null, lane: null }), true);
+  assert.equal(planDone({ closed: null, prs: merged, lane: null }), true, 'PR #1 merged by status.json');
+  assert.equal(planDone({ closed: null, prs: null, lane: { pr1: { number: 7, state: 'merged' }, pr2: null } }), true, 'PR #1 merged by the flow map');
+  assert.equal(planDone({ closed: { as: 'dropped', at: H('12:00') }, prs: null, lane: null }), false);
+  assert.equal(planDone({ closed: null, prs: [{ number: 1, url: 'https://github.com/o/r/pull/7', state: 'open' }], lane: null }), false);
+  assert.equal(planDone({}), false);
+  const text = '### S1: The form\n### S2: The list\n';
+  let reads = 0;
+  // The base branch has the job's commits now (or the branch is gone): the read finds none.
+  const readCommits = async () => { reads++; return []; };
+  const done = await planView({ text, stage: 'pr3', building: false, finished: true, readCommits });
+  assert.deepEqual(done.steps.map((s) => s.state), ['done', 'done']);
+  assert.equal(reads, 0, 'a finished job reads no commits');
+  const dropped = await planView({ text, stage: 'implement', building: false, finished: false, readCommits: async () => [{ step: 'S1' }] });
+  assert.deepEqual(dropped.steps.map((s) => s.state), ['done', 'next']);
+});
+
+test('keepLatest keeps a small number of entries, the oldest out first', () => {
+  const m = new Map();
+  for (const k of ['a', 'b', 'c']) keepLatest(m, k, k.toUpperCase(), 2);
+  assert.deepEqual([...m.keys()], ['b', 'c']);
+  keepLatest(m, 'b', 'B2', 2); // set again: now the newest
+  keepLatest(m, 'd', 'D', 2);
+  assert.deepEqual([...m.entries()], [['b', 'B2'], ['d', 'D']]);
 });

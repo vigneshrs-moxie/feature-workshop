@@ -126,21 +126,26 @@ export function stepDocs(docs = [], kind = null) {
 
 // A plan step's heading: `### S3: The list` (an id as parseLog in lib/git.js reads it from a commit).
 const STEP_HEADING = /^###\s+(S\d+[a-z]?)\s*:\s*(.*\S)\s*$/;
-const FENCE = /^\s*(```|~~~)/;
+// A code fence's marker: it ends at a line of the same character, at least as long (``` inside ~~~ doesn't).
+const FENCE = /^\s*(`{3,}|~{3,})/;
 
 /**
  * Every `### S<n>: <name>` heading of a plan (implementation-plan.md, else quick-plan.md), in the
- * order written: [{ id, name }]. The name is everything after the first colon. Headings inside a
- * code block don't count. None (a plan from before this change, or no text): []. Pure.
+ * order written: [{ id, name }]. The name is everything after the first colon, without a closing
+ * run of #s. Headings inside a ``` or ~~~ code block don't count. None (a plan from before this
+ * change, or no text): []. Pure.
  */
 export function planSteps(text) {
   if (typeof text !== 'string') return [];
   const out = [];
-  let fenced = false;
+  let fence = null; // the open block's marker
   for (const line of text.split(/\r?\n/)) {
-    if (FENCE.test(line)) { fenced = !fenced; continue; }
-    const m = fenced ? null : STEP_HEADING.exec(line);
-    if (m) out.push({ id: m[1], name: m[2].trim() });
+    const f = FENCE.exec(line)?.[1];
+    if (f && !fence) { fence = f; continue; }
+    if (f && f[0] === fence[0] && f.length >= fence.length) { fence = null; continue; }
+    const m = fence ? null : STEP_HEADING.exec(line);
+    const name = m ? m[2].replace(/\s+#+\s*$/, '').trim() : '';
+    if (name) out.push({ id: m[1], name });
   }
   return out;
 }
@@ -161,12 +166,15 @@ export function stepStates(steps, commits, building) {
 
 /**
  * The page's plan: { version, steps } with each step's state, or null when the plan has no steps.
- * readCommits() (the branch's commits, each with its `step`) is called only for a job at Build or
- * later; before Build every step is `next`. A read that fails counts as no commits.
+ * A finished job (planDone) has every step done, and reads no commits: once its commits reach the
+ * base branch, or its branch is deleted, the read would find none. Otherwise readCommits() (the
+ * branch's commits, each with its `step`) is called only for a job at Build or later; before Build
+ * every step is `next`. A read that fails counts as no commits.
  */
-export async function planView({ text, version = null, stage = null, building = false, readCommits = async () => [] } = {}) {
+export async function planView({ text, version = null, stage = null, building = false, finished = false, readCommits = async () => [] } = {}) {
   const steps = planSteps(text);
   if (!steps.length) return null;
+  if (finished) return { version: version ?? null, steps: steps.map((s) => ({ id: s.id, name: s.name, state: 'done' })) };
   const built = STOP_IDS.indexOf(stopOf(stage)) >= STOP_IDS.indexOf('build');
   const commits = built ? await Promise.resolve().then(readCommits).catch(() => []) : [];
   return { version: version ?? null, steps: stepStates(steps, commits, building) };
@@ -226,4 +234,21 @@ export function prRows(prs, lane) {
       updatedAt: str(p?.updatedAt),
     };
   });
+}
+
+/**
+ * Whether a job's plan is all built: it was closed as done (`closed`: the session's { as, at } mark,
+ * passed only while it holds, the runner's closedOff), or its PR #1 is merged (status.json or the
+ * flow lane, as prRows reads them). A job closed as dropped is not. Pure.
+ */
+export function planDone({ closed = null, prs = null, lane = null } = {}) {
+  return closed?.as === 'done' || prRows(prs, lane)[0].state === 'merged';
+}
+
+/** Set `key` in a Map as its newest entry, then drop the oldest until at most `max` are left. */
+export function keepLatest(map, key, value, max) {
+  map.delete(key);
+  map.set(key, value);
+  while (map.size > max) map.delete(map.keys().next().value);
+  return value;
 }

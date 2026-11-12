@@ -11,7 +11,7 @@ import path from 'node:path';
 import { commitsWithFiles } from '../lib/git.js';
 
 const ENV = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
-const sh = (cwd, ...args) => execFileSync('git', args, { cwd, stdio: ['ignore', 'pipe', 'ignore'], env: ENV }).toString();
+const sh = (cwd, ...args) => execFileSync('git', ['-c', 'commit.gpgsign=false', ...args], { cwd, stdio: ['ignore', 'pipe', 'ignore'], env: ENV }).toString();
 
 let root, repo, base;
 
@@ -73,4 +73,20 @@ test('each commit lists its files with lines added and removed, and says which a
   await assert.rejects(commitsWithFiles(path.join(root, 'gone'), { base, head: 'feature/x' }));
   await assert.rejects(commitsWithFiles(repo, { base, head: 'feature/none' }));
   await assert.rejects(commitsWithFiles(repo, { base, head: '--output=x' }), /Unexpected branch or commit name/);
+});
+
+test('a repository’s own diff drivers are not run: the counts are the file’s own lines', async () => {
+  const own = path.join(root, 'textconv');
+  await fs.mkdir(own);
+  sh(own, 'init', '-q', '-b', 'main');
+  sh(own, 'commit', '-q', '--allow-empty', '-m', 'base');
+  const start = sh(own, 'rev-parse', 'HEAD').trim();
+  // A textconv driver that would turn any file into nine lines.
+  sh(own, 'config', 'diff.nine.textconv', 'node -e "process.stdout.write(String.fromCharCode(120, 10).repeat(9))"');
+  await fs.writeFile(path.join(own, '.gitattributes'), '*.txt diff=nine\n');
+  await fs.writeFile(path.join(own, 'two.txt'), 'a\nb\n');
+  sh(own, 'add', '.');
+  sh(own, 'commit', '-q', '-m', 'two lines');
+  const [c] = await commitsWithFiles(own, { base: start, head: 'main' });
+  assert.deepEqual(c.files.find((f) => f.path === 'two.txt'), { path: 'two.txt', added: 2, removed: 0, isNew: true });
 });
