@@ -1,9 +1,10 @@
 // The new job page on a phone (Part 3, design 3.4, note 12): four simple screens, one column each,
 // chosen by the address. Not the laptop page squeezed.
 //   The job (#/job/<slug>): back to Jobs and the gear; the title, the state in a word and the ticket;
-//     who started it; the bar with its card; the seven steps as rows; Overview, Copy decisions, What
-//     Auto decided (once Auto has decided) and the Auto switch; Conversation fixed at the bottom with
-//     how many messages are new.
+//     who started it; a branch Starbase only guessed (BranchGuess, with This is the job's branch, its
+//     line alone on the website); the bar with its card; the seven steps as rows; Overview, Copy
+//     decisions, What Auto decided (once Auto has decided) and the Auto switch; Conversation fixed at
+//     the bottom with how many messages are new.
 //   A step (#/job/<slug>/stage/<step>): back to the job by its title; the step's name, state and time;
 //     the step's own panel and body, as on a laptop. The screen of the step that waits for you
 //     carries the bar and its three calls first, the card folded to one row (the owner's requirement).
@@ -35,6 +36,7 @@ import type { useJobConversation } from '../../panes/Foreman/ForemanPane';
 import { DecisionsTab } from '../../panes/Preview/DecisionsTab';
 import { useWorkshop } from '../../state/store';
 import { AutoSwitch } from '../AutoSwitch';
+import { BranchGuess } from '../BranchGuess';
 import { CopyDecisions } from '../CopyDecisions';
 import { NextStep } from '../NextStep';
 import { WhatAutoDecided } from '../WhatAutoDecided';
@@ -175,6 +177,7 @@ function JobScreen({ job, conversation, now, sent, evidence, write }: ScreenProp
             {ticket && <span className="num">{ticket}</span>}
           </div>
           {startedByAuto && <p className="sb-phone-by" title={AUTO_START_WHERE}><Icon name="bot" size={13} />{startedByAuto}</p>}
+          <BranchGuess slug={slug} detail={detail} onConfirmed={thread.reload} />
         </header>
         <div className="sb-phone-body">
           <NextStep

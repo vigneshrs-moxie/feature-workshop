@@ -84,13 +84,13 @@ function Routed({ slug }: { slug: string }) {
   return <Screens job={j} step={route.name === 'stage' ? route.stop : undefined} view={route.name === 'job' ? route.view : undefined} />;
 }
 
-function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions = [] as Permission[], gate = null as Gate | null, auto = null as JobDetail['auto'] | null, page = undefined as JobDetail['page'], thread = [] as ThreadItem[], hosted = false, at = '#/job/alpha', extra = null as ReactNode, mount = true, post = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({ ok: true })) } = {}) {
+function setup({ jobs = [job('alpha', 'idle', { stage: 'plan' })], permissions = [] as Permission[], gate = null as Gate | null, auto = null as JobDetail['auto'] | null, page = undefined as JobDetail['page'], thread = [] as ThreadItem[], hosted = false, at = '#/job/alpha', extra = null as ReactNode, mount = true, post = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({ ok: true })), detailMore = {} as Partial<JobDetail> } = {}) {
   window.location.hash = at;
   const store: Store = createStore();
   server.store = store;
   server.answered = [];
   store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs, permissions, meta: { token: 't', settings: { play: { mode: 'subtle' } }, models: [{ id: 'claude-opus-5-5', label: 'Opus 5.5' }] } as never }) });
-  const detail = (s: string): JobDetail => ({ slug: s, thread, threadMore: false, gate, answeredBriefs: [...server.answered], heldReply: null, options: { level: 1 }, auto, page } as JobDetail);
+  const detail = (s: string): JobDetail => ({ slug: s, thread, threadMore: false, gate, answeredBriefs: [...server.answered], heldReply: null, options: { level: 1 }, auto, page, ...detailMore } as JobDetail);
   const get = vi.fn(async (p: string): Promise<unknown> => {
     const stage = /^\/api\/job\/([^/]+)\/stage\/([a-z]+)$/.exec(p);
     if (stage) {
@@ -306,6 +306,32 @@ describe('the phone’s job screen', () => {
     expect(follows(row, screen.getByRole('checkbox', { name: AUTO_LABEL }))).toBe(true);
     fireEvent.click(row);
     expect(await screen.findByRole('dialog', { name: 'What Auto decided' })).toBeInTheDocument();
+  });
+
+  it('on a phone a guessed branch is shown as a guess with its button', async () => {
+    const branch = 'feature/orbit-470-talent-hide-before-hire';
+    const guess = (branchGuessed: boolean): Partial<JobDetail> => ({ repoPath: '/Users/me/Projects/moxie-portal', branch, locate: { path: '/Users/me/Projects/moxie-portal', branch, branchSource: branchGuessed ? 'workflow-status.md' : 'status.json', branchGuessed } });
+    const { post, get } = setup({ jobs: [job('alpha', 'idle', { stage: 'plan', ticket: 'ORBIT-470' })], detailMore: guess(true) });
+    const main = screen.getByRole('main', { name: 'Job' });
+    const group = await within(main).findByRole('group', { name: 'The job’s branch' });
+    expect(within(group).getByText('Branch (a guess):')).toBeInTheDocument();
+    expect(within(group).getByText(branch)).toBeInTheDocument();
+    // In the head, under the title and the ticket, before the bar.
+    expect(group.closest('.sb-phone-head')).not.toBeNull();
+    expect(follows(within(main).getByText('ORBIT-470'), group)).toBe(true);
+    expect(follows(group, bar())).toBe(true);
+    // Its button records the shown branch and the job is read again.
+    const reads = get.mock.calls.filter(([p]) => p === '/api/job/alpha').length;
+    await act(async () => { fireEvent.click(within(group).getByRole('button', { name: 'This is the job\'s branch' })); });
+    expect(post).toHaveBeenCalledWith('/api/job/alpha/repo', { repoPath: '/Users/me/Projects/moxie-portal', branch });
+    await waitFor(() => expect(get.mock.calls.filter(([p]) => p === '/api/job/alpha').length).toBeGreaterThan(reads));
+    cleanup();
+    // A recorded branch: no guess line.
+    const recorded = setup({ jobs: [job('alpha', 'idle', { stage: 'plan', ticket: 'ORBIT-470' })], detailMore: guess(false) });
+    await waitFor(() => expect(recorded.get).toHaveBeenCalledWith('/api/job/alpha'));
+    await act(async () => {});
+    expect(screen.queryByText('Branch (a guess):')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'This is the job\'s branch' })).toBeNull();
   });
 });
 
