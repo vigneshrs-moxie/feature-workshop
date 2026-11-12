@@ -15,14 +15,17 @@ export function StepDocs({ slug, docs, request }: { slug: string; docs: JobDocEn
   const list = useRef<HTMLUListElement>(null);
   const lastPicked = useRef<string | null>(null);
 
-  // A request this list hasn't acted on (one present when it mounts counts as new).
+  // A request this list hasn't acted on (one present when it mounts counts as new: StepPanel hands
+  // a request down only once, so picking the step again does not bring it back).
   const seen = useRef<number | null>(null);
-  if (request && request.n !== seen.current) {
-    seen.current = request.n;
-    const wanted = request.file;
-    if (wanted !== file) setFile(wanted);
+  const n = request?.n ?? null;
+  const wanted = request?.file ?? null;
+  useEffect(() => {
+    if (n === null || n === seen.current) return;
+    seen.current = n;
     if (wanted) lastPicked.current = wanted;
-  }
+    setFile(wanted);
+  }, [n, wanted]);
 
   // Back to the list: the focus goes to the document you were reading.
   useEffect(() => {

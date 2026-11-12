@@ -37,7 +37,7 @@ export function StepsRow({ job, times, open, sent, now, onOpen }: {
     <div className="sb-steps" role="tablist" aria-label="The job’s seven steps">
       {STOPS.map((s, i) => {
         const state = stepState(job, s.id, sent);
-        const time = stepTimeWords(job, s.id, times?.[s.id], now);
+        const time = stepTimeWords(job, s.id, times?.[s.id], now, null, sent);
         const isOpen = s.id === open;
         const face = state.cls === 'is-now' ? 'working' : state.cls === 'is-wait' ? 'waiting' : 'idle';
         return (

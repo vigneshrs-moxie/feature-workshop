@@ -4,7 +4,7 @@
 // feed moves without the job changing), else every 30 s, and at once whenever the job changes
 // (job.updatedAt). It stops asking when the step changes or the component goes; an answer for
 // another step is never drawn into this one.
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { StageView, StopId } from '../../api/types';
 import { lastKnown, remember } from '../../lib/lastKnown';
 import { jobBySlug } from '../../state/reducer';
@@ -35,17 +35,31 @@ export function useStage(slug: string, stop: StopId): { view: StageView | null; 
   }
   const [tries, setTries] = useState(0);
 
-  const ask = useCallback((alive: () => boolean) => api.get<StageView>(path).then(
-    (value) => {
-      remember(api, path, value);
-      if (alive()) setHeld((h) => (h.path === path ? { path, load: { state: 'ready', value } } : h));
-    },
-    (err) => {
-      const message = err instanceof Error ? err.message : String(err);
-      // A refresh that fails keeps what the step showed.
-      if (alive()) setHeld((h) => (h.path === path && h.load.state !== 'ready' ? { path, load: { state: 'error', message } } : h));
-    },
-  ), [api, path]);
+  // Each ask is numbered: an answer older than one already taken is dropped (a slow first ask that
+  // lands after a quick second one never puts the older view back).
+  const asked = useRef(0);
+  const taken = useRef(0);
+  const ask = useCallback((alive: () => boolean) => {
+    const mine = ++asked.current;
+    const newest = () => {
+      if (mine < taken.current) return false;
+      taken.current = mine;
+      return true;
+    };
+    return api.get<StageView>(path).then(
+      (value) => {
+        if (!newest()) return;
+        remember(api, path, value);
+        if (alive()) setHeld((h) => (h.path === path ? { path, load: { state: 'ready', value } } : h));
+      },
+      (err) => {
+        if (!newest()) return;
+        const message = err instanceof Error ? err.message : String(err);
+        // A refresh that fails keeps what the step showed.
+        if (alive()) setHeld((h) => (h.path === path && h.load.state !== 'ready' ? { path, load: { state: 'error', message } } : h));
+      },
+    );
+  }, [api, path]);
 
   // At once: on mount, on another step, on Try again, and whenever the job changes.
   useEffect(() => {

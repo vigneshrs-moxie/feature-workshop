@@ -66,7 +66,10 @@
 .sb-step.is-now .sb-step-icon, .sb-step.is-now .sb-step-state { color: var(--lane-working-fg); }
 .sb-step.is-wait { background: var(--lane-needs-you-bg); }
 .sb-step.is-wait .sb-step-icon, .sb-step.is-wait .sb-step-state { color: var(--lane-needs-you-fg); }
-.sb-step.is-stop .sb-step-name, .sb-step.is-stop .sb-step-icon { color: var(--text-3); }
+.sb-step.is-stop { background: var(--lane-needs-you-bg); }
+.sb-step.is-stop .sb-step-icon { color: var(--lane-needs-you-fg); }
+.sb-step.is-stop .sb-step-state { color: var(--status-warn); }
+.sb-step.is-skipped .sb-step-name, .sb-step.is-skipped .sb-step-icon { color: var(--text-3); }
 .sb-step.is-open { border-color: var(--accent); box-shadow: inset 0 -3px 0 var(--accent); }
 
 .sb-panel { display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-4); border: 1px solid var(--border-1); border-radius: var(--card-radius); background: var(--bg-1); }
@@ -79,12 +82,13 @@
 .sb-step-chip.is-done { color: var(--status-ok); background: var(--status-ok-bg); }
 .sb-step-chip.is-now { color: var(--lane-working-fg); background: var(--lane-working-bg); }
 .sb-step-chip.is-wait { color: var(--text-1); background: var(--lane-needs-you-bg); }
-.sb-step-chip.is-stop { color: var(--text-2); }
+.sb-step-chip.is-stop { color: var(--status-warn); background: var(--lane-needs-you-bg); }
+.sb-step-chip.is-skipped { color: var(--text-2); }
 
 .sb-who { display: flex; flex-direction: column; gap: var(--space-2); }
 .sb-who-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
 .sb-who-laptop, .sb-who-note { font-size: var(--text-sm); }
-.sb-who-note, .sb-who-empty { margin: 0; }
+.sb-who-note, .sb-who-empty, .sb-not-yet { margin: 0; }
 .sb-who-problem { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
 .sb-who-problem .thread-error { margin: 0; }
 .sb-who-rows { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--space-2); }

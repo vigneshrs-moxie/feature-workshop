@@ -257,11 +257,11 @@ describe('TestStep', () => {
     expect(within(testerRow).getByRole('button', { name: /Watch in terminal/ })).toBeInTheDocument();
     expect(rows[0].querySelector('.sb-who-status')).toHaveTextContent('Waiting for the evidence');
 
-    // Its feed: the last three lines it finished, then the one it runs now.
+    // Its feed, newest first (as every feed block): the line it runs now, then the last three it finished.
     const feed = screen.getByRole('region', { name: 'Live: what they’re doing' });
     const block = within(feed).getByRole('article', { name: 'Starbase' });
     expect([...block.querySelectorAll('.sb-feed-text')].map((t) => t.textContent)).toEqual([
-      `Line 1 passed: ${TITLES[0]}`, `Line 2 passed: ${TITLES[1]}`, `Line 3 passed: ${TITLES[2]}`, `Line 4: ${TITLES[3]}`,
+      `Line 4: ${TITLES[3]}`, `Line 3 passed: ${TITLES[2]}`, `Line 2 passed: ${TITLES[1]}`, `Line 1 passed: ${TITLES[0]}`,
     ]);
   });
 

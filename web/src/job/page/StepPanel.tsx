@@ -4,7 +4,7 @@
 // their last actions; the step's own body (children); and the documents from this step. The view
 // comes from useStage; loading and a failed load stay in the who list's place, so the rest of the
 // panel is whole. On the website there is no terminal: one sentence says where the buttons are.
-import { useCallback, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { FeedLine, Job, StageAgent, StageView, StopId } from '../../api/types';
 import { BRAND } from '../../app/brand';
 import { Button } from '../../components/Button';
@@ -22,7 +22,7 @@ import './page.css';
 export const STEP_PANEL_ID = 'sb-step-panel';
 export const stepTabId = (stop: StopId) => `sb-step-${stop}`;
 
-/** What a step not reached says in the who list's place. */
+/** What a step not reached says: in the who list's place, or above the step's body with bodyFirst. */
 const NOT_YET: Partial<Record<StopId, string>> = {
   test: 'Not yet. The Tester starts when the build is done. These three run then:',
   review: 'Not yet. Four reviewers look at the change after the tests: spec, errors, tests and screens.',
@@ -68,7 +68,7 @@ function statusOf(a: StageAgent, { job, stop, rows }: { job: Job; stop: StopId; 
   return a.since ? { cls: 'is-stopped', words: 'Stopped' } : { cls: 'is-stopped', words: 'Not started' };
 }
 
-export function StepPanel({ job, stop, view, error, onRetry, now, extraAgents, sent = null, children }: {
+export function StepPanel({ job, stop, view, error, onRetry, now, extraAgents, sent = null, docRequest, bodyFirst = false, children }: {
   job: Job;
   stop: StopId;
   /** useStage's answer for this step; null while it loads or when it failed. */
@@ -80,15 +80,26 @@ export function StepPanel({ job, stop, view, error, onRetry, now, extraAgents, s
   extraAgents?: StageAgent[];
   /** The bar's sent line (useSentShown), so the head says Approved after your Go as the row does. */
   sent?: { kind: GateKind | null } | null;
+  /** A document to open in this step's list (a link, ⌘K): each new `n` opens its file once. */
+  docRequest?: { n: number; file: string | null };
+  /** The step's body right under the head (and the not-yet line), above who worked on it (the Test step). */
+  bodyFirst?: boolean;
   children?: ReactNode;
 }) {
   const i = STOPS.findIndex((s) => s.id === stop);
   const here = STOPS[i];
   const state = stepState(job, stop, sent);
-  const time = stepTimeWords(job, stop, view?.time, now, view?.since);
+  const time = stepTimeWords(job, stop, view?.time, now, view?.since, sent);
   const reached = (view?.state ?? statesOf(job)[stop]) !== 'next';
   const rows = view ? [...view.agents, ...view.finished, ...(extraAgents ?? [])] : extraAgents ?? [];
   const title = `${STEP_PANEL_ID}-title`;
+  // The last document request handed down: each step's list is its own (keyed by step), so a request
+  // already acted on is not handed to the next list, and picking the step again does not reopen it.
+  const handled = useRef<number | null>(null);
+  const request = docRequest && docRequest.n !== handled.current ? docRequest : undefined;
+  useEffect(() => { if (docRequest) handled.current = docRequest.n; }, [docRequest]);
+  const notYet = !reached && <p className="muted sb-not-yet">{NOT_YET[stop] ?? 'Not yet.'}</p>;
+  const who = <Who key={stop} job={job} stop={stop} view={view} error={error} onRetry={onRetry} now={now} rows={rows} reached={reached} notYet={bodyFirst ? null : notYet} />;
   return (
     <section className="sb-panel" id={STEP_PANEL_ID} role="tabpanel" aria-labelledby={title}>
       <header className="sb-panel-head">
@@ -99,18 +110,20 @@ export function StepPanel({ job, stop, view, error, onRetry, now, extraAgents, s
         <span className="sb-panel-spacer" />
         <span className="muted sb-panel-count">Step {i + 1} of {STOPS.length}</span>
       </header>
-      <Who key={stop} job={job} stop={stop} view={view} error={error} onRetry={onRetry} now={now} rows={rows} reached={reached} />
+      {bodyFirst && notYet}
+      {bodyFirst && children}
+      {who}
       {view && reached && <Feed rows={rows} now={now} />}
-      {children}
+      {!bodyFirst && children}
       <section className="sb-panel-docs" aria-labelledby={`${title}-docs`}>
         <h3 id={`${title}-docs`}>Documents from this step</h3>
-        <StepDocs slug={job.slug} docs={view?.docs ?? []} />
+        <StepDocs key={stop} slug={job.slug} docs={view?.docs ?? []} request={request} />
       </section>
     </section>
   );
 }
 
-function Who({ job, stop, view, error, onRetry, now, rows, reached }: { job: Job; stop: StopId; view: StageView | null; error: string | null; onRetry(): void; now: Date; rows: StageAgent[]; reached: boolean }) {
+function Who({ job, stop, view, error, onRetry, now, rows, reached, notYet }: { job: Job; stop: StopId; view: StageView | null; error: string | null; onRetry(): void; now: Date; rows: StageAgent[]; reached: boolean; /** The not-yet line, when it sits in the list's place (else drawn above the body). */ notYet: ReactNode }) {
   const { api } = useWorkshop();
   const hosted = Boolean(api.hosted?.());
   const [note, setNote] = useState<{ text: string; bad: boolean } | null>(null);
@@ -150,7 +163,7 @@ function Who({ job, stop, view, error, onRetry, now, rows, reached }: { job: Job
       </div>
     );
   } else if (!reached) {
-    body = <p className="muted sb-who-empty">{NOT_YET[stop] ?? 'Not yet.'}</p>;
+    body = notYet;
   } else if (!view) {
     body = <p className="muted sb-who-empty" role="status">Loading who worked on it…</p>;
   } else if (rows.length === 0) {
@@ -220,36 +233,46 @@ function WhoRow({ a, status, now, hosted, busy, off, onOpen }: { a: StageAgent; 
   );
 }
 
-/** One block per crew member: those at work now, or, when nobody works, what each did last. */
+/**
+ * One block per crew member (never the Foreman: its row says whom it waits for), newest line first:
+ * those at work now, or, when none works, those who left lines here. A crew member at work with no
+ * lines yet has its block with a sentence; nothing at all is drawn when no crew member has a block
+ * (a step only the Foreman worked, a done step whose crew left no lines, a skipped step).
+ */
 function Feed({ rows, now }: { rows: StageAgent[]; now: Date }) {
-  const working = rows.some(isLive);
   const lines = (a: StageAgent): FeedLine[] => (Array.isArray(a.feed) ? a.feed.filter((l) => l && typeof l.text === 'string' && l.text) : []);
-  const blocks = rows.filter((a) => (!working || isLive(a)) && lines(a).length > 0);
+  const crew = rows.filter((a) => a.who !== 'conductor');
+  const working = crew.some(isLive);
+  const blocks = crew.filter((a) => (working ? isLive(a) : lines(a).length > 0));
+  if (blocks.length === 0) return null;
   const id = `${STEP_PANEL_ID}-feed`;
   return (
     <section className="sb-feed" aria-labelledby={id}>
       <h3 id={id}>{working ? 'Live: what they’re doing' : 'What they did last'}</h3>
-      {blocks.length === 0
-        ? <p className="muted sb-feed-empty">No actions to show yet.</p>
-        : (
-          <div className="sb-feed-blocks">
-            {blocks.map((a) => (
-              <article key={a.ref} className="sb-feed-block" aria-label={roleWord(a)}>
-                <header className="sb-feed-head">
-                  <b className="sb-feed-who">{roleWord(a)}</b>
-                  {a.model && <span className="chip num sb-who-model">{a.model}</span>}
-                  <span className={`chip sb-feed-state ${isLive(a) ? 'is-live' : 'is-finished'}`}>{isLive(a) ? 'Live' : 'Finished'}</span>
-                </header>
-                <ol className="sb-feed-lines">
-                  {lines(a).map((l, n) => {
-                    const ago = agoWords(l.at, now);
-                    return <li key={n}>{ago && <time className="sb-feed-at num" dateTime={l.at ?? undefined}>{ago}</time>}<span className="sb-feed-text">{l.text}</span></li>;
-                  })}
-                </ol>
-              </article>
-            ))}
-          </div>
-        )}
+      <div className="sb-feed-blocks">
+        {blocks.map((a) => {
+          const newest = [...lines(a)].reverse();
+          return (
+            <article key={a.ref} className="sb-feed-block" aria-label={roleWord(a)}>
+              <header className="sb-feed-head">
+                <b className="sb-feed-who">{roleWord(a)}</b>
+                {a.model && <span className="chip num sb-who-model">{a.model}</span>}
+                <span className={`chip sb-feed-state ${isLive(a) ? 'is-live' : 'is-finished'}`}>{isLive(a) ? 'Live' : 'Finished'}</span>
+              </header>
+              {newest.length === 0
+                ? <p className="muted sb-feed-empty">No actions to show yet.</p>
+                : (
+                  <ol className="sb-feed-lines">
+                    {newest.map((l, n) => {
+                      const ago = agoWords(l.at, now);
+                      return <li key={n}>{ago && <time className="sb-feed-at num" dateTime={l.at ?? undefined}>{ago}</time>}<span className="sb-feed-text">{l.text}</span></li>;
+                    })}
+                  </ol>
+                )}
+            </article>
+          );
+        })}
+      </div>
     </section>
   );
 }

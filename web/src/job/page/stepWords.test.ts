@@ -78,7 +78,7 @@ describe('stepState', () => {
   it('each state in words, with its class', () => {
     const skipping: Job = { ...building, skipped: ['investigate', 'spec-update'] };
     expect(stepState(skipping, 'spec', null)).toEqual({ cls: 'is-done', words: 'Done' });
-    expect(stepState(skipping, 'investigate', null)).toEqual({ cls: 'is-stop', words: 'Skipped' });
+    expect(stepState(skipping, 'investigate', null)).toEqual({ cls: 'is-skipped', words: 'Skipped' });
     expect(stepState(skipping, 'build', null)).toEqual({ cls: 'is-now', words: 'Working now' });
     expect(stepState(skipping, 'test', null)).toEqual({ cls: '', words: 'Not yet' });
     expect(stepState(waitingAtPlan, 'plan', null)).toEqual({ cls: 'is-wait', words: 'Waiting for you' });
@@ -86,6 +86,30 @@ describe('stepState', () => {
     expect(stepState(shipping, 'review', null)).toEqual({ cls: 'is-done', words: 'Done' });
     // Changes asked for on the pull request: it waits for you, not in review.
     expect(stepState({ ...shipping, lane: 'needs-you', needsYou: true, laneReason: 'Changes were asked for on PR #1' }, 'ship', null)).toEqual({ cls: 'is-wait', words: 'Waiting for you' });
+  });
+
+  it('the job stopped and waiting for your next message: its step reads Stopped, timed as a working step', () => {
+    // As the job's row says Stopped (panes/Jobs/jobStatus.ts): idle, its last reply stopped.
+    const stopped: Job = job('pause-a-service', 'idle', { stage: 'implement', stageState: 'paused', paused: true, lane: 'resting', laneReason: 'Stopped; waits for your next message' });
+    expect(stepState(stopped, 'build', null)).toEqual({ cls: 'is-stop', words: 'Stopped' });
+    expect(stepState(stopped, 'plan', null)).toEqual({ cls: 'is-done', words: 'Done' });
+    expect(stepState(stopped, 'test', null)).toEqual({ cls: '', words: 'Not yet' });
+    expect(stepTimeWords(stopped, 'build', { startedAt: ago(32), endedAt: null }, NOW)).toBe('32 min so far');
+    // Idle with nothing stopped, or held by the usage limit: not Stopped.
+    expect(stepState({ ...stopped, stageState: 'idle' }, 'build', null)).toEqual({ cls: 'is-now', words: 'Working now' });
+    expect(stepState({ ...stopped, group: 'paused' }, 'build', null)).toEqual({ cls: 'is-now', words: 'Working now' });
+  });
+
+  it('an approved step says how long it took, never for how long it waited', () => {
+    const go = { kind: 'approve' as const };
+    expect(stepTimeWords(waitingAtPlan, 'plan', { startedAt: ago(200), endedAt: ago(65) }, NOW, null, go)).toBe('2 h 15 min');
+    // No end: up to when it began to wait.
+    expect(stepTimeWords(waitingAtPlan, 'plan', { startedAt: ago(200), endedAt: null }, NOW, null, go)).toBe('2 h 15 min');
+    // Nothing usable: nothing, not "for …".
+    expect(stepTimeWords({ ...waitingAtPlan, waitingSince: null }, 'plan', { startedAt: ago(200), endedAt: null }, NOW, null, go)).toBeNull();
+    expect(stepTimeWords(waitingAtPlan, 'plan', undefined, NOW, null, go)).toBeNull();
+    // After Send back it still waits: for how long.
+    expect(stepTimeWords(waitingAtPlan, 'plan', { startedAt: ago(200), endedAt: ago(65) }, NOW, null, { kind: 'changes' })).toBe('for 1 h 5 min');
   });
 
   it('after your go the step reads Approved until the job moves', () => {

@@ -88,11 +88,25 @@ describe('StepsRow', () => {
   it('after your Go the job’s step reads Approved', () => {
     const waiting = job('pause-a-service', 'needs-you', { stage: 'plan', lane: 'needs-you', needsYou: true, waitingSince: ago(65) });
     setup({ j: waiting, open: 'plan', sent: { kind: 'approve' }, times: { plan: { startedAt: ago(200), endedAt: ago(65) } } });
-    expect(tab('Plan')).toHaveTextContent('PlanApproved');
+    // How long the step took, never for how long it has waited.
+    expect(tab('Plan')).toHaveTextContent(/^PlanApproved2 h 15 min$/);
+    expect(tab('Plan')).toHaveAccessibleName('Plan: Approved, 2 h 15 min');
+    expect(tab('Plan')).toHaveClass('is-done');
     cleanup();
     setup({ j: waiting, open: 'plan', sent: { kind: 'changes' }, times: { plan: { startedAt: ago(200), endedAt: ago(65) } } });
-    expect(tab('Plan')).toHaveTextContent('PlanWaiting for youfor 1 h 5 min');
+    expect(tab('Plan')).toHaveTextContent(/^PlanWaiting for youfor 1 h 5 min$/);
     expect(tab('Plan')).toHaveClass('is-wait');
+  });
+
+  it('a skipped step and a stopped job’s step have their own classes', () => {
+    setup();
+    expect(tab('Investigate')).toHaveClass('is-skipped');
+    expect(tab('Investigate')).not.toHaveClass('is-stop');
+    cleanup();
+    const stopped = job('pause-a-service', 'idle', { stage: 'implement', stageState: 'paused', paused: true, lane: 'resting' });
+    setup({ j: stopped });
+    expect(tab('Build')).toHaveTextContent(/^BuildStopped32 min so far$/);
+    expect(tab('Build')).toHaveClass('is-stop');
   });
 
   it('Play full shows the crew’s faces', () => {
