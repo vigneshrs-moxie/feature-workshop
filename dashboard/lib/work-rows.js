@@ -10,17 +10,23 @@
 //   note  a plain sentence when there is something to say about the list (none yet; on the website), else null
 //
 // The task it was given is the first instruction in that crew member's log (the prompt it was started
-// with), one line; without the log (not found, or on the website), the one-line task the Foreman gave
-// it (the activity's description). Never a list of its tool calls.
+// with), one line: the first line that states the task, past the opening a conductor's dispatch prompt
+// carries (the stage, the job, the folders, the files to read: firstInstruction). Without the log (not
+// found, or on the website), or when the prompt says nothing past its opening, the one-line task the
+// Foreman gave it (the activity's description). Never a list of its tool calls.
 //
 // How it ended comes from the job's corrected activity (runner jobDetail: a 'running' row with no live
 // process behind it is already 'stopped' by lib/working.js rowWorking), so a row is Running only by
 // that rule; a log never makes a row Running. A stopped row Failed when its log ends on an API error
-// (Claude Code writes those as an assistant line with isApiErrorMessage), or when the reply it was part
-// of ended with an error (the job's audit: run-ended, status 'error').
+// (Claude Code writes those as an assistant line with isApiErrorMessage; a half-written last line is
+// skipped, so an earlier error the worker was retrying can still show), or when the reply it was part
+// of ended with an error. That reply is the job's last one started (audit `send`, with its runId) at or
+// before the row's last line, and its end is the `run-ended` with the same runId (the whole audit, read
+// at the rebuild: runLines). A reply with no end (a crash) or none at all (a terminal) says nothing.
 //
 // Speed (plan "Speed rules" 6): the page's payload never reads a log. The work route reads each crew
-// log only when Details asks, and only the start (the task) and the end (how it failed) of it. Each
+// log only when Details asks, at most READS_AT_ONCE at a time, and only the start (the task: 64 KB,
+// widened to 256 KB when the first prompt is longer) and the end (how it failed: 64 KB) of it. Each
 // log's answer is kept by its size and modified time: an unchanged log is never read twice, and a log
 // that grew has only its end read again (the start of a log does not change).
 
@@ -31,13 +37,19 @@ import { scrub } from './orbit.js';
 
 /** At most this many characters of a task or a failure's line. */
 export const TASK_MAX = 160;
-/** How much of a log's start is read for its first instruction, and of its end for how it ended. */
+/** How much of a log's start is read for its first instruction (first, then at most), and of its end for how it ended. */
+const HEAD_FIRST = 64 * 1024;
 const HEAD_BYTES = 256 * 1024;
 const TAIL_BYTES = 64 * 1024;
+/** How many crew logs the work route reads at once. */
+export const READS_AT_ONCE = 8;
+/** How many of a job's replies Details keeps (start and end), newest. */
+const RUNS_KEPT = 500;
 /** A crew member whose log was not found is looked for again after this long. */
 const MISS_MS = 30_000;
 
 const NO_CREW = 'No crew has worked on this job yet.';
+const NOT_READY = 'The work on this job isn’t known yet. Try again in a moment.';
 const ON_LAPTOP = 'The full task each one was given shows on your laptop.';
 const NOT_SENT = 'The work on this job shows here once your laptop sends it.';
 const FAILED_WORDS = 'the reply ended with an error';
@@ -56,41 +68,90 @@ function cut(s) {
   return `${s.slice(0, n)}…`;
 }
 
+/** A line without its markdown marks (heading, quote, list, bold), its spaces collapsed. */
+const plain = (raw) => raw.trim().replace(/^(#{1,6}\s+|>\s*|[-*•]\s+)/, '').replace(/\*\*|__/g, '').replace(/\s+/g, ' ').trim();
+
 /** One plain line from a text: its first line that says something, without markdown marks, secrets hidden. */
-function oneLine(text, { tags = false } = {}) {
+function oneLine(text) {
   if (typeof text !== 'string') return null;
-  let body = scrub(text.slice(0, 16 * 1024));
-  if (tags) body = body.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '\n');
-  for (const raw of body.split('\n')) {
-    let l = raw.trim();
-    if (!l || (tags && /^<\/?[\w-]+(\s[^>]*)?>$/.test(l))) continue;
-    l = l.replace(/^(#{1,6}\s+|>\s*|[-*]\s+)/, '').replace(/\*\*|__/g, '').replace(/\s+/g, ' ').trim();
+  for (const raw of scrub(text.slice(0, 16 * 1024)).split('\n')) {
+    const l = plain(raw);
     if (l) return cut(l);
   }
   return null;
 }
 
-/** The task in one line, from the text of a crew member's first instruction. */
-export const firstInstruction = (text) => oneLine(text, { tags: true });
+// The opening a conductor's dispatch prompt carries before the task. The /feature and /bugfix skills say
+// "Every dispatch prompt contains: the stage; the exact artifact paths and versions; the private folder;
+// the repository path (and the worktree); the human's authorization verbatim; the human's answers; the job
+// options …; and 'Return the report described in your agent definition.'", in the conductor's own words.
+// So: a "Label: value" line for one of those, a role line ("You are the Builder for this job"), a line
+// that names files to read or the rules to follow, a path alone, a marker line, and a label line ending in
+// ":" ("Read first:") with the list under it. A "Task: …" line gives its value.
+const KEYS = 'stage|level|job|slug|ticket|title|kind|(?:private |job |feature )?folder|repo(?:sitory)?|worktree|(?:feature |base )?branch|base(?: commit)?|commit|range|diff(?: range)?|model|effort|spec|plan|(?:implementation |test |quick )?plan|findings|diagnosis|reproduction|artifacts?|paths?|inputs?|(?:job )?options|gates? file|(?:the human\'?s )?(?:authori[sz]ation|answers?)|scope|checklists?|layer(?: tags)?|skipped(?: stages)?|provided(?: documents)?|stand-?ins?|facts|round|versions?|rules|worker rules|report|private';
+const KEY_LINE = new RegExp(`^(?:the )?(?:${KEYS})(?: (?:path|paths|file|files|folder|version|versions|name))?\\s*(?::|=|—|–| - )`, 'i');
+const TASK_LINE = /^(?:your |the )?(?:task|goal|job to do|what to do|assignment)\s*(?::|—|–| - )\s*(.+)$/i;
+const LABEL_ONLY = /^(?:read(?: first| now| these| this)?|inputs?|context|background|files|paths|artifacts|rules|notes?|approved checks|checks|options|facts|what you have|you have|where things are)\s*:$/i;
+const OPENING = [
+  /^you(?: are|'re|’re) (?:the|a|an) .{1,60}? (?:for|on|in|of) (?:the |this |a )?(?:job|feature|bug|stage|ticket|repo|repository|step)\b/i,
+  /^(?:read|follow|use|load|see)\b.*(?:\.md\b|\bfirst\b|\bbelow\b|\brules\b|\bskill\b|\bchecklists?\b|\bagent definition\b)/i,
+  /^return (?:the|your) report\b/i,
+  /^this is a (?:bug|feature) job\b/i,
+  /^[~/.][^\s]*$/,
+  /^[=\-#*_~<>]{3,}/,
+];
+const LIST_ITEM = /^(?:[-*•]|\d+[.)])\s/;
+
+/**
+ * The task in one line, from the text of a crew member's first instruction: the first line past the
+ * dispatch prompt's opening (above), without markdown, secrets hidden, cut short. Null when nothing past
+ * the opening (in its first 60 lines) says what to do: the description is used then.
+ */
+export function firstInstruction(text) {
+  if (typeof text !== 'string') return null;
+  const body = scrub(text.slice(0, 16 * 1024)).replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '\n');
+  let underLabel = false;
+  let seen = 0;
+  for (const raw of body.split('\n')) {
+    const t = raw.trim();
+    if (!t) continue;
+    if (++seen > 60) break;
+    if (underLabel && LIST_ITEM.test(t)) continue;
+    underLabel = false;
+    if (/^<\/?[\w-]+(\s[^>]*)?>$/.test(t)) continue;
+    const l = plain(t);
+    if (!l) continue;
+    const task = TASK_LINE.exec(l);
+    if (task) return cut(plain(task[1])) || null;
+    if (LABEL_ONLY.test(l)) { underLabel = true; continue; }
+    if (KEY_LINE.test(l) || OPENING.some((re) => re.test(l))) continue;
+    return cut(l);
+  }
+  return null;
+}
 
 // ---------- Reading a crew member's log ----------
 
 const textOf = (content) => (typeof content === 'string' ? content
   : Array.isArray(content) ? content.filter((c) => c?.type === 'text' && typeof c.text === 'string' && !c.text.startsWith('<system-reminder>')).map((c) => c.text).join('\n') : '');
 
-/** The first instruction in a log's lines: its first prompt (not Claude Code's own lines, not a tool's result). */
+/**
+ * The first instruction in a crew log's lines (findCrewLog: <session>/subagents/agent-<id>.jsonl, whose
+ * first prompt is the dispatch prompt): { found: a first prompt was there, task: its line or null }.
+ * Claude Code's own lines (isMeta) and tools' results are not prompts.
+ */
 function taskIn(lines) {
   for (const l of lines) {
     let d;
     try { d = JSON.parse(l); } catch { continue; }
-    if (d?.type === 'queue-operation' && d.operation === 'enqueue' && typeof d.content === 'string') return firstInstruction(d.content);
     if (d?.type !== 'user' || d.isMeta || !d.message) continue;
     const c = d.message.content;
     if (Array.isArray(c) && c.some((x) => x?.type === 'tool_result')) continue;
-    const task = firstInstruction(textOf(c));
-    if (task) return task;
+    const text = textOf(c);
+    if (!text.trim()) continue;
+    return { found: true, task: firstInstruction(text) };
   }
-  return null;
+  return { found: false, task: null };
 }
 
 /** How a log ends, when it ends on an API error: that error's line; else null. */
@@ -152,17 +213,19 @@ export function crewLogs({ projectsDir, findLog = findCrewLog, fs = fsp, now = D
     if (!st) { where.delete(keyOf(entry)); kept.delete(file); return null; }
     const had = kept.get(file);
     if (had && had.size === st.size && had.mtimeMs === st.mtimeMs) return { task: had.task, failed: had.failed };
-    // A log that grew keeps its start: only its end is read again.
-    const grew = had && had.task !== null && st.size > had.size;
-    let task = grew ? had.task : null;
-    if (!grew) {
-      const head = await readSpan(fs, file, 0, Math.min(st.size, HEAD_BYTES));
-      task = taskIn(wholeLines(head, { fromStart: true, toEnd: st.size <= HEAD_BYTES }));
+    // A log that grew keeps its start once its first prompt was read: only its end is read again.
+    const grew = had && had.found && st.size > had.size;
+    let start = grew ? { found: true, task: had.task } : null;
+    for (const bytes of grew ? [] : [HEAD_FIRST, HEAD_BYTES]) {
+      const head = await readSpan(fs, file, 0, Math.min(st.size, bytes));
+      start = taskIn(wholeLines(head, { fromStart: true, toEnd: st.size <= bytes }));
+      if (start.found || st.size <= bytes) break; // a first prompt longer than 64 KB: read up to 256 KB
     }
+    const { found, task } = start;
     const from = Math.max(0, st.size - TAIL_BYTES);
     const tail = await readSpan(fs, file, from, st.size - from);
     const failed = failureIn(wholeLines(tail, { fromStart: from === 0, toEnd: true }));
-    kept.set(file, { size: st.size, mtimeMs: st.mtimeMs, task, failed });
+    kept.set(file, { size: st.size, mtimeMs: st.mtimeMs, found, task, failed });
     if (kept.size > 2000) kept.delete(kept.keys().next().value);
     return { task, failed };
   }
@@ -181,14 +244,16 @@ function modelOf(entry, stage, agents) {
 }
 
 /** How a row ended: from its corrected state, its log's failure, or the reply it was part of. */
-function endOf(entry, info, ends) {
+function endOf(entry, info, runs) {
   if (entry.state === 'running') return { state: 'running', ended: 'Running' };
   if (entry.state === 'finished' || entry.state === 'done') return { state: 'done', ended: 'Done' };
   let why = typeof info?.failed === 'string' && info.failed ? oneLine(info.failed) : null;
-  if (!why) {
-    const last = ms(entry.lastAt);
-    const end = last === null ? null : ends.find((e) => (ms(e.at) ?? -Infinity) >= last);
-    if (end?.status === 'error') why = oneLine(String(end.error ?? '')) ?? FAILED_WORDS;
+  const last = ms(entry.lastAt);
+  if (!why && last !== null) {
+    // Its reply: the last one started at or before its last line (runs are oldest first), ended at or after it.
+    let run = null;
+    for (const r of runs) { if (r.startMs <= last) run = r; else break; }
+    if (run?.status === 'error' && run.endMs !== null && run.endMs >= last) why = oneLine(String(run.error ?? '')) ?? FAILED_WORDS;
   }
   return why ? { state: 'failed', ended: `Failed: ${why}` } : { state: 'stopped', ended: 'Stopped' };
 }
@@ -208,20 +273,21 @@ function costsOf(agents, totalUsd) {
 
 /**
  * Details from the job's facts. Pure. infoOf(entry) → null | { task, failed } (a log's answer).
- * facts: { activity (jobDetail's, corrected), agents (costDetail.agents), totalUsd, ends ([{ at, status, error }]),
+ * facts: { activity (jobDetail's, corrected), agents (costDetail.agents), totalUsd, runs ([{ runId, startedAt, endedAt, status, error }]),
  *          hosted (no terminal), now }
  */
-export function workView({ activity = [], agents = [], totalUsd = null, ends = [], hosted = false, now = Date.now() } = {}, infoOf = () => null) {
+export function workView({ activity = [], agents = [], totalUsd = null, runs = [], hosted = false, now = Date.now() } = {}, infoOf = () => null) {
   const list = Array.isArray(activity) ? activity : [];
   const costRows = Array.isArray(agents) ? agents : [];
-  const endsAt = (Array.isArray(ends) ? ends : []).filter((e) => isObj(e) && ms(e.at) !== null).sort((a, b) => ms(a.at) - ms(b.at));
+  const runsAt = (Array.isArray(runs) ? runs : []).filter((r) => isObj(r) && ms(r.startedAt) !== null)
+    .map((r) => ({ ...r, startMs: ms(r.startedAt), endMs: ms(r.endedAt) })).sort((a, b) => a.startMs - b.startMs);
   const rows = [];
   list.forEach((entry, index) => {
     if (!isObj(entry) || entry.who === 'conductor') return; // the Foreman's own session is not a piece of work
     const info = infoOf(entry);
     const stage = stageOfCrew(entry.who, entry.description ?? '');
     const step = stopOf(stage);
-    const { state, ended } = endOf(entry, info, endsAt);
+    const { state, ended } = endOf(entry, info, runsAt);
     const started = ms(entry.startedAt);
     const endedAt = state === 'running' ? null : entry.lastAt ?? null;
     const until = state === 'running' ? now : ms(entry.lastAt);
@@ -238,6 +304,28 @@ export function workView({ activity = [], agents = [], totalUsd = null, ends = [
   return { rows, costs: costsOf(costRows, totalUsd), note: rows.length ? null : NO_CREW };
 }
 
+/**
+ * The job's reply starts and ends from its whole audit (runner jobDetail, whole: true), small: each reply's
+ * `send` (with its runId) and its `run-ended`, the newest RUNS_KEPT replies.
+ */
+export function runLines(audit) {
+  const lines = (Array.isArray(audit) ? audit : []).filter((e) => isObj(e) && e.runId && ((e.action === 'send') || e.action === 'run-ended'));
+  return lines.slice(-RUNS_KEPT * 2).map((e) => (e.action === 'send'
+    ? { action: 'send', at: e.at ?? null, runId: String(e.runId) }
+    : { action: 'run-ended', at: e.at ?? null, runId: String(e.runId), status: e.status ?? null, error: e.error ?? null }));
+}
+
+/** Each reply once, oldest first: { runId, startedAt, endedAt (null: no end on record, a crash), status, error }. */
+function runsFrom(lines) {
+  const by = new Map();
+  for (const e of Array.isArray(lines) ? lines : []) {
+    if (!isObj(e) || !e.runId) continue;
+    if (e.action === 'send' && !by.has(e.runId)) by.set(e.runId, { runId: e.runId, startedAt: e.at ?? null, endedAt: null, status: null, error: null });
+    else if (e.action === 'run-ended' && by.has(e.runId)) Object.assign(by.get(e.runId), { endedAt: e.at ?? null, status: e.status ?? null, error: e.error ?? null });
+  }
+  return [...by.values()];
+}
+
 /** What Details needs from runner jobDetail (or its mirrored record): kept by the page's cache at each rebuild. */
 export function workFacts(detail) {
   const d = isObj(detail) ? detail : {};
@@ -246,17 +334,27 @@ export function workFacts(detail) {
     activity: (Array.isArray(d.activity) ? d.activity : []).filter(isObj).map(strip),
     agents: Array.isArray(d.costDetail?.agents) ? d.costDetail.agents : [],
     totalUsd: Number.isFinite(d.costDetail?.totalUsd) ? d.costDetail.totalUsd : null,
-    ends: (Array.isArray(d.audit) ? d.audit : []).filter((e) => e?.action === 'run-ended').map((e) => ({ at: e.at ?? null, status: e.status ?? null, error: e.error ?? null })),
+    // The whole audit's replies (jobDetail whole: runLines); without them, what the detail's audit holds.
+    runs: runsFrom(Array.isArray(d.runLines) ? d.runLines : runLines(d.audit)),
   };
 }
 
-/** Details on the laptop: the cached facts, and each crew member's log read (logs: crewLogs()) in one go. */
+/** Details on the laptop: the cached facts, and each crew member's log read (logs: crewLogs()), READS_AT_ONCE at a time. */
 export async function jobWork(facts, { logs = null, now = Date.now() } = {}) {
-  const f = isObj(facts) ? facts : {};
-  const crew = (Array.isArray(f.activity) ? f.activity : []).filter((e) => isObj(e) && e.who !== 'conductor');
+  if (!isObj(facts)) return { rows: [], costs: { steps: [], totalUsd: null }, note: NOT_READY };
+  const crew = (Array.isArray(facts.activity) ? facts.activity : []).filter((e) => isObj(e) && e.who !== 'conductor');
   const infos = new Map();
-  if (logs) await Promise.all(crew.map(async (e) => { infos.set(e, await logs.read(e).catch(() => null)); }));
-  return workView({ ...f, hosted: false, now }, (e) => infos.get(e) ?? null);
+  if (logs) {
+    let next = 0;
+    const worker = async () => {
+      while (next < crew.length) {
+        const e = crew[next++];
+        infos.set(e, await logs.read(e).catch(() => null));
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(READS_AT_ONCE, crew.length) }, worker));
+  }
+  return workView({ ...facts, hosted: false, now }, (e) => infos.get(e) ?? null);
 }
 
 /** Details on the website, from the mirrored job record: the Foreman's task lines (the logs stay on the laptop), no terminal. */

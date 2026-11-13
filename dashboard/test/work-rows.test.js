@@ -13,7 +13,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { workView, jobWork, workFacts, mirrorWork, crewLogs, firstInstruction, TASK_MAX } from '../lib/work-rows.js';
+import { workView, jobWork, workFacts, mirrorWork, crewLogs, firstInstruction, runLines, TASK_MAX, READS_AT_ONCE } from '../lib/work-rows.js';
 import { jobPageCache } from '../lib/job-payload-cache.js';
 import jobPageRoutes from '../site/routes-job-page.js';
 import { modelLabel } from '../lib/cost.js';
@@ -100,12 +100,12 @@ test('how it ended: Done, Stopped, Failed: <one line>, Running; Running only by 
     stop: { task: 'x', failed: null, running: true, state: 'running' },
     done: { task: 'x', failed: 'An old error the worker got past' },
   };
-  // The reply the crash row was part of ended with an error (the job's audit, run-ended).
-  const ends = [
-    { at: '2026-11-13T08:31:00Z', status: 'done', error: null },
-    { at: '2026-11-13T09:01:00Z', status: 'error', error: 'Claude Code process exited with code 1\n  at stack' },
+  // The reply the crash row was part of ended with an error (the job's audit: its send and its run-ended).
+  const runs = [
+    { runId: 'r1', startedAt: '2026-11-13T08:00:00Z', endedAt: '2026-11-13T08:31:00Z', status: 'done', error: null },
+    { runId: 'r2', startedAt: '2026-11-13T08:35:00Z', endedAt: '2026-11-13T09:01:00Z', status: 'error', error: 'Claude Code process exited with code 1\n  at stack' },
   ];
-  const view = workView({ activity, ends, now: NOW }, (e) => infos[e.agentId] ?? null);
+  const view = workView({ activity, runs, now: NOW }, (e) => infos[e.agentId] ?? null);
   const by = Object.fromEntries(view.rows.map((r) => [r.id.split('.')[0], r]));
   const ended = Object.fromEntries(activity.map((a, i) => [a.agentId, by[`c${i}`]]));
   assert.equal(ended.done.ended, 'Done', 'a finished worker is Done, whatever its log says before its end');
@@ -121,9 +121,10 @@ test('how it ended: Done, Stopped, Failed: <one line>, Running; Running only by 
   assert.equal(ended.deleg.ended, 'Stopped', 'only the state the job’s rule left as running is Running');
   assert.equal(ended.run.ref, ended.run.id, 'a running row can be opened in a terminal');
   assert.equal(ended.stop.ref, null);
-  const longError = workView({ activity: [entry({ state: 'stopped', lastAt: '2026-11-13T09:00:00Z' })], ends: [{ at: '2026-11-13T09:00:00Z', status: 'error', error: 'e'.repeat(500) }] }).rows[0].ended;
+  const errRun = (error) => [{ runId: 'r', startedAt: '2026-11-13T08:00:00Z', endedAt: '2026-11-13T09:00:00Z', status: 'error', error }];
+  const longError = workView({ activity: [entry({ state: 'stopped', lastAt: '2026-11-13T09:00:00Z' })], runs: errRun('e'.repeat(500)) }).rows[0].ended;
   assert.ok(longError.length <= 'Failed: '.length + TASK_MAX, 'one short line');
-  assert.match(workView({ activity: [entry({ state: 'stopped', lastAt: '2026-11-13T09:00:00Z' })], ends: [{ at: '2026-11-13T09:00:00Z', status: 'error', error: null }] }).rows[0].ended, /^Failed: \S/, 'an error with no words still says it failed');
+  assert.match(workView({ activity: [entry({ state: 'stopped', lastAt: '2026-11-13T09:00:00Z' })], runs: errRun(null) }).rows[0].ended, /^Failed: \S/, 'an error with no words still says it failed');
 });
 
 test('cost by step under the table: the runner’s cost rows by step, in the job’s order, and the total', () => {
@@ -239,24 +240,25 @@ test('jobWork: the rows with each log’s task, read in one go; without a log, t
   const projects = path.join(await tempRoot(), 'projects');
   await writeCrewLog(projects, { sessionId: 's-1', agentId: 'a1', who: 'feature-implementer', description: 'Build the notes table', lines: [promptLine('Implement step 1 of the plan.', '2026-11-13T10:00:00Z')] });
   const logs = crewLogs({ projectsDir: projects });
-  const facts = { activity: [entry({ agentId: 'a1' }), entry({ agentId: 'a9', description: 'Build the export', startedAt: '2026-11-13T10:30:00Z', lastAt: '2026-11-13T10:40:00Z' })], agents: [], totalUsd: 0, ends: [] };
+  const facts = { activity: [entry({ agentId: 'a1' }), entry({ agentId: 'a9', description: 'Build the export', startedAt: '2026-11-13T10:30:00Z', lastAt: '2026-11-13T10:40:00Z' })], agents: [], totalUsd: 0, runs: [] };
   const view = await jobWork(facts, { logs, now: NOW });
   assert.deepEqual(view.rows.map((r) => r.task), ['Build the export', 'Implement step 1 of the plan.']);
   assert.equal(view.note, null);
   assert.deepEqual((await jobWork(null, { logs })).rows, [], 'no facts: no rows');
+  assert.equal((await jobWork(null, { logs })).note, 'The work on this job isn’t known yet. Try again in a moment.', 'and not “no crew yet”');
 });
 
 test('workFacts keeps what Details needs from the job detail: the corrected activity, the cost rows, the replies’ ends', () => {
   const detail = {
     activity: [entry({ state: 'stopped' })], costDetail: { totalUsd: 2, agents: [{ agentType: 'conductor', stage: 'spec', usd: 2 }] },
-    audit: [{ action: 'send', at: '2026-11-13T09:00:00Z' }, { action: 'run-ended', at: '2026-11-13T09:30:00Z', status: 'error', error: 'boom', reply: 'long words' }],
+    audit: [{ action: 'send', at: '2026-11-13T09:00:00Z', runId: 'r1', text: 'private words' }, { action: 'permission', at: '2026-11-13T09:10:00Z', runId: 'r1' }, { action: 'run-ended', at: '2026-11-13T09:30:00Z', runId: 'r1', status: 'error', error: 'boom', reply: 'long words' }],
   };
   const facts = workFacts(detail);
   assert.equal(facts.activity[0].state, 'stopped');
   assert.equal(facts.totalUsd, 2);
-  assert.deepEqual(facts.ends, [{ at: '2026-11-13T09:30:00Z', status: 'error', error: 'boom' }]);
+  assert.deepEqual(facts.runs, [{ runId: 'r1', startedAt: '2026-11-13T09:00:00Z', endedAt: '2026-11-13T09:30:00Z', status: 'error', error: 'boom' }]);
   assert.equal('recent' in facts.activity[0], false, 'no tool calls kept');
-  assert.deepEqual(workFacts(null), { activity: [], agents: [], totalUsd: null, ends: [] });
+  assert.deepEqual(workFacts(null), { activity: [], agents: [], totalUsd: null, runs: [] });
 });
 
 test('the website: the mirror’s rows (the Foreman’s task line, no terminal), or a plain empty list with a reason', () => {
@@ -273,7 +275,7 @@ test('the website: the mirror’s rows (the Foreman’s task line, no terminal),
 
 test('the cache keeps the build’s work facts for the work route, from its warm entry', async () => {
   let builds = 0;
-  const cache = jobPageCache({ build: async (slug) => (slug === 'a' ? (builds++, { payload: { slug }, sources: new Map(), work: { activity: [entry({})], agents: [], totalUsd: 1, ends: [] } }) : null) });
+  const cache = jobPageCache({ build: async (slug) => (slug === 'a' ? (builds++, { payload: { slug }, sources: new Map(), work: { activity: [entry({})], agents: [], totalUsd: 1, runs: [] } }) : null) });
   try {
     assert.equal((await cache.work('a')).activity.length, 1);
     await cache.work('a');
@@ -389,4 +391,121 @@ test('on the runner: the page reads no agent log; Details reads each log once, s
     await new Promise((r) => { server.close(r); server.closeAllConnections?.(); });
     await runner.stop();
   }
+});
+
+// ---------- Fix round 1 ----------
+
+test('Failed names only the reply the row was part of: a clean old reply outside the last 50 audit lines, and a crash, do not take a later reply’s error', () => {
+  const audit = [
+    { action: 'send', at: '2026-11-13T08:00:00Z', runId: 'r1', text: 'Build step 1' },
+    { action: 'run-ended', at: '2026-11-13T08:30:00Z', runId: 'r1', status: 'done', error: null },
+    ...Array.from({ length: 100 }, (_, i) => ({ action: 'permission', at: `2026-11-13T09:${String(i % 60).padStart(2, '0')}:00Z`, runId: 'r1b' })),
+    { action: 'send', at: '2026-11-13T10:00:00Z', runId: 'r2' },
+    { action: 'run-ended', at: '2026-11-13T10:30:00Z', runId: 'r2', status: 'error', error: 'Claude Code process exited with code 1' },
+    // r3 crashed: no run-ended. r4 errored after it.
+    { action: 'send', at: '2026-11-13T11:00:00Z', runId: 'r3' },
+    { action: 'send', at: '2026-11-13T11:30:00Z', runId: 'r4' },
+    { action: 'run-ended', at: '2026-11-13T11:45:00Z', runId: 'r4', status: 'error', error: 'API Error: 500' },
+  ];
+  const activity = [
+    entry({ agentId: 'old', state: 'stopped', startedAt: '2026-11-13T08:05:00Z', lastAt: '2026-11-13T08:20:00Z' }),
+    entry({ agentId: 'bad', state: 'stopped', startedAt: '2026-11-13T10:05:00Z', lastAt: '2026-11-13T10:20:00Z' }),
+    entry({ agentId: 'crash', state: 'stopped', startedAt: '2026-11-13T11:05:00Z', lastAt: '2026-11-13T11:10:00Z' }),
+    entry({ agentId: 'after', state: 'stopped', startedAt: '2026-11-13T11:31:00Z', lastAt: '2026-11-13T11:40:00Z' }),
+  ];
+  const endedBy = (view) => Object.fromEntries(view.rows.map((r) => [activity[Number(r.id.slice(1).split('.')[0])].agentId, r.ended]));
+  // The runner passes the whole audit's replies (jobDetail whole: runLines).
+  const whole = endedBy(workView(workFacts({ activity, runLines: runLines(audit) })));
+  assert.deepEqual(whole, { old: 'Stopped', bad: 'Failed: Claude Code process exited with code 1', crash: 'Stopped', after: 'Failed: API Error: 500' });
+  // Even from only the last 50 lines, the old row is not given the later error.
+  assert.equal(endedBy(workView(workFacts({ activity, audit: audit.slice(-50) }))).old, 'Stopped');
+  // runLines keeps only the replies' starts and ends, without their words.
+  const lines = runLines(audit);
+  assert.equal(lines.length, 7);
+  assert.doesNotMatch(JSON.stringify(lines), /Build step 1|private/);
+});
+
+test('the task line skips the opening of a dispatch prompt shaped like the /feature and /bugfix conductors’ (made-up words)', () => {
+  const featurePrompt = [
+    '**Stage:** implement (plan step 3 of 7)',
+    'Job: notes-on-customers',
+    'Private folder: /tmp/fw/notes-on-customers',
+    'Repository: /tmp/sample-repo',
+    'Worktree: /tmp/sample-repo-notes (branch feature/notes-on-customers)',
+    'Follow ~/.claude/skills/workflow-common/worker-rules.md.',
+    '',
+    'Read first:',
+    '- spec.md v2',
+    '- implementation-plan.md v3',
+    '',
+    'Build the customer notes table and its migration (plan step 3).',
+    'Checklists: all.md, db.md.',
+    'Return the report described in your agent definition.',
+  ].join('\n');
+  assert.equal(firstInstruction(featurePrompt), 'Build the customer notes table and its migration (plan step 3).');
+  assert.equal(firstInstruction('You are the Tester for this job.\n\n## Task: Run the approved checks in test-plan.md v2 and write test-report.md.'), 'Run the approved checks in test-plan.md v2 and write test-report.md.');
+  assert.equal(firstInstruction('Stage: implement\nThis is a bug job: the gates file is ~/.claude/skills/bugfix/levels.md\nDiagnosis: diagnosis.md v1\nImplement step 2: the export button.'), 'Implement step 2: the export button.', 'a task line with a colon is not a label');
+  assert.equal(firstInstruction('You are implementing Task 5 of the notes job: the Details rows.\nRead the plan first.'), 'You are implementing Task 5 of the notes job: the Details rows.');
+  assert.equal(firstInstruction('Stage: review\nRepository: /tmp/sample-repo\nRange: abc123..def456\nReturn the report described in your agent definition.'), null, 'nothing past the opening: no task line');
+});
+
+test('a prompt that is only the opening gives the Foreman’s task line', async () => {
+  const projects = path.join(await tempRoot(), 'projects');
+  await writeCrewLog(projects, { sessionId: 's-1', agentId: 'r1', who: 'feature-reviewer', description: 'Review the notes diff', lines: [promptLine('Stage: review\nRepository: /tmp/sample-repo\nRange: abc123..def456\nReturn the report described in your agent definition.', '2026-11-13T10:00:00Z')] });
+  const view = await jobWork({ activity: [entry({ who: 'feature-reviewer', agentId: 'r1', description: 'Review the notes diff' })] }, { logs: crewLogs({ projectsDir: projects }), now: NOW });
+  assert.equal(view.rows[0].task, 'Review the notes diff');
+});
+
+test('big logs: a long non-ASCII first prompt, a big middle, an API error and a half-written last line; reads stay bounded', async () => {
+  const projects = path.join(await tempRoot(), 'projects');
+  const prompt = `Bygg tabellen för kundanteckningar — 日本語のメモ ${'é'.repeat(50_000)}`; // about 100 KB: past the first 64 KB read
+  const middle = Array.from({ length: 600 }, (_, i) => toolLine('Read', { file_path: `/x/${'ü'.repeat(200)}-${i}.js` }, '2026-11-13T10:01:00Z', `t${i}`));
+  const file = await writeCrewLog(projects, {
+    sessionId: 's-1', agentId: 'big', who: 'feature-implementer', description: 'Build the notes table',
+    lines: [promptLine(prompt, '2026-11-13T10:00:00Z'), ...middle, apiErrorLine('API Error: 529 Overloaded — 日本語', '2026-11-13T10:30:00Z')],
+  });
+  await fsp.appendFile(file, '{"type":"assistant","message":{"content":[{"type":"text","text":"half wri'); // a log being written
+  const size = (await fsp.stat(file)).size;
+  assert.ok(size > 400 * 1024, `a big log (${size} bytes)`);
+  let bytes = 0;
+  let readFiles = 0;
+  const spyFs = {
+    ...fsp,
+    readFile: (...a) => { readFiles++; return fsp.readFile(...a); },
+    open: async (...a) => {
+      const fh = await fsp.open(...a);
+      return { read: async (buf, off, len, pos) => { const r = await fh.read(buf, off, len, pos); bytes += r.bytesRead; return r; }, close: () => fh.close() };
+    },
+  };
+  const got = await crewLogs({ projectsDir: projects, fs: spyFs }).read(entry({ agentId: 'big' }));
+  assert.equal(got.task, firstInstruction(prompt));
+  assert.ok(got.task.startsWith('Bygg tabellen för kundanteckningar — 日本語のメモ é'));
+  assert.equal(got.failed, 'API Error: 529 Overloaded — 日本語', 'the half-written last line is skipped');
+  assert.equal(readFiles, 0, 'never the whole file');
+  assert.ok(bytes <= 64 * 1024 + 256 * 1024 + 64 * 1024, `bounded reads (${bytes} bytes)`);
+  // A first prompt longer than 256 KB: no task line from the log, the Foreman's instead.
+  await writeCrewLog(projects, { sessionId: 's-1', agentId: 'huge', who: 'feature-implementer', description: 'Build the notes table', lines: [promptLine(`Do it ${'x'.repeat(300 * 1024)}`, '2026-11-13T10:00:00Z')] });
+  assert.equal((await crewLogs({ projectsDir: projects }).read(entry({ agentId: 'huge' }))).task, null);
+});
+
+test('the first Details reads at most READS_AT_ONCE logs at a time, and every one', async () => {
+  let inFlight = 0;
+  let most = 0;
+  const read = new Set();
+  const logs = {
+    read: async (e) => {
+      inFlight++;
+      most = Math.max(most, inFlight);
+      await new Promise((r) => { setTimeout(r, 2); });
+      inFlight--;
+      read.add(e.agentId);
+      return { task: `Task ${e.agentId}`, failed: null };
+    },
+  };
+  const activity = Array.from({ length: 30 }, (_, i) => entry({ agentId: `a${i}`, startedAt: `2026-11-13T10:${String(i).padStart(2, '0')}:00Z` }));
+  const view = await jobWork({ activity }, { logs, now: NOW });
+  assert.equal(read.size, 30);
+  assert.ok(most <= READS_AT_ONCE, `at most ${READS_AT_ONCE} at once (saw ${most})`);
+  assert.equal(most, READS_AT_ONCE);
+  assert.equal(view.rows[0].task, 'Task a29');
 });

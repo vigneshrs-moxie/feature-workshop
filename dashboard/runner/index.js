@@ -94,7 +94,7 @@ import { stopOf } from '../lib/stage-view.js';
 import { checkCounts } from '../lib/job-page.js';
 import { buildJobPage } from '../lib/job-payload.js';
 import { bodyHash, itemSources, jobPageCache } from '../lib/job-payload-cache.js';
-import { crewLogs, jobWork, workFacts } from '../lib/work-rows.js';
+import { crewLogs, jobWork, runLines, workFacts } from '../lib/work-rows.js';
 import { writeFileAtomic } from '../lib/atomic-write.js';
 import { UsageLog, TurnMeter, turnLines, usageDir, starbaseUser, claudeAccountId } from '../lib/usage-log.js';
 import { statusTicketKey, slugTicketKey } from '../lib/orbit.js';
@@ -1288,7 +1288,8 @@ export async function createRunner(config) {
       statusForCompose: statusForCompose(f),
       // A gate reply waiting for the usage limit to reset ({ kind, gateBrief, at }), or null.
       heldReply: limits.heldFor(f.dir),
-      ...(whole ? { threadAll: threadPart.all, briefTexts: threadPart.texts } : {}),
+      // runLines: each reply's start and end from the whole audit, for Details (lib/work-rows.js) to tell which reply a crew row was part of.
+      ...(whole ? { threadAll: threadPart.all, briefTexts: threadPart.texts, runLines: runLines(audit) } : {}),
     };
   }
 
