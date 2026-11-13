@@ -20,11 +20,12 @@
 import { buildThread } from '../../lib/thread.js';
 import { parseBrief } from '../../lib/overview.js';
 import { describeDoc, DOC_GROUPS, EVIDENCE_JSON, WIREFRAMES_FILE } from '../../lib/docs.js';
-import { checkCounts, planSteps, prRows, stepDocs, stepStates, stepTimes } from '../../lib/job-page.js';
+import { checkCounts, planSteps, prRows, readAcceptance, stepDocs, stepStates, stepTimes } from '../../lib/job-page.js';
 import { reviewRows } from '../../lib/play.js';
 import { EVIDENCE_VERSION } from '../../lib/evidence.js';
 import { buildJobPage } from '../../lib/job-payload.js';
 import { renderMarkdown } from '../../lib/markdown.js';
+import { checksSource, findingsSource } from '../../lib/job-payload-cache.js';
 
 export const SIZES = [52, 200];
 
@@ -318,7 +319,8 @@ export function longJobSource({ size = 52, start = LONG_JOB_START } = {}) {
   const planText = `# Implementation plan v2: ${title}\n\n${para(1)}\n\n${planIds.map((id) => `### ${id}: ${phrase(r, 6)}\n\n${sentences(r, r.int(25, 40)).join(' ')}\n`).join('\n')}`;
   doc('implementation-plan.md', planText, '2', briefAt('plan'));
   doc('test-plan.md', `# Test plan v2: ${title}\n\n${para(2)}\n\n${acIds.map((id) => `- ${id}: ${sentences(r, r.int(8, 12)).join(' ')}`).join('\n')}\n`, '2', briefAt('plan'));
-  doc('acceptance.md', `# Acceptance v3: ${title}\n\n## It works when\n\n${acIds.map((id) => `- ${id}: ${sentences(r, r.int(8, 12)).join(' ')}`).join('\n')}\n\n## It must not\n\n- ${sentences(r, 10).join(' ')}\n`, '3', briefAt('plan'));
+  const acceptText = `# Acceptance v3: ${title}\n\n## It works when\n\n${acIds.map((id, i) => `${i + 1}. ${id}: ${sentences(r, r.int(8, 12)).join(' ')}`).join('\n')}\n\n## It must not\n\n1. ${sentences(r, 10).join(' ')}\n`;
+  doc('acceptance.md', acceptText, '3', briefAt('plan'));
   doc('implementation-log.md', `# Implementation log v2: ${title}\n\n${planIds.map((id) => `## ${id}\n\n${sentences(r, r.int(20, 35)).join(' ')}\n`).join('\n')}`, '2', briefAt('implement'));
   const reportText = `# Test report v4: ${title}\n\n${para(1)}\n\n${acIds.map((id) => `- ${id}: PASS. ${sentences(r, r.int(6, 10)).join(' ')}`).join('\n')}\n`;
   doc('test-report.md', reportText, '4', briefAt('test'));
@@ -382,7 +384,7 @@ export function longJobSource({ size = 52, start = LONG_JOB_START } = {}) {
     size, slug, title, branch, counts, start, firstAt, endAt,
     briefs, audit, gate, decided, questions, docs: docText, commits, evidence,
     wireframes: { version: '1', updatedAt: briefAt('wireframe'), size: 18_400 },
-    planText, reviewText, reportText, specText,
+    planText, reviewText, reportText, specText, acceptText,
   };
 }
 
@@ -463,6 +465,7 @@ function factsFrom(src) {
         times: stepTimes({ briefs: src.briefs, startedAt: src.firstAt, stage: 'review', kind: 'feature', skipped: [] }),
         docs: stepDocs(docs, 'feature'),
         checks,
+        check: { version: '3', ...readAcceptance(src.acceptText) },
         handTest: { startedAt: checks.at },
         plan: { version: '2', steps: stepStates(planSteps(src.planText), src.commits, false) },
         review,
@@ -512,5 +515,7 @@ export function longJobPage(o = {}) {
       bodies[out.id] = { id: out.id, kind: 'doc', html: renderMarkdown(d.text), text: d.text, meta: { name: out.label, version: out.version, updatedAt: d.updatedAt, step: step.id, words: wordCount(d.text) } };
     }
   }
+  // The review's findings and the Test step's facts (Task 14), as the item route answers them.
+  for (const b of [findingsSource(facts.detail.page), checksSource(facts.detail.page)]) bodies[b.id] = { id: b.id, kind: b.kind, html: renderMarkdown(b.text), text: b.text, meta: b.meta };
   return { counts: src.counts, facts, payload, bodies, commits: src.commits };
 }

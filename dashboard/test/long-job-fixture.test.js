@@ -115,7 +115,7 @@ for (const size of SIZES) {
   test(`${size}: one body per conversation line and per document a step shows, in the item route’s shape`, () => {
     const p = pages[size];
     const docIds = [...new Set(p.payload.steps.flatMap((s) => s.outputs.filter((o) => o.kind === 'doc').map((o) => o.id)))];
-    assert.deepEqual(Object.keys(p.bodies).sort(), [...p.payload.thread.map((l) => l.id), ...docIds].sort());
+    assert.deepEqual(Object.keys(p.bodies).sort(), [...p.payload.thread.map((l) => l.id), ...docIds, 'findings', 'checks'].sort());
     for (const [id, b] of Object.entries(p.bodies)) {
       assert.deepEqual(Object.keys(b), ['id', 'kind', 'html', 'text', 'meta'], id);
       assert.equal(b.id, id);

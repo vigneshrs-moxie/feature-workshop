@@ -286,7 +286,56 @@ export function itemSources({ payload, thread = [], briefTexts = new Map(), docs
   sources.set('decisions', { kind: 'decisions', version: hashOf(text), text, meta: { rows }, html: () => render(text) });
   const ticket = ticketMarkdown(page);
   sources.set('ticket', { kind: 'ticket', version: hashOf(ticket), text: ticket, meta: ticketMeta(page), html: () => render(ticket) });
+  for (const s of [findingsSource(page), checksSource(page)]) sources.set(s.id, { kind: s.kind, version: s.version, text: s.text, meta: s.meta, html: () => render(s.text) });
   return sources;
+}
+
+// ---------- Findings and the Test step's facts (the job page rebuild, Task 14) ----------
+
+const FINDING_STATUS = new Set(['open', 'fixed', 'not-doing']);
+const SEVERITY = new Set(['blocker', 'major', 'minor']);
+const count = (n) => (Number.isFinite(Number(n)) && Number(n) > 0 ? Math.floor(Number(n)) : 0);
+
+/**
+ * The reader's Findings (id 'findings'): the combined review's rows as lib/play.js reviewRows reads
+ * them (its findingStatus says open, fixed or not-doing; nothing here decides a status again).
+ * meta { at, known (review.md was read), rows [{ lens, severity, text, status }] }. Laptop and website alike.
+ * @param {object|null|undefined} page the job's page facts (runner jobDetail.page, or the mirrored record's)
+ */
+export function findingsSource(page) {
+  const review = page?.review ?? null;
+  const rows = (Array.isArray(review?.rows) ? review.rows : [])
+    .filter((r) => r && typeof r.text === 'string' && r.text.trim())
+    .map((r) => ({
+      lens: typeof r.lens === 'string' && r.lens ? r.lens : null,
+      severity: SEVERITY.has(r.severity) ? r.severity : 'minor',
+      text: r.text,
+      status: FINDING_STATUS.has(r.status) ? r.status : 'open',
+    }));
+  const meta = { at: typeof review?.at === 'string' ? review.at : null, known: Boolean(review), rows };
+  const text = rows.map((r) => `- ${r.severity} · ${r.status} · ${r.text}`).join('\n');
+  return { id: 'findings', kind: 'findings', version: hashOf(JSON.stringify(meta)), text, meta };
+}
+
+/**
+ * The Test step's facts for the reader's Checks and Your hand test (id 'checks'): the Tester's counts
+ * from test-report.md (runner testFacts: null with no report), what to check (acceptance.md's lists,
+ * the same as the ticket's What to check) and when Try it was last started from a page.
+ * meta { counts: { passed, failed, notRun, at } | null, check: { version, worksWhen, mustNot }, handTest: { startedAt } | null }.
+ * @param {object|null|undefined} page
+ */
+export function checksSource(page) {
+  const c = page?.checks ?? null;
+  const counts = c && typeof c === 'object' ? { passed: count(c.passed), failed: count(c.failed), notRun: count(c.notRun), at: typeof c.at === 'string' ? c.at : null } : null;
+  const check = { version: words(page?.check?.version) ?? null, worksWhen: lines(page?.check?.worksWhen), mustNot: lines(page?.check?.mustNot) };
+  const h = page?.handTest ?? null;
+  const handTest = h && typeof h === 'object' ? { startedAt: typeof h.startedAt === 'string' ? h.startedAt : null } : null;
+  const meta = { counts, check, handTest };
+  const text = [
+    counts ? `${counts.passed} passed · ${counts.failed} failed · ${counts.notRun} not run` : 'No test report yet.',
+    ...check.worksWhen.map((w) => `- ${oneLine(w)}`),
+  ].join('\n');
+  return { id: 'checks', kind: 'checks', version: hashOf(JSON.stringify(meta)), text, meta };
 }
 
 // ---------- The ticket and goal (the job page rebuild, Task 12) ----------

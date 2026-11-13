@@ -848,3 +848,21 @@ test('the new job page on the site carries every decision made here for the job 
     assert.deepEqual(states(page), { [go.body.queued.id]: 'cancelled', [msg.body.queued.id]: 'waiting' });
   } finally { l.link.stop(); await s.close(); }
 });
+
+test('Task 14: the new job page on the site answers findings and checks from the mirrored page facts, with their hashes on the payload', async () => {
+  const { s, olive, l } = await setUp();
+  try {
+    const page = await olive.person.json('/api/job/add-export/page');
+    assert.equal(page.status, 200, JSON.stringify(page.body));
+    const findings = await olive.person.json('/api/job/add-export/item?id=findings');
+    assert.equal(findings.status, 200, JSON.stringify(findings.body));
+    assert.equal(findings.body.kind, 'findings');
+    assert.ok(Array.isArray(findings.body.meta.rows));
+    const checks = await olive.person.json('/api/job/add-export/item?id=checks');
+    assert.equal(checks.status, 200, JSON.stringify(checks.body));
+    assert.equal(checks.body.kind, 'checks');
+    assert.ok('counts' in checks.body.meta && 'check' in checks.body.meta);
+    assert.equal(page.body.hashes.findings, findings.body.version);
+    assert.equal(page.body.hashes.checks, checks.body.version);
+  } finally { l.link.stop(); await s.close(); }
+});

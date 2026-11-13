@@ -2259,7 +2259,7 @@ export async function createRunner(config) {
       render: (text, { json = false } = {}) => (json ? jsonHtml(text) : renderMarkdown(text, { idHref: idHref(f) })),
     });
     // The bodies the payload names no line or output for carry their hash here, so a kept copy is dropped when it moves on.
-    payload.hashes = { ticket: sources.get('ticket')?.version ?? null, decisions: sources.get('decisions')?.version ?? null };
+    payload.hashes = { ticket: sources.get('ticket')?.version ?? null, decisions: sources.get('decisions')?.version ?? null, findings: sources.get('findings')?.version ?? null, checks: sources.get('checks')?.version ?? null };
     // Details (lib/work-rows.js): the corrected activity, the cost rows and the replies' ends; the crew's logs are read only when Details asks.
     return { payload, sources, work: workFacts(detail) };
   }

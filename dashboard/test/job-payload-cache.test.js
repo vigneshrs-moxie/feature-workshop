@@ -382,3 +382,47 @@ test('Task 12: the ticket and goal is one body (id ticket): the ticket as writte
   assert.equal(renders, 0);
   assert.match(s.html(), /<h2[^>]*>The ticket<\/h2>/);
 });
+
+test('Task 14: findings and the Test step facts are bodies (ids findings, checks); a finding keeps the status reviewRows gave it', async () => {
+  const { reviewRows } = await import('../lib/play.js');
+  const { findingsSource, checksSource } = await import('../lib/job-payload-cache.js');
+  const reviewText = [
+    '# Review v2', '',
+    '## Fixed in fix round 1 (confirmed, re-reviewed clean)', '',
+    '| Id | Severity | Finding | Fix | Re-review |', '|---|---|---|---|---|',
+    '| R1 | Major | `shift-table.tsx` sorts the lead last | c247104d: sorted | clean |', '',
+    '## Open', '',
+    '| Id | Severity | Lens | Finding | Status |', '|---|---|---|---|---|',
+    '| R2 | Minor | errors | `export.ts:88` drops an empty week | open |',
+    '| R3 | Minor | db | A second index on shifts | deferred |',
+  ].join('\n');
+  const rows = reviewRows(reviewText);
+  const page = {
+    review: { at: '2026-11-03T15:38:00.000Z', rows },
+    checks: { passed: 19, failed: 0, notRun: 2, at: '2026-11-03T15:30:00.000Z' },
+    check: { version: '3', worksWhen: ['The file opens in a spreadsheet.'], mustNot: ['Count a split shift twice.'] },
+    handTest: { startedAt: null },
+  };
+  const f = findingsSource(page);
+  assert.equal(f.id, 'findings');
+  assert.deepEqual(f.meta.rows.map((r) => r.status), rows.map((r) => r.status), 'the status is reviewRows’ own');
+  assert.deepEqual(f.meta.rows.map((r) => r.status), ['fixed', 'open', 'not-doing']);
+  assert.equal(f.meta.known, true);
+  assert.equal(f.meta.at, page.review.at);
+  assert.equal(findingsSource(null).meta.known, false, 'no review.md read: not known');
+  assert.deepEqual(findingsSource(null).meta.rows, []);
+  const c = checksSource(page);
+  assert.equal(c.id, 'checks');
+  assert.deepEqual(c.meta.counts, page.checks);
+  assert.deepEqual(c.meta.check, page.check);
+  assert.deepEqual(c.meta.handTest, { startedAt: null });
+  assert.equal(checksSource({}).meta.counts, null, 'no report: no counts');
+  // Both are item sources, versioned by what they say, rendered only when asked.
+  let renders = 0;
+  const sources = itemSources({ payload: { thread: [], steps: [] }, page, render: (t) => { renders++; return renderMarkdown(t); } });
+  assert.equal(sources.get('findings').version, f.version);
+  assert.equal(sources.get('checks').version, c.version);
+  assert.equal(renders, 0);
+  const moved = itemSources({ payload: { thread: [], steps: [] }, page: { ...page, review: { ...page.review, rows: rows.map((r) => ({ ...r, status: 'fixed' })) } }, render: renderMarkdown });
+  assert.notEqual(moved.get('findings').version, f.version, 'a status that moved is a new version');
+});

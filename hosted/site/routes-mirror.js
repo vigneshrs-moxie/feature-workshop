@@ -35,7 +35,7 @@ import dashboardStageRoutes from '../../dashboard/site/routes-stage.js';
 import dashboardJobPageRoutes from '../../dashboard/site/routes-job-page.js';
 import { createHash } from 'node:crypto';
 import { mirrorJobPage } from '../../dashboard/lib/job-payload.js';
-import { bodyHash, ticketMarkdown } from '../../dashboard/lib/job-payload-cache.js';
+import { bodyHash, checksSource, findingsSource, ticketMarkdown } from '../../dashboard/lib/job-payload-cache.js';
 import { mirrorWork } from '../../dashboard/lib/work-rows.js';
 import { renderMarkdown } from '../../dashboard/lib/markdown.js';
 import { decisionKind, madeOnFor } from '../../dashboard/lib/made-on.js';
@@ -213,7 +213,7 @@ export default function mirrorRoutes(ctx) {
       const { byJob, allByJob } = await shownFor(person.id);
       // The hashes of the bodies the payload names no line for (as the laptop sends them), so a kept copy is dropped when it moves on.
       const decided = decisionsText((await records.get(person.id, 'decisions', slug))?.value?.decisions ?? []);
-      const hashes = { ticket: bodyHash(ticketMarkdown(rec.value.page)), decisions: bodyHash(decided) };
+      const hashes = { ticket: bodyHash(ticketMarkdown(rec.value.page)), decisions: bodyHash(decided), findings: findingsSource(rec.value.page).version, checks: checksSource(rec.value.page).version };
       return { ...mirrorJobPage(rec.value, { row, v: Date.parse(rec.updatedAt) || 0 }), hashes, queuedDecision: byJob.get(slug) ?? null, queuedDecisions: allByJob.get(slug) ?? [] };
     },
     /**
@@ -230,6 +230,11 @@ export default function mirrorRoutes(ctx) {
       if (id === 'ticket') {
         const text = ticketMarkdown(rec.value.page);
         return { id, kind: 'ticket', version: hash(text), html: renderMarkdown(text), text, meta: {} };
+      }
+      // Findings and the Test step's facts (Task 14), from the record's page facts as the laptop builds them.
+      if (id === 'findings' || id === 'checks') {
+        const s = id === 'findings' ? findingsSource(rec.value.page) : checksSource(rec.value.page);
+        return { id, kind: s.kind, version: s.version, html: renderMarkdown(s.text), text: s.text, meta: s.meta };
       }
       if (id === 'decisions') {
         const rows = (await records.get(person.id, 'decisions', slug))?.value?.decisions ?? [];
