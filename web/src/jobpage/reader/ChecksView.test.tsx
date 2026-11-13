@@ -175,6 +175,7 @@ describe('Recording with nothing to see', () => {
     expect(document.querySelector('.jp2-rec-player')).toBeNull();
     expect(document.querySelector('.jp2-rec-grid')).toHaveClass('is-list');
     expect(document.querySelectorAll('.jp2-rec-r')).toHaveLength(2);
+    expect(document.querySelector('.jp2-rec-r[aria-current]')).toBeNull();
   });
 });
 

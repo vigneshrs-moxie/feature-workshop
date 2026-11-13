@@ -190,7 +190,7 @@ function Recording({ slug, hosted, ev, commits }: { slug: string; hosted: boolea
     ? <p className="jp2-dim jp2-rec-laptop">Evidence is recorded on your laptop. Open the job there to record again.</p>
     : <Button size="sm" icon="refresh" busy={busy} busyLabel="Recording…" disabled={view.recording} onClick={() => void record()} title="Record the browser checks again, on the commit the test report names now.">Record again</Button>;
   const row = (c: EvidenceCriterion) => (
-    <button key={c.id} type="button" className={`jp2-rec-r is-${c.status}`} aria-current={c.id === shown?.id ? 'true' : undefined} onClick={() => setPick(c.id)}>
+    <button key={c.id} type="button" className={`jp2-rec-r is-${c.status}`} aria-current={visual && c.id === shown?.id ? 'true' : undefined} onClick={() => setPick(c.id)}>
       <span className="jp2-rec-w">{STATE_WORDS[c.status] ?? c.status}</span>
       <span className="jp2-rec-id">{c.id}</span>
       <span className="jp2-rec-t">{c.title}</span>
