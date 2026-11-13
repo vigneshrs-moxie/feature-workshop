@@ -163,7 +163,8 @@ describe('ScreensTab', () => {
   it('the Screens tab answers the page’s PDF request: one GET, one message back', async () => {
     const { win } = setup();
     const post = vi.spyOn(win, 'postMessage');
-    const fetchMock = vi.fn(async (_url: string) => new Response(new Blob(['%PDF-1.4']), { status: 200 }));
+    // A text body: the test's Blob is jsdom's, which Node 22's Response cannot read (it has no stream()).
+    const fetchMock = vi.fn(async (_url: string) => new Response('%PDF-1.4', { status: 200, headers: { 'Content-Type': 'application/pdf' } }));
     vi.stubGlobal('fetch', fetchMock);
     Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:pack'), revokeObjectURL: vi.fn() });
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
