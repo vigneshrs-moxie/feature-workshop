@@ -4560,7 +4560,7 @@ test('K6b: a safer go after a stop on a decided item leaves it not confirmed', {
   assert.equal(u.record().risky, 1);
 });
 
-const BOTH_HIGH = 'Auto denied this: it looked high risk on both looks. Don\'t try the same thing another way. Carry on without it inside the job\'s folders, or leave it for after PR #1.';
+const BOTH_HIGH = 'Auto refused this: it looked high risk on both looks. Don\'t try the same thing another way. Carry on without it inside the job\'s folders, or leave it for after PR #1.';
 
 test('a card called high risk on both looks is denied, and the job carries on', { timeout: 30_000 }, async () => {
   const outcomes = [];
