@@ -1441,6 +1441,10 @@ test('the evidence view carries the record\'s notes, cleaned', async () => {
   assert.deepEqual(evidence.notes, ['First note.', 'Second.', `${'x'.repeat(399)}…`, 'Fourth.', 'Fifth.'], 'strings only, trimmed, empty ones dropped, at most 5');
   assert.ok(evidence.notes.every((n) => n.length <= 400));
   assert.equal(evidence.commit, 'abc1234def5', 'the rest of the record as it was');
+  // The cut never leaves half a character (an emoji is two UTF-16 units) before the `…`.
+  await writeRecord({ notes: [`${'a'.repeat(398)}😀bc`] });
+  const [cut] = (await door.view('notes-job')).evidence.notes;
+  assert.ok(cut === `${'a'.repeat(398)}…` && cut.length <= 400, `a whole character before the …: ${JSON.stringify(cut.slice(-3))}`);
   for (const notes of [undefined, [], ['  ', 7], 'one note, not a list']) {
     await writeRecord(notes === undefined ? {} : { notes });
     const v = await door.view('notes-job');

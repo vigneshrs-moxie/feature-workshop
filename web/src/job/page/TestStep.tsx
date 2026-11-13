@@ -19,7 +19,7 @@ import { BRAND } from '../../app/brand';
 import { useUi } from '../../app/ui';
 import { Button } from '../../components/Button';
 import { useNarrow } from '../../components/page/Page';
-import { canPlay, EvidenceStrip } from '../../panes/Foreman/EvidenceStrip';
+import { canPlay, EvidenceNotes, EvidenceStrip } from '../../panes/Foreman/EvidenceStrip';
 import { TryTab } from '../../panes/Preview/TryTab';
 import { useWorkshop } from '../../state/store';
 import { AUTO_SKIPS_HAND_TEST } from '../../views/JobDrawer/OptionsEditor';
@@ -261,6 +261,8 @@ function EvidenceRow({ slug, evidence, known, now, hosted, past, watching, onWat
 
   return (
     <Kind name="Recorded evidence" by={`by ${BRAND.name}`} state={state} tone={tone} stateTitle={title} where={where} when={when}>
+      {/* What else the recording says, under the row's summary: seen without opening the strip (which no longer draws them). */}
+      {ev && !recording && <EvidenceNotes notes={ev.notes} />}
       {canWatch && (
         <div className="sb-test-action">
           <Button kind="secondary" size="sm" icon={watching ? 'eye-off' : 'eye'} onClick={() => onWatching(!watching)}>

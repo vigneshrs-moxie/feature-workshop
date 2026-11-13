@@ -112,6 +112,16 @@ function Row({ slug, c, canPlay }: { slug: string; c: EvidenceCriterion; /** Fal
   );
 }
 
+/**
+ * What else a recording says (evidence.json notes, laptop only; the site never gets them): one quiet
+ * line each, "Note: …", drawn under the evidence's summary line (the gate card's fold line, the Test
+ * step's row). Nothing at all when there are none.
+ */
+export function EvidenceNotes({ notes }: { notes: unknown }) {
+  const lines = Array.isArray(notes) ? notes.filter((n): n is string => typeof n === 'string' && n.trim() !== '') : [];
+  return <>{lines.map((n, i) => <p key={i} className="muted gate-evidence-note">{`Note: ${n}`}</p>)}</>;
+}
+
 /** The folded strip's one line: the counts, recording by line, or not recorded yet. */
 export function foldLine(view: Pick<EvidenceView, 'evidence' | 'recording' | 'progress'>): string {
   if (view.recording) return view.progress && view.progress.line >= 1 ? `Evidence: recording, line ${view.progress.line} of ${view.progress.of}` : 'Evidence: recording';
@@ -201,8 +211,6 @@ export function EvidenceStrip({ slug, tested = null, refresh = null, fold = fals
     }
   }
 
-  // What else the record says (laptop only; the site never gets them): one quiet line each, none when there are none.
-  const notes = Array.isArray(ev?.notes) ? ev.notes.filter((n): n is string => typeof n === 'string' && n.trim() !== '') : [];
   const counts = ev ? (['passed', 'failed', 'skipped'] as const).map((s) => [s, ev.criteria.filter((c) => c.status === s).length] as const) : [];
   const summary = counts.filter(([, n]) => n > 0).map(([s, n]) => `${n} ${s === 'passed' ? 'passed' : s === 'failed' ? 'failed' : 'not recorded'}`).join(', ');
 
@@ -228,8 +236,9 @@ export function EvidenceStrip({ slug, tested = null, refresh = null, fold = fals
   return (
     <section className={`gate-evidence${fold ? ' is-fold' : ''}`} aria-labelledby={headId} aria-busy={view.recording || busy}>
       {head}
+      {/* Folded (the gate card), the line is the summary: the notes go under it, seen while it is closed. Open on the Test step, its row has them. */}
+      {fold && ev && !view.recording && <EvidenceNotes notes={ev.notes} />}
       <div className="sb-gate-evidence-body" id={`${headId}-body`} hidden={fold && !open}>
-        {notes.map((n, i) => <p key={i} className="muted gate-evidence-note">{`Note: ${n}`}</p>)}
         {earlier && ev && (
           <p className="perm-warn gate-evidence-earlier" title={`These pictures were recorded at ${short(ev.commit)}; the checks ran on ${short(against)}.`}>
             <span aria-hidden="true">⚠ </span>From an earlier commit ({short(ev.commit)})

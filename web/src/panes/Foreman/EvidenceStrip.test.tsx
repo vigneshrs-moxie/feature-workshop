@@ -412,12 +412,13 @@ describe('a recording’s notes', () => {
     'Auto’s app asked for the database app and Starbase refused it: Auto only uses its own copy.',
     'A setting in app/.env.local (LEGACY_JDBC) may be what names it.',
   ];
-  const given = (view: EvidenceView) => render(<WorkshopContext.Provider value={{ store: createStore(), api: { get: vi.fn(), post: vi.fn() } as unknown as ApiClient }}><EvidenceStrip slug="alpha" view={view} /></WorkshopContext.Provider>);
+  const given = (view: EvidenceView, { fold = false } = {}) => render(<WorkshopContext.Provider value={{ store: createStore(), api: { get: vi.fn(), post: vi.fn() } as unknown as ApiClient }}><EvidenceStrip slug="alpha" view={view} fold={fold} /></WorkshopContext.Provider>);
 
-  it('a recording’s notes show under the summary, each on its own line starting Note:', () => {
-    given({ ...VIEW, evidence: { ...EVIDENCE, notes: NOTES } });
+  it('a recording’s notes show on the gate card with the evidence fold closed', () => {
+    given({ ...VIEW, evidence: { ...EVIDENCE, notes: NOTES } }, { fold: true });
     const region = strip()!;
     const head = region.querySelector('.gate-evidence-head')!;
+    expect(within(region).getByRole('button', { name: 'Show' })).toHaveAttribute('aria-expanded', 'false');
     const lines = within(region).getAllByText(/^Note: /);
     expect(lines.map((l) => l.textContent)).toEqual(NOTES.map((n) => `Note: ${n}`));
     // Each its own plain line, in the strip's quiet notice style: no heading, no button, no icon.
@@ -426,26 +427,37 @@ describe('a recording’s notes', () => {
       expect(l.className).toBe('muted gate-evidence-note');
       expect(l.children).toHaveLength(0);
     }
-    // Directly under the summary line (the first thing after it), and above the criteria.
-    const body = region.querySelector('.sb-gate-evidence-body')!;
-    expect(head.nextElementSibling).toBe(body);
-    expect(body.firstElementChild).toBe(lines[0]);
+    // Directly under the fold's summary line, outside the folded body, so they show while it is closed.
+    expect(head.nextElementSibling).toBe(lines[0]);
     expect(lines[0].nextElementSibling).toBe(lines[1]);
-    const list = within(region).getByRole('list', { name: 'Each acceptance line' });
-    for (const l of lines) expect(l.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(lines[1].nextElementSibling).toBe(region.querySelector('.sb-gate-evidence-body'));
     expect(within(region).queryByRole('heading', { name: /note/i })).toBeNull();
+    // Opened, each still shows once, above the criteria.
+    fireEvent.click(within(region).getByRole('button', { name: 'Show' }));
+    const list = within(region).getByRole('list', { name: 'Each acceptance line' });
+    expect(within(region).getAllByText(/^Note: /)).toHaveLength(NOTES.length);
+    for (const l of lines) expect(l.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('no notes: nothing is rendered', () => {
     // The markup with React's own ids made the same, so two renders compare.
     const markup = (el: HTMLElement) => el.innerHTML.replace(/_r_[0-9a-z]+_/g, 'ID');
-    const { container, unmount } = given(VIEW);
-    const before = markup(container);
-    expect(before).not.toContain('Note:');
-    unmount();
-    // A record with an empty list is drawn exactly as one with none: no empty element, no extra space.
-    const again = given({ ...VIEW, evidence: { ...EVIDENCE, notes: [] } });
-    expect(markup(again.container)).toBe(before);
-    expect(again.container.querySelector('.sb-gate-evidence-body')!.firstElementChild!.tagName).toBe('UL');
+    // The open strip of the Test step, the gate card's fold closed, and that fold opened.
+    for (const [fold, open] of [[false, false], [true, false], [true, true]]) {
+      const draw = (view: EvidenceView) => {
+        const r = given(view, { fold });
+        if (open) fireEvent.click(within(strip()!).getByRole('button', { name: 'Show' }));
+        return r;
+      };
+      const first = draw(VIEW);
+      const before = markup(first.container);
+      expect(before).not.toContain('Note:');
+      first.unmount();
+      // A record with an empty list is drawn exactly as one with none: no empty element, no extra space.
+      const again = draw({ ...VIEW, evidence: { ...EVIDENCE, notes: [] } });
+      expect(markup(again.container)).toBe(before);
+      expect(again.container.querySelector('.gate-evidence-head')!.nextElementSibling!.className).toBe('sb-gate-evidence-body');
+      again.unmount();
+    }
   });
 });

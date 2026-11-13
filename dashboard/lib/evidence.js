@@ -518,7 +518,8 @@ export function evidenceForView(evidence) {
     .map((n) => n.trim())
     .filter(Boolean)
     .slice(0, NOTES_MAX)
-    .map((n) => (n.length > NOTE_MAX_CHARS ? `${n.slice(0, NOTE_MAX_CHARS - 1)}…` : n));
+    // Cut without leaving half a character (a lone high surrogate) before the `…`, as lib/auto-log.js cutAt does.
+    .map((n) => (n.length > NOTE_MAX_CHARS ? `${n.slice(0, NOTE_MAX_CHARS - 1).replace(/[\uD800-\uDBFF]$/, '')}…` : n));
   return kept.length ? { ...rest, notes: kept } : rest;
 }
 

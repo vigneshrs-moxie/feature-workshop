@@ -771,3 +771,51 @@ describe('useEvidence', () => {
     expect(screen.getByTestId('ev')).toHaveTextContent('The new job’s.');
   });
 });
+
+// What else the record says (dashboard/lib/evidence.js notes, laptop only): seen without opening the strip.
+describe('a recording’s notes on the Test step', () => {
+  const NOTES = [
+    'Auto’s app asked for the database app and Starbase refused it: Auto only uses its own copy.',
+    'A setting in app/.env.local (LEGACY_JDBC) may be what names it.',
+  ];
+  const WITH_NOTES: EvidenceView = { ...EVIDENCE, evidence: { ...EVIDENCE.evidence!, notes: NOTES } };
+  const openStrip = () => fireEvent.click(within(kind('Recorded evidence')).getByRole('button', { name: 'Each line and its video' }));
+
+  it('a recording’s notes show on the Test step with the strip closed', () => {
+    show({ evidence: WITH_NOTES });
+    const row = kind('Recorded evidence');
+    expect(within(row).getByRole('button', { name: 'Each line and its video' })).toHaveAttribute('aria-expanded', 'false');
+    const lines = within(row).getAllByText(/^Note: /);
+    expect(lines.map((l) => l.textContent)).toEqual(NOTES.map((n) => `Note: ${n}`));
+    for (const l of lines) {
+      expect(l.tagName).toBe('P');
+      expect(l.className).toBe('muted gate-evidence-note');
+      expect(l.children).toHaveLength(0);
+    }
+    // Directly under the row's summary (its state and its Where and When), before anything else.
+    expect(row.querySelector('.sb-test-facts')!.nextElementSibling).toBe(lines[0]);
+    expect(lines[0].nextElementSibling).toBe(lines[1]);
+  });
+
+  it('the notes show once when the strip is open', () => {
+    show({ evidence: WITH_NOTES });
+    openStrip();
+    expect(screen.getByRole('list', { name: 'Each acceptance line' })).toBeInTheDocument();
+    expect(screen.getAllByText(/^Note: /)).toHaveLength(NOTES.length);
+  });
+
+  it('no notes: nothing is rendered', () => {
+    const markup = (el: HTMLElement) => el.innerHTML.replace(/_r_[0-9a-z]+_/g, 'ID');
+    for (const open of [false, true]) {
+      const first = show({ evidence: EVIDENCE });
+      if (open) openStrip();
+      const before = markup(first.container);
+      expect(before).not.toContain('Note:');
+      first.unmount();
+      const again = show({ evidence: { ...EVIDENCE, evidence: { ...EVIDENCE.evidence!, notes: [] } } });
+      if (open) openStrip();
+      expect(markup(again.container)).toBe(before);
+      again.unmount();
+    }
+  });
+});
