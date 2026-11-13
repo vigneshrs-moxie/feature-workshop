@@ -255,6 +255,17 @@ export function replaceHash(href: string) {
 }
 
 /**
+ * Writes `href` (a #/… address) as a new history entry carrying `state`, so Back returns to the
+ * address before it (the new job page's phone screens, jobpage/phone/PhoneJob2.tsx). Like
+ * replaceHash, no hashchange fires; the route useRoute holds moves to it.
+ */
+export function pushHash(href: string, state: unknown) {
+  if (window.location.hash === href) return;
+  window.history.pushState(state, '', `${window.location.pathname}${window.location.search}${href}`);
+  window.dispatchEvent(new Event(REPLACED));
+}
+
+/**
  * Calls `fn` whenever the address changes: a hashchange (a link, Back) or replaceHash (in place).
  * The laptop's route (useRoute) and the website's (views/Hosted/route.ts) both listen this way.
  * Returns the way to stop listening.

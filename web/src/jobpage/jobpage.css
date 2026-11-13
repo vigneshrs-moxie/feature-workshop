@@ -256,16 +256,18 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
   .jp2-reader { transition: none !important; }
 }
 
-/* 760 px and under: phone sizes (Task 15 gives the phone its own screens) */
+/* 760 px and under: phone sizes (the phone's own screens are at the end of this file) */
 .jp2[data-layout="phone"] .jp2-head { flex-wrap: wrap; align-items: flex-start; gap: 4px 8px; height: auto; padding: 8px 8px 10px 16px; white-space: normal; }
-.jp2[data-layout="phone"] .jp2-jobs { display: inline-flex; align-items: center; gap: 2px; flex-basis: 100%; min-height: 32px; margin-left: -4px; color: var(--text-2); font-size: 14px; text-decoration: none; }
-.jp2[data-layout="phone"] .jp2-head-main { flex: 1 1 0; flex-wrap: wrap; gap: 6px 8px; }
-.jp2[data-layout="phone"] .jp2-title { flex-basis: 100%; overflow: visible; font-size: 19px; line-height: 25px; font-weight: 650; text-wrap: balance; }
+.jp2[data-layout="phone"] .jp2-jobs { order: -3; display: inline-flex; align-items: center; gap: 2px; flex-basis: 100%; min-height: 32px; margin-left: -4px; color: var(--text-2); font-size: 14px; text-decoration: none; }
+/* The header's parts in one wrapping row: back to Jobs; the title with the ⋯ menu beside it; the state
+   word, the key and the dim facts on one line when they fit (prototype .sjp-facts); then Auto. */
+.jp2[data-layout="phone"] .jp2-head-main { display: contents; }
+.jp2[data-layout="phone"] .jp2-title { order: -2; flex: 1 1 calc(100% - 48px); overflow: visible; font-size: 19px; line-height: 25px; font-weight: 650; text-wrap: balance; }
 .jp2[data-layout="phone"] .jp2-key { order: 2; }
 .jp2[data-layout="phone"] .jp2-state { order: 1; }
 .jp2[data-layout="phone"] .jp2-spacer { display: none; }
-.jp2[data-layout="phone"] .jp2-facts { order: 3; flex-basis: 100%; font-size: 13px; }
-.jp2[data-layout="phone"] .jp2-menu { order: 0; margin-left: auto; }
+.jp2[data-layout="phone"] .jp2-facts { order: 3; align-self: center; font-size: 13px; }
+.jp2[data-layout="phone"] .jp2-menu { order: -1; }
 .jp2[data-layout="phone"] .jp2-auto { order: 4; flex: 1 1 100%; margin-left: -6px; contain: inline-size; }
 .jp2[data-layout="phone"] .jp2-auto .auto-line, .jp2[data-layout="phone"] .jp2-auto .queued-decision.is-compact { margin-left: 6px; }
 .jp2[data-layout="phone"] .jp2-head-note { order: 5; flex: 1 1 100%; }
@@ -343,6 +345,46 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2[data-layout="phone"] .jp2-ch-f { min-height: 44px; }
 .jp2[data-layout="phone"] .jp2-ch-diff { padding: 0; overflow: auto; }
 .jp2[data-layout="phone"] .jp2-ch-dh { position: static; margin: 0 0 6px; padding: 8px 0; }
+
+/* The phone's own three screens (phone/PhoneJob2.tsx; prototype .sjp): data-screen on .jp2 is job,
+   step or reader. The job screen is the left pane, the header at the top of its scroll area and the
+   box below it; a step's screen and the reader each take the whole page with a back row. */
+.jp2-chev { display: none; }
+.jp2[data-layout="phone"] .jp2-chev { flex: none; display: inline-flex; color: var(--text-3); }
+.jp2[data-layout="phone"] .jp2-st-name + .jp2-chev, .jp2[data-layout="phone"] .jp2-jr > .jp2-chev, .jp2[data-layout="phone"] .jp2-out-label + .jp2-chev { margin-left: auto; }
+.jp2[data-layout="phone"] .jp2-jr-more + .jp2-chev, .jp2[data-layout="phone"] .jp2-out-meta + .jp2-chev { margin-left: 0; }
+/* Section heads on the job screen (prototype .sjp-sec); the lists' own names say the same to a screen reader */
+.jp2[data-layout="phone"] .jp2-st::before, .jp2[data-layout="phone"] .jp2-jrs::before { display: block; padding: 14px 8px 4px; font-size: 11px; line-height: 14px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--text-3); }
+.jp2[data-layout="phone"] .jp2-st::before { content: "Steps"; }
+.jp2[data-layout="phone"] .jp2-jrs::before { content: "The job"; }
+/* Your move in full: the questions whole, no key hints on a phone */
+.jp2[data-layout="phone"] .jp2-ym-qt { display: block; overflow: visible; -webkit-line-clamp: none; }
+.jp2[data-layout="phone"] .jp2-ym-calls .key-hint { display: none; }
+/* The Auto row wraps on the phone: a refusal or a change queued on the website reads whole */
+.jp2[data-layout="phone"] .jp2-auto .auto-switch.is-inline { flex-wrap: wrap; row-gap: 2px; }
+.jp2[data-layout="phone"] .jp2-auto .auto-line { flex: 1 1 100%; white-space: normal; overflow: visible; }
+.jp2[data-layout="phone"] .jp2-auto .queued-decision.is-compact { flex: 1 1 100%; flex-wrap: wrap; row-gap: 2px; }
+.jp2[data-layout="phone"] .jp2-auto .queued-decision.is-compact .queued-decision-words { flex: 1 1 0; align-items: flex-start; white-space: normal; overflow: visible; }
+.jp2[data-layout="phone"] .jp2-auto .queued-decision.is-compact .queued-decision-words > span { overflow: visible; }
+.jp2[data-layout="phone"] .jp2-auto .queued-decision.is-compact .queued-decision-words > svg { margin-top: 2px; }
+.jp2[data-layout="phone"] .jp2-auto .queued-decision.is-compact .field-problem { flex-basis: 100%; white-space: normal; overflow: visible; }
+/* Stop it and send now: its own line above the box while a reply runs */
+.jp2-mb-stopline { display: flex; justify-content: flex-end; padding: 8px 18px 0; }
+/* A back row: the step screen's (‹ ORBIT-905) and the reader screen's (‹ Back) */
+.jp2-pback { flex: none; display: flex; align-items: center; min-height: 44px; padding: 4px 8px 0; }
+/* The step screen */
+.jp2-ps { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; background: var(--surface-0); }
+.jp2-ps:focus { outline: none; }
+.jp2-ps:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.jp2-ps-scroll { position: relative; flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 24px; }
+.jp2-ps-head { padding: 2px 16px 4px; }
+.jp2-ps-title { margin: 0; font-size: 19px; line-height: 25px; font-weight: 650; text-wrap: balance; }
+.jp2-ps-state { margin: 6px 0 0; font-size: 13px; line-height: 18px; color: var(--text-2); }
+.jp2-ps-outs { margin: 0; padding: 4px 8px 12px; list-style: none; }
+.jp2-ps-out { gap: 8px; height: 52px; font-size: 15px; border-radius: 0; }
+.jp2-ps-outs > li + li .jp2-ps-out { border-top: 1px solid var(--border-1); }
+.jp2-ps-out .jp2-out-meta { font-size: 13px; }
+.jp2-ps-none { margin: 0; padding: 12px 16px; font-size: 15px; color: var(--text-2); }
 
 /* Findings (Task 14): open first, one line each; fixed and not doing folded; one line for the rest */
 .jp2-fds { max-width: 760px; }

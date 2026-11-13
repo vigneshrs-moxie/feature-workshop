@@ -12,7 +12,8 @@
 // Send shows `Sent` at once and empties the box; a refusal puts the words back (before anything
 // typed since) with the server's reason in plain words. It sends once however fast he clicks.
 // While a reply runs the box says `Sends when it finishes` (the prototype's words), with `Stop it and
-// send now` beside it in the same row (not on the phone: no room, as in the prototype). Waiting messages are Task 16: until then Send keeps the words
+// send now` beside it in the same row (on the phone, with no room in the row, on its own line above
+// the box: Task 15). Waiting messages are Task 16: until then Send keeps the words
 // in the box and sends nothing, and `Stop it and send now` stops the reply (POST /api/runs/:id/stop),
 // then sends the words once the run has ended (once more if the server still says busy right
 // after; it gives up waiting after STOP_WAIT_MS with a plain line). At a go-ahead or a question the
@@ -55,7 +56,6 @@ const UNREACHABLE = `Couldn’t reach ${BRAND.name}. Try again.`;
 const BUSY = 'Not sent: the Foreman is still working on a reply. Your words are back in the box; send them when it finishes, or Stop it and send now.';
 // Waiting messages come with Task 16; until then this says what to do.
 const KEPT = 'Kept here, not sent. Press Send when the Foreman finishes, or Stop it and send now.';
-const KEPT_PHONE = 'Kept here, not sent. Press Send when the Foreman finishes.';
 const LOCKED = `Another place is working on this job (a terminal, or another ${BRAND.name}). Only one place can work on a job at a time.`;
 
 /** The server's no, in plain words. */
@@ -205,9 +205,9 @@ export const MessageBox = memo(function MessageBox({ boxRef }: MessageBoxProps) 
     if (!store.getState().ui.draft.trim()) { focusBox(); return; }
     if (locked) return;
     // Waiting messages are Task 16: the words stay in the box.
-    if (running) { setLine({ words: narrow ? KEPT_PHONE : KEPT, problem: false }); return; }
+    if (running) { setLine({ words: KEPT, problem: false }); return; }
     void send();
-  }, [store, focusBox, locked, running, send, narrow]);
+  }, [store, focusBox, locked, running, send]);
 
   const stopAndSend = useCallback(async () => {
     if (!store.getState().ui.draft.trim()) { focusBox(); setLine({ words: 'Write the message first, then Stop it and send now.', problem: false }); return; }
@@ -253,7 +253,7 @@ export const MessageBox = memo(function MessageBox({ boxRef }: MessageBoxProps) 
 
   // His own typing ends a Sent; a Kept line goes once the reply has ended.
   useEffect(() => { if (draft && phase === 'sent') setPhase('idle'); }, [draft, phase]);
-  useEffect(() => { if (!running) setLine((l) => (l?.words === KEPT || l?.words === KEPT_PHONE ? null : l)); }, [running]);
+  useEffect(() => { if (!running) setLine((l) => (l?.words === KEPT ? null : l)); }, [running]);
 
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
@@ -267,6 +267,20 @@ export const MessageBox = memo(function MessageBox({ boxRef }: MessageBoxProps) 
     : phase === 'sent' && !draft ? (narrow ? AFTER_SENT_SHORT : AFTER_SENT)
       : asked ? (narrow ? AT_ASK_SHORT : AT_ASK) : PLACEHOLDER;
   const sentShown = phase === 'sending' || (phase === 'sent' && !draft);
+  const stop = running && (
+    <Button
+      kind="quiet"
+      size={narrow ? 'md' : 'sm'}
+      className="jp2-mb-stop"
+      busy={phase === 'stopping'}
+      busyLabel="Stopping…"
+      disabled={locked}
+      onClick={() => void stopAndSend()}
+      title="End the Foreman’s reply now, then send your words as soon as it has stopped. Anything waiting for your answer is declined."
+    >
+      Stop it and send now
+    </Button>
+  );
   return (
     <div className="jp2-mbw">
       {locked && <p className="jp2-mb-line" role="status">{LOCKED}</p>}
@@ -277,6 +291,8 @@ export const MessageBox = memo(function MessageBox({ boxRef }: MessageBoxProps) 
       )}
       {line && <p className={`jp2-mb-line${line.problem ? ' is-problem' : ''}`} role={line.problem ? 'alert' : 'status'}>{line.words}</p>}
       {!line && gaveBack && <p className="jp2-mb-line is-problem" role="alert">{gaveBack.line}</p>}
+      {/* The phone's row has no room for it beside the box: its own line above it. */}
+      {narrow && stop && <div className="jp2-mb-stopline">{stop}</div>}
       <div className="jp2-mb">
         <textarea
           ref={boxRef}
@@ -291,21 +307,7 @@ export const MessageBox = memo(function MessageBox({ boxRef }: MessageBoxProps) 
             ? 'Your words go with Go as a note, with Send back as the change, or alone with Send as a message. Kept for this job until they go.'
             : 'Your message to this job’s Foreman. Kept for this job until it goes. ⌘↵ sends it.'}
         />
-        {/* The phone's row has no room for it beside the box (the prototype leaves it out there too). */}
-        {running && !narrow && (
-          <Button
-            kind="quiet"
-            size={narrow ? 'md' : 'sm'}
-            className="jp2-mb-stop"
-            busy={phase === 'stopping'}
-            busyLabel="Stopping…"
-            disabled={locked}
-            onClick={() => void stopAndSend()}
-            title="End the Foreman’s reply now, then send your words as soon as it has stopped. Anything waiting for your answer is declined."
-          >
-            Stop it and send now
-          </Button>
-        )}
+        {!narrow && stop}
         <Button
           kind="primary"
           size={narrow ? 'md' : 'sm'}

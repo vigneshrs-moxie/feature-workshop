@@ -7,10 +7,13 @@
 //     the steps, the job's rows, the message box docked at its foot) and the reader beside it.
 //   - Over 760 and under 1100 px ('mid'): the left pane takes the width; opening something puts the
 //     reader over it with a back row, and the focus moves into the reader.
-//   - 760 px and under ('phone'): the same parts, at phone sizes (Task 15 gives the phone its own
-//     screens by address).
-// It is one tree in every layout: a width change only changes classes, so the draft, the picks, the
-// reader's target, the focus and every scroll stay where they were.
+//   - 760 px and under ('phone'): three screens by address (phone/PhoneJob2.tsx): the job screen is
+//     the left pane with the header inside its scroll area; a step's screen (phone/PhoneStep.tsx) and
+//     the reader (with phone/PhoneReader.tsx's back row) each take the whole page. data-screen on
+//     .jp2 names the one shown. Moving to a screen is a history entry; the back rows follow history.
+// It is one tree in every layout: a width change only changes classes (and moves the header into the
+// left pane on the phone), so the draft, the picks, the reader's target, the focus and every scroll
+// stay where they were.
 //
 // The address (app/router.ts): #/job/<slug> opens the job; /stage/<stop> opens that step;
 // /conversation and /overview open the conversation and the ticket and goal in the reader;
@@ -33,6 +36,9 @@ import { useKeyScope } from '../app/keyRegistry';
 import { readHref, replaceHash, stageHref, type JobView } from '../app/router';
 import { Button } from '../components/Button';
 import { useMinWidth, useNarrow } from '../components/page/Page';
+import { PhoneReader } from './phone/PhoneReader';
+import { phoneScreenOf, usePhoneMoves } from './phone/PhoneJob2';
+import { PhoneStep } from './phone/PhoneStep';
 import { useWorkshop } from '../state/store';
 import { browserDrafts, createJobStore, type JobPageState, type JobStore } from './jobStore';
 import { recentPage, rememberPage } from './recent';
@@ -140,6 +146,15 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
   /** The control that opened the reader, for the back row to give the focus back to. */
   const opener = useRef<HTMLElement | null>(null);
   const single = layout !== 'wide';
+  const phone = layout === 'phone';
+  // The phone's screen, from the address (null wider than a phone).
+  const screenNow = phone ? phoneScreenOf(step, view, read) : null;
+  const moves = usePhoneMoves(slug, screenNow);
+  /** On the phone: the line on the job screen that opened another screen, for Back to give the focus back to. */
+  const phoneOpener = useRef<HTMLElement | null>(null);
+  const leavingJob = (from?: HTMLElement | null) => {
+    if (screenNow === 'job') phoneOpener.current = from ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+  };
 
   // A later change of the address (a link, Back) is a pick of what it names; the page's own picks
   // write the address first, so this finds them already done.
@@ -152,8 +167,10 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
   const pickStep = useCallback((id: StopId) => {
     store.setStep(id);
     store.setReader(null);
-    replaceHash(stageHref(slug, id));
-  }, [store, slug]);
+    // On the phone a step is its own screen.
+    if (phone) moves.toStep(id);
+    else replaceHash(stageHref(slug, id));
+  }, [store, slug, phone, moves]);
 
   /** The reader takes what was picked: under 1100 px it comes over the left pane with the focus. */
   const showReader = useCallback((from?: HTMLElement | null) => {
@@ -168,15 +185,18 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
 
   const pickReader = useCallback((t: ReaderTarget, from?: HTMLElement | null) => {
     store.setReader(t);
+    // On the phone the reader is its own screen.
+    if (phone) { leavingJob(from); moves.toReader(t); return; }
     replaceHash(readHref(slug, t));
     showReader(from);
-  }, [store, slug, showReader]);
+  }, [store, slug, showReader, phone, moves, screenNow]);
 
-  /** A click (or Enter) on a step: it opens, and its main output shows in the reader. */
+  /** A click (or Enter) on a step: it opens, and its main output shows in the reader (on the phone: the step's screen). */
   const openStep = useCallback((id: StopId, from?: HTMLElement | null) => {
+    if (phone) leavingJob(from);
     pickStep(id);
-    showReader(from);
-  }, [pickStep, showReader]);
+    if (!phone) showReader(from);
+  }, [pickStep, showReader, phone, screenNow]);
 
   const back = useCallback(() => {
     flushSync(() => setCovered(false));
@@ -192,13 +212,26 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
     else if (line.target) pickReader(line.target, null);
   }, [lines, openStep, pickReader]);
 
-  const leftHidden = single && covered;
-  // Crossing from two panes to one while the reader is open: the focus goes into it, not to the page.
+  const leftHidden = phone ? screenNow !== 'job' : single && covered;
+  const readerShown = phone ? screenNow === 'reader' : !single || covered;
+  /** The reader lies over the left pane (under 1100 px), or is the phone's screen. */
+  const readerOver = single && readerShown;
+  // Crossing from two panes to one while the reader is open, or the phone's reader screen opening:
+  // the focus goes into it, not to the page.
   useEffect(() => {
-    if (!leftHidden) return;
+    if (!readerOver) return;
     const at = document.activeElement;
     if (!at || at === document.body || !reader.current?.contains(at)) reader.current?.focus();
-  }, [leftHidden]);
+  }, [readerOver]);
+  // Back on the phone's job screen: the focus goes to the line that opened the other screens.
+  const lastScreen = useRef(screenNow);
+  useEffect(() => {
+    const was = lastScreen.current;
+    lastScreen.current = screenNow;
+    if (screenNow !== 'job' || !was || was === 'job') return;
+    const to = phoneOpener.current;
+    if (to && to.isConnected) to.focus();
+  }, [screenNow]);
   useKeyScope('jobpage', {
     'jp-step-prev': () => { uncover(); stepBy(-1); },
     'jp-step-next': () => { uncover(); stepBy(1); },
@@ -228,9 +261,9 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
     'jp-note': () => {},
   });
 
-  /** Under 1100 px: take the reader off the left pane, so a key that acts there is seen. */
+  /** Under 1100 px: take the reader off the left pane, so a key that acts there is seen (the phone's screens go by address). */
   function uncover() {
-    if (leftHidden) flushSync(() => setCovered(false));
+    if (leftHidden && !phone) flushSync(() => setCovered(false));
   }
 
   function stepBy(by: 1 | -1) {
@@ -255,31 +288,40 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
   }
 
   return (
-    <main className="jp2" aria-label="Job" data-layout={layout} data-covered={covered ? '' : undefined}>
-      <Header job={job} />
+    <main className="jp2" aria-label="Job" data-layout={layout} data-screen={screenNow ?? undefined} data-covered={(phone ? screenNow === 'reader' : covered) ? '' : undefined}>
+      {!phone && <Header job={job} />}
       <div className="jp2-panes">
         <div className="jp2-left" aria-hidden={leftHidden || undefined} inert={leftHidden || undefined}>
           <div className="jp2-lscroll">
+            {/* On the phone the header is the top of the job screen and scrolls with it. */}
+            {phone && <Header job={job} />}
             <YourMove job={job} onOpen={pickReader} />
-            <Steps job={job} cursor={cursor} onStep={openStep} onOpen={pickReader} />
+            <Steps job={job} cursor={cursor} onStep={openStep} onOpen={pickReader} phone={phone} />
+            {/* Tasks 20 and 21: the phone's PR line goes here, ending in `Comments · 3 new` (it opens the PR view). */}
             <JobRows cursor={cursor} first={lines.findIndex((l) => l.target)} onOpen={pickReader} />
           </div>
           <MessageBox boxRef={box} />
         </div>
+        {screenNow === 'step' && step && <PhoneStep id={step} job={job} onBack={moves.back} onOpen={pickReader} />}
         <section
           ref={reader}
           className="jp2-reader"
           aria-label="Reader"
           tabIndex={-1}
-          onKeyDown={single ? (e) => { if (e.key === 'Escape' && covered && !e.defaultPrevented) { e.preventDefault(); back(); } } : undefined}
-          aria-hidden={single && !covered ? true : undefined}
-          inert={single && !covered ? true : undefined}
+          onKeyDown={single ? (e) => {
+            if (e.key !== 'Escape' || !readerShown || e.defaultPrevented) return;
+            e.preventDefault();
+            if (phone) moves.back(); else back();
+          } : undefined}
+          aria-hidden={readerShown ? undefined : true}
+          inert={readerShown ? undefined : true}
         >
-          {single && (
+          {layout === 'mid' && (
             <div className="jp2-back">
               <Button kind="quiet" size="sm" icon="chevron-left" onClick={back} title="Close the reader and go back to the job.">Back to the job</Button>
             </div>
           )}
+          {phone && <PhoneReader onBack={moves.back} />}
           <Reader fallback={job?.title ?? ''} searchRef={search} onOpen={pickReader} />
         </section>
       </div>

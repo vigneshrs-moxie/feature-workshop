@@ -1,6 +1,6 @@
 // The job's four rows (job page rebuild, Task 10; design brief "Left pane" 3): `Ticket and goal`,
 // `Conversation · 52 · 1 new`, `Decisions · 13 made for you`, `Details`. Each opens its view in the
-// reader and is marked while the reader shows it.
+// reader and is marked while the reader shows it (on the phone each ends in a ›: the reader is a screen).
 //
 // "New" is counted here, not on the server (interfaces correction 4): the lines newer than his last
 // look at the conversation that are not his own. His last look is the browser's
@@ -12,6 +12,7 @@ import { useStored } from '../../lib/stored';
 import { CONVERSATION, DECISIONS, DETAILS, readerOf, sameTarget, TICKET } from '../targets';
 import type { ReaderTarget, ThreadLine } from '../types';
 import { useJob } from '../useJob';
+import { PhoneChevron } from '../phone/PhoneJob2';
 
 /** Where his last look at a job's conversation is kept: the newest line's time then. */
 export const seenKey = (slug: string) => `sb.convo.seen.${slug}`;
@@ -76,6 +77,7 @@ export const JobRows = memo(function JobRows({ cursor, first, onOpen }: JobRowsP
                 {r.fresh && <> · <span className="jp2-jr-new">{r.fresh}</span></>}
               </span>
             )}
+            <PhoneChevron />
           </button>
         );
       })}

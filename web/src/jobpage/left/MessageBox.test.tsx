@@ -518,16 +518,19 @@ describe('Task 11 fix round 1', () => {
 });
 
 describe('Task 11 fix round 1: the phone', () => {
-  it('on the phone the row has no room for Stop it and send now: the box says Sends when it finishes and Send keeps the words', async () => {
+  it('on the phone the row has no room for Stop it and send now: it has its own line above the box (Task 15); the box says Sends when it finishes and Send keeps the words', async () => {
     windowWidth(390);
     const o = open({ move: null, patch: { run: RUNNING } });
     expect(box()).toHaveAttribute('placeholder', 'Sends when it finishes');
-    expect(screen.queryByRole('button', { name: 'Stop it and send now' })).toBeNull();
+    const stop = screen.getByRole('button', { name: 'Stop it and send now' });
+    const row = box().closest('.jp2-mb')!;
+    expect(row).not.toContainElement(stop);
+    expect(stop.closest('.jp2-mb-stopline')!.nextElementSibling).toBe(row);
     type('Also the header.');
     fireEvent.click(send());
     await settle();
     expect(o.post).not.toHaveBeenCalled();
-    expect(document.querySelector('.jp2-mb-line')).toHaveTextContent(/^Kept here, not sent. Press Send when the Foreman finishes.$/);
+    expect(document.querySelector('.jp2-mb-line')).toHaveTextContent(/^Kept here, not sent. Press Send when the Foreman finishes, or Stop it and send now.$/);
   });
 });
 

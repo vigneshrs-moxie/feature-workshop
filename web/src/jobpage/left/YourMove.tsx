@@ -90,14 +90,16 @@ function moveLabel(permission: boolean, at: string | null | undefined): string {
  * The card: its label, the ask on one line (its headline, cut with an ellipsis, as the prototype's
  * compact card: lead's ruling on Task 10, so the left pane fits a 900 px window with the card
  * showing), then the rest. When the ask does not fit its line, `More` beside it opens the whole ask
- * in place; only what is under the ask moves, never anything above it.
+ * in place; only what is under the ask moves, never anything above it. On the phone the ask is
+ * always whole (Task 15: Your move in full on the job screen), with no More.
  */
 function Card({ label, ask, children }: { label: string; ask: string; children?: ReactNode }) {
   const askRef = useRef<HTMLParagraphElement>(null);
   const [cut, setCut] = useState(false);
+  const phone = useNarrow();
   // Opened for this ask only: a new ask arrives on its one line again.
   const [opened, setOpened] = useState<string | null>(null);
-  const whole = opened === ask;
+  const whole = phone || opened === ask;
   useLayoutEffect(() => {
     const el = askRef.current;
     if (!el || whole) return undefined;
@@ -113,7 +115,7 @@ function Card({ label, ask, children }: { label: string; ask: string; children?:
       <p className="jp2-card-label">{label}</p>
       <div className="jp2-card-askrow">
         <p ref={askRef} className={`jp2-card-ask${whole ? ' is-whole' : ''}`}>{ask}</p>
-        {(cut || whole) && (
+        {!phone && (cut || whole) && (
           <button type="button" className="link-button jp2-card-more" aria-expanded={whole} onClick={() => setOpened(whole ? null : ask)} title={whole ? 'Show the ask on one line again.' : 'Show the whole ask here.'}>
             {whole ? 'Less' : 'More'}
           </button>

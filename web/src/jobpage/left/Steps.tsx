@@ -14,6 +14,9 @@
 //
 // Before the payload lands the rows come from the Jobs snapshot's row (names and states, no words
 // for done or current steps, no outputs), so they paint at once and the payload fills them in place.
+//
+// On the phone's job screen (`phone`, Task 15) every step is one line ending in a › that opens the
+// step's own screen (phone/PhoneStep.tsx): no outputs under the current step, no duration.
 
 import { memo, useRef } from 'react';
 import type { Job } from '../../api/types';
@@ -24,6 +27,7 @@ import { outputTarget, readerOf, sameTarget } from '../targets';
 import type { JobState, Output, ReaderTarget, StepRow, StopId } from '../types';
 import { useJob } from '../useJob';
 import { sinceWords } from './YourMove';
+import { PhoneChevron } from '../phone/PhoneJob2';
 
 /** The seven steps before the payload, from the snapshot row: names and states only. */
 export function stepsFromRow(job: Job | null): StepRow[] {
@@ -52,13 +56,13 @@ export function stepWord(step: StepRow, state: JobState | null): string | null {
 }
 
 /** A step's duration: how long it took, or since when the current one runs. */
-function durationOf(step: StepRow): string | null {
+export function durationOf(step: StepRow): string | null {
   if (step.durationMs !== null) return spentWords(step.durationMs);
   const since = step.state === 'current' ? sinceWords(step.startedAt) : null;
   return since ? `since ${since}` : null;
 }
 
-const outMeta = (o: Output) => [o.version ? `v${o.version}` : null, o.meta].filter(Boolean).join(' · ') || null;
+export const outMeta = (o: Output) => [o.version ? `v${o.version}` : null, o.meta].filter(Boolean).join(' · ') || null;
 
 export interface StepsProps {
   job: Job | null;
@@ -68,12 +72,15 @@ export interface StepsProps {
   onStep(id: StopId, from: HTMLElement): void;
   /** Open an output in the reader. */
   onOpen(t: ReaderTarget, from: HTMLElement): void;
+  /** The phone's job screen: each step one line that opens its own screen (phone/PhoneStep), so no
+   *  outputs under the current one and no duration on its line. */
+  phone?: boolean;
 }
 
 /** Whether the reader's target is something of this step: its main output, a listed output, one in `more`, or an older version of one. */
 const owns = (s: StepRow, t: ReaderTarget | null) => !!t && (sameTarget(s.main, t) || [...s.outputs, ...(s.more ?? [])].some((o) => sameTarget(outputTarget(o), t) || (t.kind === 'doc' && (o.versions ?? []).some((v) => v.id === t.id))));
 
-export const Steps = memo(function Steps({ job, cursor, onStep, onOpen }: StepsProps) {
+export const Steps = memo(function Steps({ job, cursor, onStep, onOpen, phone = false }: StepsProps) {
   const steps = useJob((s) => s.payload?.steps ?? null);
   const state = useJob((s) => s.payload?.state ?? null);
   const pick = useJob((s) => s.ui.step);
@@ -90,9 +97,9 @@ export const Steps = memo(function Steps({ job, cursor, onStep, onOpen }: StepsP
   return (
     <nav className="jp2-st" aria-label="Steps">
       {rows.map((s, i) => {
-        const isOpen = s.id === current;
+        const isOpen = !phone && s.id === current;
         const word = stepWord(s, steps ? state : null);
-        const dur = steps && (isOpen || s.id === marked) ? durationOf(s) : null;
+        const dur = steps && !phone && (isOpen || s.id === marked) ? durationOf(s) : null;
         return (
           <div key={s.id} className="jp2-step">
             <button
@@ -107,6 +114,7 @@ export const Steps = memo(function Steps({ job, cursor, onStep, onOpen }: StepsP
               <span className="jp2-st-name">{s.label}</span>
               {dur && <span className="jp2-st-dur">{dur}</span>}
               {word && <span className="jp2-st-word">{word}</span>}
+              <PhoneChevron />
             </button>
             {isOpen && steps && (s.outputs.length > 0 ? (
               <ul className="jp2-st-outs">
