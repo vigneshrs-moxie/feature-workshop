@@ -305,7 +305,7 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 
 /* Changes (Task 14): commits above, files left, the diff right at full width; each scrolls on its own */
 .jp2-rv-body.jp2-chb { display: flex; flex-direction: column; overflow: hidden; padding: 0; }
-.jp2-ch-commits { flex: none; max-height: 150px; overflow-y: auto; padding: 6px 12px 6px 32px; border-bottom: 1px solid var(--border-1); scrollbar-width: thin; }
+.jp2-ch-commits { position: relative; flex: none; max-height: 150px; overflow-y: auto; padding: 6px 12px 6px 32px; border-bottom: 1px solid var(--border-1); scrollbar-width: thin; }
 .jp2-ch-c { display: flex; align-items: center; gap: 12px; width: 100%; height: 26px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: var(--text-1); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
 .jp2-ch-c:hover { background: var(--hover-bg); }
 .jp2-ch-c[aria-current="true"] { background: var(--accent-soft); }
@@ -317,14 +317,14 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2-ch-pl { color: var(--status-ok); }
 .jp2-ch-mi { color: var(--status-error); }
 .jp2-ch-p { flex: 1; min-height: 0; display: grid; grid-template-columns: 250px minmax(0, 1fr); }
-.jp2-ch-files { min-height: 0; overflow-y: auto; padding: 8px 8px 8px 32px; border-right: 1px solid var(--border-1); scrollbar-width: thin; }
+.jp2-ch-files { position: relative; min-height: 0; overflow-y: auto; padding: 8px 8px 8px 32px; border-right: 1px solid var(--border-1); scrollbar-width: thin; }
 .jp2-ch-f { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 8px; width: 100%; padding: 5px 8px; border: 0; border-radius: 6px; background: none; color: var(--text-1); font: inherit; text-align: left; cursor: pointer; }
 .jp2-ch-f:hover { background: var(--hover-bg); }
 .jp2-ch-f[aria-current="true"] { background: var(--accent-soft); }
 .jp2-ch-fn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 500; }
 .jp2-ch-fd { grid-column: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; color: var(--text-3); }
 .jp2-ch-f .jp2-ch-n { grid-column: 2; grid-row: 1; }
-.jp2-ch-diff { min-width: 0; min-height: 0; overflow: auto; padding: 12px 16px 32px; scrollbar-width: thin; }
+.jp2-ch-diff { position: relative; min-width: 0; min-height: 0; overflow: auto; padding: 12px 16px 32px; scrollbar-width: thin; }
 .jp2-ch-dh { position: sticky; top: -12px; z-index: 1; margin: -12px -16px 8px; padding: 8px 16px; border-bottom: 1px solid var(--border-1); background: var(--bg-0); font-family: var(--font-mono); font-size: 12px; color: var(--text-2); overflow-wrap: anywhere; }
 .jp2-ch-df { min-width: max-content; font-family: var(--font-mono); font-size: 12px; line-height: 18px; user-select: text; -webkit-user-select: text; }
 .jp2-dl-chunk { content-visibility: auto; contain-intrinsic-size: auto 3600px; }
@@ -336,14 +336,14 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2-ch-cut { margin: 12px 0 0; font-size: 13px; }
 .jp2-ch-failed { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
 .jp2-ch-failed p { margin: 0; }
-.jp2[data-layout="phone"] .jp2-rv-body.jp2-chb { display: block; overflow: auto; padding: 6px 16px 40px; }
+.jp2[data-layout="phone"] .jp2-rv-body.jp2-chb { position: relative; display: block; overflow: auto; padding: 6px 16px 40px; }
 .jp2[data-layout="phone"] .jp2-ch-commits { max-height: none; padding: 0 0 8px; border-bottom: 0; }
 .jp2[data-layout="phone"] .jp2-ch-c { height: 44px; gap: 8px; padding: 0 6px; }
 .jp2[data-layout="phone"] .jp2-ch-t { display: none; }
 .jp2[data-layout="phone"] .jp2-ch-p { display: block; }
 .jp2[data-layout="phone"] .jp2-ch-files { padding: 8px 0; border-right: 0; border-top: 1px solid var(--border-1); }
 .jp2[data-layout="phone"] .jp2-ch-f { min-height: 44px; }
-.jp2[data-layout="phone"] .jp2-ch-diff { padding: 0; overflow: auto; }
+.jp2[data-layout="phone"] .jp2-ch-diff { position: relative; padding: 0; overflow: auto; }
 .jp2[data-layout="phone"] .jp2-ch-dh { position: static; margin: 0 0 6px; padding: 8px 0; }
 
 /* The phone's own three screens (phone/PhoneJob2.tsx; prototype .sjp): data-screen on .jp2 is job,
@@ -432,7 +432,7 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2-rec-under { margin-top: 10px; font-size: 14px; line-height: 21px; }
 .jp2-rec-state { font-size: 13px; color: var(--text-2); }
 .jp2-rec-under ul { margin: 6px 0 0; padding-left: 18px; list-style: disc; font-size: 13px; color: var(--text-2); }
-.jp2-rec-list { max-height: 520px; overflow-y: auto; scrollbar-width: thin; }
+.jp2-rec-list { position: relative; max-height: 520px; overflow-y: auto; scrollbar-width: thin; }
 .jp2-rec-g { padding: 10px 8px 4px; font-size: 11px; line-height: 16px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--text-3); }
 .jp2-rec-r { display: grid; grid-template-columns: 54px 46px minmax(0, 1fr); gap: 6px; align-items: baseline; width: 100%; padding: 4px 8px; border: 0; border-radius: 6px; background: none; color: var(--text-1); font: inherit; font-size: 13px; line-height: 18px; text-align: left; cursor: pointer; }
 .jp2-rec-r:hover { background: var(--hover-bg); }
@@ -451,7 +451,7 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 
 /* Details (Task 14): one table of the work, newest first; cost by step under it */
 .jp2-dt { max-width: 1000px; }
-.jp2-dt-wrap { overflow-x: auto; }
+.jp2-dt-wrap { position: relative; overflow-x: auto; }
 .jp2-dt table { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 18px; }
 .jp2-dt th, .jp2-dt td { padding: 6px 10px 6px 0; border-bottom: 1px solid var(--border-1); text-align: left; vertical-align: top; }
 .jp2-dt th { font-size: 12px; font-weight: 600; color: var(--text-3); }

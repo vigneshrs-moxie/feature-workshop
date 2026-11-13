@@ -13,6 +13,7 @@
 // - On the website the commits stay on the laptop (plan decision 8): one line, nothing asked.
 
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { BRAND } from '../../app/brand';
 import { Button } from '../../components/Button';
 import { useWorkshop } from '../../state/store';
 import { sinceWords } from '../left/YourMove';
@@ -79,7 +80,7 @@ function Failed({ what, why, onAgain }: { what: string; why: string; onAgain(): 
   return (
     <div className="jp2-ch-failed">
       <p className="jp2-dim" role="alert">Couldn’t read the {what}: {why}</p>
-      <Button size="sm" onClick={onAgain} title="Ask Starbase again.">Try again</Button>
+      <Button size="sm" onClick={onAgain} title={`Ask ${BRAND.name} again.`}>Try again</Button>
     </div>
   );
 }

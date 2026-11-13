@@ -19,6 +19,7 @@
 import { useEffect, useState } from 'react';
 import { ApiError } from '../../api/client';
 import type { EvidenceCriterion, EvidenceView, LiveEvent } from '../../api/types';
+import { BRAND } from '../../app/brand';
 import { Button } from '../../components/Button';
 import { canPlay } from '../../panes/Foreman/EvidenceStrip';
 import { TryTab } from '../../panes/Preview/TryTab';
@@ -203,7 +204,7 @@ function Recording({ slug, hosted, ev, commits }: { slug: string; hosted: boolea
           {view.recording && <p>{progressWords(view)}</p>}
           {!view.recording && view.problem && <p className="jp2-rec-problem">{view.problem.message}{view.problem.fix && <> <code>{view.problem.fix}</code></>}</p>}
           {made && <p>{made}</p>}
-          {!evd && !view.recording && !view.problem && <p>{view.wanted ? 'Not recorded yet. Starbase records it once the test report names the commit it tested.' : view.why || 'This job records no evidence.'}</p>}
+          {!evd && !view.recording && !view.problem && <p>{view.wanted ? `Not recorded yet. ${BRAND.name} records it once the test report names the commit it tested.` : view.why || 'This job records no evidence.'}</p>}
           {note && <p className={note.bad ? 'jp2-rec-problem' : 'jp2-dim'} role={note.bad ? 'alert' : 'status'}>{note.text}</p>}
         </div>
         {(evd || view.problem || view.wanted) && again}
