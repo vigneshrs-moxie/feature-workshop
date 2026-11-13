@@ -17,7 +17,7 @@
 // connect to Auto's database within 30 s (AUTO_DB_NOT_USED). His Try it server for the job is never
 // stopped for it (AUTO_TRY_IT_RUNNING). No saved original yet: the Test step says it waits
 // (AUTO_DB_WAITING) and it looks again. A recording put off like that is still made after the job
-// has left Test (stillOwed). A migration that fails goes to the Foreman (onAutoDbProblem).
+// has moved on past Test (stillOwed). A migration that fails goes to the Foreman (onAutoDbProblem).
 // Its Playwright run starts inside the sandbox its app runs in (lib/db-door.js): a spec is the job's
 // own code, and could open a database connection. An Auto job whose app names no database where
 // Starbase looks has no copy and no door, but its app and its Playwright run start inside the sandbox
@@ -60,6 +60,7 @@ import { killTree, shellFor } from '../lib/platform.js';
 import { PRODUCT } from '../lib/brand.js';
 import { AUTO_NO_FENCE, AUTO_RECORDING_APP, AUTO_RECORDING_NO_DB, AUTO_TRY_IT_RUNNING, AUTO_TRY_IT_RUNNING_NO_DB, AutoDbError } from '../lib/local.js';
 import { sandboxed } from '../lib/db-door.js';
+import { STAGE_IDS } from '../lib/stages.js';
 
 const require = createRequire(import.meta.url);
 const SERVER_WAIT_MS = 180_000;
@@ -526,17 +527,22 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
 
   // ---------- After the tester: a job folder changed ----------
 
+  /** A stage after Test in the product's own stage order (Review, the PRs). An unknown stage is not. */
+  const afterTest = (stage) => STAGE_IDS.indexOf(stage) > STAGE_IDS.indexOf('test');
+
   /**
    * Whether a job that has left Test is still owed a recording: one that was put off (it waits for
    * Auto's database: its problem says waiting) for the commit the test report names now. Auto's pass
    * does not wait for a recording, so the job may have moved on while its recording waited. Only
    * while it would still be recorded as an Auto job: with Auto switched off on it since, the put-off
-   * recording is dropped, so the Test step stops saying it waits.
+   * recording is dropped, so the Test step stops saying it waits. And only in a stage after Test: a
+   * job sent back to Build (or in a stage Starbase does not know) drops it the same way, and the
+   * ordinary look records the job when it reaches Test again.
    */
   async function stillOwed(f) {
     const p = problems.get(f.slug);
     if (!p?.waiting) return false; // never put off: recorded only in Test
-    if (!(await isAuto(f))) { problems.delete(f.slug); return false; }
+    if (!afterTest(f.stage) || !(await isAuto(f))) { problems.delete(f.slug); return false; }
     return p.commit === await reportCommit(f.dir);
   }
 

@@ -1093,6 +1093,72 @@ test('a put-off recording is dropped when Auto is switched off on the job', { ti
   } finally { await w.done(); }
 });
 
+/**
+ * The job's recording was put off, then the job went to a stage that is not after Test, the other switch
+ * ended and the next look came: the wait is dropped and nothing is started.
+ */
+async function wentBack(w, stage) {
+  const release = holdSwitch(w);
+  w.handlers.change();
+  await putOff(w);
+  w.list[0].stage = stage;
+  release();
+  const tries = w.steps.length;
+  w.handlers.change(); // the next look
+  await untilTrue(async () => (await w.door.view('auto-job')).problem === null, 'the waiting line stayed', 15_000);
+  await settle(1000);
+  assert.equal(w.steps.length, tries, 'no further try');
+  assert.equal(await w.runs(), 0, 'nothing starts');
+  assert.ok(!w.emitted.some((e) => NOTHING_RECORDED.includes(e.outcome)), 'no recording, made or failed');
+  assert.equal(w.local.jobs.get('auto-job')?.server ?? null, null, 'no app was started');
+  const view = await w.door.view('auto-job');
+  assert.equal(view.evidence, null);
+  assert.equal(view.recording, false);
+}
+
+test('a put-off recording is not made for a job sent back to Build, and its waiting line goes', { timeout: 60_000 }, async () => {
+  const w = await autoWorld({ times: { lookAgainMs: 600_000 } }); // no timer: each look is one this test asks for
+  try {
+    await wentBack(w, 'implement'); // Build: before Test in the product's stage order
+    assert.equal(w.list[0].stage, 'implement', 'the job is where it was sent');
+    assert.deepEqual(await w.log(), [], 'no Postgres tool ran');
+  } finally { await w.done(); }
+});
+
+test('the job sent back to Build is recorded when it reaches Test again', { timeout: 120_000, skip: NEEDS_SANDBOX }, async () => {
+  // The commit its put-off recording was for (the look had started that one once), then one built since.
+  for (const commit of ['abc1234def5', 'fff9999aaa1']) {
+    const w = await autoWorld({ times: { lookAgainMs: 600_000 } });
+    try {
+      await wentBack(w, 'implement');
+      if (commit !== 'abc1234def5') {
+        const report = path.join(w.list[0].dir, 'test-report.md');
+        await fs.writeFile(report, REPORT(commit));
+        const then = new Date(Date.now() - 60_000);
+        await fs.utimes(report, then, then); // written a while ago: ready to record
+      }
+      w.list[0].stage = 'test';
+      w.handlers.change(); // the ordinary look
+      await untilTrue(async () => { const v = await w.door.view('auto-job'); return v.evidence && !v.recording; }, `${commit}: never recorded in Test again`, 20_000);
+      const view = await w.door.view('auto-job');
+      assert.equal(view.evidence.commit, commit);
+      assert.equal(view.problem, null, commit);
+      assert.deepEqual(w.emitted.filter((e) => e.outcome === 'recorded').map((e) => e.commit), [commit], 'recorded once, in Test');
+      assert.deepEqual(w.audits.filter((a) => a.outcome === 'recorded').map((a) => a.via), ['auto'], 'made by the look, not by a press of Record');
+      assert.equal(await w.runs(), 1, commit);
+      onAutoOnly(await w.log());
+    } finally { await w.done(); }
+  }
+});
+
+test('a put-off recording is not made for a job in a stage Starbase does not know, and its waiting line goes', { timeout: 60_000 }, async () => {
+  const w = await autoWorld({ times: { lookAgainMs: 600_000 } });
+  try {
+    await wentBack(w, null); // no stage read from the job's files: not a stage after Test
+    assert.deepEqual(await w.log(), [], 'no Postgres tool ran');
+  } finally { await w.done(); }
+});
+
 test('a put-off recording is not made for a closed job', { timeout: 60_000 }, async () => {
   const w = await autoWorld({ times: { lookAgainMs: 600_000 } });
   try {
