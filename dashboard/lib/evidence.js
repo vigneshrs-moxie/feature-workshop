@@ -9,7 +9,8 @@
 //   evidence/<commit>/report.json      Playwright's own JSON report of that recording
 //   evidence/evidence.json             { version: 1, commit, at, level, criteria: [{ id, title,
 //                                      status: 'passed' | 'failed' | 'skipped', reason, spec,
-//                                      screenshots: [{ file, description }], video }] }
+//                                      screenshots: [{ file, description }], video }],
+//                                      notes?: [what else the record says, in plain words] }
 //
 // The pieces, each testable without a browser:
 //   evidenceWanted(options)       the level and option rules (lib/options.js evidenceOn)
@@ -464,10 +465,12 @@ async function writeJson(file, value) {
 
 /**
  * Build evidence.json from the run's report and output, copy the pictures and videos into
- * evidence/<commit>/AC-<n>/, and write it. Returns the evidence.
+ * evidence/<commit>/AC-<n>/, and write it. Returns the evidence. notes: what else the record says
+ * (plain sentences); the record has no notes when there are none.
  */
-export async function collectEvidence({ evidenceDir, commit, specs, lines, level, at, report, outputDir }) {
+export async function collectEvidence({ evidenceDir, commit, specs, lines, level, at, report, outputDir, notes = [] }) {
   const { evidence, copies } = buildEvidence({ report, specs, lines, commit, level, at, outputDir });
+  if (notes.length) evidence.notes = notes;
   const dirs = new Set(evidence.criteria.map((c) => path.join(evidenceDir, commit, c.id)));
   for (const d of dirs) { await fsp.rm(d, { recursive: true, force: true }); await fsp.mkdir(d, { recursive: true }); }
   const missing = new Set();
@@ -594,9 +597,11 @@ async function copyLineVideo({ evidenceDir, commit, id, from, outputDir }) {
  *   onProgress(p)    called as Playwright starts (every line waiting) and on each line's start and
  *                    end: the progress (progressStart), a new object each time; at a line's end its
  *                    video is already copied to its place (copyLineVideo) and named
+ *   notes()          optional: what else the record says once Playwright has run, as plain
+ *                    sentences (the runner's: a database Auto's app asked for and was refused)
  * Returns { ok: true, evidence } or throws EvidenceError (status and plain words; fix when there is a line to run).
  */
-export async function recordEvidence({ job, server, dbCheck = null, run, playwrightUrl, cwd, now = () => new Date(), onStart = () => {}, onProgress = () => {} }) {
+export async function recordEvidence({ job, server, dbCheck = null, run, playwrightUrl, cwd, now = () => new Date(), onStart = () => {}, onProgress = () => {}, notes = () => [] }) {
   const wanted = evidenceWanted(job.options);
   if (!wanted.on) throw new EvidenceError(409, wanted.why, { code: 'not-wanted' });
   const reportText = await fsp.readFile(path.join(job.dir, 'test-report.md'), 'utf8').catch(() => null);
@@ -654,7 +659,7 @@ export async function recordEvidence({ job, server, dbCheck = null, run, playwri
       const last = firstLine(String(ran.output ?? '').replace(ANSI, '').split('\n').filter((l) => l.trim() && !parseProgressLine(l)).at(-1) ?? '');
       throw new EvidenceError(500, `Playwright stopped before it wrote its report, so nothing was recorded${last ? `: ${last}` : '.'}`, { code: 'no-report' });
     }
-    const evidence = await collectEvidence({ evidenceDir, commit, specs, lines, level, at: now().toISOString(), report: reportJson, outputDir: prepared.outputDir });
+    const evidence = await collectEvidence({ evidenceDir, commit, specs, lines, level, at: now().toISOString(), report: reportJson, outputDir: prepared.outputDir, notes: await notes() });
     return { ok: true, evidence };
   } finally {
     if (prepared) await fsp.rm(prepared.runDir, { recursive: true, force: true }).catch(() => {});

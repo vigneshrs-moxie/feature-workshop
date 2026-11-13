@@ -76,6 +76,14 @@ export const AUTO_DB_HIS_NEW_STOP = "Something new connected to your database ea
 export const AUTO_DB_TAKEN_STOP = "Something stayed connected to Auto's copy of the database through 3 tries, so no recording was made. Stop whatever is using it, then switch Auto on again.";
 /** A migration that exited well but isn't in Auto's copy: Auto stops on the job with this reason (lead's words). */
 export const AUTO_NOT_LANDED_STOP = 'A migration from this job did not land on Auto\'s copy of the database. It may have run on yours. Check your database before this job goes on.';
+/**
+ * The note on a recording during which the door refused a session (lib/db-door.js): Auto's app asked
+ * for another database than its own copy. The recording is kept. refusal: lib/local.js autoRefusal's
+ * { asked, hint } (lead's words).
+ */
+export function autoRefusedNote({ asked, hint }) {
+  return `Auto’s app asked for the database ${asked} and ${PRODUCT} refused it: Auto only uses its own copy.${hint ? ` A setting in ${hint.file} (${hint.key}) may be what names it.` : ''}`;
+}
 /** How the recording waits for the app to connect to Auto's database, and when a waiting job is looked at again. */
 export const AUTO_DB_TIMES = Object.freeze({ connectEveryMs: 500, connectForMs: 30_000, lookAgainMs: 60_000, sessionsSettleMs: 1100 });
 
@@ -302,6 +310,8 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
         }
       },
       releaseHis: () => releaseHis(),
+      // The record's notes: on Auto's database, what its app asked the door for and was refused.
+      notes: () => { const refusal = onAutoDb && startedHere ? local.autoRefusal(f.slug) : null; return refusal ? [autoRefusedNote(refusal)] : []; },
       stop: async () => { if (startedHere && !handed) await local.stopServerAndWait(f.slug); },
       // A branch only guessed (lib/locate.js): Try it's where() refuses it with these words, so say them before the start.
       cannotStart: () => (f.worktree && guessedWorktree(f) ? guessWords(f) : onAutoDb && tryItRuns() ? AUTO_TRY_IT_RUNNING : null),
@@ -394,6 +404,7 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
         // On Auto's database his is never looked at: making Auto's copy says whether the server is there.
         dbCheck: onAutoDb ? null : await dbCheckFor(f),
         run: (opts) => runPlaywright(pw.script, { ...opts, cwd }),
+        notes: server.notes,
       });
       problems.delete(f.slug);
       for (const k of [...refusals.keys()]) if (k.startsWith(`${f.slug}@`)) refusals.delete(k);

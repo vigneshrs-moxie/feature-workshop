@@ -802,9 +802,11 @@ const dbNameOf = (url) => decodeURIComponent(new URL(url).pathname.slice(1));
  * (its .env.local naming his database), two migrations (his database has the first) and a job folder
  * at the test step with a report and two specs. auto: the jobs' Auto record. override: the app reads
  * its settings file over what it is given. migrate: 'fake' for fixtures/fake-pg's migrate. settings: his
- * settings file. profile: the repository's.
+ * settings file. profile: the repository's. askHis: the app's first answer also asks the server it was
+ * given for the database its own file names (only with settings that name a plain listener, never 5432).
+ * sandboxWorks: Try it's answer to whether this computer can fence a program off (the real self-test by default).
  */
-async function autoWorld({ slugs = ['auto-job'], auto = { on: true }, original = true, connections = 0, override = false, both = false, migrate = null, profile = AUTO_PROFILE, settings = `DATABASE_URL=${HIS_ADDRESS}\n`, appSettings = `DATABASE_URL=${HIS_ADDRESS}\n`, times = {} } = {}) {
+async function autoWorld({ slugs = ['auto-job'], auto = { on: true }, original = true, connections = 0, override = false, both = false, askHis = false, migrate = null, profile = AUTO_PROFILE, settings = `DATABASE_URL=${HIS_ADDRESS}\n`, appSettings = `DATABASE_URL=${HIS_ADDRESS}\n`, times = {}, sandboxWorks = undefined } = {}) {
   const { LocalRunner } = await import('../lib/local.js');
   const { State } = await import('../lib/state.js');
   const { pathToFileURL } = await import('node:url');
@@ -820,6 +822,7 @@ async function autoWorld({ slugs = ['auto-job'], auto = { on: true }, original =
     const pkg = JSON.parse(await fs.readFile(path.join(wt, 'app', 'package.json'), 'utf8'));
     if (override) pkg.scripts.dev = 'node dev.mjs --override';
     if (both) pkg.scripts.dev = 'node dev.mjs --both';
+    if (askHis) pkg.scripts.dev = 'node dev.mjs --ask-his';
     if (migrate === 'fake') pkg.scripts['db:migrate'] = `node ${JSON.stringify(path.join(FAKE_PG, 'migrate'))}`;
     await fs.writeFile(path.join(wt, 'app', 'package.json'), JSON.stringify(pkg));
     await fs.writeFile(path.join(wt, 'app', '.env.local'), appSettings);
@@ -845,7 +848,7 @@ async function autoWorld({ slugs = ['auto-job'], auto = { on: true }, original =
   const pw = path.join(top, 'pw.mjs');
   await fs.writeFile(pw, `import fs from 'node:fs';\nfs.appendFileSync(${JSON.stringify(runsFile)}, 'ran\\n');\nawait import(${JSON.stringify(pathToFileURL(path.join(FIXTURE, 'fake-playwright.mjs')).href)});\n`);
   const registry = { profileFor: async () => ({ ok: true, profile, file: path.join(repo, 'starbase.md'), source: 'repo' }) };
-  const local = new LocalRunner({ state: new State(path.join(top, 'state')), registry, pgTool: async (name) => path.join(FAKE_PG, name) });
+  const local = new LocalRunner({ state: new State(path.join(top, 'state')), registry, pgTool: async (name) => path.join(FAKE_PG, name), ...(sandboxWorks ? { sandboxWorks } : {}) });
   // What Auto's database steps did, in order (autoDatabase begun and ended, each app stopped).
   const steps = [];
   const made = local.autoDatabase.bind(local);
@@ -915,6 +918,7 @@ test('an Auto job\'s recording makes Auto\'s database, starts the app on it and 
     assert.deepEqual(after.app__original, before.app__original);
     onAutoOnly(await w.log());
     assert.equal((await w.door.view('auto-job')).problem, null);
+    assert.equal('notes' in r.evidence, false, 'the door refused nothing: the record has no note');
   } finally { await w.done(); }
 });
 
@@ -1260,4 +1264,38 @@ test('9. during an Auto recording Try it\'s panel answers without reading his da
     await w.local.dbView(w.list[0], { fresh: true });
     assert.ok(await hisReads() > n, 'released in the recording\'s finally');
   } finally { await w.done(); }
+});
+
+// ---------- Task 9 fix round 4: the sandbox and the door ----------
+
+test('16. no sandbox on this computer: the recording is refused with the sentence, and nothing is copied, started or run', { timeout: 60_000 }, async () => {
+  const NO_FENCE = 'Auto could not fence its app off from your database on this computer, so it made no recording.';
+  const w = await autoWorld({ sandboxWorks: async () => false });
+  try {
+    await assert.rejects(w.door.record('auto-job', { waitMs: 50_000 }), (err) => err.status === 409 && err.message === NO_FENCE);
+    assert.equal((await w.door.view('auto-job')).problem.message, NO_FENCE, 'the Test step says why');
+    assert.deepEqual(await w.log(), [], 'no Postgres tool ran');
+    assert.equal(w.local.jobs.get('auto-job')?.server ?? null, null, 'the app never started');
+    assert.equal(await w.runs(), 0, 'no Playwright run');
+  } finally { await w.done(); }
+});
+
+test('20. a recording during which the door refused a session is kept, and its record carries the note', { timeout: 60_000, skip: process.platform !== 'darwin' }, async () => {
+  const net = await import('node:net');
+  // His server: a plain listener that counts what connects. No Postgres anywhere.
+  let reached = 0;
+  const his = net.createServer((socket) => { reached++; socket.destroy(); });
+  await new Promise((r) => { his.listen(0, '127.0.0.1', r); });
+  const theirs = `DATABASE_URL=postgres://u:s3cret-pw@127.0.0.1:${his.address().port}/app?schema=public\n`;
+  const w = await autoWorld({ askHis: true, settings: theirs, appSettings: `${theirs}LEGACY_JDBC=jdbc:postgresql:app\n` });
+  try {
+    const r = await w.door.record('auto-job', { waitMs: 50_000 });
+    assert.equal(r.evidence.commit, 'abc1234def5', 'the recording is kept');
+    const note = 'Auto’s app asked for the database app and Starbase refused it: Auto only uses its own copy. A setting in the job\'s app/.env.local (LEGACY_JDBC) may be what names it.';
+    assert.deepEqual(r.evidence.notes, [note]);
+    assert.deepEqual((await w.door.view('auto-job')).evidence.notes, [note], 'and it is in the record the site reads');
+    assert.equal(w.local.jobs.get('auto-job').server.child.spawnfile, '/usr/bin/sandbox-exec', 'the recording\'s app ran inside the sandbox');
+    assert.equal(reached, 0, 'nothing reached his server');
+    onAutoOnly(await w.log());
+  } finally { await w.done(); await new Promise((r) => { his.close(r); }); }
 });

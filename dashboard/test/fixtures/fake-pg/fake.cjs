@@ -11,8 +11,24 @@
 // The server's version is state.versionByPort[$PGPORT], else state.version ('fail': psql can't read it);
 // `<tool> --version` prints state.clientVersion (else 17.2) and isn't logged. createdb refuses
 // --strategy when the server or the client is older than 15, as the real ones do. Log lines carry the pid.
+// $FAKE_PG_REACH = '<host>:<port>' (a plain listener of the test's; port 5432 is never dialled): each call
+// first tries to connect there, from a child of its own, and logs what happened as `reach`: 'connected',
+// or the error's code (EPERM inside Auto's sandbox). $FAKE_PG_REACH_OUT: the same for migrate only,
+// logged as `out` (the tests name 192.0.2.1 only, an address routed nowhere).
 'use strict';
 const fs = require('node:fs');
+const { spawnSync } = require('node:child_process');
+
+const PROBE = `const s = require('node:net').connect({ host: process.argv[1], port: Number(process.argv[2]) });
+const end = (w) => { clearTimeout(t); s.destroy(); process.stdout.write(w); };
+const t = setTimeout(() => end('timeout'), 1500);
+s.on('connect', () => end('connected'));
+s.on('error', (e) => end(e.code));`;
+function reach(where) {
+  const [host, port] = String(where).split(/:(?=\d+$)/);
+  if (!port || Number(port) === 5432) return 'not-in-a-test';
+  return spawnSync(process.execPath, ['-e', PROBE, host, port], { encoding: 'utf8', timeout: 5000 }).stdout || 'no answer';
+}
 
 const STATE = process.env.FAKE_PG_STATE;
 const read = () => JSON.parse(fs.readFileSync(STATE, 'utf8'));
@@ -24,7 +40,11 @@ module.exports = function fake(tool) {
   const args = process.argv.slice(2);
   if (args[0] === '--version') return console.log(`${tool} (PostgreSQL) ${read().clientVersion ?? '17.2'}`);
   if (process.env.FAKE_PG_LOG) {
-    fs.appendFileSync(process.env.FAKE_PG_LOG, `${JSON.stringify({ tool, args, url: process.env.DATABASE_URL ?? null, pid: process.pid })}\n`);
+    const reached = {
+      ...(process.env.FAKE_PG_REACH ? { reach: reach(process.env.FAKE_PG_REACH) } : {}),
+      ...(process.env.FAKE_PG_REACH_OUT && tool === 'migrate' ? { out: reach(process.env.FAKE_PG_REACH_OUT) } : {}),
+    };
+    fs.appendFileSync(process.env.FAKE_PG_LOG, `${JSON.stringify({ tool, args, url: process.env.DATABASE_URL ?? null, pid: process.pid, ...reached })}\n`);
   }
   const target = tool === 'psql' ? args[args.indexOf('-d') + 1] : tool === 'migrate' ? args.at(-1) : lastArg(args.filter((a, i) => args[i - 1] !== '-T'));
   if (process.env.FAKE_PG_HANG === `${tool}:${target}`) { setInterval(() => {}, 1 << 30); return undefined; }

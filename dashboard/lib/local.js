@@ -21,6 +21,7 @@ import { openRegistry } from './repos.js';
 import { guessedWorktree, guessWords } from './locate.js';
 import { PRODUCT } from './brand.js';
 import { autoDbEnvParts, dbHint, leftover, readSettings } from './db-settings.js';
+import { openDoor, sandboxProfile, sandboxed, sandboxWorks } from './db-door.js';
 
 const OUTPUT_MAX = 200_000; // characters kept per output box
 const PRESETS = [
@@ -213,6 +214,12 @@ export const AUTO_TRY_IT_RUNNING = 'Try it is running for this job, so Auto can\
 /** His Try it Start while an Auto recording runs the job's app on Auto's database (lead's words). */
 export const AUTO_RECORDING_APP = 'Auto is recording this job on its own copy of the database. Start Try it when the recording ends.';
 
+/** This computer can't fence a program off from his database (lib/db-door.js sandboxWorks), so nothing of Auto's is copied, started or run (lead's words). */
+export const AUTO_NO_FENCE = 'Auto could not fence its app off from your database on this computer, so it made no recording.';
+
+/** His Postgres server as db.env names it, for the door: a PGHOST that starts with / is a socket folder. */
+const hisServer = (db) => (db.env.PGHOST.startsWith('/') ? { socket: `${db.env.PGHOST}/.s.PGSQL.${db.env.PGPORT}` } : { host: db.env.PGHOST, port: Number(db.env.PGPORT) });
+
 const pgPort = (u) => u.port || '5432';
 const sameServer = (a, b) => (isLocalHost(a.hostname) ? isLocalHost(b.hostname) : a.hostname.toLowerCase() === b.hostname.toLowerCase()) && pgPort(a) === pgPort(b);
 
@@ -266,6 +273,8 @@ async function diskMigrations(appDir) {
 export class LocalRunner extends EventEmitter {
   #pgTool;
   #autoStepMs;
+  #canFence;
+  #doors = new Set(); // the doors open now (lib/db-door.js): one per app on Auto's database, one per migrate loop
   #starts = new Map(); // slug -> the start under way (startServer)
   #hisHeld = new Map(); // his database's name -> { promise }: Starbase's own reads of it wait (holdHisReads)
   #lastFacts = new Map(); // his database's name -> the last facts read (#dbFacts), answered while it is held
@@ -276,11 +285,14 @@ export class LocalRunner extends EventEmitter {
    * folder's by default). pgTool: where a Postgres tool is, by name (tests point it at fakes).
    * autoStepMs: how long each program autoDatabase starts may run before it is stopped (Try it's
    * own switch has no such limit: a copy of his database is never killed half way).
+   * sandboxWorks: whether this computer can fence a program off from his database (lib/db-door.js's;
+   * tests answer for it).
    */
-  constructor({ state, demo = false, registry = null, pgTool: findPgTool = pgTool, autoStepMs = AUTO_STEP_MS }) {
+  constructor({ state, demo = false, registry = null, pgTool: findPgTool = pgTool, autoStepMs = AUTO_STEP_MS, sandboxWorks: canFence = sandboxWorks }) {
     super();
     this.#pgTool = findPgTool;
     this.#autoStepMs = autoStepMs;
+    this.#canFence = canFence;
     this.state = state;
     this.demo = demo;
     this.jobs = new Map(); // slug -> { server, cmd }
@@ -431,9 +443,12 @@ export class LocalRunner extends EventEmitter {
   // ----- dev server -----
 
   /**
-   * Start the job's dev server. databaseUrl: Auto's database (its recording): the app's environment
-   * is autoDbEnv's, naming that database, and the server's view says db: 'auto'. His Try it server
-   * already running for the job is never stopped for it: that is refused (AUTO_TRY_IT_RUNNING).
+   * Start the job's dev server. databaseUrl: Auto's database (its recording): the app is fenced off
+   * from his database (#autoFence: it runs inside the sandbox, and its settings name a door that
+   * passes on only sessions for Auto's copy; the door closes when the app stops, exits or fails to
+   * start), and the server's view says db: 'auto'. His Try it server already running for the job is
+   * never stopped for it: that is refused (AUTO_TRY_IT_RUNNING). His own Try it app (no databaseUrl)
+   * starts as ever: no sandbox, no door.
    */
   startServer(f, opts = {}) {
     // One start at a time per job: a second start (his Try it while the recorder starts the app) waits
@@ -473,9 +488,10 @@ export class LocalRunner extends EventEmitter {
     // the sign-in skip on, the app must not be reachable from the network).
     const command = devCommand(w.tryIt, w.app.scripts.dev, port);
     const base = childEnv({ PORT: String(port), HOSTNAME: '127.0.0.1', HOST: '127.0.0.1' });
-    // On Auto's database: refused (nothing starts) if a setting may still point at his.
-    const env = autoEnv ? await this.#autoEnvFor(w, autoEnv, base, (m) => new Error(m)) : base;
-    const server = { status: 'starting', port, url: fillPattern(w.tryIt.url, { port }), command, startedAt: new Date().toISOString(), output: '', child: null, exitCode: null, db: databaseUrl ? 'auto' : null };
+    // On Auto's database: refused (nothing starts) where this computer has no sandbox or a settings file can't be read.
+    const fence = autoEnv ? await this.#autoFence(autoEnv, await this.#autoGate(w, (m) => new Error(m)), base) : null;
+    // door, hint: the fence's, kept for the recording's note (autoRefusal).
+    const server = { status: 'starting', port, url: fillPattern(w.tryIt.url, { port }), command, startedAt: new Date().toISOString(), output: '', child: null, exitCode: null, db: databaseUrl ? 'auto' : null, door: fence?.door ?? null, hint: fence?.hint ?? null };
     slot.server = server;
     if (this.demo) {
       server.output = `$ ${command}\nDemo mode: nothing real runs.\n`;
@@ -485,7 +501,11 @@ export class LocalRunner extends EventEmitter {
     }
     server.output = `$ ${command}   (in ${w.app.dir})\n`;
     const shell = shellFor(command);
-    const child = spawn(shell.file, shell.args, { cwd: w.app.dir, env, ...shell.options, stdio: ['ignore', 'pipe', 'pipe'] });
+    // Auto's app: the same shell and command inside the sandbox (sandbox-exec becomes the shell, so the
+    // process group is the app's as ever). His own: as it is.
+    const run = fence ? sandboxed(shell.file, shell.args, fence.profile) : shell;
+    let child;
+    try { child = spawn(run.file, run.args, { cwd: w.app.dir, env: fence?.env ?? base, ...shell.options, stdio: ['ignore', 'pipe', 'pipe'] }); } catch (err) { fence?.close(); throw err; }
     server.child = child;
     const onData = (buf) => {
       const chunk = String(buf).replace(ANSI, '');
@@ -494,8 +514,9 @@ export class LocalRunner extends EventEmitter {
     };
     child.stdout.on('data', onData);
     child.stderr.on('data', onData);
-    child.on('error', (err) => onData(`\n${err.message}\n`));
+    child.on('error', (err) => { fence?.close(); onData(`\n${err.message}\n`); });
     child.on('exit', (code, signal) => {
+      fence?.close();
       server.status = server.stopRequested ? 'stopped' : 'exited';
       server.exitCode = code ?? signal;
       onData(`\n[The app stopped${server.stopRequested ? '' : ` by itself (${code ?? signal})`}.]\n`);
@@ -693,17 +714,48 @@ export class LocalRunner extends EventEmitter {
   }
 
   /**
-   * Auto's child environment for the job (lib/db-settings.js autoDbEnvParts) once nothing is left
-   * that may point at his database: a settings file Starbase can't read, or a database setting that
-   * holds his database's name and that Starbase couldn't set (leftover), refuses with its words.
+   * The gate before anything of Auto's is copied, started or run: this computer can fence a program
+   * off from his database (lib/db-door.js sandboxWorks), and every settings file can be read. Each
+   * refuses with its words. Returns the settings (lib/db-settings.js readSettings).
    */
-  async #autoEnvFor(w, db, base, refuse) {
+  async #autoGate(w, refuse) {
+    if (!(await this.#canFence())) throw refuse(AUTO_NO_FENCE);
     const settings = await this.#settingsFiles(w);
     if (settings.unreadable.length) throw refuse(`Auto could not read ${settings.unreadable[0]}, so it made no recording.`);
-    const { env, set } = autoDbEnvParts(db, settings, base);
-    const left = leftover(settings, set, db, base);
-    if (left) throw refuse(`A setting in ${left.file} (${left.key}) may point at your database, and Auto could not point it at its own copy, so it made no recording.`);
-    return env;
+    return settings;
+  }
+
+  /**
+   * The fence around one app or one migrate loop of Auto's (lib/db-door.js). What keeps the child
+   * off his database is these two, and no settings file:
+   *   profile  the sandbox profile it is started with: his Postgres server is denied to it and to
+   *            everything it starts (migrate: everything outside this laptop too);
+   *   door     Starbase's relay to his server, which passes on only a session that names Auto's copy.
+   * env is the child's environment, its database settings naming the door (lib/db-settings.js
+   * autoDbEnvParts: function only). hint: a setting that holds his database's name and that Starbase
+   * couldn't point at the door ({ file, key }, leftover), or null; it stops nothing. The caller
+   * closes the door with close().
+   */
+  async #autoFence(db, settings, base, { migrate = false } = {}) {
+    const profile = sandboxProfile({ port: Number(db.env.PGPORT), migrate });
+    const door = await openDoor({ target: hisServer(db), database: db.auto });
+    this.#doors.add(door);
+    const close = () => { this.#doors.delete(door); return door.close(); };
+    try {
+      const { env, set } = autoDbEnvParts(db, settings, base, { port: door.port });
+      return { door, profile, env, hint: leftover(settings, set, db, base), close };
+    } catch (err) { await close(); throw err; }
+  }
+
+  /**
+   * What the door refused for the job's app on Auto's database: { asked, hint } for the latest
+   * refusal (asked: the database's name as the door keeps it; hint: a setting that may be what names
+   * it, { file, key }, or null), or null when it refused nothing. For the recording's note.
+   */
+  autoRefusal(slug) {
+    const server = this.jobs.get(slug)?.server;
+    const last = server?.door?.refused.at(-1);
+    return last ? { asked: last.database, hint: server.hint } : null;
   }
 
   /**
@@ -746,7 +798,7 @@ export class LocalRunner extends EventEmitter {
     const fromLast = () => {
       const last = this.#lastFacts.get(db.name);
       if (last) return last;
-      throw new Error('Auto is recording on its own copy of the database; this is read again when it ends.');
+      throw new Error(`Auto is recording, so ${PRODUCT} is not reading your database right now. This fills in when the recording ends.`);
     };
     let facts;
     try { facts = await this.#dbFactsNow(db, cached ? 'fail' : 'wait'); } catch (err) { if (err.held) return fromLast(); throw err; }
@@ -923,8 +975,9 @@ export class LocalRunner extends EventEmitter {
 
   /**
    * Make Auto's own database afresh for a job's turn: <name>__auto, copied from the saved original,
-   * then this branch's migrations added in an environment that names only Auto's database (autoDbEnv),
-   * each one checked in __auto's ledger after it ends (else 'not-landed', and nothing more). Returns
+   * then this branch's migrations added, each script fenced off from his database (#autoFence: inside
+   * the sandbox, its settings naming a door that passes on only sessions for Auto's copy) and
+   * checked in __auto's ledger after it ends (else 'not-landed', and nothing more). Returns
    * { url, name, added }; url never leaves the server. His database and the saved original appear
    * only as a copy's source: Auto never changes them, never connects to them, and never stops a Try
    * it app. The one exception: with no saved original, Auto saves one, and only while nothing is
@@ -956,9 +1009,8 @@ export class LocalRunner extends EventEmitter {
       // Every error's words with the addresses and the password blanked (no address leaves the laptop).
       const secrets = (() => { const p = new URL(db.url).password; try { return [p, decodeURIComponent(p)]; } catch { return [p]; } })();
       const fail = (code, message, extra = {}) => new AutoDbError(code, blankAddresses(message, secrets), { ...extra, ...(extra.tail ? { tail: blankAddresses(extra.tail, secrets) } : {}) });
-      // The migrate script's environment names only Auto's database (lib/db-settings.js), with the server's
-      // own settings (db.env); a setting that may still point at his refuses before anything is copied or run.
-      const env = await this.#autoEnvFor(w, db, childEnv(db.env), (m) => fail('no-database', m));
+      // No sandbox on this computer, or a settings file that can't be read: refused before anything is copied or run.
+      const settings = await this.#autoGate(w, (m) => fail('no-database', m));
       const admin = { ...db, dbName: 'postgres' };
       // Every program started here has a time limit (autoStepMs; psql's reads keep their lower one).
       const limit = spanWords(this.#autoStepMs);
@@ -1002,13 +1054,28 @@ export class LocalRunner extends EventEmitter {
       const ledger = await ledgerNow();
       const toAdd = (await diskMigrations(w.app.dir)).filter((n) => !ledger.includes(n));
       const added = [];
-      for (const name of toAdd) {
-        const r = await capture('npm', ['run', 'db:migrate', '--', name], { exactEnv: env, cwd: w.app.dir, timeoutMs: this.#autoStepMs });
-        if (r.timedOut) throw fail('migration', `Adding ${name} to Auto’s database took longer than ${limit}, so it was stopped.`, { migration: name, tail: lastLines(r.output, 20) || null });
-        if (!r.ok) throw fail('migration', `Adding ${name} to Auto’s database failed (exit ${r.code}).`, { migration: name, tail: lastLines(r.output, 20) });
-        // Ended well but not in __auto's ledger: the script went somewhere else. Nothing more is applied.
-        if (!(await ledgerNow()).includes(name)) throw fail('not-landed', `${name} did not land on Auto's copy of the database, so nothing more was applied.`, { migration: name });
-        added.push(name);
+      if (toAdd.length) {
+        // The migrate scripts are fenced off from his database (#autoFence): each runs inside the sandbox
+        // (his server and everything outside this laptop denied), with the server's own settings (db.env)
+        // and its database settings naming one door for the loop, closed however the loop ends.
+        const fence = await this.#autoFence(db, settings, childEnv(db.env), { migrate: true });
+        try {
+          for (const name of toAdd) {
+            const refusedBefore = fence.door.refused.at(-1);
+            const run = sandboxed('npm', ['run', 'db:migrate', '--', name], fence.profile);
+            const r = await capture(run.file, run.args, { exactEnv: fence.env, cwd: w.app.dir, timeoutMs: this.#autoStepMs });
+            if (r.timedOut) throw fail('migration', `Adding ${name} to Auto’s database took longer than ${limit}, so it was stopped.`, { migration: name, tail: lastLines(r.output, 20) || null });
+            if (!r.ok) {
+              // The door refused a session while the script ran: say which database it asked for.
+              const refused = fence.door.refused.at(-1);
+              const why = refused && refused !== refusedBefore ? `: the script asked for the database ${refused.database}, and ${PRODUCT} refused it.` : ` (exit ${r.code}).`;
+              throw fail('migration', `Adding ${name} to Auto’s database failed${why}`, { migration: name, tail: lastLines(r.output, 20) });
+            }
+            // Ended well but not in __auto's ledger: the script went somewhere else. Nothing more is applied.
+            if (!(await ledgerNow()).includes(name)) throw fail('not-landed', `${name} did not land on Auto's copy of the database, so nothing more was applied.`, { migration: name });
+            added.push(name);
+          }
+        } finally { await fence.close(); }
       }
       return { url: db.autoUrl, name: db.auto, added };
     } finally {
@@ -1072,7 +1139,8 @@ export class LocalRunner extends EventEmitter {
     const promise = new Promise((r) => { release = r; });
     const held = { promise };
     this.#hisHeld.set(db.name, held);
-    const end = () => { clearTimeout(timer); if (this.#hisHeld.get(db.name) === held) this.#hisHeld.delete(db.name); release(); };
+    // At its end the answers kept from the hold go (a failed view is cached for 10 s), and the page hears it.
+    const end = () => { clearTimeout(timer); if (this.#hisHeld.get(db.name) === held) this.#hisHeld.delete(db.name); release(); this.dbCache.clear(); this.#changed(f.slug); };
     const timer = setTimeout(end, maxMs);
     timer.unref?.();
     return end;
@@ -1124,6 +1192,7 @@ export class LocalRunner extends EventEmitter {
   /** On shutdown: stop every dev server and command we started. */
   stopAll() {
     for (const child of autoChildren) killTree(child, 'SIGKILL'); // Auto's database steps run in their own group
+    for (const door of this.#doors) door.close(); // and the doors they and Auto's apps went through
     for (const slot of this.jobs.values()) {
       if (slot.server?.child && ['starting', 'running'].includes(slot.server.status)) killTree(slot.server.child);
       if (slot.cmd?.child && slot.cmd.status === 'running') killTree(slot.cmd.child);

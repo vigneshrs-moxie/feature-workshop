@@ -6,8 +6,14 @@
 //             this process's id) is added to that database in $FAKE_PG_STATE (fixtures/fake-pg), and
 //             taken away again when the app is stopped. No real database is ever touched.
 //   GET /env  answers the database settings in its environment (settings.mjs databaseSettings).
+//   GET /reach  tries every Postgres address in its own .env.local the way a driver that reads the
+//             file itself would (reach, below), and answers what happened. Only tests with a plain
+//             listener standing for his server ask for it.
+// With --ask-his its first GET / also asks the server its environment names (PGHOST, PGPORT) for the
+// database its .env.local names, with a real startup message (ask.mjs): Auto's door refuses it.
 import fs from 'node:fs';
 import http from 'node:http';
+import { ask } from './ask.mjs';
 import { databaseSettings, dbName, loadSettings, readSettings } from './settings.mjs';
 
 const fromFile = readSettings().DATABASE_URL ?? '';
@@ -29,17 +35,47 @@ function connections(name, by) {
   fs.writeFileSync(STATE, JSON.stringify(state, null, 2));
 }
 
+/**
+ * Every Postgres address in .env.local, read as dotenv reads it (a quoted value may run over lines)
+ * and taken apart as a driver's URL parser does (line ends dropped, the first part of the path the
+ * database), tried two ways: straight at its own host and port, and at the server the environment
+ * names with a startup message for its database. { KEY: { database, direct, door } }.
+ */
+async function reach() {
+  const out = {};
+  for (const m of fs.readFileSync('.env.local', 'utf8').matchAll(/^([A-Z_]+)=(?:"([^"]*)"|(\S*))$/gm)) {
+    let u;
+    try { u = new URL(m[2] ?? m[3]); } catch { continue; }
+    if (!/^postgres(ql)?:$/.test(u.protocol)) continue;
+    const database = decodeURIComponent(u.pathname.split('/')[1] ?? '');
+    out[m[1]] = {
+      database,
+      direct: await ask({ host: u.hostname, port: u.port || 5432, database }),
+      door: await ask({ host: process.env.PGHOST, port: process.env.PGPORT, database }),
+    };
+  }
+  return out;
+}
+
 const server = http.createServer((req, res) => {
   if (req.url === '/env') {
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify(databaseSettings()));
     return;
   }
+  if (req.url === '/reach') {
+    reach().then((r) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(r)); });
+    return;
+  }
+  let asked = null;
   if (!connected.length) {
     for (const u of urls) { try { const name = dbName(u); connections(name, 1); connected.push(name); } catch { /* not an address */ } }
+    if (process.argv.includes('--ask-his') && fromFile) asked = ask({ host: process.env.PGHOST, port: process.env.PGPORT, database: dbName(fromFile) });
   }
-  res.writeHead(200, { 'content-type': 'text/plain' });
-  res.end(url);
+  Promise.resolve(asked).then(() => {
+    res.writeHead(200, { 'content-type': 'text/plain' });
+    res.end(url);
+  });
 });
 
 const stop = () => {
