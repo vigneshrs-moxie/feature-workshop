@@ -426,3 +426,26 @@ test('the board says which protocol the laptop speaks (7: the site may send Auto
   assert.equal(PROTOCOL_VERSION, 7);
   assert.equal(boardRecord({ jobs: [] }).protocol, 7);
 });
+
+test('a recording\'s notes never go to the website', async () => {
+  const { evidenceRecord, docRecord } = await import('../runner/mirror.js');
+  const { jsonHtml } = await import('../lib/docs.js');
+  const note = 'Auto’s app asked for the database app and Starbase refused it: Auto only uses its own copy. A setting in app/.env.local (LEGACY_JDBC) may be what names it.';
+  const criteria = [{ id: 'AC-1', title: 'One', status: 'passed', reason: null, spec: 'evidence/specs/AC-1.spec.mjs', screenshots: [], video: null }];
+  const record = { version: 1, commit: 'abc1234def5', at: '2026-11-12T10:00:00Z', level: 2, criteria, notes: [note] };
+  // The evidence list (evidence/<slug>): the record without its notes, the rest as it was.
+  const ev = evidenceRecord({ evidence: record, commit: 'abc1234def5', wanted: true, why: 'L2', recording: false, problem: null, progress: null, watch: false, folder: '/x', folderUrl: 'file:///x/' });
+  assert.equal('notes' in ev.evidence, false);
+  assert.deepEqual(ev.evidence, { version: 1, commit: 'abc1234def5', at: '2026-11-12T10:00:00Z', level: 2, criteria });
+  assert.equal(evidenceRecord({ evidence: null, commit: null }).evidence, null, 'no record: still none');
+  // The Docs tab's copy of evidence.json (doc/<slug>\n<file>): neither its text nor its page carries them.
+  const text = JSON.stringify(record, null, 2);
+  const doc = docRecord({ file: 'evidence/evidence.json', name: 'Evidence', type: 'json', html: jsonHtml(text), text, updatedAt: '2026-11-12T10:00:00Z', size: text.length, vscode: null, summary: null });
+  const sent = JSON.stringify(doc);
+  for (const gone of ['LEGACY_JDBC', '.env.local', 'refused it', '"notes"', '&quot;notes&quot;']) assert.ok(!sent.includes(gone), gone);
+  assert.deepEqual(JSON.parse(doc.text), { version: 1, commit: 'abc1234def5', at: '2026-11-12T10:00:00Z', level: 2, criteria });
+  assert.equal(doc.html, jsonHtml(doc.text));
+  // Any other document goes up as it was.
+  const other = { file: 'notes.md', name: 'Notes', type: 'md', html: '<p>notes</p>', text: 'notes', updatedAt: 'x', size: 5, vscode: null, summary: null };
+  assert.deepEqual(docRecord(other), other);
+});

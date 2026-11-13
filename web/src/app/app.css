@@ -1197,6 +1197,8 @@ a:hover { text-decoration: underline; }
 .sb-gate-evidence-when { font-weight: var(--weight-regular); }
 .gate-evidence.is-fold .sb-gate-evidence-body:not([hidden]) { margin-top: var(--space-2); }
 .gate-evidence-earlier, .gate-evidence-problem, .gate-evidence-recording, .gate-evidence-none, .gate-evidence-note { margin: 0 0 var(--space-1); font-size: var(--text-sm); }
+/* A recording's note may name a long database or file: it wraps, never scrolls sideways at 360 px. */
+.gate-evidence-note { overflow-wrap: anywhere; }
 .evidence-list { display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-1) 0; padding: 0; list-style: none; }
 .evidence-row { display: flex; flex-direction: column; gap: var(--space-1); }
 .evidence-line { margin: 0; font-size: var(--text-sm); }

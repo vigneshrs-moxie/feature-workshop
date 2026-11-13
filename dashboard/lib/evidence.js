@@ -501,6 +501,27 @@ export async function readEvidence(jobDir) {
   } catch { return null; }
 }
 
+/** The most notes the job page shows, and the longest each may be (characters, `…` included). */
+export const NOTES_MAX = 5;
+export const NOTE_MAX_CHARS = 400;
+
+/**
+ * The record as the job page reads it (runner/evidence.js view): its notes only strings, each
+ * trimmed, empty ones dropped, at most NOTES_MAX, each cut to NOTE_MAX_CHARS with `…`; no `notes`
+ * key when none are left. Anything else in the record is as it was.
+ */
+export function evidenceForView(evidence) {
+  if (!evidence || typeof evidence !== 'object') return evidence ?? null;
+  const { notes, ...rest } = evidence;
+  const kept = (Array.isArray(notes) ? notes : [])
+    .filter((n) => typeof n === 'string')
+    .map((n) => n.trim())
+    .filter(Boolean)
+    .slice(0, NOTES_MAX)
+    .map((n) => (n.length > NOTE_MAX_CHARS ? `${n.slice(0, NOTE_MAX_CHARS - 1)}…` : n));
+  return kept.length ? { ...rest, notes: kept } : rest;
+}
+
 /**
  * One picture or video of a job's evidence: { abs, type, size } when `rel` (relative to the job's
  * evidence/ folder) is a plain picture or video file whose real path lies inside that folder.

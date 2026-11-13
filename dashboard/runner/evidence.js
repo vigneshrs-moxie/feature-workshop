@@ -50,7 +50,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { HttpError } from '../lib/http-guard.js';
-import { EVIDENCE_DIR, EvidenceError, NO_LIVE, evidenceFile, evidenceWanted, liveFiles, markWatched, readEvidence, readLiveFrame, readyToRecord, recordEvidence, recordingWords, reportCommit, shortCommit } from '../lib/evidence.js';
+import { EVIDENCE_DIR, EvidenceError, NO_LIVE, evidenceFile, evidenceForView, evidenceWanted, liveFiles, markWatched, readEvidence, readLiveFrame, readyToRecord, recordEvidence, recordingWords, reportCommit, shortCommit } from '../lib/evidence.js';
 import { guessedWorktree, guessWords } from '../lib/locate.js';
 import { fillPattern } from '../lib/profile.js';
 import { killTree, shellFor } from '../lib/platform.js';
@@ -534,7 +534,7 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
   return {
     async view(slug) {
       const f = await jobOf(slug);
-      const evidence = await readEvidence(f.dir);
+      const evidence = evidenceForView(await readEvidence(f.dir)); // its notes cleaned for the page (lib/evidence.js)
       const wanted = evidenceWanted(f.options);
       const folder = evidence ? path.join(f.dir, EVIDENCE_DIR, evidence.commit) : path.join(f.dir, EVIDENCE_DIR);
       // In demo mode only, and only while nothing really records the job: the demo's recording under way.

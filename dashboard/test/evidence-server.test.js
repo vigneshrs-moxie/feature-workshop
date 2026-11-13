@@ -1414,3 +1414,25 @@ test('an Auto recording that has no fence for its browser run starts no browser:
     assert.equal(his.reached(), 0);
   } finally { await w.done(); await his.close(); }
 });
+
+// ---------- A recording's notes on the job page ----------
+
+test('the evidence view carries the record\'s notes, cleaned', async () => {
+  const { dir, door } = await doorJob('notes-job', { demo: false });
+  const writeRecord = async (extra) => {
+    await fs.mkdir(path.join(dir, 'evidence'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'evidence', 'evidence.json'), JSON.stringify({ version: 1, commit: 'abc1234def5', at: OLD, level: 2, criteria: [], ...extra }));
+  };
+  const long = 'x'.repeat(450);
+  await writeRecord({ notes: ['  First note.  ', 42, '', '   ', null, 'Second.', long, 'Fourth.', 'Fifth.', 'Sixth.', 'Seventh.'] });
+  const { evidence } = await door.view('notes-job');
+  assert.deepEqual(evidence.notes, ['First note.', 'Second.', `${'x'.repeat(399)}…`, 'Fourth.', 'Fifth.'], 'strings only, trimmed, empty ones dropped, at most 5');
+  assert.ok(evidence.notes.every((n) => n.length <= 400));
+  assert.equal(evidence.commit, 'abc1234def5', 'the rest of the record as it was');
+  for (const notes of [undefined, [], ['  ', 7], 'one note, not a list']) {
+    await writeRecord(notes === undefined ? {} : { notes });
+    const v = await door.view('notes-job');
+    assert.ok(v.evidence, 'the record is read');
+    assert.equal('notes' in v.evidence, false, `no notes key for ${JSON.stringify(notes)}`);
+  }
+});

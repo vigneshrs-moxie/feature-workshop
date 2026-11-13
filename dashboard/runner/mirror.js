@@ -28,6 +28,7 @@ import os from 'node:os';
 import { NEVER_CARRIED, PROTOCOL_VERSION } from '../lib/protocol.js';
 import { scrub } from '../lib/orbit.js';
 import { capAutoLog } from '../lib/auto-log.js';
+import { EVIDENCE_JSON, jsonHtml } from '../lib/docs.js';
 
 /** The largest one part may be on the wire (a batch is at most 256 KB). */
 export const RECORD_MAX = 200 * 1024;
@@ -218,7 +219,16 @@ export function jobRecord(detail) {
 }
 
 export const docsRecord = (docs) => wireSafe(docs);
-export const docRecord = (doc) => wireSafe(doc);
+/** One document; evidence.json without its notes (they name his database and a settings file: laptop only). */
+export function docRecord(doc) {
+  if (doc?.file !== EVIDENCE_JSON || typeof doc.text !== 'string') return wireSafe(doc);
+  let record;
+  try { record = JSON.parse(doc.text); } catch { return wireSafe(doc); }
+  if (!isPlain(record) || !('notes' in record)) return wireSafe(doc);
+  const { notes, ...rest } = record;
+  const text = JSON.stringify(rest, null, 2);
+  return wireSafe({ ...doc, text, html: jsonHtml(text), size: Buffer.byteLength(text) });
+}
 export const decisionsRecord = (d) => wireSafe(d);
 /** What Auto decided on a job: { on, stopped, tag, summary, entries, startedAt, ticket }, each entry with its kind and step (the site cleans it again on its side). */
 export function autoLogRecord(v) {
@@ -228,9 +238,10 @@ export function autoLogRecord(v) {
   return capped;
 }
 
-/** The evidence list, without the laptop's folder names (the site links each file itself). */
+/** The evidence list, without the laptop's folder names (the site links each file itself) or the record's notes (laptop only). */
 export function evidenceRecord(view) {
   const { folder, folderUrl, ...rest } = view ?? {};
+  if (isPlain(rest.evidence) && 'notes' in rest.evidence) rest.evidence = (({ notes, ...kept }) => kept)(rest.evidence);
   return wireSafe(rest);
 }
 

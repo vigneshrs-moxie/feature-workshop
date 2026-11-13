@@ -1683,6 +1683,8 @@ export interface Evidence {
   at: string;
   level: LevelNumber | null;
   criteria: EvidenceCriterion[];
+  /** What else the record says, in plain sentences; missing when there are none and from dashboards from before. */
+  notes?: string[];
 }
 
 /** GET /api/job/:slug/evidence: evidence.json and what the strip says around it. */

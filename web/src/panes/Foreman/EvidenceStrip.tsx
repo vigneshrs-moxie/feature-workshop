@@ -201,6 +201,8 @@ export function EvidenceStrip({ slug, tested = null, refresh = null, fold = fals
     }
   }
 
+  // What else the record says (laptop only; the site never gets them): one quiet line each, none when there are none.
+  const notes = Array.isArray(ev?.notes) ? ev.notes.filter((n): n is string => typeof n === 'string' && n.trim() !== '') : [];
   const counts = ev ? (['passed', 'failed', 'skipped'] as const).map((s) => [s, ev.criteria.filter((c) => c.status === s).length] as const) : [];
   const summary = counts.filter(([, n]) => n > 0).map(([s, n]) => `${n} ${s === 'passed' ? 'passed' : s === 'failed' ? 'failed' : 'not recorded'}`).join(', ');
 
@@ -227,6 +229,7 @@ export function EvidenceStrip({ slug, tested = null, refresh = null, fold = fals
     <section className={`gate-evidence${fold ? ' is-fold' : ''}`} aria-labelledby={headId} aria-busy={view.recording || busy}>
       {head}
       <div className="sb-gate-evidence-body" id={`${headId}-body`} hidden={fold && !open}>
+        {notes.map((n, i) => <p key={i} className="muted gate-evidence-note">{`Note: ${n}`}</p>)}
         {earlier && ev && (
           <p className="perm-warn gate-evidence-earlier" title={`These pictures were recorded at ${short(ev.commit)}; the checks ran on ${short(against)}.`}>
             <span aria-hidden="true">⚠ </span>From an earlier commit ({short(ev.commit)})

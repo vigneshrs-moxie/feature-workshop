@@ -405,3 +405,47 @@ describe('the strip on the website', () => {
     expect(screen.queryByRole('button', { name: 'Play video' })).toBeNull();
   });
 });
+
+// What else the record says (dashboard/lib/evidence.js notes, laptop only): one quiet line each.
+describe('a recording’s notes', () => {
+  const NOTES = [
+    'Auto’s app asked for the database app and Starbase refused it: Auto only uses its own copy.',
+    'A setting in app/.env.local (LEGACY_JDBC) may be what names it.',
+  ];
+  const given = (view: EvidenceView) => render(<WorkshopContext.Provider value={{ store: createStore(), api: { get: vi.fn(), post: vi.fn() } as unknown as ApiClient }}><EvidenceStrip slug="alpha" view={view} /></WorkshopContext.Provider>);
+
+  it('a recording’s notes show under the summary, each on its own line starting Note:', () => {
+    given({ ...VIEW, evidence: { ...EVIDENCE, notes: NOTES } });
+    const region = strip()!;
+    const head = region.querySelector('.gate-evidence-head')!;
+    const lines = within(region).getAllByText(/^Note: /);
+    expect(lines.map((l) => l.textContent)).toEqual(NOTES.map((n) => `Note: ${n}`));
+    // Each its own plain line, in the strip's quiet notice style: no heading, no button, no icon.
+    for (const l of lines) {
+      expect(l.tagName).toBe('P');
+      expect(l.className).toBe('muted gate-evidence-note');
+      expect(l.children).toHaveLength(0);
+    }
+    // Directly under the summary line (the first thing after it), and above the criteria.
+    const body = region.querySelector('.sb-gate-evidence-body')!;
+    expect(head.nextElementSibling).toBe(body);
+    expect(body.firstElementChild).toBe(lines[0]);
+    expect(lines[0].nextElementSibling).toBe(lines[1]);
+    const list = within(region).getByRole('list', { name: 'Each acceptance line' });
+    for (const l of lines) expect(l.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(region).queryByRole('heading', { name: /note/i })).toBeNull();
+  });
+
+  it('no notes: nothing is rendered', () => {
+    // The markup with React's own ids made the same, so two renders compare.
+    const markup = (el: HTMLElement) => el.innerHTML.replace(/_r_[0-9a-z]+_/g, 'ID');
+    const { container, unmount } = given(VIEW);
+    const before = markup(container);
+    expect(before).not.toContain('Note:');
+    unmount();
+    // A record with an empty list is drawn exactly as one with none: no empty element, no extra space.
+    const again = given({ ...VIEW, evidence: { ...EVIDENCE, notes: [] } });
+    expect(markup(again.container)).toBe(before);
+    expect(again.container.querySelector('.sb-gate-evidence-body')!.firstElementChild!.tagName).toBe('UL');
+  });
+});
