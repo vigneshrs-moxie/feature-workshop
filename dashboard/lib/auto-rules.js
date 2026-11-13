@@ -4,7 +4,7 @@
 //
 // fixedStop(input, ctx) is a pure function of its input and ctx: no model, no network, no file reads
 // beyond following symlinks to see where a path really lands. input is one of
-//   { kind: 'gate', stage, nextStage }
+//   { kind: 'gate', stage, nextStage, prOpen }
 //   { kind: 'card', toolName, input, hardLine, blockedPath }
 //   { kind: 'job', level, suggestedLevel, triggers, stageState, statusCard, step, failures, problem }
 // ctx = { worktrees, featureDir, specDirs, cwd, forkRemote, remoteUrl(name, dir), branches?, stateDir?, mainCheckout?, readRoots? }
@@ -17,7 +17,7 @@
 // "Auto stopped: ".
 //
 // The rules, by what a command does (see the tests for every case):
-//   merge     gh pr merge; a gate past PR #1
+//   merge     gh pr merge; a gate past PR #1 (not a brief at the PR #1 step while PR #1 does not exist: pr1StepGate)
 //   database  a database client or migration tool, however it is wrapped; any .sql file given to a program
 //   push      a git push whose remote is not the fork remote (a URL, no remote, another folder with
 //             git -C, --repo, --all, --mirror, --tags, --delete, a refspec that lands on another branch)
@@ -117,8 +117,15 @@ export function fixedStop(input, ctx = {}) {
 
 // ---------- gate and job ----------
 
-function gateStop({ nextStage }) {
-  const at = STAGE_IDS.indexOf(nextStage);
+/**
+ * A brief at the PR #1 step itself while PR #1 does not exist yet (the push and the PR still to come): its next stage is PR #2
+ * or none, but answering it pushes to the fork and opens PR #1, no further. Only with the stage given and prOpen exactly false.
+ */
+export const pr1StepGate = ({ stage, nextStage, prOpen } = {}) => stage === 'pr1' && prOpen === false && (nextStage === 'pr2' || nextStage == null || nextStage === '');
+
+function gateStop(input) {
+  if (pr1StepGate(input)) return null;
+  const at = STAGE_IDS.indexOf(input.nextStage);
   const pr1 = STAGE_IDS.indexOf('pr1');
   // Auto finishes at PR #1: a gate to anything after it (or to something unknown) is the merge rule.
   return at >= 0 && at <= pr1 ? null : stop('merge');

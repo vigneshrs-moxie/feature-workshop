@@ -380,3 +380,28 @@ test('an Auto row loses the trailing mark; a copy of it in the middle stays', ()
   const onlyMid = decisionRows([{ action: 'permission', decision: 'allow', by: 'auto', headline: 'x', note: `Quoting ${AUTO_MARK} on purpose.` }], { prefix: 'P' });
   assert.equal(onlyMid[0].why, `Quoting ${AUTO_MARK} on purpose.`);
 });
+
+test('the go-ahead into PR #1 with the block: the row\'s why is Auto\'s why alone', () => {
+  const why = 'Why: The plan matches the ticket.';
+  const reason = 'Reason for question 1: It is the recommendation.';
+  const block = ['Decisions Auto made', '- Review: Review brief 2. In doubt: Stop: The review found a gap. Auto chose: I kept the old column.', `- Plan: Plan v1 ready. In doubt: Stop: ${'d'.repeat(250)}. Auto chose: Kept it.`];
+  const pr1Only = 'This go-ahead is for pushing to the fork and opening PR #1 only. Merging, and anything after PR #1, waits for the person.';
+  const head = 'My answers to brief 2:\n1. Keep the old column? → a) Yes\n\nI approve. Go ahead with the next stage: PR #1';
+  const sent = (lines) => ({ at: '2026-11-12T09:00:00Z', action: 'send', kind: 'approve', by: 'auto', gateBrief: 2, text: [head, ...lines, AUTO_MARK].join('\n') });
+  const gateRow = (lines) => decisionRows([sent(lines)], { prefix: 'P' }).find((r) => r.kind === 'gate');
+  // Into PR #1 from review: the block. At the PR #1 step: the line about PR #1 only too.
+  for (const lines of [[why, reason, ...block], [why, reason, pr1Only, ...block], [why, pr1Only, ...block]]) {
+    const row = gateRow(lines);
+    assert.equal(row.why, lines.includes(reason) ? `${why} ${reason}` : why);
+    assert.equal(row.who, 'Auto');
+  }
+  // A why longer than the cut still never ends in a piece of the mark.
+  const long = gateRow([`Why: ${'w'.repeat(300)}`, ...block]);
+  assert.equal(long.why, `Why: ${'w'.repeat(194)}…`);
+  assert.ok(!long.why.includes('(Sent by'));
+  // Without the block, as before.
+  assert.equal(gateRow([why]).why, why);
+  // A person's own reply is read as before: the heading words in it are his.
+  const own = decisionRows([{ at: '2026-11-12T09:00:00Z', action: 'send', kind: 'approve', gateBrief: 2, text: 'I approve. Go ahead with the next stage: PR #1\nShip it.\nDecisions Auto made\nall fine' }], { prefix: 'P' }).find((r) => r.kind === 'gate');
+  assert.equal(own.why, 'Ship it. Decisions Auto made all fine');
+});

@@ -434,7 +434,8 @@ test('an Approver stop on a gate: Auto asks once more for the safer answer, send
 });
 
 test('a gate to a stage after PR #1 stops with the merge rule, before the Approver is asked', { timeout: 30_000 }, async () => {
-  const w = await world({ jobStatus: status(1, { stage: 'pr1' }) });
+  // A gate at PR #2 (into Staging QA). A gate at the PR #1 step itself, before PR #1 exists, is answered (Task 14, fix round 1).
+  const w = await world({ jobStatus: status(1, { stage: 'pr2' }) });
   try {
     await w.pass();
     assert.equal(w.asks.length, 0);
@@ -4182,8 +4183,9 @@ test('I1: the raise still happens when the latest level line is Auto\'s own', { 
   } finally { await w.stop(); }
 });
 
-test('m7: an L3 Auto job at PR #1 with a gate to PR #2 still stops for merge', { timeout: 30_000 }, async () => {
-  const u = unit({ decide: () => {}, job: () => ({ level: 3, suggestedLevel: 3, stage: 'pr1', gate: { briefNumber: 1, stale: false, questions: [], decided: [], headline: 'PR #1 is open', nextStage: 'pr2' } }) });
+test('m7: an L3 Auto job with a gate past PR #1 still stops for merge', { timeout: 30_000 }, async () => {
+  // At PR #2 (into Staging QA). A brief at the PR #1 step before PR #1 exists is answered (Task 14, fix round 1); once PR #1 is open the job finishes first.
+  const u = unit({ decide: () => {}, job: () => ({ level: 3, suggestedLevel: 3, stage: 'pr2', gate: { briefNumber: 1, stale: false, questions: [], decided: [], headline: 'PR #2 ready', nextStage: 'staging-qa' } }) });
   await u.auto.pass();
   assert.equal(u.record().stopped?.rule, 'merge');
   assert.equal(u.record().on, true);
@@ -5626,6 +5628,7 @@ test('a restart keeps the name when the ticket\'s title has changed since', { ti
 // ---------- Decisions Auto made: the risky calls go to the Foreman with the go-ahead for PR #1 (Task 14) ----------
 
 const HEADING = 'Decisions Auto made';
+const PR1_ONLY = 'This go-ahead is for pushing to the fork and opening PR #1 only. Merging, and anything after PR #1, waits for the person.';
 /** Two risky calls written down earlier on the job: a gate at plan and a card at build. */
 const twoRisky = async (w) => {
   await auditLine(w, { at: AT(1), action: 'auto', what: 'gate', stage: 'plan', briefNumber: 1, asked: 'Plan v1 ready', chose: 'Approved', why: 'I kept the old column.', risk: 'low', risky: true, first: 'Stop: The plan drops a column.' });
@@ -5652,6 +5655,7 @@ test('the go-ahead into PR #1 carries Decisions Auto made before the mark, and t
     assert.equal(rows.filter((r) => r === AUTO_MARK).length, 1);
     assert.deepEqual(blockOf(send.text), [HEADING, PLAN_LINE, BUILD_LINE]);
     assert.ok(rows.indexOf('Why: The plan matches the ticket.') < rows.indexOf(HEADING), 'after Auto\'s why');
+    assert.ok(!send.text.includes(PR1_ONLY), 'the go into PR #1 from review has no PR #1 only line');
     // The Foreman got it as sent; an ordinary go writes no open count.
     await w.until(() => w.texts.length === 1, 'the Foreman to receive it');
     assert.ok(w.texts[0].includes(`${HEADING}\n${PLAN_LINE}\n${BUILD_LINE}\n${AUTO_MARK}`));
@@ -5757,7 +5761,14 @@ test('a go-ahead into PR #1 is still sent when the lines cannot be read', { time
     decide: () => {},
     job: () => ({ stage: 'review', gate: { briefNumber: 1, stale: false, questions: [], decided: [], headline: 'Review brief 1', nextStage: 'pr1' } }),
   });
-  await u.auto.pass();
+  // The failure is said once, with the job's slug and the error's message (fix round 1, M4).
+  const said = [];
+  const was = console.error;
+  console.error = (...a) => said.push(a.join(' '));
+  try { await u.auto.pass(); } finally { console.error = was; }
+  assert.equal(said.length, 1, said.join('\n'));
+  assert.match(said[0], /visit-audit/);
+  assert.match(said[0], /EIO: the audit file cannot be read/);
   assert.equal(thrown, 1, 'the lines were read for the block, and that failed');
   assert.equal(u.decides.length, 1, 'the go-ahead was sent');
   assert.equal(u.decides[0].note, `Why: Fine.\n${AUTO_MARK}`, 'with no block');
@@ -6043,4 +6054,63 @@ test('a job he un-stops at the brief into Test while another holds the place wai
   assert.deepEqual(u.decides, ['a#1', 'b#1']);
   assert.equal(u.auto.waitingToTest(u.dirOf('a')), true);
   assert.equal(u.auto.testHolder(), 'b');
+});
+
+// ---------- Task 14, fix round 1: a brief at the PR #1 step, before PR #1 exists, is answered ----------
+
+const atPr1 = (over = {}) => status(1, { stage: 'pr1', brief: { number: 1, path: 'briefs/001-plan.md', headline: 'Visit audit · push and open PR #1' }, ...over });
+const PR_OPEN = [{ number: 1, url: 'https://github.com/o/r/pull/1', state: 'open' }];
+
+test('a brief raised at the PR #1 step before PR #1 exists is answered, with the block and the line about PR #1 only', { timeout: 30_000 }, async () => {
+  const w = await world({ jobStatus: atPr1() });
+  try {
+    await twoRisky(w);
+    await w.pass();
+    assert.equal(w.asks.length, 1, 'the Approver was asked');
+    const [send] = await w.sends();
+    assert.ok(send, 'the go-ahead was sent');
+    assert.equal(send.by, 'auto');
+    const rows = send.text.split('\n');
+    assert.equal(rows.at(-1), AUTO_MARK, 'the mark is last');
+    assert.equal(rows.filter((r) => r === PR1_ONLY).length, 1);
+    assert.ok(rows.indexOf('Why: The plan matches the ticket.') < rows.indexOf(PR1_ONLY), 'after the why');
+    assert.ok(rows.indexOf(PR1_ONLY) < rows.indexOf(HEADING), 'before the heading, so it is never copied into the PR');
+    assert.deepEqual(blockOf(send.text), [HEADING, PLAN_LINE, BUILD_LINE]);
+    const rec = await w.record();
+    assert.equal(rec.stopped, null);
+    assert.equal(rec.on, true);
+    assert.equal(rec.lastBrief, 1);
+    assert.equal((await w.autoLines('stop')).length, 0);
+  } finally { await w.stop(); }
+});
+
+test('once PR #1 is open the job is finished and a gate past it is never answered', { timeout: 30_000 }, async () => {
+  const w = await world({ jobStatus: atPr1({ prs: PR_OPEN }) });
+  try {
+    await w.pass();
+    await w.pass();
+    assert.equal(w.asks.length, 0);
+    assert.deepEqual(await w.sends(), []);
+    const rec = await w.record();
+    assert.equal(rec.on, false);
+    assert.equal((await w.autoLines('finished')).length, 1);
+    assert.equal((await w.autoLines('stop')).length, 0);
+  } finally { await w.stop(); }
+});
+
+test('a PR that opens while the Approver thinks: the go is not sent', { timeout: 30_000 }, async () => {
+  let w = null;
+  w = await world({ jobStatus: atPr1(), ask: async (task) => { await w.writeStatus(atPr1({ prs: PR_OPEN })); return goodAnswer(task); } });
+  try {
+    await w.pass();
+    assert.equal(w.asks.length, 1);
+    assert.deepEqual(await w.sends(), [], 'nothing sent');
+    assert.equal((await w.autoLines('gate')).length, 0);
+    assert.equal((await w.autoLines('stop')).length, 0, 'no stop either');
+    // The next pass finishes the job: PR #1 is open.
+    await w.pass();
+    assert.equal((await w.record()).on, false);
+    assert.equal((await w.autoLines('finished')).length, 1);
+    assert.deepEqual(await w.sends(), []);
+  } finally { await w.stop(); }
 });

@@ -23,11 +23,11 @@
 // nothing reaches the Foreman but through decide.gate with by: 'auto'.
 
 import { AUTO_CARDS_PER_REPLY, AUTO_MARK, OWN_SENDS, REFUSED_RULES, YOURS_NOW, finishBody, refuseNote, refuseReason, wroteWhileWaiting } from '../lib/auto.js';
-import { AUTO_STOP_REASONS, OUTSIDE_REASONS, autoVerdict, fixedStop } from '../lib/auto-rules.js';
+import { AUTO_STOP_REASONS, OUTSIDE_REASONS, autoVerdict, fixedStop, pr1StepGate } from '../lib/auto-rules.js';
 import { APPROVER_BUDGET_USD, approverCut, approverPaths, approverRoots, callPreview, checkAnswer } from '../lib/approver.js';
 import { DECIDING_KINDS } from '../lib/gate.js';
 import { ownLevelStands } from '../lib/auto-level.js';
-import { prDecisions } from '../lib/auto-log.js';
+import { PR1_ONLY_LINE, prDecisions } from '../lib/auto-log.js';
 import { STAGE_IDS } from '../lib/stages.js';
 
 /** Anything the Approver wrote, on one line: nothing it writes can start a line of its own, and no copy of the mark gets through. */
@@ -309,7 +309,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       stuckSince.set(job.dir, first);
       return null;
     }
-    const route = fixedStop({ kind: 'gate', stage: job.stage, nextStage: gate.nextStage });
+    const route = fixedStop({ kind: 'gate', stage: job.stage, nextStage: gate.nextStage, prOpen: job.prOpen });
     if (route) { await stop(job, route); return null; }
     // The go-ahead into Test waits while another Auto job holds the test place: its turn comes on a later pass. Taken here, in
     // the first round, so two jobs in one pass can't both take it. No stuck time is counted (the gate is there) and nobody is told.
@@ -465,7 +465,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       const rec = job.auto;
       const hit = stopFor(job, rec, gate);
       if (hit) return stop(job, hit, hit.rule === 'approver' && firstAnswer ? { why: firstWords(firstAnswer) } : {});
-      const route = fixedStop({ kind: 'gate', stage: job.stage, nextStage: gate.nextStage });
+      const route = fixedStop({ kind: 'gate', stage: job.stage, nextStage: gate.nextStage, prOpen: job.prOpen });
       if (route) return stop(job, route);
       if (notNow(job)) return;
       // The person wrote to this job while this step waited: the step is theirs. Auto neither asks nor sends a kept answer
@@ -500,7 +500,9 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
           const cost = res?.ok === false && TIMED_OUT.test(res.problem ?? '') ? APPROVER_BUDGET_USD : Number.isFinite(res?.costUsd) ? res.costUsd : 0;
           const checked = res?.ok ? checkAnswer(t, res.answer) : null;
           // Immediately before anything is written or sent: is the answer still for something that waits?
-          if (!(await look(job, n))) { await settleDropped(job, cost); return 'dropped'; }
+          // And may the go still be sent, by the facts read now: PR #1 can open while the Approver thinks (the next pass finishes the job).
+          const fresh = await look(job, n);
+          if (!fresh || fixedStop({ kind: 'gate', stage: fresh.stage, nextStage: fresh.gate.nextStage, prOpen: fresh.prOpen })) { await settleDropped(job, cost); return 'dropped'; }
           // The person wrote to the job while the Approver was thinking: it never saw that. Dropped (its cost in spent); once the
           // Foreman's reply to them ends, the next pass leaves the step to them unless that reply raised a new brief.
           if (await youSpokeSince(job, askedAt)) { await settleDropped(job, cost); return 'dropped'; }
@@ -552,13 +554,15 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
   /**
    * The reply for one go: labelled lines, each of the Approver's strings on one line, then `decisions` (the go-ahead for
    * PR #1's Decisions Auto made block, lib/auto-log.js prDecisions, each line already one line), the mark last.
+   * prOnly: a go on a brief at the PR #1 step (pr1StepGate) says what it is for, before the block, so it never reaches the PR.
    */
-  function noteFor(task, answer, { decisions = [] } = {}) {
+  function noteFor(task, answer, { decisions = [], prOnly = false } = {}) {
     const lines = [`Why: ${oneLine(answer.why)}`];
     task.questions.forEach((q, i) => {
       const a = answer.answers.find((x) => x.id === String(q.id));
       if (a && oneLine(a.reason)) lines.push(`Reason for question ${i + 1}: ${oneLine(a.reason)}`);
     });
+    if (prOnly) lines.push(PR1_ONLY_LINE);
     lines.push(...decisions);
     lines.push(AUTO_MARK);
     return lines.join('\n');
@@ -582,10 +586,16 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     let decisions = [];
     if (gate.nextStage === 'pr1' || job.stage === 'pr1') {
       const extra = risky ? { stage: job.stage, asked: oneLine(gate.headline) || `Brief ${gate.briefNumber}`, why: oneLine(answer.why), ...risky } : null;
-      try { decisions = prDecisions(await state.auditFor(job.dir, Infinity), { extra }); } catch { decisions = []; }
+      try {
+        decisions = prDecisions(await state.auditFor(job.dir, Infinity), { extra });
+      } catch (err) {
+        decisions = [];
+        console.error(`auto decisions (${job.slug}): the go-ahead goes without Decisions Auto made:`, err?.message);
+      }
     }
+    const prOnly = pr1StepGate({ stage: job.stage, nextStage: gate.nextStage, prOpen: job.prOpen });
     try {
-      await decide.gate('approve', { slug: job.slug, briefNumber: n, answers, verdicts, note: noteFor(task, answer, { decisions }) }, { by: 'auto' });
+      await decide.gate('approve', { slug: job.slug, briefNumber: n, answers, verdicts, note: noteFor(task, answer, { decisions, prOnly }) }, { by: 'auto' });
     } catch (err) {
       if (MOVED_ON.has(codeOf(err))) { held.delete(job.dir); await settleIfOff(job); return 'dropped'; }
       if (isNotNow(err)) {

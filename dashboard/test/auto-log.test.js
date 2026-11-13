@@ -300,6 +300,13 @@ test('no line can notify anybody: a mention loses its @, an email keeps it', () 
   assert.ok(out[2].includes('raj and Vignesh-x'), out[2]);
   assert.ok(out[2].includes('cc team'), out[2]);
   for (const line of out) assert.ok(!MENTION.test(line), line);
+  // Forms that only become a mention once Markdown is rendered: underscore emphasis and the character references for @.
+  for (const form of ['_@raj_', '(_@raj_)', '__@raj__', '&#64;raj', '&#064;raj', '&#x40;raj', '&#X0040;raj', '&commat;raj', '&COMMAT;raj']) {
+    const [, line] = prDecisions([riskyCall({ asked: `cc ${form}`, first: `Stop: ${form}`, why: form })]);
+    assert.ok(!line.includes('@'), `${form}: ${line}`);
+    assert.ok(line.includes('raj'), `${form}: ${line}`);
+  }
+  assert.ok(prDecisions([riskyCall({ why: 'mail a@b.co, or &#64;raj' })])[1].endsWith('Auto chose: mail a@b.co, or raj'));
 });
 
 test('a long line keeps what was in doubt: the question is cut first, then the choice', () => {
@@ -351,4 +358,28 @@ test('an unclosed backtick cannot swallow the description', () => {
   assert.ok(!mark.includes(AUTO_MARK), mark);
   assert.ok(!mark.includes('`'), mark);
   assert.ok(!MENTION.test(mark), mark);
+});
+
+test('neither cut leaves half of an emoji', () => {
+  const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+  // The question cut at 80 units falls inside the 40th emoji (after an "a", each emoji is two units).
+  const [, asked] = prDecisions([riskyCall({ asked: `a${'😀'.repeat(100)}`, why: 'w'.repeat(300) })]);
+  assert.ok(!lone.test(asked), JSON.stringify(asked));
+  assert.ok(asked.startsWith(`- Review: a${'😀'.repeat(39)}… In doubt:`), asked);
+  // The line cut at 300 falls inside the doubt, at either parity.
+  for (const pre of ['', 'x']) {
+    const [, line] = prDecisions([riskyCall({ first: `Stop: ${pre}${'😀'.repeat(300)}` })]);
+    assert.ok(!lone.test(line), JSON.stringify(line.slice(-6)));
+    assert.ok(line.length <= 300 && line.endsWith('😀…'), line.slice(-6));
+    const [, ending] = prDecisions([riskyCall({ first: `Stop: ${pre}${'😀'.repeat(300)}`, open: 2 })]);
+    assert.ok(!lone.test(ending) && ending.endsWith('😀… 2 decided items on this step are left for you in Starbase.'), ending.slice(-70));
+  }
+});
+
+test('a line with no step starts with Step, so the caller\'s words never begin the list item', () => {
+  for (const stage of [null, undefined, '']) {
+    const [, line] = prDecisions([riskyCall({ stage, asked: '<!-- x' })]);
+    assert.equal(line, '- Step: <!-- x. In doubt: Stop: The review found a gap. Auto chose: I kept the old column.');
+  }
+  assert.ok(prDecisions([riskyCall({ stage: 'deploy' })])[1].startsWith('- deploy: '), 'an unknown stage keeps its own name');
 });

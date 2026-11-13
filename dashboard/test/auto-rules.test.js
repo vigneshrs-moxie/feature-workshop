@@ -1143,3 +1143,38 @@ test('I3 + minors: fetch and pull take remote names; log -p; wget -nv; curl -o /
   table(['~/.zsh_history', '~/.bash_history', '~/.config/gcloud/credentials.db', '~/.azure/accessTokens.json'].map((p) => [`cat ${p}`, 'outside']));
   for (const p of ['~/.zsh_history', '~/.bash_history', '~/.config/gcloud/x', '~/.azure/x']) assert.equal(tool('Read', { file_path: p }), 'outside', p);
 });
+
+test('a gate at the PR #1 step with no PR open yet is no stop; with no stage, no prOpen, a PR open or an unknown next stage it is the merge rule', () => {
+  const rows = [
+    // At the PR #1 step, PR #1 not open (exactly false), next stage PR #2 or none: the push and the PR are still to come.
+    [{ stage: 'pr1', nextStage: 'pr2', prOpen: false }, null],
+    [{ stage: 'pr1', nextStage: null, prOpen: false }, null],
+    [{ stage: 'pr1', nextStage: undefined, prOpen: false }, null],
+    [{ stage: 'pr1', nextStage: '', prOpen: false }, null],
+    [{ stage: 'pr1', prOpen: false }, null],
+    // Everything else as before.
+    [{ nextStage: 'pr2', prOpen: false }, 'merge'],
+    [{ stage: null, nextStage: 'pr2', prOpen: false }, 'merge'],
+    [{ stage: 'pr1', nextStage: 'pr2' }, 'merge'],
+    [{ stage: 'pr1', nextStage: null }, 'merge'],
+    [{ stage: 'pr1', nextStage: 'pr2', prOpen: undefined }, 'merge'],
+    [{ stage: 'pr1', nextStage: 'pr2', prOpen: null }, 'merge'],
+    [{ stage: 'pr1', nextStage: 'pr2', prOpen: 0 }, 'merge'],
+    [{ stage: 'pr1', nextStage: 'pr2', prOpen: 'false' }, 'merge'],
+    [{ stage: 'pr1', nextStage: 'pr2', prOpen: true }, 'merge'],
+    [{ stage: 'pr1', nextStage: null, prOpen: true }, 'merge'],
+    [{ stage: 'pr1', nextStage: 'staging-qa', prOpen: false }, 'merge'],
+    [{ stage: 'pr1', nextStage: 'pr3', prOpen: false }, 'merge'],
+    [{ stage: 'pr1', nextStage: 'deploy', prOpen: false }, 'merge'],
+    [{ stage: 'pr2', nextStage: 'staging-qa', prOpen: false }, 'merge'],
+    [{ stage: 'pr2', nextStage: null, prOpen: false }, 'merge'],
+    [{ stage: 'review', nextStage: 'pr2', prOpen: false }, 'merge'],
+    [{ stage: 'review', nextStage: null, prOpen: false }, 'merge'],
+    [{ stage: 'review', nextStage: 'pr1', prOpen: false }, null],
+    [{ stage: 'review', nextStage: 'pr1' }, null],
+  ];
+  for (const [input, rule] of rows) {
+    assert.equal(fixedStop({ kind: 'gate', ...input }, ctx())?.rule ?? null, rule, JSON.stringify(input));
+    assert.equal(autoVerdict({ kind: 'gate', ...input }, ctx())?.rule ?? null, rule, `autoVerdict ${JSON.stringify(input)}`);
+  }
+});

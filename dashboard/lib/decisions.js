@@ -13,6 +13,7 @@ import { PRODUCT, stateDirFor } from './state.js';
 import { writeFileAtomic } from './atomic-write.js';
 import { cleanTicketText } from './ticket-file.js';
 import { AUTO_MARK } from './auto.js';
+import { DECISIONS_HEADING, PR1_ONLY_LINE } from './auto-log.js';
 
 const firstLine = (text, max = 160) => {
   const line = String(text ?? '').split('\n').map((l) => l.trim()).find(Boolean) ?? '';
@@ -96,9 +97,19 @@ const oneLine = (s, max = 200) => {
   return t.length > max ? `${t.slice(0, max - 1)}…` : t;
 };
 
-/** The note typed on the gate card, read back out of the reply it was composed into ('' when none). */
-export function gateNote(kind, text) {
-  const lines = String(text ?? '').split('\n').map((l) => l.trim());
+/**
+ * The note typed on the gate card, read back out of the reply it was composed into ('' when none). auto: Auto sent the reply.
+ * Then the mark comes off first, and the block for PR #1's description (from its heading on) and the line about PR #1 only are
+ * left out, so the row holds Auto's why alone and never ends in a piece of the mark.
+ */
+export function gateNote(kind, text, { auto = false } = {}) {
+  let lines = String(text ?? '').split('\n').map((l) => l.trim());
+  if (auto) {
+    const end = lines.findLastIndex(Boolean);
+    if (end >= 0 && lines[end].endsWith(AUTO_MARK)) lines[end] = lines[end].slice(0, -AUTO_MARK.length).trim();
+    const block = lines.indexOf(DECISIONS_HEADING);
+    lines = (block >= 0 ? lines.slice(0, block) : lines).filter((l) => l !== PR1_ONLY_LINE);
+  }
   const at = lines.findIndex((l) => GATE_ANCHOR[kind]?.test(l));
   // A reply you edited before sending: its first line of your own words.
   if (at < 0) return oneLine(lines.find((l) => l && !HEAD_LINE.test(l)) ?? '');
@@ -162,7 +173,7 @@ export function decisionRows(audit = [], { prefix = 'job', person = 'You', brief
     if (e.action === 'send' && GATE_KINDS.includes(e.kind)) {
       for (const a of gateAnswers(e.text)) add(e, { kind: 'answer', question: a.question, choice: a.choice });
       for (const c of gateChanges(e.text)) add(e, { kind: 'answer', question: c.id, choice: c.note });
-      add(e, { kind: e.kind === 'changes' ? 'send-back' : 'gate', question: briefQuestion(e, briefs), options: 'approve · send back · stop', choice: GATE_CHOICE[e.kind], why: gateNote(e.kind, e.text) });
+      add(e, { kind: e.kind === 'changes' ? 'send-back' : 'gate', question: briefQuestion(e, briefs), options: 'approve · send back · stop', choice: GATE_CHOICE[e.kind], why: gateNote(e.kind, e.text, { auto: Boolean(by) }) });
     } else if (e.action === 'options') {
       const level = e.options?.level;
       if (!Number.isInteger(level) || level === e.was) continue;

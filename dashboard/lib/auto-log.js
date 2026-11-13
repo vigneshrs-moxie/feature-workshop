@@ -171,12 +171,19 @@ export function autoLogMarkdown(view) {
 
 /** The heading of the block of risky calls Auto hands the Foreman with the go-ahead for PR #1 (the skills text looks for it). */
 export const DECISIONS_HEADING = 'Decisions Auto made';
+/** The line a go on a brief at the PR #1 step carries before the block (auto-rules.js pr1StepGate): what that go-ahead is for. */
+export const PR1_ONLY_LINE = 'This go-ahead is for pushing to the fork and opening PR #1 only. Merging, and anything after PR #1, waits for the person.';
 // A line of the block at most this long; its question cut to this first; at most this many calls, then a last line.
 const PR_LINE = 300;
 const PR_ASKED = 80;
 const PR_CALLS = 30;
-// An @ that starts a word: GitHub would notify that name from PR #1's description.
-const MENTION = /(^|[^A-Za-z0-9_])@(?=[A-Za-z0-9])/g;
+// An @ with no letter or digit in front of it and one after it: GitHub would notify that name from PR #1's description. An
+// underscore in front counts as nothing, as `_@raj_` renders as emphasis around a mention. The character references for @
+// (&#64;, &#x40;, &commat;) become one first: Markdown turns them into @.
+const MENTION = /(^|[^A-Za-z0-9])@(?=[A-Za-z0-9])/g;
+const AT_REF = /&(?:#0*64|#x0*40|commat);/gi;
+// A cut never leaves half of a character written as two UTF-16 units (an emoji).
+const cutAt = (s, n) => s.slice(0, n).replace(/[\uD800-\uDBFF]$/, '');
 
 // Words for PR #1's description: on one line, with no copy of the mark and no mention. Each step only shortens the
 // words, so it is done again until nothing changes (taking a copy out can join the rest into another).
@@ -185,7 +192,7 @@ function prText(s) {
   for (let before = null; t !== before;) {
     before = t;
     t = t.replace(/[\u0000-\u001F\u007F-\u009F\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim();
-    t = t.split(AUTO_MARK).join(' ').replace(MENTION, '$1');
+    t = t.split(AUTO_MARK).join(' ').replace(AT_REF, '@').replace(MENTION, '$1');
   }
   return t;
 }
@@ -197,18 +204,19 @@ const ended = (s) => (/[.!?…]$/.test(s) ? s : `${s}.`);
 // open: the decided items the go left for the person, said at the end, which is never cut.
 function prLine(l) {
   const stop = typeof l.stage === 'string' ? stopOf(l.stage) : null;
-  const step = prText(STOPS.find((s) => s.id === stop)?.label ?? (l.stage ? stageLabel(l.stage) : ''));
+  // A fixed label when there is no stage: the caller's words never begin the list item.
+  const step = prText(STOPS.find((s) => s.id === stop)?.label ?? (l.stage ? stageLabel(l.stage) : '')) || 'Step';
   let asked = prText(l.asked);
   const first = prText(l.first);
   const why = prText(l.why);
   const n = Number.isInteger(l.open) && l.open > 0 ? l.open : 0;
   const end = n ? ` ${n} decided item${n === 1 ? '' : 's'} on this step ${n === 1 ? 'is' : 'are'} left for you in ${PRODUCT}.` : '';
   const room = PR_LINE - end.length;
-  const body = () => `- ${step ? `${step}: ` : ''}${ended(asked)} In doubt: ${ended(first)} Auto chose: ${end && why ? ended(why) : why}`;
+  const body = () => `- ${step}: ${ended(asked)} In doubt: ${ended(first)} Auto chose: ${end && why ? ended(why) : why}`;
   let line = body();
-  if (line.length > room && asked.length > PR_ASKED) { asked = `${asked.slice(0, PR_ASKED)}…`; line = body(); }
+  if (line.length > room && asked.length > PR_ASKED) { asked = `${cutAt(asked, PR_ASKED)}…`; line = body(); }
   // Cut from the end: the choice is the last part, so it goes before what was in doubt.
-  if (line.length > room) line = `${line.slice(0, room - 1)}…`;
+  if (line.length > room) line = `${cutAt(line, room - 1)}…`;
   line += end;
   // An odd number of backticks would turn the rest of the description into code: they all go. Then once more for a mark or
   // a mention that taking them out made.
