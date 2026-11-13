@@ -264,7 +264,7 @@ export function itemSources({ payload, thread = [], briefTexts = new Map(), docs
     sources.set(id, { kind: line?.kind ?? (it.kind === 'brief' ? 'brief' : 'small'), version: line?.hash ?? hashOf(text), text, meta, html: () => render(text) });
   }
   const shown = new Map();
-  for (const step of payload?.steps ?? []) for (const o of step.outputs ?? []) if (o.kind === 'doc' && !shown.has(o.id)) shown.set(o.id, { version: o.version, step: step.id });
+  for (const step of payload?.steps ?? []) for (const o of [...(step.outputs ?? []), ...(step.more ?? [])]) if (o.kind === 'doc' && !shown.has(o.id)) shown.set(o.id, { version: o.version, step: step.id });
   for (const d of Array.isArray(docs) ? docs : []) {
     if (!d || typeof d.text !== 'string') continue;
     const id = String(d.file);

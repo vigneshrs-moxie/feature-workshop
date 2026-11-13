@@ -326,6 +326,10 @@ function titleOf(t: ReaderTarget, payload: JobPagePayload | null): { title: stri
     return { title: t.id.split('/').pop() ?? t.id, meta: null };
   }
   if (t.kind === 'pr') return { title: `PR #${t.id}`, meta: null };
+  if (t.kind === 'not-yet') {
+    const step = payload?.steps.find((x) => x.id === t.id);
+    return { title: step?.label ?? 'Not yet', meta: step?.state === 'skipped' ? 'skipped for this job' : 'not started' };
+  }
   if (t.kind === 'conversation') return { title: 'Conversation', meta: payload ? `${payload.rows.conversation.count} items` : null };
   if (t.kind === 'decisions') return { title: 'Decisions', meta: payload ? `${payload.rows.decisions.count} made for you` : null };
   if (t.kind === 'ticket') return { title: 'Ticket and goal', meta: payload?.key ?? null };
@@ -354,10 +358,16 @@ const Reader = memo(function Reader({ job, searchRef }: { job: Job | null; searc
       </div>
       {target.kind === 'conversation'
         ? <ConversationFrame searchRef={searchRef} />
-        : <div className="jp2-rv-body">{BODY_KINDS.has(target.kind) ? <BodyText id={target.id} /> : <p className="jp2-dim">This view comes in a later build of the new page.</p>}</div>}
+        : <div className="jp2-rv-body">{BODY_KINDS.has(target.kind) ? <BodyText id={target.id} /> : target.kind === 'not-yet' ? <NotYet id={target.id} /> : <p className="jp2-dim">This view comes in a later build of the new page.</p>}</div>}
     </>
   );
 });
+
+/** A step not started (or skipped): it has made nothing yet, said plainly. */
+function NotYet({ id }: { id: string }) {
+  const skipped = useJob((s) => s.payload?.steps.find((x) => x.id === id)?.state === 'skipped');
+  return <p className="jp2-notyet">{skipped ? 'This job skips this step.' : 'Nothing yet. This step has not started.'}</p>;
+}
 
 /** A body's plain words (Task 12 typesets it); nothing until it lands, so nothing above it moves. */
 function BodyText({ id }: { id: string }) {

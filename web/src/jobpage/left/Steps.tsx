@@ -4,25 +4,23 @@
 // is doing when it has none yet (`working`, `waiting for you`); a step not reached says `not yet`, a
 // skipped one `skipped` (lead's ruling, correction 3: the result, not a duration).
 //
-// The current step is open and lists what it made, the latest of each (the payload's outputs), each
-// a row that opens in the reader. A click on a step opens it and shows its main output in the reader
-// (targets.ts stepMain); the open step's heading has its duration (`12 h 35 min`, or `since …` on
-// the current one).
-//
-// Opening a step never changes the height of anything above it: the current step stays open
-// whatever he opens, and a step he opened with the pointer stays open while he opens one further
-// down (it closes when he opens one above it, or the page moves the pick by key or address, where
-// no pointer sits on a row to be kept still).
+// Only the current step is open and lists what it made, the latest of each (the payload's outputs),
+// each a row that opens in the reader. A click on another step (or Enter on its line, `[` `]`, or
+// its address) lists nothing: it marks the step and shows its main output in the reader (the
+// payload's `main`; `not-yet` for a step not started). Its other outputs are reached from the
+// reader. So opening a step never moves any row (prototype rev 3: "left-pane rows never move";
+// lead's ruling, Task 10 I1). The current step's heading and a marked step's have its duration
+// (`12 h 35 min`, or `since …` on the current one).
 //
 // Before the payload lands the rows come from the Jobs snapshot's row (names and states, no words
 // for done or current steps, no outputs), so they paint at once and the payload fills them in place.
 
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useRef } from 'react';
 import type { Job } from '../../api/types';
 import { Icon } from '../../components/Icon';
 import { STOPS } from '../../components/stops/stops';
 import { spentWords, statesOf } from '../../job/page/stepWords';
-import { outputTarget, readerOf, sameTarget, stepMain } from '../targets';
+import { outputTarget, readerOf, sameTarget } from '../targets';
 import type { JobState, Output, ReaderTarget, StepRow, StopId } from '../types';
 import { useJob } from '../useJob';
 import { sinceWords } from './YourMove';
@@ -33,7 +31,7 @@ export function stepsFromRow(job: Job | null): StepRow[] {
   return STOPS.map((s) => {
     const st = states?.[s.id];
     const state: StepRow['state'] = st === 'done' ? 'done' : st === 'now' || st === 'waiting' ? 'current' : st === 'skipped' ? 'skipped' : 'todo';
-    return { id: s.id, label: s.label, state, word: null, durationMs: null, startedAt: null, outputs: [] };
+    return { id: s.id, label: s.label, state, word: null, durationMs: null, startedAt: null, outputs: [], main: { kind: 'not-yet', id: s.id }, more: [] };
   });
 }
 
@@ -48,19 +46,17 @@ export function stepWord(step: StepRow, state: JobState | null): string | null {
     case 'skipped': return 'skipped';
     default:
       if (step.word) return step.word;
-      if (state === null) return null;
-      return state === 'needs-you' ? 'waiting for you' : state === 'paused' ? 'paused' : 'working';
+      if (state === null || state === 'done') return null;
+      return state === 'needs-you' ? 'waiting for you' : state === 'paused' ? 'paused' : state === 'waiting-github' ? 'waiting on GitHub' : 'working';
   }
 }
 
-/** The open step's duration: how long it took, or since when the current one runs. */
+/** A step's duration: how long it took, or since when the current one runs. */
 function durationOf(step: StepRow): string | null {
   if (step.durationMs !== null) return spentWords(step.durationMs);
   const since = step.state === 'current' ? sinceWords(step.startedAt) : null;
   return since ? `since ${since}` : null;
 }
-
-const NONE_KEPT: { for: StopId | null; ids: StopId[] } = { for: null, ids: [] };
 
 const outMeta = (o: Output) => [o.version ? `v${o.version}` : null, o.meta].filter(Boolean).join(' · ') || null;
 
@@ -68,11 +64,14 @@ export interface StepsProps {
   job: Job | null;
   /** The left pane's keyboard line (j k), by its place in the lines. */
   cursor: number | null;
-  /** Open a step: the page sets it open and shows its main output in the reader. */
+  /** Open a step: the page picks it and shows its main output in the reader. */
   onStep(id: StopId, from: HTMLElement): void;
   /** Open an output in the reader. */
   onOpen(t: ReaderTarget, from: HTMLElement): void;
 }
+
+/** Whether the reader's target is something of this step: its main output, a listed output, or one in `more`. */
+const owns = (s: StepRow, t: ReaderTarget | null) => !!t && (sameTarget(s.main, t) || s.outputs.some((o) => sameTarget(outputTarget(o), t)) || s.more.some((o) => sameTarget(outputTarget(o), t)));
 
 export const Steps = memo(function Steps({ job, cursor, onStep, onOpen }: StepsProps) {
   const steps = useJob((s) => s.payload?.steps ?? null);
@@ -83,38 +82,26 @@ export const Steps = memo(function Steps({ job, cursor, onStep, onOpen }: StepsP
   if (!steps && fromRow.current?.job !== job) fromRow.current = { job, rows: stepsFromRow(job) };
   const rows = steps ?? fromRow.current!.rows;
   const current = rows.find((s) => s.state === 'current')?.id ?? null;
-  const at = (id: StopId | null) => rows.findIndex((s) => s.id === id);
-
-  // Steps he opened with the pointer that stay open while he opens one further down; they count
-  // only while the pick is the one his click made (a key or the address moves it: nothing kept).
-  const [kept, setKept] = useState<{ for: StopId | null; ids: StopId[] }>(NONE_KEPT);
-  const keptNow = kept.for === pick ? kept.ids : [];
-  useEffect(() => { if (kept.for !== pick && kept.ids.length) setKept(NONE_KEPT); }, [kept, pick]);
-  const open = new Set<StopId>([...keptNow, ...(pick ? [pick] : []), ...(current ? [current] : [])]);
-
-  const click = (id: StopId, el: HTMLElement) => {
-    // Those above the step he opens stay open; those below it close.
-    const ids = [...keptNow, ...(pick ? [pick] : [])].filter((k, i, all) => k !== id && k !== current && all.indexOf(k) === i && at(k) < at(id));
-    setKept({ for: id, ids });
-    onStep(id, el);
-  };
+  // The step whose things the reader shows: his pick first, else the first that owns them.
+  const owner = steps ? (rows.find((s) => s.id === pick && owns(s, target)) ?? rows.find((s) => owns(s, target)) ?? null) : null;
+  const marked = owner && owner.id !== current ? owner.id : null;
+  const here = marked ?? current;
 
   return (
     <nav className="jp2-st" aria-label="Steps">
       {rows.map((s, i) => {
-        const isOpen = open.has(s.id);
+        const isOpen = s.id === current;
         const word = stepWord(s, steps ? state : null);
-        const dur = isOpen && steps ? durationOf(s) : null;
-        const main = steps ? stepMain(s) : null;
-        const shown = main?.kind === 'not-yet' && sameTarget(main, target);
+        const dur = steps && (isOpen || s.id === marked) ? durationOf(s) : null;
         return (
           <div key={s.id} className="jp2-step">
             <button
               type="button"
-              className={`jp2-row jp2-st-row is-${s.state}${isOpen ? ' is-open' : ''}${shown ? ' is-sel' : ''}${cursor === i ? ' is-cursor' : ''}`}
+              className={`jp2-row jp2-st-row is-${s.state}${isOpen ? ' is-open' : ''}${s.id === marked ? ' is-sel' : ''}${cursor === i ? ' is-cursor' : ''}`}
               data-jp-line={i}
-              aria-expanded={isOpen}
-              onClick={(e) => click(s.id, e.currentTarget)}
+              aria-expanded={isOpen || undefined}
+              aria-current={s.id === here ? 'step' : undefined}
+              onClick={(e) => onStep(s.id, e.currentTarget)}
             >
               <span className="jp2-st-mark" aria-hidden="true">{s.state === 'done' ? <Icon name="check" size={14} /> : s.state === 'current' ? <i className="jp2-dot" /> : s.state === 'skipped' ? <Icon name="minus" size={14} /> : <i className="jp2-ring" />}</span>
               <span className="jp2-st-name">{s.label}</span>
@@ -137,7 +124,7 @@ export const Steps = memo(function Steps({ job, cursor, onStep, onOpen }: StepsP
                 })}
               </ul>
             ) : (
-              <p className="jp2-st-none">{s.state === 'skipped' ? 'Skipped for this job' : 'Nothing yet'}</p>
+              <p className="jp2-st-none">Nothing yet</p>
             ))}
           </div>
         );

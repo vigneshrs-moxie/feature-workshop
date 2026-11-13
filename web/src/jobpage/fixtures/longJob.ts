@@ -15,6 +15,7 @@ export type LongJobOutput = { kind: string; id: string; label: string; meta: str
 export type LongJobStep = {
   id: string; label: string; state: 'done' | 'current' | 'todo' | 'skipped'; word: string | null;
   durationMs: number | null; startedAt: string | null; outputs: LongJobOutput[];
+  main: { kind: string; id: string }; more: LongJobOutput[];
 };
 /** The payload; web/src/jobpage/types.ts has its whole type once it exists. */
 export type LongJobPayload = { slug: string; title: string; state: string; thread: LongJobLine[]; steps: LongJobStep[]; [key: string]: unknown };
@@ -147,7 +148,12 @@ export const longJob: LongJobFixture = {
             "meta": null,
             "version": "1"
           }
-        ]
+        ],
+        "main": {
+          "kind": "doc",
+          "id": "spec"
+        },
+        "more": []
       },
       {
         "id": "investigate",
@@ -164,7 +170,12 @@ export const longJob: LongJobFixture = {
             "meta": null,
             "version": "1"
           }
-        ]
+        ],
+        "main": {
+          "kind": "doc",
+          "id": "findings.md"
+        },
+        "more": []
       },
       {
         "id": "plan",
@@ -195,7 +206,12 @@ export const longJob: LongJobFixture = {
             "meta": null,
             "version": "3"
           }
-        ]
+        ],
+        "main": {
+          "kind": "doc",
+          "id": "implementation-plan.md"
+        },
+        "more": []
       },
       {
         "id": "build",
@@ -211,7 +227,13 @@ export const longJob: LongJobFixture = {
             "label": "Changes",
             "meta": "9 commits",
             "version": null
-          },
+          }
+        ],
+        "main": {
+          "kind": "changes",
+          "id": "changes"
+        },
+        "more": [
           {
             "kind": "doc",
             "id": "implementation-plan.md",
@@ -264,7 +286,12 @@ export const longJob: LongJobFixture = {
             "meta": null,
             "version": "4"
           }
-        ]
+        ],
+        "main": {
+          "kind": "checks",
+          "id": "checks"
+        },
+        "more": []
       },
       {
         "id": "review",
@@ -287,6 +314,131 @@ export const longJob: LongJobFixture = {
             "label": "Review (combined)",
             "meta": null,
             "version": "2"
+          }
+        ],
+        "main": {
+          "kind": "findings",
+          "id": "findings"
+        },
+        "more": [
+          {
+            "kind": "doc",
+            "id": "review/conventions.md",
+            "label": "Review: conventions",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/conventions-r2.md",
+            "label": "Review: conventions r2",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/db.md",
+            "label": "Review: db",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/db-r2.md",
+            "label": "Review: db r2",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/errors.md",
+            "label": "Review: errors",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/errors-r2.md",
+            "label": "Review: errors r2",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/performance.md",
+            "label": "Review: performance",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/permissions.md",
+            "label": "Review: permissions",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/permissions-r2.md",
+            "label": "Review: permissions r2",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/spec.md",
+            "label": "Review: spec",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/spec-r2.md",
+            "label": "Review: spec r2",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/tests.md",
+            "label": "Review: tests",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/tests-r2.md",
+            "label": "Review: tests r2",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/ui.md",
+            "label": "Review: ui",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "fable/001-plan.md",
+            "label": "Fable second look #1 · plan",
+            "meta": null,
+            "version": "1"
+          },
+          {
+            "kind": "doc",
+            "id": "fable/002-review.md",
+            "label": "Fable second look #2 · review",
+            "meta": null,
+            "version": "2"
+          },
+          {
+            "kind": "doc",
+            "id": "review/facts.md",
+            "label": "Review facts (round 1)",
+            "meta": null,
+            "version": null
           }
         ]
       },
@@ -319,7 +471,12 @@ export const longJob: LongJobFixture = {
             "meta": "not open",
             "version": null
           }
-        ]
+        ],
+        "main": {
+          "kind": "not-yet",
+          "id": "ship"
+        },
+        "more": []
       }
     ],
     "rows": {
@@ -909,7 +1066,6 @@ export const longJob: LongJobFixture = {
     "implementation-plan.md": {"id":"implementation-plan.md","kind":"doc","html":"<h1 id=\"h-implementation-plan-v2-crew-schedule-export\">Implementation plan v2: Crew schedule export</h1>\n<p>The time zone check counts the first day of the week as the spec asks. The time zone check keeps a second office when the week is empty. The notes column groups the start and end of each shift on every page of the week. Nothing else changed.</p>\n<h3 id=\"h-s1-the-row-limit-adds-a-second\">S1: The row limit adds a second</h3>\n<p>The schedule page waits for the van number while the table loads. The new test puts first shifts that cross midnight with the same rounding as payroll. The download button checks a second office. Tell me if that works.</p>\n<h3 id=\"h-s2-the-totals-line-rounds-crews-with\">S2: The totals line rounds crews with</h3>\n<p>The notes column splits a cancelled shift with the same rounding as payroll. The crew lead column names the office time zone as the spec asks. The loading message rounds shifts that cross midnight. I can change it if needed.</p>\n<h3 id=\"h-s3-the-time-zone-check-sorts-the\">S3: The time zone check sorts the</h3>\n<p>The shift table skips every crew in the office so nothing is counted twice. The crew lead column counts the office time zone without a page reload. All done.</p>\n<h3 id=\"h-s4-the-download-button-trims-split-shifts\">S4: The download button trims split shifts</h3>\n<p>The new test leaves out the start and end of each shift the way the printout does. The crew lead column skips shifts that cross midnight even for a long week.</p>\n<h3 id=\"h-s5-the-notes-column-counts-blank-notes\">S5: The notes column counts blank notes</h3>\n<p>The export keeps the start and end of each shift in the same order as the screen. The error banner splits the overtime hours. Tell me if that works.</p>\n","text":"# Implementation plan v2: Crew schedule export\n\nThe time zone check counts the first day of the week as the spec asks. The time zone check keeps a second office when the week is empty. The notes column groups the start and end of each shift on every page of the week. Nothing else changed.\n\n### S1: The row limit adds a second\n\nThe schedule page waits for the van number while the table loads. The new test puts first shifts that cross midnight with the same rounding as payroll. The download button checks a second office. Tell me if that works.\n\n### S2: The totals line rounds crews with\n\nThe notes column splits a cancelled shift with the same rounding as payroll. The crew lead column names the office time zone as the spec asks. The loading message rounds shifts that cross midnight. I can change it if needed.\n\n### S3: The time zone check sorts the\n\nThe shift table skips every crew in the office so nothing is counted twice. The crew lead column counts the office time zone without a page reload. All done.\n\n### S4: The download button trims split shifts\n\nThe new test leaves out the start and end of each shift the way the printout does. The crew lead column skips shifts that cross midnight even for a long week.\n\n### S5: The notes column counts blank notes\n\nThe export keeps the start and end of each shift in the same order as the screen. The error banner splits the overtime hours. Tell me if that works.\n","meta":{"name":"Implementation plan","version":"2","updatedAt":"2026-11-03T07:26:00.000Z","step":"plan","words":257}},
     "test-plan.md": {"id":"test-plan.md","kind":"doc","html":"<h1 id=\"h-test-plan-v2-crew-schedule-export\">Test plan v2: Crew schedule export</h1>\n<p>The schedule page leaves out a cancelled shift without a page reload. The week picker splits the van number in the same order as the screen. The shift table checks blank notes as empty cells as the spec asks. The CSV file joins the first day of.</p>\n<p>The shift table shows quotes inside a note as the spec asks. The week picker puts first the crew lead first while the table loads. The crew lead column leaves out the overtime hours before it saves the file. The week picker reads blank notes as empty cells so nothing is counted twice. All done.</p>\n<ul>\n<li>AC-1: The header row splits quotes inside a note.</li>\n<li>AC-2: The CSV file reads the week in the file.</li>\n<li>AC-3: The loading message now writes the crew lead first. All done.</li>\n<li>AC-4: The week picker marks the overtime hours. Nothing else changed.</li>\n<li>AC-5: The export adds the start and end of each shift. All done.</li>\n<li>AC-6: The error banner shows the week in the file name.</li>\n<li>AC-7: The schedule page sorts a second office the way the printout does.</li>\n<li>AC-8: The export now writes quotes inside a note.</li>\n<li>AC-9: The time zone check repeats the office time zone. All done.</li>\n<li>AC-10: The week picker counts the columns in screen order. All done.</li>\n<li>AC-11: The crew lead column repeats the total hours at.</li>\n<li>AC-12: The schedule page leaves out the office time zone. Nothing else changed.</li>\n<li>AC-13: The header row rounds the van number. Nothing else changed.</li>\n<li>AC-14: The time zone check checks the start and end of each shift.</li>\n</ul>\n","text":"# Test plan v2: Crew schedule export\n\nThe schedule page leaves out a cancelled shift without a page reload. The week picker splits the van number in the same order as the screen. The shift table checks blank notes as empty cells as the spec asks. The CSV file joins the first day of.\n\nThe shift table shows quotes inside a note as the spec asks. The week picker puts first the crew lead first while the table loads. The crew lead column leaves out the overtime hours before it saves the file. The week picker reads blank notes as empty cells so nothing is counted twice. All done.\n\n- AC-1: The header row splits quotes inside a note.\n- AC-2: The CSV file reads the week in the file.\n- AC-3: The loading message now writes the crew lead first. All done.\n- AC-4: The week picker marks the overtime hours. Nothing else changed.\n- AC-5: The export adds the start and end of each shift. All done.\n- AC-6: The error banner shows the week in the file name.\n- AC-7: The schedule page sorts a second office the way the printout does.\n- AC-8: The export now writes quotes inside a note.\n- AC-9: The time zone check repeats the office time zone. All done.\n- AC-10: The week picker counts the columns in screen order. All done.\n- AC-11: The crew lead column repeats the total hours at.\n- AC-12: The schedule page leaves out the office time zone. Nothing else changed.\n- AC-13: The header row rounds the van number. Nothing else changed.\n- AC-14: The time zone check checks the start and end of each shift.\n","meta":{"name":"Test plan","version":"2","updatedAt":"2026-11-03T07:26:00.000Z","step":"plan","words":267}},
     "acceptance.md": {"id":"acceptance.md","kind":"doc","html":"<h1 id=\"h-acceptance-v3-crew-schedule-export\">Acceptance v3: Crew schedule export</h1>\n<h2 id=\"h-it-works-when\">It works when</h2>\n<ul>\n<li>AC-1: The export shows the crew lead first. All done.</li>\n<li>AC-2: The CSV file joins the holiday rows. Nothing else changed.</li>\n<li>AC-3: The schedule page checks the office time zone.</li>\n<li>AC-4: The sort order now writes blank notes as.</li>\n<li>AC-5: The schedule page checks quotes inside a note after the last crew.</li>\n<li>AC-6: The export counts the overtime hours. Nothing else changed.</li>\n<li>AC-7: The header row groups every crew in the office. All done.</li>\n<li>AC-8: The crew lead column splits crews with no shifts.</li>\n<li>AC-9: The sort order reads a second office. All done.</li>\n<li>AC-10: The office filter reads split shifts so nothing is counted twice.</li>\n<li>AC-11: The schedule page sorts the total hours at the bottom. All done.</li>\n<li>AC-12: The schedule page names the overtime hours as the spec asks. Done.</li>\n<li>AC-13: The totals line counts every crew in the office. Done.</li>\n<li>AC-14: The row limit now writes the first day.</li>\n</ul>\n<h2 id=\"h-it-must-not\">It must not</h2>\n<ul>\n<li>The file name joins quotes inside a note. All done.</li>\n</ul>\n","text":"# Acceptance v3: Crew schedule export\n\n## It works when\n\n- AC-1: The export shows the crew lead first. All done.\n- AC-2: The CSV file joins the holiday rows. Nothing else changed.\n- AC-3: The schedule page checks the office time zone.\n- AC-4: The sort order now writes blank notes as.\n- AC-5: The schedule page checks quotes inside a note after the last crew.\n- AC-6: The export counts the overtime hours. Nothing else changed.\n- AC-7: The header row groups every crew in the office. All done.\n- AC-8: The crew lead column splits crews with no shifts.\n- AC-9: The sort order reads a second office. All done.\n- AC-10: The office filter reads split shifts so nothing is counted twice.\n- AC-11: The schedule page sorts the total hours at the bottom. All done.\n- AC-12: The schedule page names the overtime hours as the spec asks. Done.\n- AC-13: The totals line counts every crew in the office. Done.\n- AC-14: The row limit now writes the first day.\n\n## It must not\n\n- The file name joins quotes inside a note. All done.\n","meta":{"name":"Acceptance criteria","version":"3","updatedAt":"2026-11-03T07:26:00.000Z","step":"plan","words":173}},
-    "implementation-log.md": {"id":"implementation-log.md","kind":"doc","html":"<h1 id=\"h-implementation-log-v2-crew-schedule-export\">Implementation log v2: Crew schedule export</h1>\n<h2 id=\"h-s1\">S1</h2>\n<p>The totals line splits a second office as the spec asks. The file name puts first blank notes as empty cells.</p>\n<h2 id=\"h-s2\">S2</h2>\n<p>The error banner repeats split shifts after the last crew. The file name keeps a second office for each office on its own. The holiday marker names the overtime hours so nothing is counted twice.</p>\n<h2 id=\"h-s3\">S3</h2>\n<p>The office filter repeats a cancelled shift after the last crew. The error banner reads quotes inside a note the way the printout does. I can change it if needed.</p>\n<h2 id=\"h-s4\">S4</h2>\n<p>The header row groups the office time zone and the tests cover it. The holiday marker splits the total hours at the.</p>\n<h2 id=\"h-s5\">S5</h2>\n<p>The night shift rule keeps crews with no shifts as the spec asks. Say the word and I carry on.</p>\n","text":"# Implementation log v2: Crew schedule export\n\n## S1\n\nThe totals line splits a second office as the spec asks. The file name puts first blank notes as empty cells.\n\n## S2\n\nThe error banner repeats split shifts after the last crew. The file name keeps a second office for each office on its own. The holiday marker names the overtime hours so nothing is counted twice.\n\n## S3\n\nThe office filter repeats a cancelled shift after the last crew. The error banner reads quotes inside a note the way the printout does. I can change it if needed.\n\n## S4\n\nThe header row groups the office time zone and the tests cover it. The holiday marker splits the total hours at the.\n\n## S5\n\nThe night shift rule keeps crews with no shifts as the spec asks. Say the word and I carry on.\n","meta":{"name":"Implementation log","version":"2","updatedAt":"2026-11-03T14:05:00.000Z","step":"build","words":139}},
     "test-report.md": {"id":"test-report.md","kind":"doc","html":"<h1 id=\"h-test-report-v4-crew-schedule-export\">Test report v4: Crew schedule export</h1>\n<p>The week picker waits for the overtime hours while the table loads. The night shift rule trims quotes inside a note as the spec asks. Tell me if that works.</p>\n<ul>\n<li>AC-1: PASS. Say the word and I carry on.</li>\n<li>AC-2: PASS. The night shift rule groups shifts that cross midnight. Done.</li>\n<li>AC-3: PASS. Say the word and I carry on.</li>\n<li>AC-4: PASS. I can change it if needed.</li>\n<li>AC-5: PASS. The error banner skips a cancelled shift. All done.</li>\n<li>AC-6: PASS. The error banner adds one row per shift.</li>\n<li>AC-7: PASS. The download button now writes crews with no.</li>\n<li>AC-8: PASS. The loading message marks the crew lead first.</li>\n<li>AC-9: PASS. The office filter checks crews with no shifts. Done.</li>\n<li>AC-10: PASS. The sort order joins every crew in the office. Done.</li>\n<li>AC-11: PASS. I can change it if needed.</li>\n<li>AC-12: PASS. The crew list reads quotes inside a note.</li>\n<li>AC-13: PASS. The notes column names the overtime hours. Nothing else changed.</li>\n<li>AC-14: PASS. The row limit trims the van number. All done.</li>\n</ul>\n","text":"# Test report v4: Crew schedule export\n\nThe week picker waits for the overtime hours while the table loads. The night shift rule trims quotes inside a note as the spec asks. Tell me if that works.\n\n- AC-1: PASS. Say the word and I carry on.\n- AC-2: PASS. The night shift rule groups shifts that cross midnight. Done.\n- AC-3: PASS. Say the word and I carry on.\n- AC-4: PASS. I can change it if needed.\n- AC-5: PASS. The error banner skips a cancelled shift. All done.\n- AC-6: PASS. The error banner adds one row per shift.\n- AC-7: PASS. The download button now writes crews with no.\n- AC-8: PASS. The loading message marks the crew lead first.\n- AC-9: PASS. The office filter checks crews with no shifts. Done.\n- AC-10: PASS. The sort order joins every crew in the office. Done.\n- AC-11: PASS. I can change it if needed.\n- AC-12: PASS. The crew list reads quotes inside a note.\n- AC-13: PASS. The notes column names the overtime hours. Nothing else changed.\n- AC-14: PASS. The row limit trims the van number. All done.\n","meta":{"name":"Test report","version":"4","updatedAt":"2026-11-04T02:40:00.000Z","step":"test","words":179}},
     "review.md": {"id":"review.md","kind":"doc","html":"<h1 id=\"h-review-v2-crew-schedule-export\">Review v2: Crew schedule export</h1>\n<p>The empty week waits for a second office in the same order as the screen. The week picker adds the columns in screen order for each office on its own. The export puts first the holiday rows on every page of the week. The rest stays put.</p>\n<h2 id=\"h-round-2\">Round 2</h2>\n<div class=\"table-wrap\"><table><thead>\n<tr>\n<th>#</th>\n<th>Severity</th>\n<th>Lens</th>\n<th>Finding</th>\n<th>Status</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>R-1</td>\n<td>Major</td>\n<td>spec</td>\n<td>The shift table joins quotes inside a note when the week is empty. Nothing else changed.</td>\n<td>Fixed</td>\n</tr>\n<tr>\n<td>R-2</td>\n<td>Major</td>\n<td>tests</td>\n<td>The notes column shows the holiday rows with the same rounding as payroll. The empty week sorts the overtime hours. Done.</td>\n<td>Open</td>\n</tr>\n</tbody>\n</table></div>","text":"# Review v2: Crew schedule export\n\nThe empty week waits for a second office in the same order as the screen. The week picker adds the columns in screen order for each office on its own. The export puts first the holiday rows on every page of the week. The rest stays put.\n\n## Round 2\n\n| # | Severity | Lens | Finding | Status |\n|---|---|---|---|---|\n| R-1 | Major | spec | The shift table joins quotes inside a note when the week is empty. Nothing else changed. | Fixed |\n| R-2 | Major | tests | The notes column shows the holiday rows with the same rounding as payroll. The empty week sorts the overtime hours. Done. | Open |\n","meta":{"name":"Review (combined)","version":"2","updatedAt":"2026-11-04T13:55:00.000Z","step":"review","words":102}},
   },

@@ -40,7 +40,10 @@
 //
 //   StepRow      { id: 'spec' | … | 'ship', label, state: 'done' | 'current' | 'todo' | 'skipped',
 //                  word: string | null (the result: 'v3', '19 passed', '2 open', 'PR #1 open'; only on done
-//                  and current steps), durationMs: number | null, startedAt: string | null, outputs: Output[] }
+//                  and current steps), durationMs: number | null, startedAt: string | null, outputs: Output[]
+//                  (what the left pane lists), main: { kind: ReaderKind, id } (what the reader shows when
+//                  the step is opened; 'not-yet' for a step not started or skipped), more: Output[] (the
+//                  step's other documents, for the reader only: lens rounds, review facts, second looks) }
 //   Output       { kind: 'doc' | 'screens' | 'changes' | 'checks' | 'recording' | 'hand-test' | 'findings'
 //                  | 'walkthrough' | 'pr', id (a doc's file, a PR's '1' | '2' | '3', else the kind), label,
 //                  meta: string | null, version: string | null; a doc also gets `hash`, its text's hash,
@@ -423,7 +426,8 @@ function stepParts(id, { facts, page, card, detail }) {
     }
     case 'build': {
       const word = Number.isInteger(facts.commits) ? many(facts.commits, 'commit') : null;
-      return { word, outputs: [own('changes', 'Changes', word), ...docs.map((d) => docOutput(d))], main: { kind: 'changes', id: 'changes' } };
+      // Changes only (design brief): the plan is under Plan; the log and the plan are in `more`.
+      return { word, outputs: [own('changes', 'Changes', word)], main: { kind: 'changes', id: 'changes' } };
     }
     case 'test': {
       const { word, meta } = checksWords(page.checks);
@@ -459,6 +463,24 @@ function stepParts(id, { facts, page, card, detail }) {
   }
 }
 
+/**
+ * What the step made that the left pane does not list, for the reader to reach (Tasks 12, 14: the
+ * lenses' rounds, older ones too, the review facts, the Fable second looks, Build's plan and log):
+ * every document of the step that is not a brief, has no output of its own, and is not listed; each
+ * file once, at its highest version. In the order first seen.
+ */
+function moreDocs(list, outputs) {
+  const listed = new Set(outputs.filter((o) => o.kind === 'doc').map((o) => o.id));
+  const kept = new Map();
+  for (const d of Array.isArray(list) ? list : []) {
+    const file = String(d?.file ?? '');
+    if (!file || file.startsWith('briefs/') || OWN_OUTPUT.has(file) || listed.has(file)) continue;
+    const was = kept.get(file);
+    if (!was || compareVersions(d.version ?? null, was.version ?? null) >= 0) kept.set(file, d);
+  }
+  return [...kept.values()].map((d) => docOutput(d));
+}
+
 function duration(span) {
   const a = Date.parse(span?.startedAt ?? '');
   const b = Date.parse(span?.endedAt ?? '');
@@ -472,12 +494,16 @@ function buildSteps(ctx) {
     const state = STEP_STATE[states[s.id]] ?? 'todo';
     const parts = stepParts(s.id, ctx);
     const span = page.times?.[s.id] ?? null;
-    const main = parts.main ?? (parts.outputs.find((o) => o.kind === 'doc') ? { kind: 'doc', id: parts.outputs.find((o) => o.kind === 'doc').id } : null);
+    const doc = parts.outputs.find((o) => o.kind === 'doc');
+    // What the reader shows when the step is opened: a step not started (or skipped) has nothing yet.
+    const main = state === 'todo' || state === 'skipped' ? { kind: 'not-yet', id: s.id }
+      : parts.main ?? (doc ? { kind: 'doc', id: doc.id } : { kind: 'not-yet', id: s.id });
     return {
       row: {
         id: s.id, label: s.label, state,
         word: state === 'done' || state === 'current' ? parts.word : null,
         durationMs: duration(span), startedAt: span?.startedAt ?? null, outputs: parts.outputs,
+        main, more: moreDocs(page.docs?.[s.id], parts.outputs),
       },
       main,
     };
@@ -569,7 +595,10 @@ function openOf(state, move, steps) {
     if (move?.kind === 'question') return { kind: 'message', id: move.itemId };
     return conversation;
   }
-  if (state === 'working') return steps.find((s) => s.row.state === 'current')?.main ?? conversation;
+  if (state === 'working') {
+    const main = steps.find((s) => s.row.state === 'current')?.main;
+    return main && main.kind !== 'not-yet' ? main : conversation;
+  }
   return conversation;
 }
 
@@ -670,7 +699,7 @@ export function mirrorJobPage(job, { row = null, v = 0 } = {}) {
   for (const k of LOCAL_ONLY) delete payload[k];
   // The same extras the laptop's cache stamps: a document's text hash (not on the record: null here), and
   // whether older conversation is left out (the record keeps the newest 60; the rest show on the laptop).
-  for (const st of payload.steps) for (const o of st.outputs) if (o.kind === 'doc') o.hash = null;
+  for (const st of payload.steps) for (const o of [...st.outputs, ...st.more]) if (o.kind === 'doc') o.hash = null;
   payload.rows.conversation.more = Boolean(j.threadMore);
   return payload;
 }

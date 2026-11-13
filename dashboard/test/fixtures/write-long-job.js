@@ -36,6 +36,7 @@ const TYPES = [
   'export type LongJobStep = {',
   '  id: string; label: string; state: \'done\' | \'current\' | \'todo\' | \'skipped\'; word: string | null;',
   '  durationMs: number | null; startedAt: string | null; outputs: LongJobOutput[];',
+  '  main: { kind: string; id: string }; more: LongJobOutput[];',
   '};',
   '/** The payload; web/src/jobpage/types.ts has its whole type once it exists. */',
   'export type LongJobPayload = { slug: string; title: string; state: string; thread: LongJobLine[]; steps: LongJobStep[]; [key: string]: unknown };',

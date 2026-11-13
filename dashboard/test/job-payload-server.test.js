@@ -404,3 +404,22 @@ test('speed on the made-up 200-item job: page warm under 100 ms, item under 50 m
     await new Promise((res) => { srv.close(res); srv.closeAllConnections?.(); });
   }
 });
+
+test('Task 10 fix round 1: a document only the reader reaches (a step’s `more`) is served by the item route, with its hash', { timeout: 60_000 }, async () => {
+  const slug = 'notes-lens-rounds';
+  await writeJob(slug, {
+    'review.md': '# Review (combined)\n\nNothing open.\n',
+    'review/errors-r1.md': '# Errors, round 1\n\nOne finding.\n',
+  });
+  await sleep(1600); // past the runner's 1.5 s job list, so it lists the new job
+  const { status, body } = await get(`/api/job/${slug}/page`);
+  assert.equal(status, 200, JSON.stringify(body));
+  const review = body.steps.find((st) => st.id === 'review');
+  assert.ok(!review.outputs.some((o) => o.id === 'review/errors-r1.md'), 'not listed on the left');
+  const more = review.more.find((o) => o.id === 'review/errors-r1.md');
+  assert.ok(more, JSON.stringify(review.more));
+  assert.match(more.hash, /^[0-9a-f]{12}$/);
+  const item = (await get(`/api/job/${slug}/item?id=${encodeURIComponent('review/errors-r1.md')}`)).body;
+  assert.equal(item.version, more.hash);
+  assert.match(item.text, /One finding/);
+});

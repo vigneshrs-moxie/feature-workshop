@@ -43,7 +43,12 @@ export interface StepRow {
   word: string | null;
   durationMs: number | null;
   startedAt: string | null;
+  /** What the left pane lists (only the current step's show). */
   outputs: Output[];
+  /** What the reader shows when the step is opened; `not-yet` for a step not started or skipped. */
+  main: ReaderTarget;
+  /** The step's other documents, for the reader only: lens rounds, review facts, second looks, Build's plan and log. */
+  more: Output[];
 }
 
 export type LineKind = 'reply' | 'you' | 'brief' | 'problem' | 'small';

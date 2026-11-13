@@ -158,11 +158,11 @@ describe('addresses', () => {
   it('the old addresses open the right step or view', async () => {
     open(`#/job/${SLUG}/stage/plan`);
     await settle();
-    expect(stepRow('Plan')).toHaveAttribute('aria-expanded', 'true');
-    // The current step stays open too (Task 10: opening a step moves nothing above it), and the
-    // reader shows the named step's main output.
+    expect(stepRow('Plan')).toHaveAttribute('aria-current', 'step');
+    // Only the current step is open (Task 10 fix round 1: the prototype's rule); the named step is
+    // marked and the reader shows its main output.
     expect(stepRow('Review')).toHaveAttribute('aria-expanded', 'true');
-    expect(stepRow('Build')).toHaveAttribute('aria-expanded', 'false');
+    expect(stepRow('Build')).not.toHaveAttribute('aria-expanded');
     expect(readerTitle()).toBe('Implementation plan');
     act(() => { window.location.hash = `#/job/${SLUG}/conversation`; window.dispatchEvent(new HashChangeEvent('hashchange')); });
     expect(readerTitle()).toBe('Conversation');
@@ -192,13 +192,13 @@ describe('addresses', () => {
     expect(readerTitle()).toBe('Conversation');
     fireEvent.click(stepRow('Plan'));
     expect(window.location.hash).toBe(`#/job/${SLUG}/stage/plan`);
-    expect(stepRow('Plan')).toHaveAttribute('aria-expanded', 'true');
+    expect(stepRow('Plan')).toHaveAttribute('aria-current', 'step');
     // The step pick shows the step's main output in the reader (Task 10).
     expect(readerTitle()).toBe('Implementation plan');
-    // An output of the open step opens in the reader.
-    fireEvent.click(screen.getByRole('button', { name: /^Implementation plan/ }));
-    expect(window.location.hash).toBe(`#/job/${SLUG}/read/doc/implementation-plan.md`);
-    expect(readerTitle()).toBe('Implementation plan');
+    // An output of the open (current) step opens in the reader.
+    fireEvent.click(screen.getByRole('button', { name: /^Review \(combined\)/ }));
+    expect(window.location.hash).toBe(`#/job/${SLUG}/read/doc/review.md`);
+    expect(readerTitle()).toBe('Review (combined)');
     expect(window.history.length).toBe(entries);
   });
 });
@@ -272,13 +272,13 @@ describe('keys', () => {
     open(`#/job/${SLUG}`);
     await settle();
     key('[');
-    expect(stepRow('Test')).toHaveAttribute('aria-expanded', 'true');
+    expect(stepRow('Test')).toHaveAttribute('aria-current', 'step');
     expect(window.location.hash).toBe(`#/job/${SLUG}/stage/test`);
     key(']');
     key(']');
-    expect(stepRow('Ship')).toHaveAttribute('aria-expanded', 'true');
+    expect(stepRow('Ship')).toHaveAttribute('aria-current', 'step');
     key(']');
-    expect(stepRow('Ship')).toHaveAttribute('aria-expanded', 'true');
+    expect(stepRow('Ship')).toHaveAttribute('aria-current', 'step');
   });
 
   it('j and k move between the lines on the left; Enter opens the line', async () => {
@@ -297,7 +297,7 @@ describe('keys', () => {
     key('k');
     key('k');
     key('Enter');
-    expect(stepRow('Ship')).toHaveAttribute('aria-expanded', 'true');
+    expect(stepRow('Ship')).toHaveAttribute('aria-current', 'step');
   });
 
   it('/ opens the conversation with the focus in its search box; g c and g t open the conversation and the ticket', async () => {
@@ -440,7 +440,7 @@ describe('Task 7 fix round 1', () => {
     expect(document.activeElement).toBe(stepRow('Test'));
     expect(stepRow('Test')).toHaveClass('is-cursor');
     key('Enter', document.activeElement!);
-    expect(stepRow('Test')).toHaveAttribute('aria-expanded', 'true');
+    expect(stepRow('Test')).toHaveAttribute('aria-current', 'step');
     expect(window.location.hash).toBe(`#/job/${SLUG}/stage/test`);
     // Enter on another control is still that control's.
     const send = screen.getByRole('button', { name: 'More for this job' });
@@ -475,7 +475,7 @@ describe('Task 7 fix round 1', () => {
     act(() => { reader.focus(); });
     key(']', reader);
     expect(page()).not.toHaveAttribute('data-covered');
-    expect(stepRow('Ship')).toHaveAttribute('aria-expanded', 'true');
+    expect(stepRow('Ship')).toHaveAttribute('aria-current', 'step');
   });
 
   it('on the website the old page offers Try the new job page, and the new page’s ⋯ brings the old one back', async () => {
@@ -525,5 +525,38 @@ describe('Task 10: the steps and the job rows on the page', () => {
     open(`#/job/${SLUG}`);
     await settle();
     expect(screen.getByRole('button', { name: 'Conversation · 52 · 1 new' })).toBeInTheDocument();
+  });
+});
+
+describe('Task 10 fix round 1: the prototype’s step rule on the page', () => {
+  const blocks = () => [...document.querySelectorAll('.jp2-left .jp2-ym, .jp2-step, .jp2-st-row, .jp2-st-outs, .jp2-st-out, .jp2-st-none, .jp2-jr')].map((e) => e.className.replace(/ is-(sel|cursor)/g, '')).join('|');
+
+  it('a click, ] , Enter on a line and the address all mark the step, show its main output, and move no row', async () => {
+    open(`#/job/${SLUG}`);
+    await settle();
+    const before = blocks();
+    fireEvent.click(stepRow('Plan'));
+    expect(readerTitle()).toBe('Implementation plan');
+    expect(blocks()).toBe(before);
+    key(']');
+    expect(stepRow('Build')).toHaveAttribute('aria-current', 'step');
+    expect(readerTitle()).toBe('Changes');
+    expect(blocks()).toBe(before);
+    stepRow('Test').focus();
+    key('Enter', stepRow('Test'));
+    expect(readerTitle()).toBe('Checks and recording');
+    expect(blocks()).toBe(before);
+    act(() => { window.location.hash = `#/job/${SLUG}/stage/spec`; window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    expect(stepRow('Spec')).toHaveClass('is-sel');
+    expect(readerTitle()).toBe('Product spec');
+    expect(blocks()).toBe(before);
+  });
+
+  it('a step that has not started opens a plain “Nothing yet” in the reader', async () => {
+    open(`#/job/${SLUG}`);
+    await settle();
+    fireEvent.click(stepRow('Ship'));
+    expect(readerTitle()).toBe('Ship');
+    expect(document.querySelector('.jp2-notyet')).toHaveTextContent('Nothing yet. This step has not started.');
   });
 });

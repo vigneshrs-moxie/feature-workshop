@@ -1,6 +1,7 @@
 // The steps on the left (job page rebuild, Task 10): one line each (a state mark, the name, the
-// result word), the current step open with its outputs, a click opens a step and shows its main
-// output in the reader. Built against the made-up long job, and odd jobs made from it.
+// result word); only the current step is open with its outputs; opening another step marks it and
+// shows its main output in the reader, and lists nothing, so no row ever moves (lead's ruling,
+// Task 10 I1: the prototype's rule). Built against the made-up long job, and odd jobs made from it.
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { ApiClient } from '../../api/client';
@@ -27,6 +28,7 @@ function mount({ p = payload(), row = null }: { p?: JobPagePayload | null; row?:
     <JobStoreContext.Provider value={store}>
       <header className="probe-above">Header</header>
       <Steps job={row} cursor={null} onStep={onStep} onOpen={onOpen} />
+      <footer className="probe-below">The job rows</footer>
     </JobStoreContext.Provider>,
   );
   return { store, ...utils };
@@ -43,22 +45,20 @@ const outputsOf = (name: string) => [...(row(name).closest('.jp2-step')!.querySe
 const STATE_WORDS = /working|waiting|not yet|done|skipped|now|paused/i;
 
 /**
- * What sits above a step, in the order it is drawn: each element's tag, classes that size it, and its
- * own text. Heights here come from the number and kind of rows (fixed row heights), so an unchanged
- * list is an unchanged height (jsdom has no layout; the browser check measures it).
+ * Every block on the page, in the order it is drawn (what is above, the steps, their rows, output
+ * lists and lines, what is below), with the classes that size it (not the marks: is-sel,
+ * is-cursor). Rows have fixed heights, so an unchanged list means no row moved (jsdom has no
+ * layout; the browser check measures it in pixels). Words inside a row (a duration) do not count.
  */
-function above(name: string): string[] {
-  const at = row(name).closest('.jp2-step')!;
-  const out: string[] = [];
-  for (const el of document.body.querySelectorAll('*')) {
-    if (el === at) break;
-    if (el.contains(at)) continue;
-    const own = [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join('');
-    const sized = [...el.classList].filter((c) => c !== 'is-sel' && c !== 'is-cursor').join('.');
-    out.push(`${el.tagName}.${sized}:${own}`);
-  }
-  return out;
+const BLOCKS = 'header, nav, footer, .jp2-step, .jp2-st-row, .jp2-st-outs, .jp2-st-outs > li, .jp2-st-out, .jp2-st-none';
+function shape(): string[] {
+  return [...document.body.querySelectorAll(BLOCKS)].map((el) => `${el.tagName}.${[...el.classList].filter((c) => c !== 'is-sel' && c !== 'is-cursor').join('.')}`);
 }
+
+const step = (id: string, label: string, state: StepRow['state'], word: string | null = null): StepRow => ({
+  id: id as StopId, label, state, word, durationMs: null, startedAt: null, outputs: [], more: [],
+  main: state === 'todo' || state === 'skipped' ? { kind: 'not-yet', id } : { kind: 'doc', id: `${id}.md` },
+});
 
 describe('the steps', () => {
   it('seven rows, one line each: a state mark, the name and the result word; only a step that is not done carries a state word', () => {
@@ -73,97 +73,87 @@ describe('the steps', () => {
     expect(wordOf('Ship')).toBe('not yet');
   });
 
-  it('a current step with no result yet says its state; a skipped step says skipped and is drawn as skipped', () => {
+  it('a current step with no result yet says its own state; a skipped step says skipped and is drawn as skipped', () => {
     const p = payload({ state: 'working' });
-    p.steps = p.steps.map((s) => (s.id === 'review' ? { ...s, word: null } : s.id === 'investigate' ? { ...s, state: 'skipped', word: null, outputs: [] } : s));
+    p.steps = p.steps.map((s) => (s.id === 'review' ? { ...s, word: null } : s.id === 'investigate' ? { ...s, state: 'skipped', word: null, outputs: [], main: { kind: 'not-yet', id: 'investigate' } } : s));
     mount({ p });
     expect(wordOf('Review')).toBe('working');
     expect(wordOf('Investigate')).toBe('skipped');
     expect(row('Investigate')).toHaveClass('is-skipped');
-    expect(stepWord({ ...p.steps[5], word: null }, 'needs-you')).toBe('waiting for you');
-    expect(stepWord({ ...p.steps[5], word: null }, 'paused')).toBe('paused');
+    const bare = { ...p.steps[5], word: null };
+    expect(stepWord(bare, 'needs-you')).toBe('waiting for you');
+    expect(stepWord(bare, 'paused')).toBe('paused');
+    expect(stepWord(bare, 'waiting-github')).toBe('waiting on GitHub');
+    expect(stepWord(bare, 'done')).toBeNull();
   });
 
-  it('the current step is open with its outputs, the latest of each only: Findings and the combined review', () => {
+  it('only the current step is open, with its outputs, the latest of each: Findings and the combined review', () => {
     mount();
     expect(row('Review')).toHaveAttribute('aria-expanded', 'true');
     expect(outputsOf('Review')).toEqual(['Findings', 'Review (combined)']);
-    for (const n of ['Spec', 'Investigate', 'Plan', 'Build', 'Test', 'Ship']) expect(row(n)).toHaveAttribute('aria-expanded', 'false');
-    // Each output once, with its result or version.
-    const metas = [...document.querySelectorAll('.jp2-st-out .jp2-out-meta')].map((e) => e.textContent);
-    expect(metas).toEqual(['1 open', 'v2']);
+    expect(document.querySelectorAll('.jp2-st-outs')).toHaveLength(1);
+    for (const n of ['Spec', 'Investigate', 'Plan', 'Build', 'Test', 'Ship']) expect(row(n)).not.toHaveAttribute('aria-expanded');
+    expect([...document.querySelectorAll('.jp2-st-out .jp2-out-meta')].map((e) => e.textContent)).toEqual(['1 open', 'v2']);
   });
 
-  it('a click opens the step and shows its main output in the reader', () => {
+  it('a click on another step marks it and shows its main output in the reader (the payload’s main); it lists nothing', () => {
     const { store } = mount();
     const reads = (name: string) => { fireEvent.click(row(name)); return readerOf(store.getState()); };
     expect(reads('Build')).toEqual({ kind: 'changes', id: 'changes' });
-    expect(row('Build')).toHaveAttribute('aria-expanded', 'true');
-    expect(outputsOf('Build')).toEqual(['Changes', 'Implementation plan', 'Implementation log']);
+    expect(row('Build')).toHaveClass('is-sel');
+    expect(row('Build')).toHaveAttribute('aria-current', 'step');
+    expect(row('Build').closest('.jp2-step')!.querySelector('.jp2-st-outs')).toBeNull();
     expect(reads('Plan')).toEqual({ kind: 'doc', id: 'implementation-plan.md' });
+    expect(row('Build')).not.toHaveClass('is-sel');
     expect(reads('Test')).toEqual({ kind: 'checks', id: 'checks' });
-    expect(reads('Review')).toEqual({ kind: 'findings', id: 'findings' });
-    expect(reads('Ship')).toEqual({ kind: 'ship', id: 'ship' });
     expect(reads('Spec')).toEqual({ kind: 'doc', id: 'spec' });
-    // The output it shows is marked in the list.
-    expect(within(row('Spec').closest('.jp2-step')!).getByRole('button', { name: /^Product spec/ })).toHaveClass('is-sel');
-    // An output opens in the reader by itself.
-    fireEvent.click(within(row('Spec').closest('.jp2-step')!).getByRole('button', { name: /^Screens/ }));
-    expect(readerOf(store.getState())).toEqual({ kind: 'doc', id: 'screens' });
+    // A step not started: nothing yet, and the reader says so.
+    expect(reads('Ship')).toEqual({ kind: 'not-yet', id: 'ship' });
+    expect(row('Ship')).toHaveClass('is-sel');
+    // The current step: its main output, its own output marked in its list.
+    expect(reads('Review')).toEqual({ kind: 'findings', id: 'findings' });
+    expect(within(row('Review').closest('.jp2-step')!).getByRole('button', { name: /^Findings/ })).toHaveClass('is-sel');
+    expect(rows().filter((r) => r.classList.contains('is-sel'))).toHaveLength(0);
+    // An output of the current step opens in the reader by itself.
+    fireEvent.click(within(row('Review').closest('.jp2-step')!).getByRole('button', { name: /^Review \(combined\)/ }));
+    expect(readerOf(store.getState())).toEqual({ kind: 'doc', id: 'review.md' });
   });
 
-  it('the open step’s heading has its duration; the current one says when it started', () => {
+  it('a step whose document the reader shows is marked, however it got there (a reader address, Build’s plan in `more`)', () => {
+    const { store } = mount();
+    act(() => { store.setReader({ kind: 'doc', id: 'implementation-log.md' }); });
+    expect(row('Build')).toHaveClass('is-sel');
+    act(() => { store.setReader({ kind: 'conversation', id: 'conversation' }); });
+    expect(rows().filter((r) => r.classList.contains('is-sel'))).toHaveLength(0);
+  });
+
+  it('the current step’s heading and a marked step’s have the duration; the current one says when it started', () => {
     mount();
+    expect(row('Review').querySelector('.jp2-st-dur')?.textContent).toMatch(/^since /);
+    expect(row('Test').querySelector('.jp2-st-dur')).toBeNull();
     fireEvent.click(row('Test'));
     expect(row('Test').querySelector('.jp2-st-dur')?.textContent).toBe('12 h 35 min');
-    // Not on a closed step.
     expect(row('Plan').querySelector('.jp2-st-dur')).toBeNull();
-    expect(row('Review').querySelector('.jp2-st-dur')?.textContent).toMatch(/^since /);
   });
 
-  it('opening a step never changes the height of anything above it', () => {
-    mount();
-    // Below the current step: the current step stays open.
-    let before = above('Ship');
-    fireEvent.click(row('Ship'));
-    expect(row('Ship')).toHaveAttribute('aria-expanded', 'true');
-    expect(above('Ship')).toEqual(before);
-    // Above the current one.
-    before = above('Spec');
-    fireEvent.click(row('Spec'));
-    expect(above('Spec')).toEqual(before);
-    // Then one further down: the step opened above it stays open, so nothing above moves.
-    before = above('Plan');
-    fireEvent.click(row('Plan'));
-    expect(row('Plan')).toHaveAttribute('aria-expanded', 'true');
-    expect(above('Plan')).toEqual(before);
-    // Opening one above closes those below it, never those above.
-    fireEvent.click(row('Investigate'));
-    expect(row('Spec')).toHaveAttribute('aria-expanded', 'true');
-    expect(row('Plan')).toHaveAttribute('aria-expanded', 'false');
-    expect(row('Review')).toHaveAttribute('aria-expanded', 'true');
-  });
-
-  it('a step picked by key or address moves the one open pick (no pointer under it to keep still)', () => {
+  it('opening a step never moves any row: by click, and by key or address (the store’s step)', () => {
     const { store } = mount();
-    fireEvent.click(row('Spec'));
-    fireEvent.click(row('Plan'));
-    expect(row('Spec')).toHaveAttribute('aria-expanded', 'true');
-    // The page's [ ] keys and the address set the step in the store.
-    act(() => { store.setStep('build'); });
-    expect(row('Build')).toHaveAttribute('aria-expanded', 'true');
-    expect(row('Spec')).toHaveAttribute('aria-expanded', 'false');
-    expect(row('Plan')).toHaveAttribute('aria-expanded', 'false');
+    const before = shape();
+    for (const name of ['Ship', 'Spec', 'Plan', 'Investigate', 'Review', 'Build']) {
+      fireEvent.click(row(name));
+      expect(shape(), name).toEqual(before);
+    }
+    for (const id of ['test', 'ship', 'spec'] as StopId[]) {
+      act(() => { store.setStep(id); store.setReader(null); });
+      expect(shape(), id).toEqual(before);
+    }
   });
 
-  it('an open step with nothing yet says so in one dim line, and the reader shows that it has nothing yet', () => {
-    const empty = payload();
-    empty.steps = empty.steps.map((s) => (s.id === 'investigate' ? { ...s, state: 'todo', word: null, outputs: [] } : s));
-    const { store } = mount({ p: empty });
-    fireEvent.click(row('Investigate'));
-    expect(row('Investigate').closest('.jp2-step')!.querySelector('.jp2-st-none')?.textContent).toBe('Nothing yet');
-    expect(readerOf(store.getState())).toEqual({ kind: 'not-yet', id: 'investigate' });
-    expect(row('Investigate')).toHaveClass('is-sel');
+  it('a current step with nothing yet says so in one dim line', () => {
+    const p = payload({ state: 'working' });
+    p.steps = p.steps.map((s) => (s.id === 'review' ? { ...s, outputs: [], word: null } : s));
+    mount({ p });
+    expect(row('Review').closest('.jp2-step')!.querySelector('.jp2-st-none')?.textContent).toBe('Nothing yet');
   });
 
   it('before the payload: the seven steps from the snapshot row, the current one open with no outputs and no word', () => {
@@ -177,16 +167,15 @@ describe('the steps', () => {
 });
 
 describe('odd jobs (plan, review focus 6)', () => {
-  const step = (id: string, label: string, state: StepRow['state'], word: string | null = null): StepRow => ({ id: id as StopId, label, state, word, durationMs: null, startedAt: null, outputs: [] });
-
-  it('a quick-route job: its skipped steps are shown as skipped, in their places', () => {
+  it('a quick-route job: its skipped steps are shown as skipped, in their places; opening one says it has nothing', () => {
     const p = payload({ state: 'working' });
-    p.steps = p.steps.map((s) => (['spec', 'investigate'].includes(s.id) ? { ...s, state: 'skipped', word: null, outputs: [] } : s));
-    mount({ p });
+    p.steps = p.steps.map((s) => (['spec', 'investigate'].includes(s.id) ? { ...s, state: 'skipped', word: null, outputs: [], main: { kind: 'not-yet', id: s.id } } : s));
+    const { store } = mount({ p });
     expect(rows()).toHaveLength(7);
     expect(['Spec', 'Investigate'].map(wordOf)).toEqual(['skipped', 'skipped']);
     fireEvent.click(row('Spec'));
-    expect(row('Spec').closest('.jp2-step')!.querySelector('.jp2-st-none')?.textContent).toBe('Skipped for this job');
+    expect(readerOf(store.getState())).toEqual({ kind: 'not-yet', id: 'spec' });
+    expect(row('Spec')).toHaveClass('is-sel');
   });
 
   it('a bug-fix job shows the steps it has, by the payload’s own names', () => {
@@ -198,11 +187,18 @@ describe('odd jobs (plan, review focus 6)', () => {
     expect(row('Diagnose')).toHaveAttribute('aria-expanded', 'true');
   });
 
+  it('a job waiting on GitHub: its current step without a result says so, not working', () => {
+    const p = payload({ state: 'waiting-github', move: null });
+    p.steps = p.steps.map((s) => (s.id === 'review' ? { ...s, state: 'done' } : s.id === 'ship' ? { ...s, state: 'current', word: null } : s));
+    mount({ p });
+    expect(wordOf('Ship')).toBe('waiting on GitHub');
+  });
+
   it('a closed job: every step done, none open, no state word anywhere', () => {
     const p = payload({ state: 'done', move: null });
     p.steps = p.steps.map((s) => ({ ...s, state: 'done', word: s.word ?? null }));
     mount({ p });
-    for (const r of rows()) expect(r).toHaveAttribute('aria-expanded', 'false');
+    for (const r of rows()) expect(r).not.toHaveAttribute('aria-expanded');
     for (const r of rows()) expect(r.querySelector('.jp2-st-word')?.textContent ?? '').not.toMatch(STATE_WORDS);
   });
 });

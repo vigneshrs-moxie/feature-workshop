@@ -131,7 +131,12 @@ export const longJob200: LongJobFixture = {
             "meta": null,
             "version": "1"
           }
-        ]
+        ],
+        "main": {
+          "kind": "doc",
+          "id": "spec"
+        },
+        "more": []
       },
       {
         "id": "investigate",
@@ -148,7 +153,12 @@ export const longJob200: LongJobFixture = {
             "meta": null,
             "version": "1"
           }
-        ]
+        ],
+        "main": {
+          "kind": "doc",
+          "id": "findings.md"
+        },
+        "more": []
       },
       {
         "id": "plan",
@@ -179,7 +189,12 @@ export const longJob200: LongJobFixture = {
             "meta": null,
             "version": "3"
           }
-        ]
+        ],
+        "main": {
+          "kind": "doc",
+          "id": "implementation-plan.md"
+        },
+        "more": []
       },
       {
         "id": "build",
@@ -195,7 +210,13 @@ export const longJob200: LongJobFixture = {
             "label": "Changes",
             "meta": "36 commits",
             "version": null
-          },
+          }
+        ],
+        "main": {
+          "kind": "changes",
+          "id": "changes"
+        },
+        "more": [
           {
             "kind": "doc",
             "id": "implementation-plan.md",
@@ -248,7 +269,12 @@ export const longJob200: LongJobFixture = {
             "meta": null,
             "version": "4"
           }
-        ]
+        ],
+        "main": {
+          "kind": "checks",
+          "id": "checks"
+        },
+        "more": []
       },
       {
         "id": "review",
@@ -271,6 +297,509 @@ export const longJob200: LongJobFixture = {
             "label": "Review (combined)",
             "meta": null,
             "version": "2"
+          }
+        ],
+        "main": {
+          "kind": "findings",
+          "id": "findings"
+        },
+        "more": [
+          {
+            "kind": "doc",
+            "id": "review/conventions.md",
+            "label": "Review: conventions",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/conventions-r2.md",
+            "label": "Review: conventions r2",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/conventions-r3.md",
+            "label": "Review: conventions r3",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/conventions-r4.md",
+            "label": "Review: conventions r4",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/conventions-r5.md",
+            "label": "Review: conventions r5",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/conventions-r6.md",
+            "label": "Review: conventions r6",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/conventions-r7.md",
+            "label": "Review: conventions r7",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/db.md",
+            "label": "Review: db",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/db-r2.md",
+            "label": "Review: db r2",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/db-r3.md",
+            "label": "Review: db r3",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/db-r4.md",
+            "label": "Review: db r4",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/db-r5.md",
+            "label": "Review: db r5",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/db-r6.md",
+            "label": "Review: db r6",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/db-r7.md",
+            "label": "Review: db r7",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/errors.md",
+            "label": "Review: errors",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/errors-r2.md",
+            "label": "Review: errors r2",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/errors-r3.md",
+            "label": "Review: errors r3",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/errors-r4.md",
+            "label": "Review: errors r4",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/errors-r5.md",
+            "label": "Review: errors r5",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/errors-r6.md",
+            "label": "Review: errors r6",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/errors-r7.md",
+            "label": "Review: errors r7",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/performance.md",
+            "label": "Review: performance",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/performance-r2.md",
+            "label": "Review: performance r2",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/performance-r3.md",
+            "label": "Review: performance r3",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/performance-r4.md",
+            "label": "Review: performance r4",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/performance-r5.md",
+            "label": "Review: performance r5",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/performance-r6.md",
+            "label": "Review: performance r6",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/performance-r7.md",
+            "label": "Review: performance r7",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/permissions.md",
+            "label": "Review: permissions",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/permissions-r2.md",
+            "label": "Review: permissions r2",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/permissions-r3.md",
+            "label": "Review: permissions r3",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/permissions-r4.md",
+            "label": "Review: permissions r4",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/permissions-r5.md",
+            "label": "Review: permissions r5",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/permissions-r6.md",
+            "label": "Review: permissions r6",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/permissions-r7.md",
+            "label": "Review: permissions r7",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/spec.md",
+            "label": "Review: spec",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/spec-r2.md",
+            "label": "Review: spec r2",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/spec-r3.md",
+            "label": "Review: spec r3",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/spec-r4.md",
+            "label": "Review: spec r4",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/spec-r5.md",
+            "label": "Review: spec r5",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/spec-r6.md",
+            "label": "Review: spec r6",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/spec-r7.md",
+            "label": "Review: spec r7",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/tests.md",
+            "label": "Review: tests",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/tests-r2.md",
+            "label": "Review: tests r2",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/tests-r3.md",
+            "label": "Review: tests r3",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/tests-r4.md",
+            "label": "Review: tests r4",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/tests-r5.md",
+            "label": "Review: tests r5",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/tests-r6.md",
+            "label": "Review: tests r6",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/tests-r7.md",
+            "label": "Review: tests r7",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/ui.md",
+            "label": "Review: ui",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/ui-r2.md",
+            "label": "Review: ui r2",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/ui-r3.md",
+            "label": "Review: ui r3",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/ui-r4.md",
+            "label": "Review: ui r4",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/ui-r5.md",
+            "label": "Review: ui r5",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/ui-r6.md",
+            "label": "Review: ui r6",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/ui-r7.md",
+            "label": "Review: ui r7",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "fable/001-plan.md",
+            "label": "Fable second look #1 · plan",
+            "meta": null,
+            "version": "1"
+          },
+          {
+            "kind": "doc",
+            "id": "fable/002-review.md",
+            "label": "Fable second look #2 · review",
+            "meta": null,
+            "version": "2"
+          },
+          {
+            "kind": "doc",
+            "id": "fable/003-plan.md",
+            "label": "Fable second look #3 · plan",
+            "meta": null,
+            "version": "3"
+          },
+          {
+            "kind": "doc",
+            "id": "fable/004-review.md",
+            "label": "Fable second look #4 · review",
+            "meta": null,
+            "version": "4"
+          },
+          {
+            "kind": "doc",
+            "id": "fable/005-plan.md",
+            "label": "Fable second look #5 · plan",
+            "meta": null,
+            "version": "5"
+          },
+          {
+            "kind": "doc",
+            "id": "fable/006-review.md",
+            "label": "Fable second look #6 · review",
+            "meta": null,
+            "version": "6"
+          },
+          {
+            "kind": "doc",
+            "id": "fable/007-plan.md",
+            "label": "Fable second look #7 · plan",
+            "meta": null,
+            "version": "7"
+          },
+          {
+            "kind": "doc",
+            "id": "fable/008-review.md",
+            "label": "Fable second look #8 · review",
+            "meta": null,
+            "version": "8"
+          },
+          {
+            "kind": "doc",
+            "id": "review/facts.md",
+            "label": "Review facts (round 1)",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/facts-r2.md",
+            "label": "Review facts (round 2)",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/facts-r3.md",
+            "label": "Review facts (round 3)",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/facts-r4.md",
+            "label": "Review facts (round 4)",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/facts-r5.md",
+            "label": "Review facts (round 5)",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/facts-r6.md",
+            "label": "Review facts (round 6)",
+            "meta": null,
+            "version": null
+          },
+          {
+            "kind": "doc",
+            "id": "review/facts-r7.md",
+            "label": "Review facts (round 7)",
+            "meta": null,
+            "version": null
           }
         ]
       },
@@ -303,7 +832,12 @@ export const longJob200: LongJobFixture = {
             "meta": "not open",
             "version": null
           }
-        ]
+        ],
+        "main": {
+          "kind": "not-yet",
+          "id": "ship"
+        },
+        "more": []
       }
     ],
     "rows": {
@@ -2418,7 +2952,6 @@ export const longJob200: LongJobFixture = {
     "implementation-plan.md": {"id":"implementation-plan.md","kind":"doc","html":"<h1 id=\"h-implementation-plan-v2-crew-schedule-export-long\">Implementation plan v2: Crew schedule export (long)</h1>\n<p>The schedule page leaves out crews with no shifts the way the printout does. The notes column now writes split shifts in the same order as the screen. The error banner puts first split shifts for each office on its own. Tell me if that works.</p>\n<h3 id=\"h-s1-the-crew-lead-column-groups-the\">S1: The crew lead column groups the</h3>\n<p>The sort order puts first one row per shift the way the printout does. The shift table marks one row per shift the way the printout does. I can change it if needed.</p>\n<h3 id=\"h-s2-the-holiday-marker-adds-crews-with\">S2: The holiday marker adds crews with</h3>\n<p>The holiday marker reads shifts that cross midnight while the table loads. The file name trims the week in the file name in the same order as the screen. Say the word and I carry on.</p>\n<h3 id=\"h-s3-the-row-limit-adds-the-date\">S3: The row limit adds the date</h3>\n<p>The notes column sorts every crew in the office after the last crew. The CSV file rounds the columns in screen order and the tests cover it. Done.</p>\n<h3 id=\"h-s4-the-totals-line-rounds-the-holiday\">S4: The totals line rounds the holiday</h3>\n<p>The crew lead column counts shifts that cross midnight when the week is empty. The time zone check checks the overtime hours while the table loads. The night shift rule skips the total hours at the bottom. All done.</p>\n<h3 id=\"h-s5-the-crew-list-reads-shifts-that\">S5: The crew list reads shifts that</h3>\n<p>The shift table shows the overtime hours on every page of the week. The time zone check shows the van number with the same rounding as payroll.</p>\n<h3 id=\"h-s6-the-crew-list-marks-quotes-inside\">S6: The crew list marks quotes inside</h3>\n<p>The loading message leaves out crews with no shifts and the tests cover it. The loading message names the date as year, month and day. Done.</p>\n<h3 id=\"h-s7-the-night-shift-rule-trims-the\">S7: The night shift rule trims the</h3>\n<p>The download button now writes split shifts as the spec asks. The row limit leaves out every crew in the office before it saves the file. Done.</p>\n<h3 id=\"h-s8-the-loading-message-waits-for-a\">S8: The loading message waits for a</h3>\n<p>The crew list sorts the start and end of each shift in the same order as the screen. The header row splits the week in the file name. All done.</p>\n<h3 id=\"h-s9-the-csv-file-groups-the-week\">S9: The CSV file groups the week</h3>\n<p>The error banner now writes blank notes as empty cells so nothing is counted twice. The empty week waits for split shifts before it saves the file. I can change it if needed.</p>\n<h3 id=\"h-s10-the-night-shift-rule-trims-the\">S10: The night shift rule trims the</h3>\n<p>The schedule page marks every crew in the office in the same order as the screen. The notes column skips the van number while the table loads. The empty week adds the van number. All done.</p>\n<h3 id=\"h-s11-the-loading-message-trims-the-overtime\">S11: The loading message trims the overtime</h3>\n<p>The header row checks the date as year, month and day when the week is empty. The office filter trims quotes inside a note for the office manager only. Nothing else changed.</p>\n<h3 id=\"h-s12-the-notes-column-checks-the-holiday\">S12: The notes column checks the holiday</h3>\n<p>The totals line checks the office time zone in the same order as the screen. The totals line rounds blank notes as empty cells as the spec asks. The rest stays put.</p>\n<h3 id=\"h-s13-the-notes-column-counts-split-shifts\">S13: The notes column counts split shifts</h3>\n<p>The crew list groups every crew in the office while the table loads. The row limit names the crew lead first after the last crew. Tell me if that works.</p>\n<h3 id=\"h-s14-the-error-banner-waits-for-a\">S14: The error banner waits for a</h3>\n<p>The CSV file now writes the van number for each office on its own. The file name marks crews with no shifts with the same rounding as payroll. The sort order counts the holiday rows. All done.</p>\n<h3 id=\"h-s15-the-night-shift-rule-marks-split\">S15: The night shift rule marks split</h3>\n<p>The office filter keeps the total hours at the bottom as the spec asks. The night shift rule rounds a second office for each office on its own. The header row repeats the office time zone. All done.</p>\n<h3 id=\"h-s16-the-header-row-repeats-the-overtime\">S16: The header row repeats the overtime</h3>\n<p>The sort order trims blank notes as empty cells for the office manager only. The new test shows a cancelled shift when the week is empty. Done.</p>\n<h3 id=\"h-s17-the-night-shift-rule-puts-first\">S17: The night shift rule puts first</h3>\n<p>The night shift rule counts split shifts for each office on its own. The schedule page skips the crew lead first without a page reload. The header row reads shifts that cross midnight. Done.</p>\n<h3 id=\"h-s18-the-time-zone-check-splits-the\">S18: The time zone check splits the</h3>\n<p>The night shift rule splits crews with no shifts before it saves the file. The office filter shows every crew in the office for the office manager only. The download button keeps quotes inside a note. All done.</p>\n<h3 id=\"h-s19-the-export-now-writes-the-holiday\">S19: The export now writes the holiday</h3>\n<p>The totals line shows one row per shift after the last crew. The new test names the first day of the week when the week is empty. Say the word and I carry on.</p>\n<h3 id=\"h-s20-the-schedule-page-trims-the-start\">S20: The schedule page trims the start</h3>\n<p>The row limit counts shifts that cross midnight while the table loads. The empty week leaves out a cancelled shift the way the printout does. Say the word and I carry on.</p>\n","text":"# Implementation plan v2: Crew schedule export (long)\n\nThe schedule page leaves out crews with no shifts the way the printout does. The notes column now writes split shifts in the same order as the screen. The error banner puts first split shifts for each office on its own. Tell me if that works.\n\n### S1: The crew lead column groups the\n\nThe sort order puts first one row per shift the way the printout does. The shift table marks one row per shift the way the printout does. I can change it if needed.\n\n### S2: The holiday marker adds crews with\n\nThe holiday marker reads shifts that cross midnight while the table loads. The file name trims the week in the file name in the same order as the screen. Say the word and I carry on.\n\n### S3: The row limit adds the date\n\nThe notes column sorts every crew in the office after the last crew. The CSV file rounds the columns in screen order and the tests cover it. Done.\n\n### S4: The totals line rounds the holiday\n\nThe crew lead column counts shifts that cross midnight when the week is empty. The time zone check checks the overtime hours while the table loads. The night shift rule skips the total hours at the bottom. All done.\n\n### S5: The crew list reads shifts that\n\nThe shift table shows the overtime hours on every page of the week. The time zone check shows the van number with the same rounding as payroll.\n\n### S6: The crew list marks quotes inside\n\nThe loading message leaves out crews with no shifts and the tests cover it. The loading message names the date as year, month and day. Done.\n\n### S7: The night shift rule trims the\n\nThe download button now writes split shifts as the spec asks. The row limit leaves out every crew in the office before it saves the file. Done.\n\n### S8: The loading message waits for a\n\nThe crew list sorts the start and end of each shift in the same order as the screen. The header row splits the week in the file name. All done.\n\n### S9: The CSV file groups the week\n\nThe error banner now writes blank notes as empty cells so nothing is counted twice. The empty week waits for split shifts before it saves the file. I can change it if needed.\n\n### S10: The night shift rule trims the\n\nThe schedule page marks every crew in the office in the same order as the screen. The notes column skips the van number while the table loads. The empty week adds the van number. All done.\n\n### S11: The loading message trims the overtime\n\nThe header row checks the date as year, month and day when the week is empty. The office filter trims quotes inside a note for the office manager only. Nothing else changed.\n\n### S12: The notes column checks the holiday\n\nThe totals line checks the office time zone in the same order as the screen. The totals line rounds blank notes as empty cells as the spec asks. The rest stays put.\n\n### S13: The notes column counts split shifts\n\nThe crew list groups every crew in the office while the table loads. The row limit names the crew lead first after the last crew. Tell me if that works.\n\n### S14: The error banner waits for a\n\nThe CSV file now writes the van number for each office on its own. The file name marks crews with no shifts with the same rounding as payroll. The sort order counts the holiday rows. All done.\n\n### S15: The night shift rule marks split\n\nThe office filter keeps the total hours at the bottom as the spec asks. The night shift rule rounds a second office for each office on its own. The header row repeats the office time zone. All done.\n\n### S16: The header row repeats the overtime\n\nThe sort order trims blank notes as empty cells for the office manager only. The new test shows a cancelled shift when the week is empty. Done.\n\n### S17: The night shift rule puts first\n\nThe night shift rule counts split shifts for each office on its own. The schedule page skips the crew lead first without a page reload. The header row reads shifts that cross midnight. Done.\n\n### S18: The time zone check splits the\n\nThe night shift rule splits crews with no shifts before it saves the file. The office filter shows every crew in the office for the office manager only. The download button keeps quotes inside a note. All done.\n\n### S19: The export now writes the holiday\n\nThe totals line shows one row per shift after the last crew. The new test names the first day of the week when the week is empty. Say the word and I carry on.\n\n### S20: The schedule page trims the start\n\nThe row limit counts shifts that cross midnight while the table loads. The empty week leaves out a cancelled shift the way the printout does. Say the word and I carry on.\n","meta":{"name":"Implementation plan","version":"2","updatedAt":"2026-11-04T21:33:00.000Z","step":"plan","words":842}},
     "test-plan.md": {"id":"test-plan.md","kind":"doc","html":"<h1 id=\"h-test-plan-v2-crew-schedule-export-long\">Test plan v2: Crew schedule export (long)</h1>\n<p>The empty week puts first shifts that cross midnight while the table loads. The sort order joins the week in the file name while the table loads. The night shift rule splits quotes inside a note while the table loads. Tell me if that works.</p>\n<p>The crew lead column trims every crew in the office for each office on its own. The row limit reads crews with no shifts so nothing is counted twice. The holiday marker shows the first day of the week before it saves the file. The rest stays put.</p>\n<ul>\n<li>AC-1: The error banner marks the date as year, month.</li>\n<li>AC-2: The holiday marker groups the holiday rows. The rest stays put.</li>\n<li>AC-3: The holiday marker groups a second office. Done.</li>\n<li>AC-4: The row limit skips every crew in the office. Nothing else changed.</li>\n<li>AC-5: The sort order reads the crew lead first. All done.</li>\n<li>AC-6: The export names a cancelled shift before it saves the file.</li>\n<li>AC-7: The export shows the date as year, month and.</li>\n<li>AC-8: The shift table rounds a cancelled shift. Nothing else changed.</li>\n<li>AC-9: The new test trims a cancelled shift. Done.</li>\n<li>AC-10: The time zone check repeats a second office. Done.</li>\n<li>AC-11: The new test rounds the crew lead first. Nothing else changed.</li>\n<li>AC-12: The schedule page splits the first day of.</li>\n<li>AC-13: The totals line groups the holiday rows. Done.</li>\n<li>AC-14: The totals line counts a second office the way the printout does.</li>\n<li>AC-15: The totals line shows blank notes as empty cells. Done.</li>\n<li>AC-16: The holiday marker splits the start and end.</li>\n<li>AC-17: The row limit trims the date as year, month and day. Done.</li>\n<li>AC-18: The file name sorts crews with no shifts. Done.</li>\n<li>AC-19: The loading message sorts quotes inside a note. All done.</li>\n<li>AC-20: The new test groups a second office. Nothing else changed.</li>\n<li>AC-21: The totals line adds the office time zone. Nothing else changed.</li>\n<li>AC-22: The row limit joins one row per shift.</li>\n<li>AC-23: The sort order waits for the overtime hours. Done.</li>\n<li>AC-24: The CSV file now writes the overtime hours.</li>\n<li>AC-25: The header row marks a cancelled shift. Done.</li>\n<li>AC-26: The office filter trims the date as year, month and day. Done.</li>\n<li>AC-27: The header row now writes the holiday rows.</li>\n<li>AC-28: The week picker checks the columns in screen.</li>\n<li>AC-29: The header row rounds one row per shift. All done.</li>\n<li>AC-30: The sort order now writes blank notes as empty cells.</li>\n<li>AC-31: The totals line sorts the overtime hours. Done.</li>\n<li>AC-32: The schedule page leaves out quotes inside a note. Done.</li>\n<li>AC-33: The download button reads the holiday rows as the spec asks.</li>\n<li>AC-34: The empty week repeats the crew lead first. Nothing else changed.</li>\n<li>AC-35: The night shift rule shows crews with no shifts. All done.</li>\n<li>AC-36: The time zone check trims the crew lead.</li>\n<li>AC-37: The header row keeps the crew lead first. Nothing else changed.</li>\n<li>AC-38: The export now writes the total hours at the bottom.</li>\n<li>AC-39: The crew list keeps the van number. The rest stays put.</li>\n<li>AC-40: The row limit shows a second office. Nothing else changed.</li>\n<li>AC-41: The totals line sorts shifts that cross midnight as the spec asks.</li>\n<li>AC-42: The night shift rule puts first one row.</li>\n<li>AC-43: The loading message counts quotes inside a note. Nothing else changed.</li>\n<li>AC-44: The empty week skips the holiday rows. Nothing else changed.</li>\n<li>AC-45: The schedule page groups the overtime hours. Tell me if that works.</li>\n<li>AC-46: The error banner marks every crew in the office. Nothing else changed.</li>\n<li>AC-47: The crew list checks shifts that cross midnight. Nothing else changed.</li>\n<li>AC-48: The CSV file keeps the week in the.</li>\n<li>AC-49: The night shift rule repeats blank notes as empty.</li>\n<li>AC-50: The time zone check sorts the start and end of each.</li>\n<li>AC-51: The header row trims the crew lead first.</li>\n<li>AC-52: The time zone check now writes the van number. All done.</li>\n<li>AC-53: The crew lead column repeats one row per shift.</li>\n<li>AC-54: The notes column counts the van number. Nothing else changed.</li>\n<li>AC-55: The schedule page groups the start and end of.</li>\n<li>AC-56: The crew lead column puts first the holiday.</li>\n</ul>\n","text":"# Test plan v2: Crew schedule export (long)\n\nThe empty week puts first shifts that cross midnight while the table loads. The sort order joins the week in the file name while the table loads. The night shift rule splits quotes inside a note while the table loads. Tell me if that works.\n\nThe crew lead column trims every crew in the office for each office on its own. The row limit reads crews with no shifts so nothing is counted twice. The holiday marker shows the first day of the week before it saves the file. The rest stays put.\n\n- AC-1: The error banner marks the date as year, month.\n- AC-2: The holiday marker groups the holiday rows. The rest stays put.\n- AC-3: The holiday marker groups a second office. Done.\n- AC-4: The row limit skips every crew in the office. Nothing else changed.\n- AC-5: The sort order reads the crew lead first. All done.\n- AC-6: The export names a cancelled shift before it saves the file.\n- AC-7: The export shows the date as year, month and.\n- AC-8: The shift table rounds a cancelled shift. Nothing else changed.\n- AC-9: The new test trims a cancelled shift. Done.\n- AC-10: The time zone check repeats a second office. Done.\n- AC-11: The new test rounds the crew lead first. Nothing else changed.\n- AC-12: The schedule page splits the first day of.\n- AC-13: The totals line groups the holiday rows. Done.\n- AC-14: The totals line counts a second office the way the printout does.\n- AC-15: The totals line shows blank notes as empty cells. Done.\n- AC-16: The holiday marker splits the start and end.\n- AC-17: The row limit trims the date as year, month and day. Done.\n- AC-18: The file name sorts crews with no shifts. Done.\n- AC-19: The loading message sorts quotes inside a note. All done.\n- AC-20: The new test groups a second office. Nothing else changed.\n- AC-21: The totals line adds the office time zone. Nothing else changed.\n- AC-22: The row limit joins one row per shift.\n- AC-23: The sort order waits for the overtime hours. Done.\n- AC-24: The CSV file now writes the overtime hours.\n- AC-25: The header row marks a cancelled shift. Done.\n- AC-26: The office filter trims the date as year, month and day. Done.\n- AC-27: The header row now writes the holiday rows.\n- AC-28: The week picker checks the columns in screen.\n- AC-29: The header row rounds one row per shift. All done.\n- AC-30: The sort order now writes blank notes as empty cells.\n- AC-31: The totals line sorts the overtime hours. Done.\n- AC-32: The schedule page leaves out quotes inside a note. Done.\n- AC-33: The download button reads the holiday rows as the spec asks.\n- AC-34: The empty week repeats the crew lead first. Nothing else changed.\n- AC-35: The night shift rule shows crews with no shifts. All done.\n- AC-36: The time zone check trims the crew lead.\n- AC-37: The header row keeps the crew lead first. Nothing else changed.\n- AC-38: The export now writes the total hours at the bottom.\n- AC-39: The crew list keeps the van number. The rest stays put.\n- AC-40: The row limit shows a second office. Nothing else changed.\n- AC-41: The totals line sorts shifts that cross midnight as the spec asks.\n- AC-42: The night shift rule puts first one row.\n- AC-43: The loading message counts quotes inside a note. Nothing else changed.\n- AC-44: The empty week skips the holiday rows. Nothing else changed.\n- AC-45: The schedule page groups the overtime hours. Tell me if that works.\n- AC-46: The error banner marks every crew in the office. Nothing else changed.\n- AC-47: The crew list checks shifts that cross midnight. Nothing else changed.\n- AC-48: The CSV file keeps the week in the.\n- AC-49: The night shift rule repeats blank notes as empty.\n- AC-50: The time zone check sorts the start and end of each.\n- AC-51: The header row trims the crew lead first.\n- AC-52: The time zone check now writes the van number. All done.\n- AC-53: The crew lead column repeats one row per shift.\n- AC-54: The notes column counts the van number. Nothing else changed.\n- AC-55: The schedule page groups the start and end of.\n- AC-56: The crew lead column puts first the holiday.\n","meta":{"name":"Test plan","version":"2","updatedAt":"2026-11-04T21:33:00.000Z","step":"plan","words":703}},
     "acceptance.md": {"id":"acceptance.md","kind":"doc","html":"<h1 id=\"h-acceptance-v3-crew-schedule-export-long\">Acceptance v3: Crew schedule export (long)</h1>\n<h2 id=\"h-it-works-when\">It works when</h2>\n<ul>\n<li>AC-1: The office filter skips the columns in screen order. All done.</li>\n<li>AC-2: The notes column keeps the total hours at the bottom. Done.</li>\n<li>AC-3: The crew list repeats blank notes as empty.</li>\n<li>AC-4: The night shift rule joins a second office. The rest stays put.</li>\n<li>AC-5: The error banner adds the date as year, month and.</li>\n<li>AC-6: The empty week waits for the columns in.</li>\n<li>AC-7: The row limit shows the first day of.</li>\n<li>AC-8: The row limit groups split shifts. Tell me if that works.</li>\n<li>AC-9: The export names crews with no shifts. All done.</li>\n<li>AC-10: The empty week puts first the crew lead first. All done.</li>\n<li>AC-11: The export joins a cancelled shift so nothing is counted twice. Done.</li>\n<li>AC-12: The holiday marker trims the first day of the week.</li>\n<li>AC-13: The sort order adds a cancelled shift. The rest stays put.</li>\n<li>AC-14: The week picker sorts quotes inside a note.</li>\n<li>AC-15: The CSV file reads blank notes as empty cells.</li>\n<li>AC-16: The CSV file puts first the crew lead first. Done.</li>\n<li>AC-17: The download button adds the holiday rows. The rest stays put.</li>\n<li>AC-18: The CSV file puts first split shifts. Nothing else changed.</li>\n<li>AC-19: The shift table reads every crew in the office. Done.</li>\n<li>AC-20: The export now writes the date as year, month and day. Done.</li>\n<li>AC-21: The empty week shows a second office. Nothing else changed.</li>\n<li>AC-22: The crew list checks crews with no shifts. All done.</li>\n<li>AC-23: The time zone check sorts the holiday rows. Done.</li>\n<li>AC-24: The empty week reads split shifts. Nothing else changed.</li>\n<li>AC-25: The crew lead column splits a second office. Nothing else changed.</li>\n<li>AC-26: The header row sorts the overtime hours without a page reload.</li>\n<li>AC-27: The totals line skips blank notes as empty cells. Nothing else changed.</li>\n<li>AC-28: The new test joins the overtime hours. All done.</li>\n<li>AC-29: The totals line keeps a cancelled shift. All done.</li>\n<li>AC-30: The holiday marker groups one row per shift.</li>\n<li>AC-31: The export waits for the date as year, month and day. Done.</li>\n<li>AC-32: The row limit names crews with no shifts. Done.</li>\n<li>AC-33: The export skips the first day of the week. All done.</li>\n<li>AC-34: The time zone check rounds the columns in screen order. Done.</li>\n<li>AC-35: The shift table splits the office time zone. Nothing else changed.</li>\n<li>AC-36: The office filter groups the week in the file name.</li>\n<li>AC-37: The time zone check joins the total hours at the bottom.</li>\n<li>AC-38: The download button splits a cancelled shift so nothing is counted twice.</li>\n<li>AC-39: The night shift rule leaves out crews with no shifts. Done.</li>\n<li>AC-40: The error banner reads the total hours at the.</li>\n<li>AC-41: The sort order shows a cancelled shift. Nothing else changed.</li>\n<li>AC-42: The new test trims the total hours at the.</li>\n<li>AC-43: The header row reads split shifts even for a long week.</li>\n<li>AC-44: The shift table waits for the columns in screen order.</li>\n<li>AC-45: The error banner now writes the date as year, month and day.</li>\n<li>AC-46: The row limit adds the crew lead first. All done.</li>\n<li>AC-47: The time zone check marks blank notes as empty cells. Done.</li>\n<li>AC-48: The office filter names a cancelled shift. Tell me if that works.</li>\n<li>AC-49: The export splits the van number. All done.</li>\n<li>AC-50: The error banner rounds crews with no shifts. The rest stays put.</li>\n<li>AC-51: The schedule page counts the crew lead first. Nothing else changed.</li>\n<li>AC-52: The holiday marker trims blank notes as empty cells.</li>\n<li>AC-53: The loading message splits crews with no shifts. Nothing else changed.</li>\n<li>AC-54: The header row adds a cancelled shift. All done.</li>\n<li>AC-55: The row limit now writes the week in the file.</li>\n<li>AC-56: The download button skips crews with no shifts. All done.</li>\n</ul>\n<h2 id=\"h-it-must-not\">It must not</h2>\n<ul>\n<li>The office filter keeps the total hours at the bottom.</li>\n</ul>\n","text":"# Acceptance v3: Crew schedule export (long)\n\n## It works when\n\n- AC-1: The office filter skips the columns in screen order. All done.\n- AC-2: The notes column keeps the total hours at the bottom. Done.\n- AC-3: The crew list repeats blank notes as empty.\n- AC-4: The night shift rule joins a second office. The rest stays put.\n- AC-5: The error banner adds the date as year, month and.\n- AC-6: The empty week waits for the columns in.\n- AC-7: The row limit shows the first day of.\n- AC-8: The row limit groups split shifts. Tell me if that works.\n- AC-9: The export names crews with no shifts. All done.\n- AC-10: The empty week puts first the crew lead first. All done.\n- AC-11: The export joins a cancelled shift so nothing is counted twice. Done.\n- AC-12: The holiday marker trims the first day of the week.\n- AC-13: The sort order adds a cancelled shift. The rest stays put.\n- AC-14: The week picker sorts quotes inside a note.\n- AC-15: The CSV file reads blank notes as empty cells.\n- AC-16: The CSV file puts first the crew lead first. Done.\n- AC-17: The download button adds the holiday rows. The rest stays put.\n- AC-18: The CSV file puts first split shifts. Nothing else changed.\n- AC-19: The shift table reads every crew in the office. Done.\n- AC-20: The export now writes the date as year, month and day. Done.\n- AC-21: The empty week shows a second office. Nothing else changed.\n- AC-22: The crew list checks crews with no shifts. All done.\n- AC-23: The time zone check sorts the holiday rows. Done.\n- AC-24: The empty week reads split shifts. Nothing else changed.\n- AC-25: The crew lead column splits a second office. Nothing else changed.\n- AC-26: The header row sorts the overtime hours without a page reload.\n- AC-27: The totals line skips blank notes as empty cells. Nothing else changed.\n- AC-28: The new test joins the overtime hours. All done.\n- AC-29: The totals line keeps a cancelled shift. All done.\n- AC-30: The holiday marker groups one row per shift.\n- AC-31: The export waits for the date as year, month and day. Done.\n- AC-32: The row limit names crews with no shifts. Done.\n- AC-33: The export skips the first day of the week. All done.\n- AC-34: The time zone check rounds the columns in screen order. Done.\n- AC-35: The shift table splits the office time zone. Nothing else changed.\n- AC-36: The office filter groups the week in the file name.\n- AC-37: The time zone check joins the total hours at the bottom.\n- AC-38: The download button splits a cancelled shift so nothing is counted twice.\n- AC-39: The night shift rule leaves out crews with no shifts. Done.\n- AC-40: The error banner reads the total hours at the.\n- AC-41: The sort order shows a cancelled shift. Nothing else changed.\n- AC-42: The new test trims the total hours at the.\n- AC-43: The header row reads split shifts even for a long week.\n- AC-44: The shift table waits for the columns in screen order.\n- AC-45: The error banner now writes the date as year, month and day.\n- AC-46: The row limit adds the crew lead first. All done.\n- AC-47: The time zone check marks blank notes as empty cells. Done.\n- AC-48: The office filter names a cancelled shift. Tell me if that works.\n- AC-49: The export splits the van number. All done.\n- AC-50: The error banner rounds crews with no shifts. The rest stays put.\n- AC-51: The schedule page counts the crew lead first. Nothing else changed.\n- AC-52: The holiday marker trims blank notes as empty cells.\n- AC-53: The loading message splits crews with no shifts. Nothing else changed.\n- AC-54: The header row adds a cancelled shift. All done.\n- AC-55: The row limit now writes the week in the file.\n- AC-56: The download button skips crews with no shifts. All done.\n\n## It must not\n\n- The office filter keeps the total hours at the bottom.\n","meta":{"name":"Acceptance criteria","version":"3","updatedAt":"2026-11-04T21:33:00.000Z","step":"plan","words":650}},
-    "implementation-log.md": {"id":"implementation-log.md","kind":"doc","html":"<h1 id=\"h-implementation-log-v2-crew-schedule-export-long\">Implementation log v2: Crew schedule export (long)</h1>\n<h2 id=\"h-s1\">S1</h2>\n<p>The week picker repeats a second office when the week is empty. The holiday marker now writes every crew in the office with the same rounding as payroll. I can change it if needed.</p>\n<h2 id=\"h-s2\">S2</h2>\n<p>The loading message reads the office time zone in the same order as the screen. The CSV file groups the date as year, month and day while the table loads.</p>\n<h2 id=\"h-s3\">S3</h2>\n<p>The row limit names split shifts before it saves the file. The error banner reads the holiday rows while the table loads. The schedule page reads the overtime hours. I can change it if needed.</p>\n<h2 id=\"h-s4\">S4</h2>\n<p>The time zone check skips the date as year, month and day the way the printout does. The header row reads the start and end of each shift even for a long week.</p>\n<h2 id=\"h-s5\">S5</h2>\n<p>The crew list shows blank notes as empty cells even for a long week. The crew list checks the week in the file name as the spec asks. I can change it if needed.</p>\n<h2 id=\"h-s6\">S6</h2>\n<p>The night shift rule marks one row per shift without a page reload. The week picker trims a second office the way the printout does. The new test puts first the date as year, month.</p>\n<h2 id=\"h-s7\">S7</h2>\n<p>The schedule page shows the holiday rows without a page reload. The empty week sorts the office time zone the way the printout does. The schedule page checks crews with no shifts.</p>\n<h2 id=\"h-s8\">S8</h2>\n<p>The time zone check reads a second office the way the printout does. The error banner counts crews with no shifts. I can change it if needed.</p>\n<h2 id=\"h-s9\">S9</h2>\n<p>The shift table now writes one row per shift on every page of the week. The shift table rounds crews with no shifts. The rest stays put.</p>\n<h2 id=\"h-s10\">S10</h2>\n<p>The CSV file joins one row per shift when the week is empty. The sort order splits a cancelled shift and the tests cover it. Tell me if that works.</p>\n<h2 id=\"h-s11\">S11</h2>\n<p>The office filter waits for a second office so nothing is counted twice. The CSV file rounds the start and end of each shift as the spec asks.</p>\n<h2 id=\"h-s12\">S12</h2>\n<p>The export names a cancelled shift for each office on its own. The empty week groups every crew in the office in the same order as the screen. Say the word and I carry on.</p>\n<h2 id=\"h-s13\">S13</h2>\n<p>The night shift rule rounds the columns in screen order in the same order as the screen. The holiday marker leaves out shifts that cross midnight. Done.</p>\n<h2 id=\"h-s14\">S14</h2>\n<p>The night shift rule shows quotes inside a note so nothing is counted twice. Say the word and I carry on.</p>\n<h2 id=\"h-s15\">S15</h2>\n<p>The export adds the week in the file name so nothing is counted twice. The week picker checks crews with no shifts. The rest stays put.</p>\n<h2 id=\"h-s16\">S16</h2>\n<p>The export skips the holiday rows on every page of the week. The empty week trims the columns in screen order when the week is empty. Nothing else changed.</p>\n<h2 id=\"h-s17\">S17</h2>\n<p>The crew list names the overtime hours while the table loads. The loading message splits the van number. Nothing else changed.</p>\n<h2 id=\"h-s18\">S18</h2>\n<p>The crew lead column splits the date as year, month and day before it saves the file. The download button counts the office time zone. All done.</p>\n<h2 id=\"h-s19\">S19</h2>\n<p>The new test joins quotes inside a note before it saves the file. The totals line leaves out the overtime hours. Tell me if that works.</p>\n<h2 id=\"h-s20\">S20</h2>\n<p>The error banner keeps the overtime hours even for a long week. The totals line names the office time zone with the same rounding as payroll. Nothing else changed.</p>\n","text":"# Implementation log v2: Crew schedule export (long)\n\n## S1\n\nThe week picker repeats a second office when the week is empty. The holiday marker now writes every crew in the office with the same rounding as payroll. I can change it if needed.\n\n## S2\n\nThe loading message reads the office time zone in the same order as the screen. The CSV file groups the date as year, month and day while the table loads.\n\n## S3\n\nThe row limit names split shifts before it saves the file. The error banner reads the holiday rows while the table loads. The schedule page reads the overtime hours. I can change it if needed.\n\n## S4\n\nThe time zone check skips the date as year, month and day the way the printout does. The header row reads the start and end of each shift even for a long week.\n\n## S5\n\nThe crew list shows blank notes as empty cells even for a long week. The crew list checks the week in the file name as the spec asks. I can change it if needed.\n\n## S6\n\nThe night shift rule marks one row per shift without a page reload. The week picker trims a second office the way the printout does. The new test puts first the date as year, month.\n\n## S7\n\nThe schedule page shows the holiday rows without a page reload. The empty week sorts the office time zone the way the printout does. The schedule page checks crews with no shifts.\n\n## S8\n\nThe time zone check reads a second office the way the printout does. The error banner counts crews with no shifts. I can change it if needed.\n\n## S9\n\nThe shift table now writes one row per shift on every page of the week. The shift table rounds crews with no shifts. The rest stays put.\n\n## S10\n\nThe CSV file joins one row per shift when the week is empty. The sort order splits a cancelled shift and the tests cover it. Tell me if that works.\n\n## S11\n\nThe office filter waits for a second office so nothing is counted twice. The CSV file rounds the start and end of each shift as the spec asks.\n\n## S12\n\nThe export names a cancelled shift for each office on its own. The empty week groups every crew in the office in the same order as the screen. Say the word and I carry on.\n\n## S13\n\nThe night shift rule rounds the columns in screen order in the same order as the screen. The holiday marker leaves out shifts that cross midnight. Done.\n\n## S14\n\nThe night shift rule shows quotes inside a note so nothing is counted twice. Say the word and I carry on.\n\n## S15\n\nThe export adds the week in the file name so nothing is counted twice. The week picker checks crews with no shifts. The rest stays put.\n\n## S16\n\nThe export skips the holiday rows on every page of the week. The empty week trims the columns in screen order when the week is empty. Nothing else changed.\n\n## S17\n\nThe crew list names the overtime hours while the table loads. The loading message splits the van number. Nothing else changed.\n\n## S18\n\nThe crew lead column splits the date as year, month and day before it saves the file. The download button counts the office time zone. All done.\n\n## S19\n\nThe new test joins quotes inside a note before it saves the file. The totals line leaves out the overtime hours. Tell me if that works.\n\n## S20\n\nThe error banner keeps the overtime hours even for a long week. The totals line names the office time zone with the same rounding as payroll. Nothing else changed.\n","meta":{"name":"Implementation log","version":"2","updatedAt":"2026-11-05T22:46:00.000Z","step":"build","words":613}},
     "test-report.md": {"id":"test-report.md","kind":"doc","html":"<h1 id=\"h-test-report-v4-crew-schedule-export-long\">Test report v4: Crew schedule export (long)</h1>\n<p>The notes column checks a second office as the spec asks. The sort order trims split shifts before it saves the file. The crew list groups crews with no shifts without a page reload. The crew lead column leaves out the start and end of each shift so nothing is counted twice. All done.</p>\n<ul>\n<li>AC-1: PASS. The office filter keeps the date as year, month and.</li>\n<li>AC-2: PASS. The error banner sorts crews with no shifts. Done.</li>\n<li>AC-3: PASS. The new test waits for the week in the file.</li>\n<li>AC-4: PASS. The crew lead column joins the total hours at the.</li>\n<li>AC-5: PASS. The download button checks the office time zone.</li>\n<li>AC-6: PASS. Say the word and I carry on.</li>\n<li>AC-7: PASS. The office filter adds one row per shift. Done.</li>\n<li>AC-8: PASS. The holiday marker names the crew lead first. All done.</li>\n<li>AC-9: PASS. The new test reads the first day of.</li>\n<li>AC-10: PASS. Say the word and I carry on.</li>\n<li>AC-11: PASS. The export trims the week in the file name. Done.</li>\n<li>AC-12: PASS. The error banner waits for the date as year, month.</li>\n<li>AC-13: PASS. Say the word and I carry on.</li>\n<li>AC-14: PASS. I can change it if needed.</li>\n<li>AC-15: PASS. The crew lead column joins the columns in screen.</li>\n<li>AC-16: PASS. Say the word and I carry on.</li>\n<li>AC-17: PASS. I can change it if needed.</li>\n<li>AC-18: PASS. The shift table counts crews with no shifts.</li>\n<li>AC-19: PASS. The row limit leaves out quotes inside a.</li>\n<li>AC-20: PASS. The sort order checks the office time zone.</li>\n<li>AC-21: PASS. The notes column splits the office time zone.</li>\n<li>AC-22: PASS. Say the word and I carry on.</li>\n<li>AC-23: PASS. The crew lead column marks one row per shift.</li>\n<li>AC-24: PASS. I can change it if needed.</li>\n<li>AC-25: PASS. I can change it if needed.</li>\n<li>AC-26: PASS. The export keeps the office time zone. All done.</li>\n<li>AC-27: PASS. The notes column groups the first day of the.</li>\n<li>AC-28: PASS. The holiday marker splits the first day of.</li>\n<li>AC-29: PASS. Say the word and I carry on.</li>\n<li>AC-30: PASS. I can change it if needed.</li>\n<li>AC-31: PASS. The week picker groups one row per shift.</li>\n<li>AC-32: PASS. Say the word and I carry on.</li>\n<li>AC-33: PASS. The notes column groups blank notes as empty cells.</li>\n<li>AC-34: PASS. The CSV file names one row per shift. Done.</li>\n<li>AC-35: PASS. Say the word and I carry on.</li>\n<li>AC-36: PASS. The row limit adds the week in the.</li>\n<li>AC-37: PASS. Say the word and I carry on.</li>\n<li>AC-38: PASS. The shift table repeats the week in the.</li>\n<li>AC-39: PASS. Say the word and I carry on.</li>\n<li>AC-40: PASS. I can change it if needed.</li>\n<li>AC-41: PASS. The CSV file trims one row per shift. Done.</li>\n<li>AC-42: PASS. The file name reads shifts that cross midnight. Done.</li>\n<li>AC-43: PASS. I can change it if needed.</li>\n<li>AC-44: PASS. I can change it if needed.</li>\n<li>AC-45: PASS. I can change it if needed.</li>\n<li>AC-46: PASS. The download button keeps the van number. All done.</li>\n<li>AC-47: PASS. The week picker skips a cancelled shift. All done.</li>\n<li>AC-48: PASS. I can change it if needed.</li>\n<li>AC-49: PASS. The sort order marks every crew in the office. Done.</li>\n<li>AC-50: PASS. The office filter joins the date as year,.</li>\n<li>AC-51: PASS. The loading message sorts blank notes as empty cells.</li>\n<li>AC-52: PASS. I can change it if needed.</li>\n<li>AC-53: PASS. I can change it if needed.</li>\n<li>AC-54: PASS. I can change it if needed.</li>\n<li>AC-55: PASS. The holiday marker rounds every crew in the office. Done.</li>\n<li>AC-56: PASS. The time zone check groups crews with no shifts.</li>\n</ul>\n","text":"# Test report v4: Crew schedule export (long)\n\nThe notes column checks a second office as the spec asks. The sort order trims split shifts before it saves the file. The crew list groups crews with no shifts without a page reload. The crew lead column leaves out the start and end of each shift so nothing is counted twice. All done.\n\n- AC-1: PASS. The office filter keeps the date as year, month and.\n- AC-2: PASS. The error banner sorts crews with no shifts. Done.\n- AC-3: PASS. The new test waits for the week in the file.\n- AC-4: PASS. The crew lead column joins the total hours at the.\n- AC-5: PASS. The download button checks the office time zone.\n- AC-6: PASS. Say the word and I carry on.\n- AC-7: PASS. The office filter adds one row per shift. Done.\n- AC-8: PASS. The holiday marker names the crew lead first. All done.\n- AC-9: PASS. The new test reads the first day of.\n- AC-10: PASS. Say the word and I carry on.\n- AC-11: PASS. The export trims the week in the file name. Done.\n- AC-12: PASS. The error banner waits for the date as year, month.\n- AC-13: PASS. Say the word and I carry on.\n- AC-14: PASS. I can change it if needed.\n- AC-15: PASS. The crew lead column joins the columns in screen.\n- AC-16: PASS. Say the word and I carry on.\n- AC-17: PASS. I can change it if needed.\n- AC-18: PASS. The shift table counts crews with no shifts.\n- AC-19: PASS. The row limit leaves out quotes inside a.\n- AC-20: PASS. The sort order checks the office time zone.\n- AC-21: PASS. The notes column splits the office time zone.\n- AC-22: PASS. Say the word and I carry on.\n- AC-23: PASS. The crew lead column marks one row per shift.\n- AC-24: PASS. I can change it if needed.\n- AC-25: PASS. I can change it if needed.\n- AC-26: PASS. The export keeps the office time zone. All done.\n- AC-27: PASS. The notes column groups the first day of the.\n- AC-28: PASS. The holiday marker splits the first day of.\n- AC-29: PASS. Say the word and I carry on.\n- AC-30: PASS. I can change it if needed.\n- AC-31: PASS. The week picker groups one row per shift.\n- AC-32: PASS. Say the word and I carry on.\n- AC-33: PASS. The notes column groups blank notes as empty cells.\n- AC-34: PASS. The CSV file names one row per shift. Done.\n- AC-35: PASS. Say the word and I carry on.\n- AC-36: PASS. The row limit adds the week in the.\n- AC-37: PASS. Say the word and I carry on.\n- AC-38: PASS. The shift table repeats the week in the.\n- AC-39: PASS. Say the word and I carry on.\n- AC-40: PASS. I can change it if needed.\n- AC-41: PASS. The CSV file trims one row per shift. Done.\n- AC-42: PASS. The file name reads shifts that cross midnight. Done.\n- AC-43: PASS. I can change it if needed.\n- AC-44: PASS. I can change it if needed.\n- AC-45: PASS. I can change it if needed.\n- AC-46: PASS. The download button keeps the van number. All done.\n- AC-47: PASS. The week picker skips a cancelled shift. All done.\n- AC-48: PASS. I can change it if needed.\n- AC-49: PASS. The sort order marks every crew in the office. Done.\n- AC-50: PASS. The office filter joins the date as year,.\n- AC-51: PASS. The loading message sorts blank notes as empty cells.\n- AC-52: PASS. I can change it if needed.\n- AC-53: PASS. I can change it if needed.\n- AC-54: PASS. I can change it if needed.\n- AC-55: PASS. The holiday marker rounds every crew in the office. Done.\n- AC-56: PASS. The time zone check groups crews with no shifts.\n","meta":{"name":"Test report","version":"4","updatedAt":"2026-11-07T20:25:00.000Z","step":"test","words":615}},
     "review.md": {"id":"review.md","kind":"doc","html":"<h1 id=\"h-review-v2-crew-schedule-export-long\">Review v2: Crew schedule export (long)</h1>\n<p>The export sorts the holiday rows as the spec asks. The office filter repeats the van number after the last crew. The notes column marks quotes inside a note even for a long week. The sort order shows a cancelled shift. Nothing else changed.</p>\n<h2 id=\"h-round-2\">Round 2</h2>\n<div class=\"table-wrap\"><table><thead>\n<tr>\n<th>#</th>\n<th>Severity</th>\n<th>Lens</th>\n<th>Finding</th>\n<th>Status</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>R-1</td>\n<td>Major</td>\n<td>spec</td>\n<td>The export leaves out quotes inside a note while the table loads. The download button shows the total hours at the.</td>\n<td>Fixed</td>\n</tr>\n<tr>\n<td>R-2</td>\n<td>Major</td>\n<td>tests</td>\n<td>The totals line skips the columns in screen order the way the printout does. The night shift rule shows the van number.</td>\n<td>Open</td>\n</tr>\n<tr>\n<td>R-3</td>\n<td>Major</td>\n<td>conventions</td>\n<td>The crew lead column names the start and end of each shift in the same order as the screen.</td>\n<td>Fixed</td>\n</tr>\n<tr>\n<td>R-4</td>\n<td>Major</td>\n<td>errors</td>\n<td>The export puts first crews with no shifts for each office on its own.</td>\n<td>Open</td>\n</tr>\n<tr>\n<td>R-5</td>\n<td>Major</td>\n<td>permissions</td>\n<td>The export rounds the week in the file name with the same rounding as payroll. Nothing else changed.</td>\n<td>Fixed</td>\n</tr>\n<tr>\n<td>R-6</td>\n<td>Major</td>\n<td>db</td>\n<td>The header row leaves out split shifts before it saves the file. All done.</td>\n<td>Open</td>\n</tr>\n<tr>\n<td>R-7</td>\n<td>Major</td>\n<td>performance</td>\n<td>The empty week joins the holiday rows with the same rounding as payroll. All done.</td>\n<td>Fixed</td>\n</tr>\n<tr>\n<td>R-8</td>\n<td>Major</td>\n<td>ui</td>\n<td>The crew list sorts the office time zone and the tests cover it. Say the word and I carry on.</td>\n<td>Open</td>\n</tr>\n</tbody>\n</table></div>","text":"# Review v2: Crew schedule export (long)\n\nThe export sorts the holiday rows as the spec asks. The office filter repeats the van number after the last crew. The notes column marks quotes inside a note even for a long week. The sort order shows a cancelled shift. Nothing else changed.\n\n## Round 2\n\n| # | Severity | Lens | Finding | Status |\n|---|---|---|---|---|\n| R-1 | Major | spec | The export leaves out quotes inside a note while the table loads. The download button shows the total hours at the. | Fixed |\n| R-2 | Major | tests | The totals line skips the columns in screen order the way the printout does. The night shift rule shows the van number. | Open |\n| R-3 | Major | conventions | The crew lead column names the start and end of each shift in the same order as the screen. | Fixed |\n| R-4 | Major | errors | The export puts first crews with no shifts for each office on its own. | Open |\n| R-5 | Major | permissions | The export rounds the week in the file name with the same rounding as payroll. Nothing else changed. | Fixed |\n| R-6 | Major | db | The header row leaves out split shifts before it saves the file. All done. | Open |\n| R-7 | Major | performance | The empty week joins the holiday rows with the same rounding as payroll. All done. | Fixed |\n| R-8 | Major | ui | The crew list sorts the office time zone and the tests cover it. Say the word and I carry on. | Open |\n","meta":{"name":"Review (combined)","version":"2","updatedAt":"2026-11-09T16:35:00.000Z","step":"review","words":230}},
   },

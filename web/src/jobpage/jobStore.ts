@@ -169,7 +169,7 @@ export function keepSame<T>(prev: T, next: T): T {
  */
 function currentBodies(bodies: Record<string, JobBody>, payload: JobPagePayload, prev: JobPagePayload | null = null): Record<string, JobBody> {
   const hashes = new Map<string, string>(payload.thread.map((l) => [l.id, l.hash]));
-  for (const s of payload.steps) for (const o of s.outputs) if (o.kind === 'doc' && typeof o.hash === 'string') hashes.set(o.id, o.hash);
+  for (const s of payload.steps) for (const o of [...s.outputs, ...(s.more ?? [])]) if (o.kind === 'doc' && typeof o.hash === 'string') hashes.set(o.id, o.hash);
   const decisionsMoved = prev !== null && prev.rows.decisions.count !== payload.rows.decisions.count;
   let out = bodies;
   for (const [id, b] of Object.entries(bodies)) {

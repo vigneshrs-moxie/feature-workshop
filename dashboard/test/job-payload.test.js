@@ -499,3 +499,39 @@ test('Review lists the combined review only: the lenses’ rounds, the review fa
   const docs = buildJobPage(early).steps.find((s) => s.id === 'review').outputs.filter((o) => o.kind === 'doc').map((o) => o.id);
   assert.deepEqual(docs, ['review/errors-r2.md', 'review/tests-r1.md', 'review/facts-r2.md']);
 });
+
+test('Task 10 fix round 1: Build lists Changes only; what a step does not list is in its reader-only `more`', () => {
+  const f = atReview();
+  f.detail.page.docs.build = [{ file: 'implementation-plan.md', name: 'Implementation plan', version: '3' }, { file: 'implementation-log.md', name: 'Implementation log', version: '2' }];
+  f.detail.page.docs.review.push({ file: 'fable/002-review.md', name: 'Fable second look #2 · review', version: '2' });
+  const p = buildJobPage(f);
+  const step = (id) => p.steps.find((s) => s.id === id);
+  assert.deepEqual(step('build').outputs.map((o) => o.id), ['changes']);
+  assert.deepEqual(step('build').more.map((o) => [o.kind, o.id]), [['doc', 'implementation-plan.md'], ['doc', 'implementation-log.md']]);
+  // Every lens round (older ones too), the review facts and the second looks; never a brief, never what is listed.
+  assert.deepEqual(step('review').more.map((o) => o.id), ['review/errors-r1.md', 'review/errors-r2.md', 'review/tests-r1.md', 'review/facts.md', 'review/facts-r2.md', 'fable/002-review.md']);
+  // The test report listed twice (v4, v5) is listed once and is not in `more`.
+  assert.deepEqual(step('test').more, []);
+  for (const s of p.steps) assert.ok(Array.isArray(s.more), s.id);
+});
+
+test('Task 10 fix round 1: each step sends its main output; a step not started (or skipped) has `not-yet`', () => {
+  const p = buildJobPage(atReview());
+  assert.deepEqual(Object.fromEntries(p.steps.map((s) => [s.id, s.main])), {
+    spec: { kind: 'doc', id: 'spec' },
+    investigate: { kind: 'doc', id: 'findings.md' },
+    plan: { kind: 'doc', id: 'implementation-plan.md' },
+    build: { kind: 'changes', id: 'changes' },
+    test: { kind: 'checks', id: 'checks' },
+    review: { kind: 'findings', id: 'findings' },
+    ship: { kind: 'not-yet', id: 'ship' },
+  });
+  const working = atReview();
+  working.card.stage = 'implement';
+  working.card.stageState = 'working';
+  working.card.needsYou = false;
+  working.lane = 'working';
+  const q = buildJobPage(working);
+  assert.deepEqual(q.steps.find((s) => s.id === 'build').main, { kind: 'changes', id: 'changes' });
+  assert.deepEqual(q.steps.find((s) => s.id === 'test').main, { kind: 'not-yet', id: 'test' });
+});

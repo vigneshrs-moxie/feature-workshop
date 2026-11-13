@@ -2236,12 +2236,13 @@ export async function createRunner(config) {
       detail, thread: detail.threadAll, commits, evidence: evidence?.evidence || evidence?.recording ? evidence : null,
       usage: limits.view(), key, orbitUrl, hosted: false,
     });
-    const files = [...new Set(payload.steps.flatMap((st) => st.outputs).filter((o) => o.kind === 'doc').map((o) => o.id))];
+    // The documents the steps list and the ones only the reader reaches (a step's `more`).
+    const files = [...new Set(payload.steps.flatMap((st) => [...st.outputs, ...st.more]).filter((o) => o.kind === 'doc').map((o) => o.id))];
     const docs = (await Promise.all(files.map((file) => docOf(f, file).catch(() => null)))).filter(Boolean);
     // Each document output carries its text's hash (its body's version), so a document rewritten without
     // a new version number still moves v and the page can tell its kept copy is old.
     const docHash = new Map(docs.map((d) => [d.file, bodyHash(d.text)]));
-    for (const st of payload.steps) for (const o of st.outputs) if (o.kind === 'doc') o.hash = docHash.get(o.id) ?? null;
+    for (const st of payload.steps) for (const o of [...st.outputs, ...st.more]) if (o.kind === 'doc') o.hash = docHash.get(o.id) ?? null;
     // The whole conversation is here (the website's is cut to the newest 60: mirrorJobPage says more there).
     payload.rows.conversation.more = false;
     const sources = itemSources({
