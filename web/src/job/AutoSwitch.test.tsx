@@ -308,3 +308,53 @@ describe('AutoSwitch on the new job page (optimistic, short)', () => {
     expect(screen.getByText(queued.words)).toBeInTheDocument();
   });
 });
+
+// Task 8 fix round 1: in the new header the line sits in the row, can be put away, and a stop is the switch's word and title.
+describe('AutoSwitch in the new header: its line', () => {
+  function showShort(j: Job, post: ReturnType<typeof vi.fn> = vi.fn(async () => ({ ok: true })), hosted = false) {
+    const store: Store = createStore();
+    const api = { get: vi.fn(), post, ...(hosted ? { hosted: () => true } : {}) } as unknown as ApiClient;
+    const utils = render(<WorkshopContext.Provider value={{ store, api }}><AutoSwitch job={j} word tagLine={false} optimistic short /></WorkshopContext.Provider>);
+    const again = (k: Job) => utils.rerender(<WorkshopContext.Provider value={{ store, api }}><AutoSwitch job={k} word tagLine={false} optimistic short /></WorkshopContext.Provider>);
+    return { ...utils, again };
+  }
+
+  it('a refusal can be put away with Dismiss', async () => {
+    const post = vi.fn(async () => { throw new ApiError(409, 'No.', { code: 'x' }); });
+    const { container } = showShort(job('alpha', 'needs-you', { level: 1 }), post);
+    await act(async () => { fireEvent.click(screen.getByRole('checkbox', { name: AUTO_LABEL })); });
+    expect(container.querySelector('.is-refused')).toHaveTextContent('Auto stayed off: No.');
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    expect(container.querySelector('.is-refused')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Dismiss' })).toBeNull();
+  });
+
+  it('Auto stopped is the switch’s word and title, and is still heard, but is not a line on the page', () => {
+    const { container } = showShort(job('alpha', 'needs-you', { level: 1, auto: { on: true, by: 'you', stopped: { reason: 'the plan needs you', rule: 'x', at: '2026-11-12T09:00:00Z' } } as never }));
+    expect(container.querySelector('.sb-auto-switch-word')).toHaveTextContent(/^Stopped$/);
+    expect(container.querySelector('.auto-switch-row')).toHaveAttribute('title', expect.stringContaining('Auto stopped: the plan needs you'));
+    expect(container.querySelector('.is-stopped')).toBeNull();
+    expect(screen.getByRole('status')).toHaveTextContent('Auto stopped: the plan needs you');
+    expect(screen.getByRole('status').querySelector('.sr-only')).not.toBeNull();
+  });
+
+  it('a refusal that lands after the job’s record already shows the change does not flip it back', async () => {
+    let refuse: (e: unknown) => void = () => {};
+    const post = vi.fn(() => new Promise((_, no) => { refuse = no; }));
+    const j = job('alpha', 'needs-you', { level: 1 });
+    const { container, again } = showShort(j, post);
+    fireEvent.click(screen.getByRole('checkbox', { name: AUTO_LABEL }));
+    again({ ...j, auto: { on: true, by: 'you' } } as Job);
+    await act(async () => { refuse(new ApiError(504, 'Timed out.', { code: 'x' })); });
+    expect(screen.getByRole('checkbox', { name: AUTO_LABEL })).toBeChecked();
+    expect(container.querySelector('.is-refused')).toBeNull();
+  });
+
+  it('the website’s queued change is drawn small, with small buttons, so it fits the header row', () => {
+    const queued = { id: 'd_abcdefgh1234', kind: 'auto', state: 'waiting', words: 'Auto on or off: waiting for your laptop. It runs when the laptop is back.', at: '2026-11-12T09:00:00Z', expiresAt: null, waiting: true, canCancel: true, permissionId: null };
+    const { container } = showShort({ ...job('alpha', 'needs-you', { level: 1 }), autoQueued: queued } as never, vi.fn(), true);
+    expect(screen.getByRole('checkbox', { name: AUTO_LABEL })).toBeDisabled();
+    expect(container.querySelector('.queued-decision')).toHaveClass('is-compact');
+    expect(screen.getByRole('button', { name: 'Cancel' })).toHaveClass('btn-sm');
+  });
+});

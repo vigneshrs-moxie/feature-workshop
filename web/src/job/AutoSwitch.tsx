@@ -9,9 +9,12 @@
 // refused (with the laptop's own sentence), beside the switch, and the switch rests meanwhile.
 // The new job page's header (optimistic, short): the switch flips at once, without the spinner, and
 // flips back with one plain line if the server refuses; on the website it queues as above. Short shows
-// the word Auto, its name still the full sentence. Other screens keep the spinner and the sentence.
+// the word Auto, its name still the full sentence. There the line sits beside the switch: a refusal
+// with Dismiss, a stop as the word Stopped with its reason in the title (heard, not drawn), and the
+// website's queued change drawn small. Other screens keep the spinner, the sentence and the line.
 // Self-contained: props in, no reach into the page.
 import { useEffect, useId, useRef, useState } from 'react';
+import { Button } from '../components/Button';
 import type { Job } from '../api/types';
 import { OptionRow } from '../components/Choice';
 import { useWorkshop } from '../state/store';
@@ -33,21 +36,23 @@ interface ViewProps {
   word?: boolean;
   /** The new job page's header: the word Auto shows; the sentence stays the checkbox's name. */
   short?: boolean;
+  /** The new job page's header: Auto has stopped, and why (the word says Stopped; the title the reason). */
+  stopped?: string | null;
   onToggle(next: boolean): void;
 }
 
-function SwitchView({ checked, disabled, busy, quiet, word = false, short = false, onToggle }: ViewProps) {
+function SwitchView({ checked, disabled, busy, quiet, word = false, short = false, stopped = null, onToggle }: ViewProps) {
   const hintId = useId();
   return (
     <>
-    <OptionRow type="checkbox" className={`auto-switch-row${disabled ? ' is-off' : ''}`} checked={checked} disabled={disabled} aria-busy={busy || undefined} aria-describedby={quiet ? hintId : undefined} title={quiet ? AUTO_HINT : undefined} onChange={(e) => onToggle(e.target.checked)}>
+    <OptionRow type="checkbox" className={`auto-switch-row${disabled ? ' is-off' : ''}`} checked={checked} disabled={disabled} aria-busy={busy || undefined} aria-describedby={quiet ? hintId : undefined} title={quiet ? (short && stopped ? `Auto stopped: ${stopped}. ${AUTO_HINT}` : AUTO_HINT) : undefined} onChange={(e) => onToggle(e.target.checked)}>
       <span className="option-body">
         {short
           ? <span className="auto-switch-label"><span className="sr-only">{AUTO_LABEL}</span><span className="auto-switch-short" aria-hidden="true">Auto</span></span>
           : <span className="auto-switch-label">{AUTO_LABEL}</span>}
         {!quiet && <span className="auto-switch-hint">{AUTO_HINT}</span>}
       </span>
-      {word && <b className={`sb-auto-switch-word${checked ? ' is-on' : ''}`} aria-hidden="true">{checked ? 'On' : 'Off'}</b>}
+      {word && <b className={`sb-auto-switch-word${checked ? ' is-on' : ''}`} aria-hidden="true">{checked ? (short && stopped ? 'Stopped' : 'On') : 'Off'}</b>}
     </OptionRow>
     {/* Outside the label, so its words never join the checkbox's name. */}
     {busy && <span className="auto-spin" role="status" aria-label={checked ? 'Turning Auto off…' : 'Turning Auto on…'}><span className="spin-ring" aria-hidden="true" /></span>}
@@ -63,6 +68,9 @@ function HeaderSwitch({ job, onChange, word = false, tagLine = true, optimistic 
   const fast = optimistic && !api.hosted?.();
   const sent = useSent(`auto:${job.slug}`);
   const inflight = useRef(false);
+  // The job's own record, as it is now (a slow refusal checks it before it flips the switch back).
+  const record = useRef(job.auto?.on === true);
+  record.current = job.auto?.on === true;
   // What the server last answered, until the job's own record catches up.
   const [shown, setShown] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -89,7 +97,8 @@ function HeaderSwitch({ job, onChange, word = false, tagLine = true, optimistic 
       setShown(next);
       onChange?.(next);
     } catch (err) {
-      if (fast) { setShown(was); setError(`Auto stayed ${was ? 'on' : 'off'}: ${messageOf(err)}`); } else setError(messageOf(err));
+      if (fast && record.current === next) setShown(null); // the record already shows the change: it went through after all
+      else if (fast) { setShown(was); setError(`Auto stayed ${was ? 'on' : 'off'}: ${messageOf(err)}`); } else setError(messageOf(err));
     } finally {
       inflight.current = false;
       if (!fast) sent.clear();
@@ -103,8 +112,17 @@ function HeaderSwitch({ job, onChange, word = false, tagLine = true, optimistic 
   const tag = tagLine && on && job.auto?.by === 'tag' && job.auto.tag ? job.auto.tag : null;
   return (
     <div className="auto-switch is-inline">
-      <SwitchView quiet word={word} short={short} checked={on} disabled={sent.state === 'sending' || waiting} busy={sent.state === 'sending'} onToggle={(next) => { void toggle(next); }} />
+      <SwitchView quiet word={word} short={short} stopped={stopped} checked={on} disabled={sent.state === 'sending' || waiting} busy={sent.state === 'sending'} onToggle={(next) => { void toggle(next); }} />
       {/* A polite live region: a refusal, a stop or "Auto is on" is heard once, without taking the focus. */}
+      {short ? (
+        <>
+          {/* The new header: a stop or "Auto is on" is heard, not drawn; a refusal shows, with Dismiss. */}
+          <p className="auto-line" role="status" aria-live="polite">
+            {error ? <span className="is-refused" title={error}>{error}</span> : <span className="sr-only">{stopped ? `Auto stopped: ${stopped}` : on ? 'Auto is on' : ''}</span>}
+          </p>
+          {error && <Button kind="quiet" size="sm" iconOnly icon="x" className="auto-line-x" aria-label="Dismiss" title="Hide this line." onClick={() => setError(null)} />}
+        </>
+      ) : (
       <p className="auto-line" role="status" aria-live="polite">
         {error ? <span className="is-refused">{error}</span> : (
           <>
@@ -114,7 +132,8 @@ function HeaderSwitch({ job, onChange, word = false, tagLine = true, optimistic 
           </>
         )}
       </p>
-      {queued && (isOpen(queued) || needsLook(queued)) && <QueuedDecision queued={queued} onChange={() => setHeld(null)} />}
+      )}
+      {queued && (isOpen(queued) || needsLook(queued)) && <QueuedDecision queued={queued} compact={short} onChange={() => setHeld(null)} />}
     </div>
   );
 }

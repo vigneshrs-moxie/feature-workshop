@@ -17,13 +17,17 @@
 //   Open the folder in a terminal  POST /api/job/:slug/local { action: 'open', what: 'terminal' } (as StepPanel)
 //   Back to the old job page    the page switch (switch.ts)
 // On the website the laptop's items are not there (the website answers them "on your laptop"): it keeps
-// Copy decisions, How this page works and the page switch. What a menu item did, or why it could not,
-// shows in one line under the header's right end.
+// Copy decisions, How this page works and the page switch.
+//
+// Lines sit in the row itself, left of Auto, never over the panes: what a menu item did (gone after a
+// few seconds) or why it could not (until Dismiss), Auto's refusal (until Dismiss), and on the website
+// the queued Auto change (waiting, on its way, refused), read live from the Jobs snapshot's row. While
+// one shows on a laptop, the dim facts make room for it.
 //
 // First paint from the Jobs snapshot's row (the `job` prop), so the key, the title and the state word do
 // not move when the payload lands.
 
-import { memo, useCallback, useMemo, useState, useSyncExternalStore } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { Job, Run } from '../../api/types';
 import { reopenJob, setJobPolicy } from '../../app/jobActions';
 import { MenuButton, type MenuEntry } from '../../app/Menu';
@@ -37,6 +41,7 @@ import { AutoSwitch } from '../../job/AutoSwitch';
 import { CopyDecisions } from '../../job/CopyDecisions';
 import { formatCost, isActiveRun } from '../../panes/Foreman/thread';
 import { DecisionsTab } from '../../panes/Preview/DecisionsTab';
+import { jobBySlug } from '../../state/reducer';
 import { useWorkshop } from '../../state/store';
 import { backToOldJobPage } from '../switch';
 import type { JobState } from '../types';
@@ -91,6 +96,7 @@ export const Header = memo(function Header({ job }: { job: Job | null }) {
   const cost = typeof usd === 'number' && usd > 0.1 ? formatCost(usd) : null;
   const levelWord = level !== null && level !== undefined ? `L${level}` : null;
   const dim = [levelWord, repo, cost].filter(Boolean).join(' · ');
+  const [note, setNote] = useState<HeadNoteWords | null>(null);
   return (
     <header className="jp2-head">
       <a className="jp2-jobs" href="#/"><Icon name="chevron-left" size={16} />Jobs</a>
@@ -101,17 +107,41 @@ export const Header = memo(function Header({ job }: { job: Job | null }) {
       </div>
       <span className="jp2-spacer" />
       {dim && <span className="jp2-facts" title={cost ? COST_TITLE : undefined}>{dim}</span>}
+      {note && <HeadNote note={note} onClear={setNote} />}
       <HeaderAuto slug={slug} job={job} />
-      <MoreMenu slug={slug} job={job} />
+      <MoreMenu slug={slug} job={job} onNote={setNote} />
     </header>
   );
 });
 
-/** The shared Auto switch, optimistic, with its word. */
+interface HeadNoteWords { text: string; bad: boolean }
+/** How long a menu item's own result stays (a refusal stays until Dismiss). */
+export const NOTE_MS = 6000;
+
+/** What a menu item did, or why it could not: one line in the row, with Dismiss. */
+function HeadNote({ note, onClear }: { note: HeadNoteWords; onClear(n: null): void }) {
+  useEffect(() => {
+    if (note.bad) return undefined;
+    const t = setTimeout(() => onClear(null), NOTE_MS);
+    return () => clearTimeout(t);
+  }, [note, onClear]);
+  return (
+    <p className="jp2-head-note" role={note.bad ? 'alert' : 'status'}>
+      <span title={note.text}>{note.text}</span>
+      <Button kind="quiet" size="sm" iconOnly icon="x" aria-label="Dismiss" title="Hide this line." onClick={() => onClear(null)} />
+    </p>
+  );
+}
+
+/** The shared Auto switch, optimistic, with its word; on the website with the job's queued change. */
 const HeaderAuto = memo(function HeaderAuto({ slug, job }: { slug: string; job: Job | null }) {
+  const { store } = useWorkshop();
   const fromPayload = useJob((s) => (s.payload ? s.payload.auto : undefined));
   const auto = fromPayload === undefined ? job?.auto ?? null : fromPayload;
-  const switchJob = useMemo(() => ({ slug, auto: auto ?? undefined }) as Pick<Job, 'slug' | 'auto'>, [slug, auto]);
+  // The website's Jobs rows carry the Auto change queued for the laptop (hosted/site/routes-mirror.js);
+  // read live, as a string, so only a change to it redraws the switch. Never set on the laptop.
+  const queuedJson = useSyncExternalStore(store.subscribe, () => JSON.stringify((jobBySlug(store.getState(), slug) as { autoQueued?: unknown } | null)?.autoQueued ?? null));
+  const switchJob = useMemo(() => ({ slug, auto: auto ?? undefined, autoQueued: JSON.parse(queuedJson) as unknown }) as Pick<Job, 'slug' | 'auto'>, [slug, auto, queuedJson]);
   return (
     <div className="jp2-auto">
       <AutoSwitch job={switchJob} word tagLine={false} optimistic short />
@@ -122,7 +152,7 @@ const HeaderAuto = memo(function HeaderAuto({ slug, job }: { slug: string; job: 
 const messageOf = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 /** The ⋯ menu: everything rare, through today's handlers. */
-const MoreMenu = memo(function MoreMenu({ slug, job }: { slug: string; job: Job | null }) {
+const MoreMenu = memo(function MoreMenu({ slug, job, onNote }: { slug: string; job: Job | null; onNote(n: HeadNoteWords | null): void }) {
   const { api, store } = useWorkshop();
   const ui = useUi();
   const hosted = Boolean(api.hosted?.());
@@ -140,16 +170,21 @@ const MoreMenu = memo(function MoreMenu({ slug, job }: { slug: string; job: Job 
   const global = useSyncExternalStore(store.subscribe, () => store.getState().meta?.settings?.policy ?? 'hands-off');
   const blocked = useSyncExternalStore(store.subscribe, () => autoBlockedReason(autoModeOf(store.getState().meta?.settings)));
   const [open, setOpen] = useState<'copy' | 'guide' | null>(null);
-  const [note, setNote] = useState<{ text: string; bad: boolean } | null>(null);
   const shut = useCallback(() => setOpen(null), []);
+  const busy = useRef(false);
 
+  /** One menu action at a time (the old menu's busy): a second one while a post is out does nothing. */
   async function act(fn: () => Promise<string | void>) {
-    setNote(null);
+    if (busy.current) return;
+    busy.current = true;
+    onNote(null);
     try {
       const said = await fn();
-      if (said) setNote({ text: said, bad: false });
+      if (said) onNote({ text: said, bad: false });
     } catch (err) {
-      setNote({ text: messageOf(err), bad: true });
+      onNote({ text: messageOf(err), bad: true });
+    } finally {
+      busy.current = false;
     }
   }
 
@@ -217,12 +252,6 @@ const MoreMenu = memo(function MoreMenu({ slug, job }: { slug: string; job: Job 
   return (
     <>
       <MenuButton label="More for this job" hint="Rare things for this job." icon="dots" className="jp2-menu" entries={entries} />
-      {note && (
-        <p className="jp2-head-note" role={note.bad ? 'alert' : 'status'}>
-          <span>{note.text}</span>
-          <Button kind="quiet" size="sm" iconOnly icon="x" aria-label="Dismiss" title="Hide this line." onClick={() => setNote(null)} />
-        </p>
-      )}
       {open === 'copy' && <CopyDecisions slug={slug} all={<DecisionsTab slug={slug} active copy={false} />} onClose={shut} />}
       {open === 'guide' && <Guide spec={JOB_PAGE_GUIDE} onClose={shut} />}
     </>

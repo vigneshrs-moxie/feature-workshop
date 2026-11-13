@@ -19,9 +19,9 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 /* The header sits over the panes, so its menu and its one-line notes are never under the reader. */
 .jp2-head { position: relative; z-index: 3; }
 /* Auto, the switch, its word (prototype .sj-auto): the shared AutoSwitch, drawn small. */
-.jp2-auto { flex: none; position: relative; }
-.jp2-auto .auto-switch.is-inline { display: flex; flex-wrap: nowrap; align-items: center; gap: 6px; }
-.jp2-auto .auto-switch-row { width: auto; display: inline-flex; align-items: center; gap: 6px; height: 28px; min-height: 0; padding: 0 6px; border-radius: 6px; font-size: 13px; color: var(--text-2); cursor: pointer; }
+.jp2-auto { flex: 0 1 auto; min-width: 0; }
+.jp2-auto .auto-switch.is-inline { display: flex; flex-wrap: nowrap; align-items: center; gap: 6px; min-width: 0; }
+.jp2-auto .auto-switch-row { flex: none; width: auto; display: inline-flex; align-items: center; gap: 6px; height: 28px; min-height: 0; padding: 0 6px; border-radius: 6px; font-size: 13px; color: var(--text-2); cursor: pointer; }
 .jp2-auto .auto-switch-row, .jp2-auto .auto-switch-row:has(.choice:checked) { border: 0; background: none; }
 .jp2-auto .auto-switch-row:hover { background: var(--hover-bg); }
 .jp2-auto .auto-switch-row .option-body { order: 0; }
@@ -31,16 +31,25 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2-auto .auto-switch-row > .choice:checked { border-color: transparent; background-color: var(--btn-primary-bg); place-content: center end; }
 .jp2-auto .auto-switch-row > .choice:checked::before { width: 12px; height: 12px; border: 0; transform: none; background: var(--surface-1); }
 .jp2-auto .sb-auto-switch-word { order: 2; font-weight: 400; }
-/* Under the switch, only when there is something to say: a refusal, or Auto stopped and why. */
-.jp2-auto .auto-line { display: none; }
-.jp2-auto .auto-line:has(.is-refused, .is-stopped) { display: block; }
-.jp2-auto .auto-line > span:not(.is-refused):not(.is-stopped) { display: none; }
-.jp2-auto .auto-line, .jp2-head-note { position: absolute; top: calc(100% + 6px); right: 0; z-index: 1; width: max-content; max-width: 340px; min-height: 0; margin: 0; padding: 6px 10px; border: 1px solid var(--border-2); border-radius: 8px; background: var(--surface-float); box-shadow: var(--elev-md); font-size: 13px; line-height: 18px; white-space: normal; color: var(--text-1); }
+/* Lines in the row, left of the switch, never over the panes (one line each, the rest in their title):
+   Auto's refusal with Dismiss, and on the website the queued Auto change drawn small. A stop is the
+   switch's word and title; "Auto is on" and the stop are heard only (sr-only inside the live line). */
+.jp2-auto .auto-line { order: -2; min-width: 0; min-height: 0; margin: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13px; line-height: 18px; color: var(--text-1); }
+.jp2-auto .auto-line-x { order: -1; }
+.jp2-auto .queued-decision.is-compact { order: -3; flex: 0 1 auto; min-width: 0; min-height: 0; margin: 0; padding: 0 0 0 8px; gap: 6px; flex-wrap: nowrap; border-width: 0 0 0 3px; border-radius: 0; background: none; font-size: 13px; line-height: 18px; }
+.jp2-auto .queued-decision.is-compact .queued-decision-words { flex: 0 1 auto; align-items: center; min-width: 0; overflow: hidden; white-space: nowrap; font-weight: 400; }
+.jp2-auto .queued-decision.is-compact .queued-decision-words > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.jp2-auto .queued-decision.is-compact .queued-decision-words > svg { margin-top: 0; }
+.jp2-auto .queued-decision.is-compact .field-problem { margin: 0; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 /* The ⋯ menu's items at the prototype's size (.sj-mi) on a laptop; the phone keeps the shared 40 px rows. */
 .jp2:not([data-layout="phone"]) .jp2-menu .menu-item { min-height: 32px; font-size: 13px; }
 .jp2:not([data-layout="phone"]) .jp2-menu .menu-heading { font-size: 12px; }
-/* What a menu item did, or why it could not: one line under the menu, with a button to hide it. */
-.jp2-head-note { right: 12px; display: flex; align-items: center; gap: 6px; padding-right: 4px; }
+/* What a menu item did, or why it could not: one line in the row, with a button to hide it. */
+.jp2-head-note { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: 4px; margin: 0; font-size: 13px; line-height: 18px; color: var(--text-1); }
+.jp2-head-note > span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.jp2-head-note > :last-child { flex: none; }
+/* While a line shows on a laptop, the dim facts make room for it (the title and the switch stay put). */
+.jp2:not([data-layout="phone"]) .jp2-head:has(.jp2-head-note, .auto-line .is-refused, .queued-decision) .jp2-facts { display: none; }
 
 /* Panes */
 .jp2-panes { position: relative; flex: 1; min-height: 0; display: flex; overflow: hidden; }
@@ -148,7 +157,8 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2[data-layout="phone"] .jp2-spacer { display: none; }
 .jp2[data-layout="phone"] .jp2-facts { order: 3; flex-basis: 100%; font-size: 13px; }
 .jp2[data-layout="phone"] .jp2-menu { order: 0; margin-left: auto; }
-.jp2[data-layout="phone"] .jp2-auto { order: 4; margin-left: -6px; }
+.jp2[data-layout="phone"] .jp2-auto { order: 4; flex: 1 1 100%; margin-left: -6px; }
+.jp2[data-layout="phone"] .jp2-head-note { order: 5; flex: 1 1 100%; }
 .jp2[data-layout="phone"] .jp2-ym { padding: 12px; }
 .jp2[data-layout="phone"] .jp2-ym-one { padding: 12px 6px; font-size: 15px; }
 .jp2[data-layout="phone"] .jp2-ym-opt.option-row { min-height: 52px; }

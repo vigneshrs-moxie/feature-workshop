@@ -4,7 +4,7 @@
 //   GET /api/job/:slug/page?v=<n>    JobPagePayload, or SamePage when n is the current v
 //   GET /api/job/:slug/item?id=<id>  JobBody
 // On the website (hosted/site/routes-mirror.js, mirrorJobPage) the payload has hosted: true and no
-// `drive` or `lock` (LOCAL_ONLY), so both are optional here.
+// `drive`, `lock` or `local` (LOCAL_ONLY), so all three are optional here.
 
 import type { Closed, JobAuto, JobLockInfo, PolicyId, StopId } from '../api/types';
 

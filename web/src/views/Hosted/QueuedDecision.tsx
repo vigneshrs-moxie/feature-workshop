@@ -11,7 +11,7 @@
 // this page first showed it with nothing moved (lib/sentState.ts) the line adds "Nothing has moved
 // yet." once, beside Cancel. No Try again here: the site refuses a second copy of a waiting decision.
 // Words and an icon carry each state, never colour alone. Only the hosted site sends `queued`, so
-// on the laptop nothing here ever shows.
+// on the laptop nothing here ever shows. Compact (the new job page's header row): one line, small buttons.
 import { useEffect, useState } from 'react';
 import { Button } from '../../components/Button';
 import { Icon } from '../../components/Icon';
@@ -45,7 +45,7 @@ const ICON = { waiting: 'clock', sent: 'send', changed: 'refresh', failed: 'aler
 
 const STUCK_WORDS = 'Nothing has moved yet.';
 
-export function QueuedDecision({ queued, onChange }: { queued: QueuedView; onChange?: () => void }) {
+export function QueuedDecision({ queued, onChange, compact = false }: { queued: QueuedView; onChange?: () => void; /** One line with small buttons, for a header row. */ compact?: boolean }) {
   const { api } = useWorkshop();
   const [busy, setBusy] = useState<'cancel' | 'dismiss' | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
@@ -65,17 +65,17 @@ export function QueuedDecision({ queued, onChange }: { queued: QueuedView; onCha
   const stuck = open && sent === 'stuck';
   const tone = open ? 'is-waiting' : needsLook(queued) ? 'is-look' : 'is-settled';
   return (
-    <section className={`queued-decision ${tone}`} data-state={queued.state} aria-label="Your decision from the site">
+    <section className={`queued-decision ${tone}${compact ? ' is-compact' : ''}`} data-state={queued.state} aria-label="Your decision from the site">
       <p className="queued-decision-words" role="status">
-        <Icon name={ICON[queued.state] ?? 'clock'} size={18} />
-        <span>{queued.words}{stuck && <> <span className="queued-decision-stuck">{STUCK_WORDS}</span></>}</span>
+        <Icon name={ICON[queued.state] ?? 'clock'} size={compact ? 14 : 18} />
+        <span title={compact ? queued.words : undefined}>{queued.words}{stuck && <> <span className="queued-decision-stuck">{STUCK_WORDS}</span></>}</span>
       </p>
       <div className="queued-decision-actions">
         {open && queued.canCancel && (
-          <Button kind="secondary" size="lg" busy={busy === 'cancel'} onClick={() => void act('cancel')} title="Take this decision back. Nothing is sent to your laptop.">Cancel</Button>
+          <Button kind="secondary" size={compact ? 'sm' : 'lg'} busy={busy === 'cancel'} onClick={() => void act('cancel')} title="Take this decision back. Nothing is sent to your laptop.">Cancel</Button>
         )}
         {!open && (
-          <Button kind="quiet" busy={busy === 'dismiss'} onClick={() => void act('dismiss')} title="Put this note away.">Got it</Button>
+          <Button kind="quiet" size={compact ? 'sm' : 'md'} busy={busy === 'dismiss'} onClick={() => void act('dismiss')} title="Put this note away.">Got it</Button>
         )}
       </div>
       {problem && <p className="field-problem" role="alert">{problem}</p>}

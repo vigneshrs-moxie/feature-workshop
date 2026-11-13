@@ -17,7 +17,7 @@ import { createJobStore } from '../jobStore';
 import { JOB_PAGE_KEY } from '../switch';
 import type { JobPagePayload, JobState } from '../types';
 import { JobStoreContext } from '../useJob';
-import { Header, STATE_WORDS } from './Header';
+import { Header, NOTE_MS, STATE_WORDS } from './Header';
 
 const SLUG = longJob.payload.slug;
 const DIR = '/made/up/jobs/orbit-905';
@@ -38,9 +38,9 @@ function SheetProbe() {
 const sheetNow = () => screen.getByTestId('sheet').textContent;
 
 interface Mounted { api: ApiClient; post: ReturnType<typeof vi.fn>; get: ReturnType<typeof vi.fn>; app: Store; unmount(): void }
-function mount({ p = payload(), row = null, hosted = false, post = vi.fn(async (): Promise<unknown> => ({})) }: { p?: JobPagePayload | null; row?: Job | null; hosted?: boolean; post?: ReturnType<typeof vi.fn> } = {}): Mounted {
+function mount({ p = payload(), row = null, hosted = false, post = vi.fn(async (): Promise<unknown> => ({})), rows }: { p?: JobPagePayload | null; row?: Job | null; hosted?: boolean; post?: ReturnType<typeof vi.fn>; /** The app's Jobs snapshot rows. */ rows?: Job[] } = {}): Mounted {
   const app = createStore();
-  app.dispatch({ type: 'snapshot', snapshot: snapshot({ meta: { token: 't', settings: { policy: 'hands-off', jobPolicy: {} } as unknown as Settings } }) });
+  app.dispatch({ type: 'snapshot', snapshot: snapshot({ meta: { token: 't', settings: { policy: 'hands-off', jobPolicy: {} } as unknown as Settings }, ...(rows ? { jobs: rows } : {}) }) });
   const get = vi.fn(async (path: string): Promise<unknown> => (path.includes('decisions.md') ? { orbit: { text: '- Keep the old export', count: 1 } } : {}));
   const api = { get, post, hosted: () => hosted } as unknown as ApiClient;
   const store = createJobStore(SLUG, { api, initial: p, events: () => () => {} });
@@ -213,5 +213,75 @@ describe('the ⋯ menu', () => {
     expect(menuNames()).not.toContain('Mark done or dropped');
     await act(async () => { fireEvent.click(item('Reopen')); });
     expect(post).toHaveBeenCalledWith(`/api/job/${SLUG}/reopen`, {});
+  });
+});
+
+// Task 8 fix round 1: lines sit in the header row, never over the panes; the website's queued Auto change shows.
+describe('the header’s lines (fix round 1)', () => {
+  const QUEUED = { id: 'd_abcdefgh1234', kind: 'auto', state: 'waiting', words: 'Auto on or off: waiting for your laptop. It runs when the laptop is back.', at: '2026-11-12T09:00:00Z', expiresAt: null, waiting: true, canCancel: true, permissionId: null };
+
+  it('on the website, the job’s queued Auto change shows in the header row and rests the switch, read live from the Jobs row', () => {
+    const p = payload({ hosted: true });
+    delete p.local;
+    const row = { ...jobRow(SLUG, 'needs-you', { title: 'Crew schedule export' }), autoQueued: QUEUED } as Job;
+    const { app } = mount({ p, hosted: true, rows: [row] });
+    const box = within(head()).getByRole('checkbox', { name: AUTO_LABEL });
+    expect(box).toBeDisabled();
+    const card = head().querySelector('.jp2-auto .queued-decision')!;
+    expect(card).toHaveClass('is-compact');
+    expect(card).toHaveTextContent(QUEUED.words);
+    expect(within(head()).getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+    // The laptop took it: the row no longer carries it.
+    act(() => { app.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [{ ...row, autoQueued: null } as Job] }) }); });
+    expect(head().querySelector('.queued-decision')).toBeNull();
+    expect(within(head()).getByRole('checkbox', { name: AUTO_LABEL })).toBeEnabled();
+  });
+
+  it('Auto’s refusal is a line in the row, before the switch, with Dismiss', async () => {
+    const post = vi.fn(async () => { throw new ApiError(409, 'Not now.', { code: 'x' }); });
+    mount({ post });
+    await act(async () => { fireEvent.click(within(head()).getByRole('checkbox', { name: AUTO_LABEL })); });
+    const line = head().querySelector('.jp2-auto .auto-line')!;
+    expect(line).toHaveTextContent('Auto stayed off: Not now.');
+    expect(line.parentElement!.closest('.jp2-head')).toBe(head());
+    fireEvent.click(within(head()).getByRole('button', { name: 'Dismiss' }));
+    expect(head()).not.toHaveTextContent('Auto stayed off');
+  });
+
+  it('a menu item’s result is a line in the row that goes after a few seconds; a failure stays until Dismiss', async () => {
+    vi.useFakeTimers();
+    try {
+      let fail = false;
+      const post = vi.fn(async (): Promise<unknown> => { if (fail) throw new Error('No terminal app.'); return {}; });
+      mount({ post });
+      openMenu();
+      await act(async () => { fireEvent.click(item('Open the folder in a terminal')); });
+      const note = head().querySelector('.jp2-head-note')!;
+      expect(note).toHaveTextContent('Opened the job’s folder in a terminal.');
+      expect(note.nextElementSibling).toHaveClass('jp2-auto');
+      act(() => { vi.advanceTimersByTime(NOTE_MS); });
+      expect(head().querySelector('.jp2-head-note')).toBeNull();
+      fail = true;
+      openMenu();
+      await act(async () => { fireEvent.click(item('Open the folder in a terminal')); });
+      act(() => { vi.advanceTimersByTime(NOTE_MS * 3); });
+      expect(within(head()).getByRole('alert')).toHaveTextContent('No terminal app.');
+      fireEvent.click(within(head().querySelector('.jp2-head-note')!).getByRole('button', { name: 'Dismiss' }));
+      expect(head().querySelector('.jp2-head-note')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('one menu action at a time: a second while a post is out sends nothing', async () => {
+    let finish: () => void = () => {};
+    const post = vi.fn(() => new Promise<void>((r) => { finish = r; }));
+    mount({ post, p: payload({ closed: { as: 'done', at: '2026-11-05T10:00:00.000Z' } }) });
+    openMenu();
+    fireEvent.click(item('Reopen'));
+    openMenu();
+    fireEvent.click(item('Reopen'));
+    expect(post).toHaveBeenCalledTimes(1);
+    await act(async () => { finish(); });
   });
 });

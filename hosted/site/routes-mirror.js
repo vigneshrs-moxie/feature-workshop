@@ -187,7 +187,7 @@ export default function mirrorRoutes(ctx) {
     },
     /**
      * The new job page's payload (dashboard/site/routes-job-page.js), built from the mirrored record with the same
-     * builder (lib/job-payload.js mirrorJobPage): hosted, no drive or lock. v is the record's time; the site has no
+     * builder (lib/job-payload.js mirrorJobPage): hosted, no drive, lock or local (LOCAL_ONLY). v is the record's time; the site has no
      * cache, so it always answers the whole payload (never { same: true }).
      */
     async jobPage(slug) {
