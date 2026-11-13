@@ -35,6 +35,7 @@ import dashboardStageRoutes from '../../dashboard/site/routes-stage.js';
 import dashboardJobPageRoutes from '../../dashboard/site/routes-job-page.js';
 import { createHash } from 'node:crypto';
 import { mirrorJobPage } from '../../dashboard/lib/job-payload.js';
+import { ticketMarkdown } from '../../dashboard/lib/job-payload-cache.js';
 import { mirrorWork } from '../../dashboard/lib/work-rows.js';
 import { renderMarkdown } from '../../dashboard/lib/markdown.js';
 import { decisionKind, madeOnFor } from '../../dashboard/lib/made-on.js';
@@ -201,7 +202,8 @@ export default function mirrorRoutes(ctx) {
       return { ...mirrorJobPage(rec.value, { row, v: Date.parse(rec.updatedAt) || 0 }), queuedDecision: byJob.get(slug) ?? null };
     },
     /**
-     * One body of the new job page: a brief or document from its mirrored doc, the decisions list, a line's own
+     * One body of the new job page: a brief or document from its mirrored doc, the decisions list, the ticket and
+     * goal (from the record's page facts), a line's own
      * words; a reply's words stay on the laptop. A line's body is versioned by its payload line's hash (as on the
      * laptop), a document by its text.
      */
@@ -210,6 +212,10 @@ export default function mirrorRoutes(ctx) {
       const rec = await jobOf(slug);
       const hash = (text) => createHash('sha1').update(text).digest('hex').slice(0, 12);
       const lines = new Map(mirrorJobPage(rec.value).thread.map((l) => [l.id, l]));
+      if (id === 'ticket') {
+        const text = ticketMarkdown(rec.value.page);
+        return { id, kind: 'ticket', version: hash(text), html: renderMarkdown(text), text, meta: {} };
+      }
       if (id === 'decisions') {
         const rows = (await records.get(person.id, 'decisions', slug))?.value?.decisions ?? [];
         const text = rows.map((r) => `- ${String(r?.choice ?? r?.decision ?? '').trim()}${r?.question ? ` — ${String(r.question).trim()}` : ''}`).join('\n');

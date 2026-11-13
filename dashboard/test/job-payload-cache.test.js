@@ -5,7 +5,7 @@
 
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { jobPageCache, itemSources, REBUILD_DELAY_MS, REBUILD_MAX_WAIT_MS, MISSING_MS } from '../lib/job-payload-cache.js';
+import { jobPageCache, itemSources, ticketMarkdown, REBUILD_DELAY_MS, REBUILD_MAX_WAIT_MS, MISSING_MS } from '../lib/job-payload-cache.js';
 import { longJobPage } from './fixtures/long-job.js';
 import { renderMarkdown } from '../lib/markdown.js';
 
@@ -345,4 +345,40 @@ test('a slug that is no job answers 404 without a build for a few seconds; one t
     for (const bad of ['.hidden', '..', 'a\\b']) await assert.rejects(cache.page(bad), (err) => err.status === 404);
     assert.equal(s.builds, 3, 'no build for a name no job folder can have');
   } finally { cache.close(); mock.timers.reset(); }
+});
+
+test('Task 12: the ticket and goal is one body (id ticket): the ticket as written, what we are building with its risks, what to check', () => {
+  const page = {
+    ticket: { key: 'ORBIT-905', title: 'Crew schedule export', url: 'https://orbit.example.test/admin/feedback/ORBIT-905', filedBy: 'Dana Whitfield', filedAt: '2026-11-01T15:00:00.000Z', description: 'The office wants the week as a file.\n\nOne row per shift.' },
+    building: { from: 'spec', version: '0.4', outcome: ['A CSV of the week, one row per shift.'], risks: ['Night shifts cross midnight.'] },
+    check: { version: '3', worksWhen: ['The file opens in a spreadsheet.'], mustNot: ['Count a split shift twice.'] },
+  };
+  const text = ticketMarkdown(page);
+  assert.match(text, /^## The ticket$/m);
+  assert.match(text, /\*\*Crew schedule export\*\*/);
+  assert.match(text, /ORBIT-905 · filed by Dana Whitfield on Nov 1/);
+  assert.match(text, /The office wants the week as a file\.\n\nOne row per shift\./);
+  assert.match(text, /\[Open ORBIT-905 in Orbit\]\(https:\/\/orbit\.example\.test\/admin\/feedback\/ORBIT-905\)/);
+  assert.match(text, /^## What we’re building$/m);
+  assert.match(text, /From spec v0\.4/);
+  assert.match(text, /^### Risks\n\n- Night shifts cross midnight\.$/m);
+  assert.match(text, /^## What to check$/m);
+  assert.match(text, /^### It works when\n\n1\. The file opens in a spreadsheet\.$/m);
+  assert.match(text, /^### It must not\n\n1\. Count a split shift twice\.$/m);
+  // Nothing known: each part says so in a sentence, and a link that is not a web address is no link.
+  const none = ticketMarkdown({ ticket: { key: 'ORBIT-1', url: 'javascript:alert(1)' } });
+  assert.doesNotMatch(none, /javascript:/);
+  assert.match(none, /Not written yet\. The Foreman writes this with its first brief\./);
+  assert.match(none, /Not written yet\. The Foreman writes this list with the plan\./);
+  assert.match(ticketMarkdown(null), /This job did not start from an Orbit ticket\./);
+  // The source: rendered only when asked, versioned by its text, its parts kept as meta.
+  let renders = 0;
+  const sources = itemSources({ payload: { thread: [], steps: [] }, page, render: (t) => { renders++; return renderMarkdown(t); } });
+  const s = sources.get('ticket');
+  assert.equal(s.kind, 'ticket');
+  assert.equal(s.text, text);
+  assert.match(s.version, /^[0-9a-f]{12}$/);
+  assert.deepEqual(s.meta, { key: 'ORBIT-905', building: page.building.version, check: page.check.version });
+  assert.equal(renders, 0);
+  assert.match(s.html(), /<h2[^>]*>The ticket<\/h2>/);
 });

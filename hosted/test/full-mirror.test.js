@@ -777,6 +777,10 @@ test('the new job page on the site: the same payload, built from the mirrored re
     const decisions = await olive.person.json('/api/job/add-export/item?id=decisions');
     assert.equal(decisions.status, 200, JSON.stringify(decisions.body));
     assert.match(decisions.body.text, /CSV/);
+    const ticket = await olive.person.json('/api/job/add-export/item?id=ticket');
+    assert.equal(ticket.status, 200, JSON.stringify(ticket.body));
+    assert.equal(ticket.body.kind, 'ticket');
+    assert.match(ticket.body.html, /<h2[^>]*>The ticket<\/h2>/);
     const reply = await olive.person.json('/api/job/add-export/item?id=reply%3Aabc');
     assert.match(reply.body.text, /Its words show on your laptop/);
     assert.doesNotMatch(JSON.stringify(reply.body), /readSource/, 'none of the reply’s words');

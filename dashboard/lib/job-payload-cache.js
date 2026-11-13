@@ -241,11 +241,12 @@ const metaOf = (it) => Object.fromEntries(Object.entries(it).filter(([k]) => !BO
  *   - every document a step shows (docs: { file, name, type, text, updatedAt, size, summary }), id its
  *     file, versioned by its text
  *   - 'decisions': what was decided for him (and what Auto decided), one line each
+ *   - 'ticket': the ticket and goal (ticketMarkdown of the job's page facts, `page`)
  * Each is { kind, version, text, meta, html() }; html() renders (render(text, { json })) and is called
  * only when the body is first asked for.
  * @param {{ payload: object, thread?: object[], briefTexts?: Map<string, string>, docs?: object[], decided?: object[], autoDecided?: object[], render: (text: string, o?: { json?: boolean }) => string }} o
  */
-export function itemSources({ payload, thread = [], briefTexts = new Map(), docs = [], decided = [], autoDecided = [], render }) {
+export function itemSources({ payload, thread = [], briefTexts = new Map(), docs = [], decided = [], autoDecided = [], page = null, render }) {
   const sources = new Map();
   const lines = new Map((payload?.thread ?? []).map((l) => [l.id, l]));
   const items = (Array.isArray(thread) ? thread : []).filter((it) => it && typeof it === 'object' && it.id != null);
@@ -282,5 +283,66 @@ export function itemSources({ payload, thread = [], briefTexts = new Map(), docs
     return `- ${what}${why ? ` — ${why}` : ''}`;
   }).join('\n');
   sources.set('decisions', { kind: 'decisions', version: hashOf(text), text, meta: { rows }, html: () => render(text) });
+  const ticket = ticketMarkdown(page);
+  sources.set('ticket', { kind: 'ticket', version: hashOf(ticket), text: ticket, meta: ticketMeta(page), html: () => render(ticket) });
   return sources;
+}
+
+// ---------- The ticket and goal (the job page rebuild, Task 12) ----------
+
+const words = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+const lines = (v) => (Array.isArray(v) ? v.map(words).filter(Boolean) : []);
+const oneLine = (v) => v.replace(/\s+/g, ' ');
+/** "Nov 3", or null when the time can't be read (the old overview's words). */
+function dayOf(iso) {
+  const d = new Date(String(iso ?? ''));
+  return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
+
+/**
+ * The reader's `Ticket and goal` as one Markdown document, from the job's page facts (runner
+ * pageFacts: { ticket, building, check }): the ticket as written, what we are building with its
+ * risks, what to check. A part with nothing known says so in a sentence (the old overview card's
+ * words); a ticket link shows only when it is a web address.
+ * @param {{ ticket?: object|null, building?: object|null, check?: object|null } | null | undefined} page
+ */
+export function ticketMarkdown(page) {
+  const t = page?.ticket && words(page.ticket.key) ? page.ticket : null;
+  const out = ['## The ticket', ''];
+  if (!t) out.push('This job did not start from an Orbit ticket.', '');
+  else {
+    const title = words(t.title);
+    if (title) out.push(`**${oneLine(title)}**`, '');
+    const by = words(t.filedBy);
+    const on = dayOf(t.filedAt);
+    out.push(by || on ? `${t.key} · filed${by ? ` by ${oneLine(by)}` : ''}${on ? ` on ${on}` : ''}` : t.key, '');
+    const description = words(t.description);
+    if (description) out.push(description, '');
+    const url = words(t.url);
+    if (url && /^https?:\/\/[^\s()]+$/i.test(url)) out.push(`[Open ${t.key} in Orbit](${url})`, '');
+  }
+  const b = page?.building ?? null;
+  const outcome = lines(b?.outcome);
+  const risks = lines(b?.risks);
+  out.push('## What we’re building', '');
+  if (!outcome.length && !risks.length) out.push('Not written yet. The Foreman writes this with its first brief.', '');
+  else {
+    const version = words(b.version);
+    out.push(b.from === 'brief' ? 'From the first brief' : version ? `From spec v${version}` : 'From the spec', '');
+    for (const line of outcome) out.push(line, '');
+    if (risks.length) out.push('### Risks', '', ...risks.map((r) => `- ${oneLine(r)}`), '');
+  }
+  const c = page?.check ?? null;
+  const works = lines(c?.worksWhen);
+  const mustNot = lines(c?.mustNot);
+  out.push('## What to check', '');
+  if (!works.length && !mustNot.length) out.push('Not written yet. The Foreman writes this list with the plan.', '');
+  if (works.length) out.push('### It works when', '', ...works.map((w, i) => `${i + 1}. ${oneLine(w)}`), '');
+  if (mustNot.length) out.push('### It must not', '', ...mustNot.map((w, i) => `${i + 1}. ${oneLine(w)}`), '');
+  return out.join('\n').trim();
+}
+
+/** What the ticket body says it was made from: the ticket's key and the versions it read. */
+function ticketMeta(page) {
+  return { key: words(page?.ticket?.key) ?? null, building: words(page?.building?.version) ?? null, check: words(page?.check?.version) ?? null };
 }

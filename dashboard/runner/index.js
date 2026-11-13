@@ -2247,7 +2247,7 @@ export async function createRunner(config) {
     payload.rows.conversation.more = false;
     const sources = itemSources({
       payload, thread: detail.threadAll, briefTexts: detail.briefTexts, docs,
-      decided: detail.decidedOnYourBehalf, autoDecided: Array.isArray(detail.auto?.decided) ? detail.auto.decided : [],
+      decided: detail.decidedOnYourBehalf, autoDecided: Array.isArray(detail.auto?.decided) ? detail.auto.decided : [], page: detail.page,
       render: (text, { json = false } = {}) => (json ? jsonHtml(text) : renderMarkdown(text, { idHref: idHref(f) })),
     });
     // Details (lib/work-rows.js): the corrected activity, the cost rows and the replies' ends; the crew's logs are read only when Details asks.

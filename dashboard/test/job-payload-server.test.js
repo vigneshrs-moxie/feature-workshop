@@ -423,3 +423,16 @@ test('Task 10 fix round 1: a document only the reader reaches (a step’s `more`
   assert.equal(item.version, more.hash);
   assert.match(item.text, /One finding/);
 });
+
+test('Task 12: the ticket and goal is served by the item route (id ticket) from the job’s page facts', { timeout: 60_000 }, async () => {
+  const slug = 'notes-ticket-goal';
+  await writeJob(slug, { 'acceptance.md': '# Acceptance\n\n## It works when\n\n1. A manager can add a note.\n\n## It must not\n\n1. Show a note to another office.\n' });
+  await sleep(1600); // past the runner's 1.5 s job list, so it lists the new job
+  assert.equal((await get(`/api/job/${slug}/page`)).status, 200);
+  const item = await get(`/api/job/${slug}/item?id=ticket`);
+  assert.equal(item.status, 200, JSON.stringify(item.body));
+  assert.equal(item.body.kind, 'ticket');
+  assert.match(item.body.text, /This job did not start from an Orbit ticket\./);
+  assert.match(item.body.text, /### It works when\n\n1\. A manager can add a note\./);
+  assert.match(item.body.html, /<h2[^>]*>What to check<\/h2>/);
+});
