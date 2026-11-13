@@ -7,7 +7,7 @@ import { EVENT_TYPES, LOCAL_COMMANDS, NEVER_CARRIED, PROTOCOL_VERSION, REMOTE_CO
 
 // One good command of every type, with every field it takes filled in.
 const GOOD = {
-  start: { description: 'Add a tidy button', repoPath: '/tmp/repo', options: { level: 1 }, model: 'claude-opus-5-5', kind: 'feature', ticket: { key: 'ORBIT-479' }, fromSession: null, despiteLimit: false },
+  start: { description: 'Add a tidy button', repoPath: '/tmp/repo', options: { level: 1 }, model: 'claude-opus-5-5', kind: 'feature', ticket: { key: 'ORBIT-479' }, fromSession: null, despiteLimit: false, name: 'status-filter' },
   reply: { slug: 'sample-job', via: 'box', text: 'Carry on, please.', kind: 'message', gateBrief: 2, model: null, despiteLimit: false, confirmNoTerminal: true },
   approve: { slug: 'sample-job', briefNumber: 3, note: 'Looks right.', answers: { q1: { choice: 'A' } }, verdicts: {}, chips: [], text: 'Approved.', startAfterReset: false },
   'send-back': { slug: 'sample-job', briefNumber: 3, note: 'Change the title.', chips: [{ kind: 'skip', stage: 'wireframes' }] },
@@ -35,11 +35,12 @@ const GOOD = {
   restart: { slug: 'sample-job', model: 'claude-fable-5-2' },
   prototype: { slug: 'sample-job', action: 'publish' },
   'usage-resume': {},
+  name: { ticket: { key: 'ORBIT-479', title: 'Feedback API' }, description: 'ORBIT-479: Feedback API', kind: 'bug', repoPath: '/tmp/repo', avoid: ['status-filter'] },
 };
 
 test('the two lists are exactly the plan’s, closed and frozen', () => {
   assert.deepEqual(Object.keys(REMOTE_COMMANDS).sort(), ['allow', 'approve', 'auto', 'auto-start', 'deny', 'fetch-diff', 'pause', 'reply', 'send-back', 'stack-merge', 'start', 'stop', 'take-over']);
-  assert.deepEqual(Object.keys(LOCAL_COMMANDS).sort(), ['close', 'notes', 'nudge', 'options', 'policy', 'prototype', 'reopen', 'repo', 'restart', 'resume', 'rules', 'settings', 'steer', 'try-it', 'usage-resume']);
+  assert.deepEqual(Object.keys(LOCAL_COMMANDS).sort(), ['close', 'name', 'notes', 'nudge', 'options', 'policy', 'prototype', 'reopen', 'repo', 'restart', 'resume', 'rules', 'settings', 'steer', 'try-it', 'usage-resume']);
   assert.ok(Object.isFrozen(REMOTE_COMMANDS) && Object.isFrozen(LOCAL_COMMANDS));
   assert.ok(Object.values(REMOTE_COMMANDS).every(Object.isFrozen));
   assert.throws(() => { REMOTE_COMMANDS.shell = {}; });
@@ -251,4 +252,13 @@ test('the auto-start command takes an optional max of 1 to 10', () => {
     assert.equal(r.command.max, max);
   }
   for (const max of [0, 11, 2.5, '3', null, -1, true]) assert.equal(ok({ max }).ok, false, String(max));
+});
+
+test('a start may carry a name of at most 60 characters; the name command is this computer\'s only and needs a ticket', () => {
+  assert.equal(parseCommand({ type: 'start', description: 'Add a tidy button', name: 'x'.repeat(60) }, { from: 'local' }).ok, true);
+  assert.match(parseCommand({ type: 'start', description: 'Add a tidy button', name: 'x'.repeat(61) }, { from: 'local' }).error, /“name” of “start” must be text of at most 60 characters/);
+  assert.match(parseCommand({ type: 'start', description: 'Add a tidy button', name: 7 }, { from: 'local' }).error, /“name” of “start” must be text/);
+  assert.match(parseCommand({ type: 'name', repoPath: '/tmp/repo' }, { from: 'local' }).error, /“name” needs “ticket”/);
+  assert.match(parseCommand({ type: 'name', ticket: { key: 'ORBIT-1' }, avoid: 'a-b' }, { from: 'local' }).error, /“avoid” of “name” must be a list/);
+  assert.match(parseCommand({ type: 'name', ticket: { key: 'ORBIT-1' } }, { from: 'site' }).error, /only be done on this computer/);
 });

@@ -48,7 +48,7 @@ import { PlanUsage } from '../lib/plan-usage.js';
 import { LocalRunner } from '../lib/local.js';
 import { History, historyMarkdown } from '../lib/history.js';
 import { removeWorktree, checkWorktree } from '../lib/close.js';
-import { FLOWS, SKIPPABLE, PROVIDABLE, REVIEWERS, FABLE_POINTS, OPUS, FABLE, currentModel, FOREMAN_MODEL_IDS, MODEL_IDS, MODEL_CHOICES, defaultsFor, normalize as normalizeOptions, readOptions, writeOptions, writeAutoOption, describeOptions, foremanModel, levelsForClient, optionsAtLevel, isLevel, normalizeTicket, ticketSlug, ticketBranch, startFromTicket } from '../lib/options.js';
+import { FLOWS, SKIPPABLE, PROVIDABLE, REVIEWERS, FABLE_POINTS, OPUS, FABLE, currentModel, FOREMAN_MODEL_IDS, MODEL_IDS, MODEL_CHOICES, defaultsFor, normalize as normalizeOptions, readOptions, writeOptions, writeAutoOption, describeOptions, foremanModel, levelsForClient, optionsAtLevel, isLevel, normalizeTicket, ticketSlug, ticketBranch, startFromTicket, shortTitle, slugName, TICKET_KEY_PROBLEM } from '../lib/options.js';
 import { groupCards, laneFor } from '../lib/snapshot.js';
 import { FINISH_LINES, FINISH_LINE_INFO, finishLineReached } from '../lib/finish.js';
 import { NUDGE_IDS, nudgesFor } from '../lib/nudges.js';
@@ -60,7 +60,8 @@ import { suggestLevel, changedPaths, diffSummary } from '../lib/levels.js';
 import { checkDiff, chooseLevel, ownLevelStands } from '../lib/auto-level.js';
 import { AUTO_MARK, autoAllowed, autoCardView, autoOption, autoRecord, wroteWhileWaiting } from '../lib/auto.js';
 import { createAuto } from './auto.js';
-import { askApprover as askApproverLib, approverOptions, setApproverStateDir } from '../lib/approver.js';
+import { askApprover as askApproverLib, approverOptions, setApproverStateDir, approverEnv } from '../lib/approver.js';
+import { NAME_PROBLEM, NAME_TIMEOUT_MS, ownName, suggestName, validName } from '../lib/branch-name.js';
 import { autoCost, autoLog, autoLogRecord, writeAutoLog } from '../lib/auto-log.js';
 import { GATE_PARK_MS, GateParking, RaisedVersions, isGateWaiting, isParkable, gateView, answeredBriefs, isGateDecision, feedParking } from '../lib/gate.js';
 import { composeReply, cleanChips } from '../lib/compose.js';
@@ -1421,12 +1422,13 @@ export async function createRunner(config) {
   // own runs, still held by the driver, don't take its name: the new job keeps it, and so its branch.
   // Slugs a start has picked and not yet finished with (HANDLERS.start frees its own): two starts at once, say the person's
   // Start and Auto start on one ticket, never get the same folder, so one's Auto record can't land on the other's job.
+  // reserve: false (the New job form's name command) only says which slug a start would get now, and holds nothing.
   const startingSlugs = new Set();
-  async function uniqueSlug(base, { restartOf = null } = {}) {
+  async function uniqueSlug(base, { restartOf = null, reserve = true } = {}) {
     const taken = new Set([...(await features()).map((f) => f.slug), ...driver.list().filter((r) => !(restartOf && r.featureDir === restartOf)).map((r) => r.slug), ...startingSlugs]);
     let slug = base;
     for (let i = 2; taken.has(slug) || fs.existsSync(path.join(FEATURES_DIR, slug)); i++) slug = `${base}-${i}`;
-    startingSlugs.add(slug);
+    if (reserve) startingSlugs.add(slug);
     return slug;
   }
 
@@ -1797,6 +1799,34 @@ export async function createRunner(config) {
     const options = { ...approverOptions({ featureDir: job.dir, worktrees: job.worktrees, specDirs: job.specDirs, emptyDir: approverEmptyDir, kind: task.kind, safer: Boolean(task.safer) }), ...(claudePath ? { pathToClaudeCodeExecutable: claudePath } : {}) };
     return askApproverLib(task, { query: approverQuery, options, roots });
   });
+
+  // A ticket's job's short name (lib/branch-name.js suggestName): one ask on the Approver's path (its query, the same
+  // Claude Code, its empty working folder, its cut-down environment) with no tools at all. The demo asks no model;
+  // a test hands in config.askNamer({ ticket, description, avoid }) instead.
+  const askNamer = config.askNamer ?? (DEMO ? null : async ({ ticket, description, avoid }) => {
+    await fsp.mkdir(approverEmptyDir, { recursive: true });
+    const options = { cwd: approverEmptyDir, env: approverEnv(), ...(claudePath ? { pathToClaudeCodeExecutable: claudePath } : {}) };
+    return suggestName({ ticket, description, avoid, query: approverQuery, options });
+  });
+  /**
+   * The model's name for a ticket's job, or null. Never more than five seconds, never a throw, and code checks the
+   * answer again (validName, not one of `avoid`), whoever the namer is.
+   */
+  async function modelName({ ticket, description = null, avoid = [] }) {
+    if (!askNamer) return null;
+    let timer;
+    try {
+      const late = new Promise((resolve) => { timer = setTimeout(() => resolve(null), NAME_TIMEOUT_MS); });
+      const asked = Promise.resolve().then(() => askNamer({ ticket, description, avoid }));
+      asked.catch(() => {});
+      const name = await Promise.race([asked, late]);
+      return validName(name) && !avoid.map(ownName).includes(name) ? name : null;
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 
   /** Change a job's Auto record under the Auto lock (fn(prev) returns the next record, or null for no change); options.json follows. */
   function updateAuto(dir, fn) {
@@ -2482,6 +2512,11 @@ export async function createRunner(config) {
       // (orbit-<n>-<short-title>) and its branch share the ticket's key (lib/options.js, plan D1).
       let ticket = null;
       try { ticket = normalizeTicket(body.ticket); } catch (err) { throw new HttpError(400, err.message); }
+      // His own name for a ticket's folder and branch (the New job form), checked before anything is made. A start
+      // with no ticket takes no name.
+      const nameGiven = Boolean(ticket) && body.name !== undefined && body.name !== null;
+      const ownNamed = nameGiven ? ownName(body.name) : null;
+      if (nameGiven && !ownNamed) throw new HttpError(400, NAME_PROBLEM);
       // Starting from a past conversation: a fresh Foreman reads an extract of it (history.md), or
       // a copy of the conversation itself becomes the Foreman (the original is never changed).
       let from = null;
@@ -2508,7 +2543,15 @@ export async function createRunner(config) {
       // The repository's profile names a ticket's folder and branch (lib/profile.js); none: the general case.
       const hit = ticket ? await local.registry.profileFor(repo.path).catch(() => null) : null;
       const profile = hit?.ok ? hit.profile : null;
-      const slug = await uniqueSlug(ticket ? ticketSlug(ticket, profile) : slugify(description), { restartOf: internal.restartOf ?? null });
+      // A ticket's short name (lib/branch-name.js) fills the slug's and the branch's {title}: his own; on a restart the
+      // old job's (it keeps its folder and branch); else the model's, checked by code. None: today's short title.
+      let named = null;
+      if (ticket) {
+        const kept = internal.restartOf ? slugName(path.basename(internal.restartOf), ticket, profile) : null;
+        const asked = ownNamed || internal.restartOf ? null : await modelName({ ticket, description });
+        named = ownNamed ? { name: ownNamed, by: 'you' } : kept ? { name: kept, by: 'kept' } : asked ? { name: asked, by: 'model' } : { name: null, by: 'title' };
+      }
+      const slug = await uniqueSlug(ticket ? ticketSlug(ticket, profile, { name: named.name }) : slugify(description), { restartOf: internal.restartOf ?? null });
       const featureDir = path.join(FEATURES_DIR, slug);
       let autoWritten = false;
       try {
@@ -2524,7 +2567,7 @@ export async function createRunner(config) {
         }
         options = withAutoOf(options, autoOn);
         const optionsOut = from ? { ...options, from_session: fromRecord } : options;
-        await writeOptions(featureDir, options, { title: description, repo: repo.path, kind, from_session: from ? fromRecord : undefined, ticket: ticket ?? undefined, branch: ticket ? ticketBranch(kind, slug, { profile, ticket }) : undefined });
+        await writeOptions(featureDir, options, { title: description, repo: repo.path, kind, from_session: from ? fromRecord : undefined, ticket: ticket ?? undefined, branch: ticket ? ticketBranch(kind, slug, { profile, ticket, name: named.name }) : undefined });
         // The ticket's safe details go in ticket.md before the Foreman's first message (lib/ticket-file.js).
         // Orbit being slow or down never stops a start: no file, and the message says so.
         let detailsRead = false;
@@ -2539,7 +2582,7 @@ export async function createRunner(config) {
           }
         }
         // A ticket's job starts with a status.json of schema version 2 holding the ticket block.
-        const fromTicket = ticket ? await startFromTicket(featureDir, { ticket, slug, title: description, kind, level: options.level, repo: repo.path, profile, detailsRead }) : null;
+        const fromTicket = ticket ? await startFromTicket(featureDir, { ticket, slug, title: description, kind, level: options.level, repo: repo.path, profile, detailsRead, name: named.name }) : null;
         if (fromDetail) await fsp.writeFile(path.join(featureDir, 'history.md'), historyMarkdown(fromDetail), { mode: 0o600 });
         // The /feature (or /bugfix) command must come first in the message, or it doesn't run. A bug job
         // goes to /bugfix when that skill is installed; an older install still gets /feature with a note.
@@ -2552,6 +2595,8 @@ export async function createRunner(config) {
         const run = await driver.start({ featureDir, slug, title: description, cwd, sessionId, model, text, kind, newJob: true, additionalDirectories: await readDirs() });
         autoWritten = false; // the job has started: its record stays, whatever fails after
         await state.audit({ action: 'new-job', featureDir, slug, repo: repo.path, model, description, options, fromSession: from ? { id: from.id, mode: from.mode, forkedTo: from.forkedTo } : undefined, ticket: ticket?.key });
+        // Where a ticket's job's name came from: the model, you, the old job (a restart) or the title (today's rule).
+        if (named) await state.audit({ action: 'name', featureDir, slug, name: named.name ?? shortTitle(ticket.title), by: named.by }).catch(() => {});
         if (autoOn) await auditAuto({ action: 'auto', what: 'on', by: autoOn.by, featureDir, slug, via: 'start', stage: null, asked: '', chose: '', why: '' });
         invalidate();
         // Start on a ticket's row works as usual and clears "couldn't start by itself".
@@ -2568,6 +2613,31 @@ export async function createRunner(config) {
       } finally {
         startingSlugs.delete(slug);
       }
+    },
+
+    // POST /api/jobs/name: the New job form's branch name for a ticket, { name, by, slug, branch }: the model's name
+    // (else today's short title, by: 'title'), and the slug and branch a start would get right now. Nothing is held
+    // or written; it answers within about five seconds whatever the model does. The demo asks no model.
+    async name(body) {
+      let ticket = null;
+      try { ticket = normalizeTicket(body.ticket); } catch (err) { throw new HttpError(400, err.message); }
+      if (!ticket) throw new HttpError(400, TICKET_KEY_PROBLEM);
+      const avoid = body.avoid ?? [];
+      if (!Array.isArray(avoid) || avoid.length > 5 || !avoid.every((a) => typeof a === 'string' && a.length <= 40)) throw new HttpError(400, 'Avoid: at most five names of at most 40 characters each.');
+      let repoPath = str(body.repoPath, 1000);
+      if (!repoPath) {
+        repoPath = await ticketRepo(local.registry);
+        if (!repoPath) throw new HttpError(400, 'This laptop doesn’t know which repository a ticket’s job goes in. Add the repository in Settings → Repos on the laptop, then press Start again.');
+      }
+      const repo = await checkRepo(repoPath);
+      if (!repo.ok) throw new HttpError(400, repo.reason);
+      const kind = body.kind === 'bug' ? 'bug' : 'feature';
+      const hit = await local.registry.profileFor(repo.path).catch(() => null);
+      const profile = hit?.ok ? hit.profile : null;
+      const description = str(body.description, 600).replace(/\s+/g, ' ').trim() || null;
+      const asked = await modelName({ ticket, description, avoid });
+      const slug = await uniqueSlug(ticketSlug(ticket, profile, { name: asked }), { reserve: false });
+      return { name: asked ?? shortTitle(ticket.title), by: asked ? 'model' : 'title', slug, branch: ticketBranch(kind, slug, { profile, ticket, name: asked }) };
     },
 
     // POST /api/job/:slug/send (via 'box'), or the gate card's own message (via 'card').

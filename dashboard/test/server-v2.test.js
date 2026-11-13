@@ -258,3 +258,42 @@ test('server: a job on Fable 5.2 throughout starts its Foreman on Fable, saves i
   assert.equal(job.body.drive.model, 'claude-fable-5-2', 'the composer’s Foreman model starts on Fable');
   assert.ok(job.body.optionsSummary.some((l) => l.startsWith('Whole job on Fable 5.2:')));
 });
+
+test('POST /api/jobs/name answers with the name, slug and branch, reserves nothing, and falls back to the short title', { timeout: 60_000 }, async () => {
+  const { body: snap } = await getJson('/api/snapshot');
+  const repo = path.join(root, 'name-repo');
+  await fs.mkdir(repo);
+  execFileSync('git', ['-C', repo, 'init', '-q'], { stdio: 'pipe' });
+  const post = (p, body, token = snap.meta.token) => fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { 'X-Starbase-Token': token } : {}) }, body: JSON.stringify(body) });
+  const ticket = { key: 'ORBIT-471', title: 'Can we have a filter here for active / inactive employees' };
+  const short = 'orbit-471-can-we-have-a-filter-here-for-active';
+  const ask = { ticket, description: `ORBIT-471: ${ticket.title}`, kind: 'bug', repoPath: repo, avoid: ['status-filter'] };
+  assert.equal((await post('/api/jobs/name', ask, null)).status, 403, 'token-checked like every POST');
+  const before = await fs.readdir(featuresDir);
+  // The demo asks no model: today's short title.
+  const res = await post('/api/jobs/name', ask);
+  assert.equal(res.status, 200);
+  const named = await res.json();
+  assert.deepEqual(named, { name: 'can-we-have-a-filter-here-for-active', by: 'title', slug: short, branch: `fix/${short}` });
+  assert.deepEqual(await (await post('/api/jobs/name', ask)).json(), named, 'nothing was held: the same answer again');
+  assert.deepEqual(await fs.readdir(featuresDir), before, 'nothing was written');
+  assert.equal((await post('/api/jobs/name', { ...ask, avoid: ['a', 'b', 'c', 'd', 'e', 'f'] })).status, 400);
+  assert.equal((await post('/api/jobs/name', { ...ask, avoid: ['a'.repeat(41)] })).status, 400);
+  assert.equal((await post('/api/jobs/name', { ...ask, ticket: { key: 'nope' } })).status, 400);
+  assert.equal((await post('/api/jobs/name', { ...ask, ticket: undefined })).status, 400);
+  // POST /api/jobs carries name: a bad one is refused with the rule, his own names the folder and the branch.
+  const bad = await post('/api/jobs', { ...ask, avoid: undefined, name: 'status filter', options: { level: 1 } });
+  assert.equal(bad.status, 400);
+  assert.equal((await bad.json()).error, 'Use short words joined by hyphens, like employee-status-filter (up to five words, 40 characters).');
+  assert.equal((await post('/api/jobs', { ...ask, avoid: undefined, name: 'x'.repeat(61), options: { level: 1 } })).status, 400, 'at most 60 characters');
+  assert.deepEqual(await fs.readdir(featuresDir), before, 'nothing was created');
+  const started = await post('/api/jobs', { ...ask, avoid: undefined, name: 'Status-Filter', options: { level: 1 } });
+  assert.equal(started.status, 200);
+  const { slug } = await started.json();
+  assert.equal(slug, 'orbit-471-status-filter');
+  assert.equal(JSON.parse(await fs.readFile(path.join(featuresDir, slug, 'options.json'), 'utf8')).branch, 'fix/orbit-471-status-filter');
+  // No name: the laptop names it itself (the demo: today's short title), on the slug the form was shown.
+  const plain = await post('/api/jobs', { ...ask, avoid: undefined, options: { level: 1 } });
+  assert.equal((await plain.json()).slug, named.slug);
+  assert.equal((await (await post('/api/jobs/name', ask)).json()).slug, `${short}-2`, 'taken now: the next one');
+});

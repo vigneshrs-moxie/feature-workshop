@@ -508,21 +508,38 @@ export function shortTitle(title) {
  * The job's slug for a ticket: the repository profile's slug pattern filled with the ticket's number
  * {n}, its short title {title} and its key {key} (lib/profile.js); with no profile, the key and the
  * short title (GENERAL: orbit-479-feedback-api for ORBIT-479; orbit-479 with no title).
+ * name, when given (lib/branch-name.js: the model's or his own), fills {title} in place of the short title.
  */
-export function ticketSlug(ticket, profile = null) {
+export function ticketSlug(ticket, profile = null, { name = null } = {}) {
   const key = String(ticket.key);
-  return fillPattern(profile?.slug ?? GENERAL.slug, { key: key.toLowerCase(), n: /(\d+)$/.exec(key)?.[1] ?? '', title: shortTitle(ticket.title) });
+  return fillPattern(profile?.slug ?? GENERAL.slug, { key: key.toLowerCase(), n: /(\d+)$/.exec(key)?.[1] ?? '', title: name || shortTitle(ticket.title) });
+}
+
+/**
+ * The name a job's slug was made with: what filled {title} when ticketSlug made `slug` for this
+ * ticket (a `-2` it was given to be unique stays on it), or null when the slug is not one of the
+ * ticket's or its pattern has no {title}. A restart keeps it, so the new job keeps the old one's name.
+ */
+export function slugName(slug, ticket, profile = null) {
+  const mark = '\u0001';
+  const key = String(ticket?.key ?? '');
+  const filled = fillPattern(profile?.slug ?? GENERAL.slug, { key: key.toLowerCase(), n: /(\d+)$/.exec(key)?.[1] ?? '', title: mark });
+  const at = filled.indexOf(mark);
+  if (!key || typeof slug !== 'string' || at < 0) return null;
+  const [before, after] = [filled.slice(0, at), filled.slice(at + 1)];
+  if (slug.length <= before.length + after.length || !slug.startsWith(before) || !slug.endsWith(after)) return null;
+  return slug.slice(before.length, slug.length - after.length);
 }
 
 /**
  * The branch: the profile's branch pattern with {kind} (its word for a feature or a bug) and the
  * slug; with no profile, feature/<slug>, or fix/<slug> for a bug (the skill's git-workflow.md).
- * ticket, when given, fills {n} and {title} too.
+ * ticket, when given, fills {n} and {title} too ({title} with name when given, as ticketSlug).
  */
-export function ticketBranch(kind, slug, { profile = null, ticket = null } = {}) {
+export function ticketBranch(kind, slug, { profile = null, ticket = null, name = null } = {}) {
   const kinds = { ...GENERAL.kinds, ...(profile?.kinds ?? {}) };
   const values = { kind: kind === 'bug' ? kinds.bug : kinds.feature, slug };
-  if (ticket?.key) Object.assign(values, { n: /(\d+)$/.exec(String(ticket.key))?.[1] ?? '', title: shortTitle(ticket.title) });
+  if (ticket?.key) Object.assign(values, { n: /(\d+)$/.exec(String(ticket.key))?.[1] ?? '', title: name || shortTitle(ticket.title) });
   return fillPattern(profile?.branch ?? GENERAL.branch, values);
 }
 
@@ -570,10 +587,10 @@ export function ticketBrief(ticket, { branch, detailsRead = false }) {
 /**
  * Start a job from a ticket: writes its first status.json (never over one already there) and returns
  * { branch, status, brief } for the first message. options.json is written by writeOptions with
- * { ticket, branch } in `about`.
+ * { ticket, branch } in `about`. name: the job's short name (ticketSlug), when it has one.
  */
-export async function startFromTicket(dir, { ticket, slug, title, kind = 'feature', level = null, repo = null, profile = null, detailsRead = false }) {
-  const branch = ticketBranch(kind, slug, { profile, ticket });
+export async function startFromTicket(dir, { ticket, slug, title, kind = 'feature', level = null, repo = null, profile = null, detailsRead = false, name = null }) {
+  const branch = ticketBranch(kind, slug, { profile, ticket, name });
   const status = ticketStatus({ ticket, slug, title, kind, level, repo });
   await fsp.mkdir(dir, { recursive: true });
   const file = path.join(dir, 'status.json');

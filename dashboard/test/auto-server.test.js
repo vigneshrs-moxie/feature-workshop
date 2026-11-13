@@ -60,7 +60,7 @@ const failure = (problem = 'It ended with an error.', costUsd = 0.1) => ({ ok: f
  * A job in Auto (unless auto is null) with a plan gate at brief 1. ask(task, n): what the fake Approver
  * says on its nth call (n from 1). Returns the pieces a test needs; stop() cleans up.
  */
-async function world({ ask = (task) => goodAnswer(task), auto = autoRecord(null, { on: true, now: OLD }), options = { level: 1, flow: 'quick', title: 'Visit audit columns' }, jobStatus = status(1), title = 'Visit audit columns', also = null, query = null, layout = null, approverQuery = null } = {}) {
+async function world({ ask = (task) => goodAnswer(task), auto = autoRecord(null, { on: true, now: OLD }), options = { level: 1, flow: 'quick', title: 'Visit audit columns' }, jobStatus = status(1), title = 'Visit audit columns', also = null, query = null, layout = null, approverQuery = null, namer = null } = {}) {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'sb-auto-srv-')));
   // layout(root): the folders by another plan (a home folder with .claude/feature-work and Projects/<repo> in it).
   const dirs = layout ? layout(root) : Object.fromEntries(['claude', 'features', 'projects', 'agents', 'skills', 'state', 'repo'].map((n) => [n, path.join(root, n)]));
@@ -100,6 +100,8 @@ async function world({ ask = (task) => goodAnswer(task), auto = autoRecord(null,
     queryFn: query ? query(texts) : stubQuery(texts),
     // approverQuery: the runner's own askForAuto runs, on this fake query, instead of the fake Approver.
     ...(approverQuery ? { approverQuery } : { askApprover: async (task, call) => { asks.push({ task, call }); return ask(task, asks.length); } }),
+    // namer: the branch namer (Task 20), a fake in place of the model; none: the demo's (no model).
+    ...(namer ? { askNamer: namer } : {}),
   });
   let runner = await boot();
   const notes = [];
@@ -5194,4 +5196,216 @@ test('a card raised on a stopped Auto job is told as on any job', { timeout: 30_
     assert.equal(w.asks.length, 0, 'Auto does not handle it');
     assert.equal(w.runner.auto.leftCard(card.id), false, 'never taken up by Auto');
   } finally { await clear(w); await w.stop(); }
+});
+
+// ---------- Auto queue Task 20: a ticket's job gets a short branch name, checked by code ----------
+
+const T471 = { key: 'ORBIT-471', title: 'Can we have a filter here for active / inactive employees', url: null };
+const SHORT_471 = 'can-we-have-a-filter-here-for-active';
+const NAME_PROBLEM_WORDS = 'Use short words joined by hyphens, like employee-status-filter (up to five words, 40 characters).';
+/** A fake namer: answer(input, n) or a fixed answer; every ask is kept in .calls. */
+function namerOf(answer) {
+  const calls = [];
+  const fn = async (input) => { calls.push(input); return typeof answer === 'function' ? answer(input, calls.length) : answer; };
+  fn.calls = calls;
+  return fn;
+}
+const ticketBody = (w, over = {}) => ({ description: `ORBIT-471: ${T471.title}`, ticket: T471, repoPath: w.dirs.repo, options: { level: 1 }, ...over });
+const nameLines = async (w) => (await w.lines()).filter((l) => l.action === 'name');
+
+test('a ticket\'s job is named by the model: folder, branch and first message', { timeout: 30_000 }, async () => {
+  const namer = namerOf('employee-status-filter');
+  const w = await world({ auto: null, namer });
+  try {
+    const out = await w.hooks.startJob(ticketBody(w));
+    assert.equal(out.slug, 'orbit-471-employee-status-filter');
+    const dir = path.join(w.dirs.features, out.slug);
+    const opts = JSON.parse(await fs.readFile(path.join(dir, 'options.json'), 'utf8'));
+    assert.equal(opts.branch, 'feature/orbit-471-employee-status-filter');
+    assert.equal(JSON.parse(await fs.readFile(path.join(dir, 'status.json'), 'utf8')).slug, out.slug);
+    await w.until(() => w.texts.length === 1, 'the first message');
+    assert.match(w.texts[0], /\nBranch: feature\/orbit-471-employee-status-filter \(from the ticket key/);
+    assert.ok(w.texts[0].includes(`Private folder: ${dir}`));
+    assert.equal(namer.calls.length, 1, 'asked once');
+    assert.deepEqual({ key: namer.calls[0].ticket.key, title: namer.calls[0].ticket.title, description: namer.calls[0].description }, { key: 'ORBIT-471', title: T471.title, description: `ORBIT-471: ${T471.title}` });
+    const lines = await nameLines(w);
+    assert.equal(lines.length, 1, 'one line says where the name came from');
+    assert.deepEqual({ name: lines[0].name, by: lines[0].by, slug: lines[0].slug, featureDir: lines[0].featureDir }, { name: 'employee-status-filter', by: 'model', slug: out.slug, featureDir: dir });
+  } finally { await w.stop(); }
+});
+
+test('his own name wins and no model is asked', { timeout: 30_000 }, async () => {
+  const namer = namerOf('employee-status-filter');
+  const w = await world({ auto: null, namer });
+  try {
+    const out = await w.runner.handle({ type: 'start', ...ticketBody(w), kind: 'bug', name: '  Rating-Freeze-V2 ' }, { from: 'local' });
+    assert.equal(out.slug, 'orbit-471-rating-freeze-v2', 'trimmed and lowercased; his v2 is his call');
+    assert.equal(namer.calls.length, 0, 'no model is asked');
+    assert.equal(JSON.parse(await fs.readFile(path.join(w.dirs.features, out.slug, 'options.json'), 'utf8')).branch, 'fix/orbit-471-rating-freeze-v2');
+    await w.until(() => w.texts.length === 1, 'the first message');
+    assert.match(w.texts[0], /\nBranch: fix\/orbit-471-rating-freeze-v2 /);
+    assert.deepEqual((await nameLines(w)).map((l) => [l.name, l.by]), [['rating-freeze-v2', 'you']]);
+  } finally { await w.stop(); }
+});
+
+test('a name that breaks the rule is refused with NAME_PROBLEM and nothing is created', { timeout: 30_000 }, async () => {
+  const namer = namerOf('employee-status-filter');
+  const w = await world({ auto: null, namer });
+  try {
+    const before = await fs.readdir(w.dirs.features);
+    for (const name of ['status filter', 'feature/status-filter', 'one-two-three-four-five-six', '', 'a'.repeat(41)]) {
+      await assert.rejects(w.runner.handle({ type: 'start', ...ticketBody(w), name }, { from: 'local' }), (err) => err.status === 400 && err.message === NAME_PROBLEM_WORDS, JSON.stringify(name));
+    }
+    assert.deepEqual(await fs.readdir(w.dirs.features), before, 'no folder');
+    assert.deepEqual((await w.lines()).filter((l) => ['new-job', 'name'].includes(l.action)), [], 'no job, no name line');
+    assert.equal(namer.calls.length, 0, 'no model is asked');
+    assert.deepEqual(w.texts, [], 'no Foreman is started');
+    // The slug was never held: a good start now gets it, not a -2.
+    assert.equal((await w.runner.handle({ type: 'start', ...ticketBody(w), name: 'status-filter' }, { from: 'local' })).slug, 'orbit-471-status-filter');
+  } finally { await w.stop(); }
+});
+
+test('no usable name from the model: the job is named as today', { timeout: 60_000 }, async () => {
+  const answers = [null, 'main', 'orbit-status-filter', 'The name is status-filter.'];
+  const namer = namerOf((_input, n) => (n <= answers.length ? answers[n - 1] : Promise.reject(new Error('no sign-in'))));
+  const w = await world({ auto: null, namer });
+  try {
+    const slugs = [];
+    for (let i = 0; i <= answers.length; i++) {
+      slugs.push((await w.hooks.startJob(ticketBody(w))).slug);
+      await w.idle();
+    }
+    assert.deepEqual(slugs, [`orbit-471-${SHORT_471}`, ...[2, 3, 4, 5].map((n) => `orbit-471-${SHORT_471}-${n}`)], 'code checks the answer; a failing namer is no name');
+    assert.deepEqual((await nameLines(w)).map((l) => [l.name, l.by]), slugs.map(() => [SHORT_471, 'title']));
+  } finally { await w.stop(); }
+});
+
+test('a namer that never answers: the start waits at most five seconds, and the job is named as today', { timeout: 60_000 }, async () => {
+  const namer = namerOf(() => new Promise(() => {}));
+  const w = await world({ auto: null, namer });
+  try {
+    const t0 = Date.now();
+    const out = await w.hooks.startJob(ticketBody(w));
+    const took = Date.now() - t0;
+    assert.equal(out.slug, `orbit-471-${SHORT_471}`);
+    assert.ok(took >= 4500 && took < 15_000, `it waited about five seconds (${took} ms)`);
+    assert.deepEqual((await nameLines(w)).map((l) => l.by), ['title']);
+  } finally { await w.stop(); }
+});
+
+test('demo mode asks no model', { timeout: 30_000 }, async () => {
+  // The demo's own namer (no askNamer handed in): the Approver's query is the one a real namer would use.
+  const asked = [];
+  const approverQuery = (call) => { asked.push(call); return (async function* () { yield { type: 'result', subtype: 'success', is_error: false, result: 'employee-status-filter' }; })(); };
+  const w = await world({ auto: null, approverQuery });
+  try {
+    const out = await w.hooks.startJob(ticketBody(w));
+    assert.equal(out.slug, `orbit-471-${SHORT_471}`);
+    assert.equal(asked.length, 0, 'no model is asked');
+    assert.deepEqual((await nameLines(w)).map((l) => [l.name, l.by]), [[SHORT_471, 'title']]);
+    const preview = await w.runner.handle({ type: 'name', ticket: T471, repoPath: w.dirs.repo }, { from: 'local' });
+    assert.deepEqual({ by: preview.by, name: preview.name }, { by: 'title', name: SHORT_471 });
+    assert.equal(asked.length, 0, 'not for the form either');
+  } finally { await w.stop(); }
+});
+
+test('a job with no ticket asks no model', { timeout: 30_000 }, async () => {
+  const namer = namerOf('employee-status-filter');
+  const w = await world({ auto: null, namer });
+  try {
+    const out = await w.hooks.startJob({ description: 'Visit export button', repoPath: w.dirs.repo, options: { level: 1 }, name: 'status-filter' });
+    assert.equal(out.slug, 'visit-export-button', 'slugify(description), as today, whatever name says');
+    assert.equal(namer.calls.length, 0);
+    assert.deepEqual(await nameLines(w), [], 'no name line');
+  } finally { await w.stop(); }
+});
+
+test('a second job on the same name gets -2', { timeout: 30_000 }, async () => {
+  const namer = namerOf('employee-status-filter');
+  const w = await world({ auto: null, namer });
+  try {
+    const first = await w.hooks.startJob(ticketBody(w));
+    await w.idle();
+    const second = await w.hooks.startJob(ticketBody(w));
+    assert.deepEqual([first.slug, second.slug], ['orbit-471-employee-status-filter', 'orbit-471-employee-status-filter-2']);
+    await w.until(() => w.texts.length === 2, 'both first messages');
+    assert.match(w.texts[1], /\nBranch: feature\/orbit-471-employee-status-filter-2 /, 'the branch follows the folder');
+    // His Start and a tag start at once on one name: never one folder.
+    const [a, b] = await Promise.all([w.hooks.startJob(ticketBody(w)), w.hooks.startJob(ticketBody(w, { options: { auto: true, level: 1 } }), { autoStart: { tag: 'auto' } })]);
+    assert.notEqual(a.slug, b.slug);
+    assert.deepEqual([a.slug, b.slug].sort(), ['orbit-471-employee-status-filter-3', 'orbit-471-employee-status-filter-4']);
+  } finally { await w.stop(); }
+});
+
+test('a restart keeps the job\'s name and asks no model', { timeout: 60_000 }, async () => {
+  const namer = namerOf((_input, n) => (n === 1 ? 'employee-status-filter' : 'other-name-here'));
+  const w = await world({ auto: null, namer });
+  try {
+    const out = await w.hooks.startJob(ticketBody(w));
+    await w.idle();
+    const res = await w.runner.handle({ type: 'restart', slug: out.slug, model: FABLE }, { from: 'local' });
+    assert.equal(res.slug, 'orbit-471-employee-status-filter', 'the new job keeps the folder');
+    assert.equal(namer.calls.length, 1, 'no model is asked for the restart');
+    await w.until(() => w.texts.length === 2, 'the new job\'s first message');
+    assert.match(w.texts[1], /\nBranch: feature\/orbit-471-employee-status-filter /, 'and so its branch');
+    assert.deepEqual((await nameLines(w)).map((l) => [l.name, l.by]), [['employee-status-filter', 'model'], ['employee-status-filter', 'kept']]);
+  } finally { await w.stop(); }
+});
+
+test('Auto\'s start gets a suggested name', { timeout: 60_000 }, async () => {
+  const namer = namerOf('employee-status-filter');
+  const w = await world({ auto: null, namer });
+  try {
+    // The repository for Orbit's tickets, and ORBIT-471 in the Inbox with Auto's tag (no Orbit is read).
+    await fs.writeFile(path.join(w.dirs.repo, 'starbase.md'), '---\nname: Orbit\ngithub: acme-org/orbit\nremotes:\n  fork: origin\n  org: upstream\n---\nNotes.\n');
+    w.git('remote', 'add', 'origin', 'git@github.com:acme/orbit.git');
+    w.git('remote', 'add', 'upstream', 'git@github.com:acme-org/orbit.git');
+    const reg = await w.local.registry.addRepo(w.dirs.repo);
+    assert.equal(reg.ok, true, JSON.stringify(reg));
+    const inbox = w.hooks.orbitInbox;
+    inbox.audience = 'tech';
+    inbox.rows.set(471, { row: { id: 'id-471', number: 471, subject: T471.title, type: 'feature', status: 'open', tags: [{ id: 't0', name: 'auto', color: 'blue', archived: false }] }, audience: 'tech', why: new Set(['assigned']) });
+    await w.runner.handle({ type: 'settings', workflow: { autoStart: { on: true, tag: 'auto' } } }, { from: 'local' });
+    const memory = async () => JSON.parse(await fs.readFile(path.join(w.dirs.state, 'auto-start.json'), 'utf8').catch(() => 'null'));
+    const mem = await w.until(async () => { const m = await memory(); return m?.started?.[0]?.slug || m?.failed?.length ? m : null; }, 'Auto to start the ticket');
+    assert.deepEqual(mem.failed, []);
+    assert.deepEqual(mem.started.map((e) => [e.key, e.slug]), [['ORBIT-471', 'orbit-471-employee-status-filter']]);
+    assert.equal(namer.calls.length, 1);
+    assert.equal(namer.calls[0].ticket.key, 'ORBIT-471');
+    const sessions = await sessionsOf(w);
+    assert.equal(sessions[path.join(w.dirs.features, 'orbit-471-employee-status-filter')]?.auto?.by, 'tag', 'in Auto by the tag');
+    assert.deepEqual((await nameLines(w)).map((l) => [l.slug, l.by]), [['orbit-471-employee-status-filter', 'model']]);
+    await w.runner.handle({ type: 'settings', workflow: { autoStart: { on: false, tag: 'auto' } } }, { from: 'local' });
+  } finally { await w.stop(); }
+});
+
+test('the name command answers with the name, slug and branch, reserves nothing, and falls back to the short title', { timeout: 30_000 }, async () => {
+  let answer = 'employee-status-filter';
+  const namer = namerOf(() => answer);
+  const w = await world({ auto: null, namer });
+  try {
+    const ask = (over = {}) => w.runner.handle({ type: 'name', ticket: T471, description: 'Filter the employees list', kind: 'bug', repoPath: w.dirs.repo, ...over }, { from: 'local' });
+    const before = { dirs: await fs.readdir(w.dirs.features), lines: (await w.lines()).length };
+    const one = await ask({ avoid: ['status-filter', 'active-filter'] });
+    assert.deepEqual(one, { name: 'employee-status-filter', by: 'model', slug: 'orbit-471-employee-status-filter', branch: 'fix/orbit-471-employee-status-filter' });
+    assert.deepEqual({ key: namer.calls[0].ticket.key, description: namer.calls[0].description, avoid: namer.calls[0].avoid }, { key: 'ORBIT-471', description: 'Filter the employees list', avoid: ['status-filter', 'active-filter'] });
+    assert.deepEqual(await ask(), one, 'asked again: the same slug, so nothing was held');
+    assert.deepEqual(await fs.readdir(w.dirs.features), before.dirs, 'no folder');
+    assert.equal((await w.lines()).length, before.lines, 'no audit line');
+    // A start with that name gets the slug the answer gave.
+    assert.equal((await w.hooks.startJob(ticketBody(w, { kind: 'bug', name: one.name }))).slug, one.slug);
+    await w.idle();
+    assert.equal((await ask()).slug, 'orbit-471-employee-status-filter-2', 'taken now: the slug a start would get');
+    // Nothing usable from the model: today's short title, by: 'title'.
+    for (const a of [null, 'main', 'status-filter']) {
+      answer = a;
+      assert.deepEqual(await ask({ kind: 'feature', avoid: ['status-filter'] }), { name: SHORT_471, by: 'title', slug: `orbit-471-${SHORT_471}`, branch: `feature/orbit-471-${SHORT_471}` }, String(a));
+    }
+    // A ticket that isn't one, and avoid past its limits: refused.
+    const refused = async (over, pattern) => assert.rejects(ask(over), (err) => err.status === 400 && pattern.test(err.message));
+    await refused({ ticket: { key: 'nope' } }, /ticket key/);
+    await refused({ avoid: ['a-b', 'c-d', 'e-f', 'g-h', 'i-j', 'k-l'] }, /at most five names of at most 40 characters/);
+    await refused({ avoid: ['a'.repeat(41)] }, /at most five names of at most 40 characters/);
+    await refused({ avoid: [7] }, /at most five names of at most 40 characters/);
+  } finally { await w.stop(); }
 });

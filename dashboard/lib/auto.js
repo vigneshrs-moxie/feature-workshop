@@ -27,7 +27,8 @@
 //   risky      the risky calls Auto made on this job; kept by on and off (missing: 0)
 //   tooBig     { at, reason } while it is set aside as too big for Auto, else null (missing: null).
 //              Cleared by his switch on, his send, and Run as a stack instead.
-//   asOne      he switched Auto back on after a set-aside: it runs as one job and is never set aside again
+//   asOne      he acted on a set-aside job (switched Auto back on, or sent it a message of his own, Run as a stack
+//              instead too): it runs as one job and is never set aside again
 //   acted      when he acted after PR #1, else null; cleared by on
 // finished is cleared by on as well. Which group a record shows in under Auto: autoGroup.
 

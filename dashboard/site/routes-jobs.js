@@ -249,7 +249,15 @@ export default function jobRoutes({ runner, read, send, sendJson, needJob, wiref
       return command(res, {
         type: 'start', description: str(body.description, 600), repoPath: str(body.repoPath, 1000), options: body.options, model: body.model,
         kind: body.kind === 'bug' ? 'bug' : 'feature', ticket: body.ticket, fromSession: from, despiteLimit: body.despiteLimit === true ? true : undefined,
+        // A ticket's job's short name, his own (at most 60 characters: the command refuses more; the runner checks the rule).
+        name: typeof body.name === 'string' ? body.name : undefined,
       });
     }),
+    // The New job form's branch name for a ticket (runner HANDLERS.name, lib/branch-name.js): { name, by, slug, branch }.
+    // Holds and writes nothing. avoid: at most five names already shown, of at most 40 characters each.
+    post('/api/jobs/name', ({ res, body }) => command(res, {
+      type: 'name', ticket: body.ticket ?? undefined, description: str(body.description, 600), kind: body.kind === 'bug' ? 'bug' : 'feature',
+      repoPath: str(body.repoPath, 1000), avoid: body.avoid ?? undefined,
+    })),
   ];
 }

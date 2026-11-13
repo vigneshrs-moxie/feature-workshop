@@ -78,6 +78,8 @@ export const REMOTE_COMMANDS = freeze({
     // A registered repository's name, matched by the laptop itself (never a path).
     repo: FIELD.repoName,
     ticket: FIELD.json, fromSession: FIELD.json, despiteLimit: FIELD.bool,
+    // A ticket's job's short name for its folder and branch (lib/branch-name.js ownName checks it).
+    name: str(60),
   },
   // A message to the job's Foreman: from the message box (text), or the gate card's own message.
   // kind: what the pages send (the gate's three decisions, a message, the classic page's Second look). Starbase's own kinds
@@ -132,6 +134,8 @@ export const LOCAL_COMMANDS = freeze({
   // The Screens tab's Publish and Pull notes: this laptop's publish.py and its token (lib/prototype.js).
   prototype: { slug: required(FIELD.slug), action: required(oneOf('publish', 'notes')) },
   'usage-resume': {},
+  // The New job form's branch name for a ticket (lib/branch-name.js): a name, and the slug and branch a start would get now.
+  name: { ticket: required(FIELD.json), description: str(600), kind: oneOf('feature', 'bug'), repoPath: str(1000), avoid: FIELD.list },
 });
 
 const fieldsOf = (type) => (Object.hasOwn(REMOTE_COMMANDS, type) ? REMOTE_COMMANDS[type] : Object.hasOwn(LOCAL_COMMANDS, type) ? LOCAL_COMMANDS[type] : null);
