@@ -373,3 +373,56 @@ test('the website’s Auto list keeps the start time, the ticket and each entry�
   const old = { on: true, stopped: null, tag: null, summary: ['a', 'b', 'c'], entries: [{ at: 'x', stage: 'Plan', chose: 'c', asked: 'a', why: 'w' }] };
   assert.deepEqual(autoLogRecord(old), old);
 });
+
+// ---------- The Auto queue on the website (Auto queue, Task 18) ----------
+
+const AUTO_QUEUE = {
+  on: true, tag: 'auto-ok', max: 3, working: 1, unfinished: 2, ceiling: 10, paused: null, testing: 'add-export',
+  tickets: [
+    { key: 'ORBIT-12', title: 'Add export', group: 'working', slug: 'add-export', reason: null },
+    { key: 'ORBIT-13', title: 'Split the report', group: 'too-big', slug: 'split-report', reason: 'The Foreman suggested a stack.' },
+    { key: 'ORBIT-14', title: 'Fix login', group: 'next', slug: null, reason: null },
+  ],
+};
+const AUTO_CARD = {
+  slug: 'add-export', title: 'Add export',
+  auto: { on: true, by: 'tag', ran: true, stopped: null, deciding: false, allowed: true, why: null, began: 'tag', group: 'working', waitingToTest: true, tooBig: null, risky: 2, finished: null },
+};
+
+test('the board carries autoQueue, and no database address', async () => {
+  const { boardRecord } = await import('../runner/mirror.js');
+  const failed = { key: 'ORBIT-15', title: 'Count the rows', group: 'failed', slug: null, reason: 'It did not start: postgres://127.0.0.1:5432/moxie_snapshot__auto refused the copy.' };
+  const rec = boardRecord({ meta: null, jobs: [AUTO_CARD], autoQueue: { ...AUTO_QUEUE, tickets: [...AUTO_QUEUE.tickets, failed] } });
+  assert.deepEqual(rec.autoQueue, { ...AUTO_QUEUE, tickets: [...AUTO_QUEUE.tickets, { ...failed, reason: 'It did not start: [database address hidden] refused the copy.' }] });
+  assert.equal(rec.autoQueue.testing, 'add-export', 'the slug holding the test place goes up');
+  assert.deepEqual(rec.jobs[0].auto, AUTO_CARD.auto, 'the card’s Auto fields ride in jobs as they are');
+  assert.doesNotMatch(JSON.stringify(rec), /postgres(?:ql)?:\/\/|moxie_snapshot/);
+  assert.equal(makeEvent('record', { kind: 'board', key: '', value: rec }).ok, true);
+  // A snapshot with none (a runner that has no Auto queue) sends null: not known on the site.
+  assert.equal(boardRecord({ jobs: [] }).autoQueue, null);
+});
+
+test('the Auto queue goes up scrubbed: a ticket’s title and reason lose a home-folder path, a database address and a token', async () => {
+  const { boardRecord } = await import('../runner/mirror.js');
+  const { homedir } = await import('node:os');
+  const home = homedir();
+  const reason = `git worktree add failed in ${home}/Projects/orbit-wt/orbit-16: could not reach postgresql://olive@localhost/moxie_snapshot. Token ghp_${'a'.repeat(36)}.`;
+  const title = 'Read /Users/olive/notes/plan.md and /home/sam/x before jdbc:postgresql://db.local:5432/orbit';
+  const rec = boardRecord({ jobs: [], autoQueue: { ...AUTO_QUEUE, tickets: [{ key: 'ORBIT-16', title, group: 'failed', slug: null, reason }] } });
+  const t = rec.autoQueue.tickets[0];
+  assert.equal(t.reason, 'git worktree add failed in [path hidden]: could not reach [database address hidden]. Token [GitHub token hidden].');
+  assert.equal(t.title, 'Read [path hidden] and [path hidden] before [database address hidden]');
+  const json = JSON.stringify(rec);
+  assert.ok(!json.includes(home), 'no home folder');
+  assert.doesNotMatch(json, /\/Users\/|\/home\/|postgres(?:ql)?:\/\/|moxie_snapshot|ghp_/);
+  // The rest of the queue is as it was, and a reason with nothing to hide is unchanged.
+  const plain = boardRecord({ jobs: [], autoQueue: AUTO_QUEUE }).autoQueue;
+  assert.deepEqual(plain, AUTO_QUEUE);
+});
+
+test('the board says which protocol the laptop speaks (7: the site may send Auto start’s max)', async () => {
+  const { boardRecord } = await import('../runner/mirror.js');
+  const { PROTOCOL_VERSION } = await import('../lib/protocol.js');
+  assert.equal(PROTOCOL_VERSION, 7);
+  assert.equal(boardRecord({ jobs: [] }).protocol, 7);
+});

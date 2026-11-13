@@ -909,3 +909,59 @@ test('a suggestion that names a ticket twice keeps it once', async () => {
   }, Date.parse(at));
   assert.deepEqual(clean.picks, [{ key: 'ORBIT-12', reason: 'First.' }, { key: 'ORBIT-13', reason: 'Other.' }]);
 });
+
+// ---------- Auto start with N (Auto queue, Task 18) ----------
+
+test('Settings on the site queues Auto start with N', async () => {
+  const s = await makeOrbitSite();
+  const olive = await paired(s, OLIVE, 'Olive’s Mac');
+  const runner = mirrorRunner();
+  const lap = await mirrorLaptop(s, olive.token, { runner });
+  try {
+    // The laptop's board says which protocol it speaks (7): the site may send it max.
+    await until(async () => (await s.db.query("SELECT count(*)::int AS n FROM records WHERE kind = 'board'")).rows[0].n === 1, { what: 'the laptop’s board' });
+    const r = await olive.person.send('POST', '/api/orbit/auto-start', { on: true, tag: 'auto', max: 3 });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.queued, true);
+    await until(() => runner.handled.length === 1, { what: 'the laptop to get the command' });
+    assert.deepEqual(runner.handled[0], { type: 'auto-start', on: true, tag: 'auto', max: 3 });
+    // A change to the switch or the tag only sends no max: the laptop keeps its saved N.
+    assert.equal((await olive.person.send('POST', '/api/orbit/auto-start', { on: false, tag: 'auto' })).status, 200);
+    await until(() => runner.handled.length === 2, { what: 'the second command' });
+    assert.deepEqual(runner.handled[1], { type: 'auto-start', on: false, tag: 'auto' });
+    // A number out of range is refused, and nothing more is queued.
+    for (const max of [0, 11, 2.5, '3', null, true]) {
+      assert.equal((await olive.person.send('POST', '/api/orbit/auto-start', { on: true, tag: 'auto', max })).status, 400, JSON.stringify(max));
+    }
+    assert.equal((await s.db.query('SELECT count(*)::int AS n FROM commands')).rows[0].n, 2);
+  } finally { lap.link.stop(); await s.close(); }
+});
+
+test('Auto start from the site to a laptop older than protocol 7 goes without max, as before', async () => {
+  const { makeEvent } = await import('../../dashboard/lib/protocol.js');
+  const s = await makeOrbitSite();
+  const olive = await paired(s, OLIVE, 'Olive’s Mac');
+  const queued = async () => (await s.db.query('SELECT command FROM commands ORDER BY created_at DESC, id DESC LIMIT 1')).rows.map((x) => (typeof x.command === 'string' ? JSON.parse(x.command) : x.command))[0];
+  const board = async (value, eid) => {
+    const e = makeEvent('record', { kind: 'board', key: '', value });
+    const r = await s.fetch(`${SITE}/api/runner/events`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${olive.token}` }, body: JSON.stringify({ events: [{ eid, ...e.event }] }) });
+    assert.equal((await r.json()).accepted, 1);
+  };
+  try {
+    // No board yet: the laptop's protocol is not known, so it is treated as older.
+    assert.equal((await olive.person.send('POST', '/api/orbit/auto-start', { on: true, tag: 'auto', max: 3 })).status, 200);
+    assert.deepEqual(await queued(), { type: 'auto-start', on: true, tag: 'auto' });
+    // A board from a Starbase that says no protocol, or 6: still without max (that laptop would refuse the whole command).
+    for (const [value, eid] of [[{ jobs: [] }, 'b-1'], [{ jobs: [], protocol: 6 }, 'b-2']]) {
+      await board(value, eid);
+      s.clock.t += 1000;
+      assert.equal((await olive.person.send('POST', '/api/orbit/auto-start', { on: true, tag: 'auto', max: 4 })).status, 200);
+      assert.deepEqual(await queued(), { type: 'auto-start', on: true, tag: 'auto' });
+    }
+    // The same laptop, updated to 7: max goes.
+    await board({ jobs: [], protocol: 7 }, 'b-3');
+    s.clock.t += 1000;
+    assert.equal((await olive.person.send('POST', '/api/orbit/auto-start', { on: true, tag: 'auto', max: 4 })).status, 200);
+    assert.deepEqual(await queued(), { type: 'auto-start', on: true, tag: 'auto', max: 4 });
+  } finally { await s.close(); }
+});

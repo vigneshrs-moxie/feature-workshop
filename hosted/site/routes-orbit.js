@@ -19,6 +19,7 @@
 
 import { cleanSuggestion } from '../lib/records.js';
 import { OrbitError, canonicalKey, checkToken, scrub, scrubDeep } from '../../dashboard/lib/orbit.js';
+import { parseCommand } from '../../dashboard/lib/protocol.js';
 import { CRON_EVERY_MS, REFRESH_MS, createPoller, orbitUrlOf } from '../lib/poller.js';
 import { createTokenStore } from '../lib/token-store.js';
 import { HttpError, sendJson } from './http.js';
@@ -28,6 +29,8 @@ import { iso } from './sessions.js';
 const START_SHOWN_MS = 24 * 60 * 60 * 1000;
 const STARTED_SHOWN_MS = 15 * 60 * 1000;
 const LIFETIMES = [7, 30, 90];
+/** The protocol from which a laptop takes Auto start's max (dashboard/lib/protocol.js PROTOCOL_VERSION 7). */
+const MAX_PROTOCOL = 7;
 const ORBIT_STATUS = { token: 400, auth: 400, scope: 400, settings: 503, rate: 429, network: 502, http: 502 };
 
 const parse = (v) => (typeof v === 'string' ? JSON.parse(v) : v);
@@ -212,7 +215,14 @@ export default function orbitRoutes(ctx) {
           if (!laptop) throw new HttpError(404, 'There is no laptop like that among yours.');
         } else if (laptops.length === 1) laptop = laptops[0];
         else throw new HttpError(409, 'Choose which laptop to set.', { code: 'choose-laptop', laptops });
-        const commandId = await ctx.queueCommand(laptop.id, { type: 'auto-start', on: b.on, tag: b.tag }, { by: person.id });
+        // How many jobs at a time (max), when the page sends it, is checked whatever the laptop, but goes only to a laptop
+        // whose board says protocol 7 or more: an older one refuses the whole command, so it gets the switch and the tag as before.
+        const full = { type: 'auto-start', on: b.on, tag: b.tag, ...(b.max !== undefined ? { max: b.max } : {}) };
+        const checked = parseCommand(full, { from: 'site' });
+        if (!checked.ok) throw new HttpError(400, checked.error, { code: 'bad-command' });
+        const { max, ...asBefore } = full;
+        const takesMax = max !== undefined && (await ctx.mirror.records.ofRunner(laptop.id, 'board', ''))?.protocol >= MAX_PROTOCOL;
+        const commandId = await ctx.queueCommand(laptop.id, takesMax ? full : asBefore, { by: person.id });
         // As the site's other laptop commands answer: queued for that laptop, not done, and whether it is
         // there to take it now. The page goes on showing the laptop's own value until it mirrors the change.
         sendJson(res, 200, { ok: true, queued: true, sent: false, commandId, laptop: { id: laptop.id, name: laptop.name, online: laptop.online === true } });

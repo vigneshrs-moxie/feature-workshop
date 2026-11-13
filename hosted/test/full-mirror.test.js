@@ -675,3 +675,74 @@ test('the website has no live picture and says where it is', async () => {
     assert.equal(await count(s, 'SELECT count(*)::int AS n FROM evidence_files'), 0);
   } finally { l.link.stop(); await s.close(); }
 });
+
+// ---------- The Auto queue on the website (Auto queue, Task 18) ----------
+
+test("the site's snapshot gives the laptop's autoQueue and the cards' new Auto fields", async () => {
+  const QUEUE = {
+    on: true, tag: 'auto-ok', max: 3, working: 1, unfinished: 2, ceiling: 10, paused: null, testing: 'add-export',
+    tickets: [
+      { key: 'ORBIT-12', title: 'Add export', group: 'working', slug: 'add-export', reason: null },
+      { key: 'ORBIT-13', title: 'Split the report', group: 'too-big', slug: 'split-report', reason: 'The Foreman suggested a stack.' },
+      { key: 'ORBIT-14', title: 'Fix login', group: 'failed', slug: null, reason: 'It did not start.' },
+      { key: 'ORBIT-15', title: 'Count the rows', group: 'next', slug: null, reason: null },
+    ],
+  };
+  const AUTO = {
+    on: true, by: 'tag', ran: true, stopped: null, deciding: false, allowed: true, why: null,
+    began: 'tag', group: 'working', waitingToTest: true, tooBig: { at: '2026-11-12T09:00:00.000Z', reason: 'The Foreman suggested a stack.' }, risky: 2, finished: '2026-11-12T10:00:00.000Z',
+  };
+  const runner = mirrorRunner();
+  runner.job = { ...runner.job, auto: AUTO };
+  const snapshot = runner.read.snapshot;
+  runner.read.snapshot = async (o) => ({ ...(await snapshot(o)), autoQueue: QUEUE });
+  const { s, olive, l } = await setUp({ runner });
+  try {
+    const snap = (await olive.person.json('/api/snapshot')).body;
+    assert.deepEqual(snap.autoQueue, QUEUE, 'at the top level of the snapshot, where the Inbox and Jobs pages read it');
+    assert.equal(snap.autoQueue.testing, 'add-export', 'the slug holding the test place');
+    assert.deepEqual(snap.jobs[0].auto, AUTO, 'began, group, waiting to test, too big, the risky count and finished ride in the card');
+    assert.equal(snap.jobs[0].auto.waitingToTest, true);
+    assert.equal(snap.meta.autoQueue, undefined, 'not under meta');
+    // A laptop that sends none (an older Starbase): the snapshot has none, so the pages show no Auto groups.
+    runner.read.snapshot = snapshot;
+    runner.changed();
+    await until(async () => !('autoQueue' in (await olive.person.json('/api/snapshot')).body), { what: 'the queue to go' });
+  } finally { l.link.stop(); await s.close(); }
+});
+
+test('What Auto decided on the site keeps refusals and risky calls', async () => {
+  const { cleanAutoLog } = await import('../lib/records.js');
+  const { autoLogRecord, fit } = await import('../../dashboard/runner/mirror.js');
+  const { AUTO_LOG_LIMITS: L } = await import('../../dashboard/lib/auto-log.js');
+  const LOG = {
+    on: true, stopped: null, tag: 'auto-ok', summary: ['Auto made 2 decisions on this job. The Approver cost $0.04.', 'Auto is on.', 'Last decision: 12 Nov 09:05, Plan: Approved.'],
+    startedAt: '2026-11-12T09:00:00.000Z', ticket: 'ORBIT-12',
+    entries: [
+      { at: '2026-11-12T09:10:00.000Z', stage: 'Build', chose: 'Refused: a push to main', asked: 'git push origin main', why: 'Auto never pushes to main.', kind: 'refuse', stop: 'build' },
+      { at: '2026-11-12T09:05:00.000Z', stage: 'Plan', chose: 'Approved', asked: 'Brief 2: go ahead?', why: 'The safer answer: go on and keep the old column.', kind: 'approve', stop: 'plan', risky: true, first: 'Stop and ask: the plan drops a column.' },
+      { at: '2026-11-12T09:04:00.000Z', stage: 'Plan', chose: 'Allowed', asked: 'npm test', why: 'It only runs the tests.', risk: 'None.', kind: 'allow', stop: 'plan' },
+    ],
+  };
+  const runner = mirrorRunner();
+  runner.autoLog = LOG;
+  const { s, olive, l } = await setUp({ runner });
+  try {
+    await until(async () => (await count(s, "SELECT count(*)::int AS n FROM records WHERE kind = 'auto-log'")) === 1, { what: 'the Auto record' });
+    const shown = (await olive.person.json('/api/job/add-export/auto')).body;
+    assert.deepEqual(shown, LOG, 'the refusal, the risky mark and what the Approver first said come back as the laptop sent them');
+  } finally { l.link.stop(); await s.close(); }
+  // The site's own cleaner: risky only when true, first only as text, cut to the same number; no key the view does not read.
+  const long = 'f'.repeat(5000);
+  const kept = cleanAutoLog({ ...LOG, entries: [{ ...LOG.entries[1], first: long }, { ...LOG.entries[1], risky: 'yes', first: 7 }, { ...LOG.entries[0], open: 2 }] });
+  assert.equal(kept.entries[0].risky, true);
+  assert.equal(kept.entries[0].first, long.slice(0, L.text));
+  assert.equal('risky' in kept.entries[1], false);
+  assert.equal('first' in kept.entries[1], false);
+  assert.equal(kept.entries[2].kind, 'refuse');
+  assert.equal('open' in kept.entries[2], false);
+  // The laptop cuts what the Approver first said at the same number, so the site cuts nothing more.
+  const sent = fit('auto-log', autoLogRecord({ ...LOG, entries: [{ ...LOG.entries[1], first: long }] }));
+  assert.equal(sent.entries[0].first.length, L.text);
+  assert.deepEqual(cleanAutoLog(sent).entries, sent.entries);
+});

@@ -146,6 +146,7 @@ export function capAutoLog(v) {
   const entries = v.entries.slice(0, L.entries).map((e) => {
     const o = { ...e, at: cut(e.at, L.at), stage: cut(e.stage, L.stage), chose: cut(e.chose, L.text), asked: cut(e.asked, L.text), why: cut(e.why, L.text) };
     if (typeof e.risk === 'string') o.risk = cut(e.risk, L.text);
+    if (typeof e.first === 'string') o.first = cut(e.first, L.text);
     if (Array.isArray(e.answers)) o.answers = e.answers.slice(0, L.answers).map((a) => ({ ...a, question: cut(a?.question, L.text), choice: cut(a?.choice, L.text), reason: cut(a?.reason, L.text) }));
     return o;
   });

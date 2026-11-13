@@ -24,7 +24,8 @@
 // Every value is then made by lib/protocol.js makeEvent (scrubbed of tokens) and checked again by
 // the site, which refuses a record that fails.
 
-import { NEVER_CARRIED } from '../lib/protocol.js';
+import os from 'node:os';
+import { NEVER_CARRIED, PROTOCOL_VERSION } from '../lib/protocol.js';
 import { scrub } from '../lib/orbit.js';
 import { capAutoLog } from '../lib/auto-log.js';
 
@@ -133,11 +134,38 @@ function metaOf(m) {
 
 // ---------- The parts ----------
 
+// A database address (the kinds lib/db-settings.js reads, and the other common ones) and a folder of this laptop: what
+// the Auto queue's words must not carry up. A path under a home folder (this one's, or any /Users/…, /home/…, C:\Users\…,
+// ~/…) is hidden whole. The punctuation that ends a sentence after one stays.
+const DB_ADDRESS = /\b(?:jdbc:)?(?:postgres(?:ql)?|postgis|pgsql|mysql|mariadb|mongodb|rediss?)(?:\+[\w-]+)?:\/\/[^\s"'<>]*/gi;
+const HOME = os.homedir().length > 1 ? os.homedir().replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : null;
+const LOCAL_PATH = new RegExp(String.raw`(?:${HOME ? HOME + String.raw`(?![\w.-])|` : ''}(?<![\w.~/-])(?:/Users|/home)/[^\s/"'<>]+|\b[A-Za-z]:\\Users\\[^\s\\"'<>]+|(?<![\w.~/-])~(?=/))[^\s"'<>]*`, 'g');
+const SENTENCE_END = /[.,;:!?)\]}]+$/;
+const hiddenAs = (words) => (m) => `${words}${m.match(SENTENCE_END)?.[0] ?? ''}`;
+
+/** Text with its secrets (lib/orbit.js scrub), database addresses and this laptop's folders hidden. */
+function hideLocal(text) {
+  if (typeof text !== 'string' || !text) return text;
+  return scrub(text).replace(DB_ADDRESS, hiddenAs('[database address hidden]')).replace(LOCAL_PATH, hiddenAs('[path hidden]'));
+}
+
+/** The Auto queue (lib/auto-queue.js) as it goes up: each ticket's title and reason hidden as above (a failed start's reason is an error's words). */
+function autoQueueUp(q) {
+  if (!isPlain(q)) return null;
+  const tickets = Array.isArray(q.tickets) ? q.tickets.map((t) => (isPlain(t) ? { ...t, title: hideLocal(t.title), reason: hideLocal(t.reason) } : null)).filter(Boolean) : [];
+  return { ...q, tickets };
+}
+
+/**
+ * The board: the snapshot's cards (their `auto` fields as they are), the waiting permissions, the meters, the page's settings,
+ * the Auto queue, and the protocol this laptop speaks (the site sends Auto start's max only from 7 on).
+ */
 export function boardRecord(snap) {
   return wireSafe({
     meta: metaOf(snap.meta), jobs: snap.jobs ?? [], needsYou: snap.needsYou ?? 0,
     permissions: (snap.permissions ?? []).map(permissionCard).filter(Boolean),
     usage: snap.usage ?? null, planUsage: snap.planUsage ?? null, runTypical: snap.runTypical ?? null, generatedAt: snap.generatedAt ?? null,
+    autoQueue: autoQueueUp(snap.autoQueue), protocol: PROTOCOL_VERSION,
   });
 }
 

@@ -24,8 +24,10 @@ import { FOREMAN_MODEL_IDS } from './options.js';
  * (packet 2A). 3: the events record and audit, and the command stack-merge (packet 2B). 4: the start command's choices
  * (kind, repo, model, options), and hello carrying the laptop's repository names. 5: the command auto
  * (Auto mode's switch). 6: the command auto-start (Settings → Workflow → Auto start: on and the Orbit tag).
+ * 7: auto-start takes max (how many jobs at a time); the board record says the laptop's protocol, and the
+ * site sends max only to a laptop whose board says 7 or more (an older one refuses the whole command).
  */
-export const PROTOCOL_VERSION = 6;
+export const PROTOCOL_VERSION = 7;
 
 /** The most a job's notes.md may hold (characters): the notes command's text, and meta.jobOptions.notesMax. */
 export const NOTES_MAX = 20000;

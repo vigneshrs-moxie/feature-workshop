@@ -38,3 +38,29 @@ test('an auto command whose body says by: auto is refused or recorded as you, ne
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+test('the auto-start command carries max to the setting, and a command without max keeps the saved number', async () => {
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'sb-auto-start-cmd-')));
+  const dirs = Object.fromEntries(['claude', 'features', 'projects', 'agents', 'skills', 'state'].map((n) => [n, path.join(root, n)]));
+  for (const d of Object.values(dirs)) await fs.mkdir(d);
+  const runner = await createRunner({
+    host: '127.0.0.1', port: 1, token: 't', dashboardDir: DASH, claudeDir: dirs.claude, featuresDir: dirs.features, projectsDir: dirs.projects,
+    agentsDir: dirs.agents, skillsDir: dirs.skills, stateDir: dirs.state, demo: true, claudePath: null,
+    claudeSettingsFile: path.join(root, 'claude.json'), legacySettingsFile: null, planUsage: false, orbitStore: 'file',
+    integrateDir: dirs.state, integrateRoot: path.join(DASH, '..'), siteLink: false, env: {},
+  });
+  const saved = async () => JSON.parse(await fs.readFile(path.join(dirs.state, 'settings.json'), 'utf8')).workflow.autoStart;
+  try {
+    // From the site, with max: the setting takes it.
+    const first = await runner.handle({ type: 'auto-start', on: false, tag: 'auto-ok', max: 3 }, { from: 'site' });
+    assert.equal(first.autoStart.max, 3);
+    assert.deepEqual(await saved(), { on: false, tag: 'auto-ok', max: 3 });
+    // Without max (an older site, or a change to the switch or the tag only): the saved N stays.
+    const second = await runner.handle({ type: 'auto-start', on: false, tag: 'later' }, { from: 'site' });
+    assert.equal(second.autoStart.max, 3);
+    assert.deepEqual(await saved(), { on: false, tag: 'later', max: 3 });
+  } finally {
+    runner.stop();
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});

@@ -334,6 +334,8 @@ export default function mirrorRoutes(ctx) {
       },
       jobs, needsYou: jobs.filter((j) => j.group === 'needs-you').length, permissions,
       usage: fresh.usage ?? null, planUsage: fresh.planUsage ?? undefined, runTypical: fresh.runTypical ?? undefined,
+      // The Auto queue (dashboard/lib/auto-queue.js), at the top level where the Inbox and Jobs pages read it; none from an older laptop.
+      autoQueue: fresh.autoQueue ?? undefined,
       generatedAt: new Date(now()).toISOString(),
     };
   }

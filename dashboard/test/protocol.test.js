@@ -108,7 +108,7 @@ test('an unknown type, a local command from the site, an extra field and a wrong
 });
 
 test('the Auto switch (Auto mode): a job and on or off, both needed; the protocol moved to 4', () => {
-  assert.equal(PROTOCOL_VERSION, 6);
+  assert.equal(PROTOCOL_VERSION, 7);
   assert.equal(parseCommand({ type: 'auto', slug: 'sample-job', on: false }, { from: 'site' }).ok, true);
   assert.match(parseCommand({ type: 'auto', slug: 'sample-job' }, { from: 'site' }).error, /needs “on”/);
   assert.match(parseCommand({ type: 'auto', on: true }, { from: 'site' }).error, /needs “slug”/);
@@ -145,7 +145,7 @@ test('makeEvent: known types only; never a diff, patch, environment, token or so
 });
 
 test('the hosted site’s events (packet 2A): hello and job-list, checked like every other', () => {
-  assert.equal(PROTOCOL_VERSION, 6);
+  assert.equal(PROTOCOL_VERSION, 7);
   for (const type of ['hello', 'job-list']) assert.ok(EVENT_TYPES.includes(type), type);
   const hello = makeEvent('hello', { name: 'Test Laptop', os: 'macOS', version: '0.1.0', protocol: PROTOCOL_VERSION });
   assert.equal(hello.ok, true);

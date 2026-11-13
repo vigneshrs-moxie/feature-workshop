@@ -48,14 +48,14 @@ export function cleanSuggestion(v, now = Date.now()) {
 
 // The laptop cuts to these same numbers before it sends (dashboard/lib/auto-log.js).
 const { summary: AUTO_SUMMARY, entries: AUTO_ENTRIES, answers: AUTO_ANSWERS, line: AUTO_LINE, text: AUTO_TEXT } = AUTO_LOG_LIMITS;
-// What an entry may be (a go-ahead, an answer, a permission, Auto stopping); anything else is left out.
-const AUTO_KINDS = ['approve', 'answer', 'allow', 'stop'];
+// What an entry may be (a go-ahead, an answer, a permission, Auto refusing on a card, Auto stopping); anything else is left out.
+const AUTO_KINDS = ['approve', 'answer', 'allow', 'refuse', 'stop'];
 
 /**
  * A job's Auto record as the site keeps and shows it, or null when it isn't the right shape:
- * { on, stopped, tag, summary: 3 short strings, entries: up to 200 { at, stage, chose, asked, why, risk?, answers?, kind?, stop? }, startedAt?, ticket? }.
- * kind, stop, startedAt and ticket are kept only when the laptop sent them (an older laptop's record is unchanged): kind
- * one of the four or left out, stop a step id or null.
+ * { on, stopped, tag, summary: 3 short strings, entries: up to 200 { at, stage, chose, asked, why, risk?, answers?, kind?, stop?, risky?, first? }, startedAt?, ticket? }.
+ * kind, stop, risky, first, startedAt and ticket are kept only when the laptop sent them (an older laptop's record is unchanged): kind
+ * one of the five or left out, stop a step id or null, risky only as true (a risky call), first (what the Approver first said) only as text.
  * Every string came from an agent's words on the laptop: plain text, cut, and only the known keys kept.
  */
 export function cleanAutoLog(v) {
@@ -73,6 +73,8 @@ export function cleanAutoLog(v) {
     }
     if (AUTO_KINDS.includes(e.kind)) one.kind = e.kind;
     if ('stop' in e) one.stop = STOP_IDS.includes(e.stop) ? e.stop : null;
+    if (e.risky === true) one.risky = true;
+    if (typeof e.first === 'string') one.first = e.first.slice(0, AUTO_TEXT);
     entries.push(one);
   }
   const summary = v.summary.slice(0, AUTO_SUMMARY).map((x) => cut(x, AUTO_LINE));
