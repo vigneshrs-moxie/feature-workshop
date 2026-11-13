@@ -402,9 +402,21 @@ export function autoValue(value, db, door, { bare = false } = {}) {
 }
 
 // libpq reads a service's settings (its dbname too) before the PG* fallbacks: no service is passed on,
-// and its system folder is an empty one.
+// and its system folder is an empty one: one per process, made on first use and removed when the
+// process ends (only that folder, only while its path is still one made here, and only if it is
+// still empty).
 let sysconf = null;
-const emptySysconf = () => (sysconf ??= fs.mkdtempSync(path.join(os.tmpdir(), 'starbase-pgsysconf-')));
+function emptySysconf() {
+  if (sysconf) return sysconf;
+  const prefix = path.join(os.tmpdir(), 'starbase-pgsysconf-');
+  const made = fs.mkdtempSync(prefix);
+  process.once('exit', () => {
+    if (!made.startsWith(prefix)) return;
+    try { fs.rmdirSync(made); } catch { /* gone already, or something was put in it: left */ }
+  });
+  sysconf = made;
+  return sysconf;
+}
 
 /**
  * The environment for everything Auto starts on its own database, and the keys Starbase set in it.

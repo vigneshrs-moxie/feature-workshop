@@ -17,6 +17,8 @@
 // connect to Auto's database within 30 s (AUTO_DB_NOT_USED). His Try it server for the job is never
 // stopped for it (AUTO_TRY_IT_RUNNING). No saved original yet: the Test step says it waits
 // (AUTO_DB_WAITING) and it looks again. A migration that fails goes to the Foreman (onAutoDbProblem).
+// Its Playwright run starts inside the sandbox its app runs in (lib/db-door.js): a spec is the job's
+// own code, and could open a database connection.
 //   returns the door the site's routes use (site/routes-evidence.js, through runner.local.evidence):
 //     view(slug)          { evidence, commit, wanted, why, recording, problem, progress, watch, folder, folderUrl }
 //                         (progress: by line while Playwright runs, else null; each change is an
@@ -53,7 +55,8 @@ import { guessedWorktree, guessWords } from '../lib/locate.js';
 import { fillPattern } from '../lib/profile.js';
 import { killTree, shellFor } from '../lib/platform.js';
 import { PRODUCT } from '../lib/brand.js';
-import { AUTO_RECORDING_APP, AUTO_TRY_IT_RUNNING, AutoDbError } from '../lib/local.js';
+import { AUTO_NO_FENCE, AUTO_RECORDING_APP, AUTO_TRY_IT_RUNNING, AutoDbError } from '../lib/local.js';
+import { sandboxed } from '../lib/db-door.js';
 
 const require = createRequire(import.meta.url);
 const SERVER_WAIT_MS = 180_000;
@@ -191,9 +194,10 @@ function runShell(command, { cwd, timeoutMs = 15_000 } = {}) {
  * the runner stops Auto on the job with AUTO_NOT_LANDED_STOP). Once per commit; a result of
  * { sent: false } lets a later recording of that commit try again. stopAuto(f, reason): Auto's stop on
  * the job (after AUTO_DB_TRIES refusals in a row for AUTO_DB_HIS_NEW or AUTO_DB_TAKEN).
- * autoTimes: AUTO_DB_TIMES (tests shorten them).
+ * autoTimes: AUTO_DB_TIMES (tests shorten them). spawnFn: what starts the browser run (tests look
+ * at the command it is given).
  */
-export function evidenceRunner({ jobs, local, state, events, on, demo = false, env = process.env, onAutoDbProblem = () => {}, stopAuto = async () => false, autoTimes = AUTO_DB_TIMES }) {
+export function evidenceRunner({ jobs, local, state, events, on, demo = false, env = process.env, onAutoDbProblem = () => {}, stopAuto = async () => false, autoTimes = AUTO_DB_TIMES, spawnFn = spawn }) {
   const recording = new Set(); // slugs being recorded now
   const problems = new Map(); // slug -> { commit, message, fix, at }: the last recording that couldn't finish
   const progress = new Map(); // slug -> the recording's progress by line (lib/evidence.js), while Playwright runs
@@ -219,12 +223,19 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
     return { script: own.cli, url: own.url };
   }
 
-  /** onLine(text): each line of Playwright's own output (stdout, where the progress reporter writes) as it comes. */
-  function runPlaywright(script, { configFile, cwd, specs, onLine = null }) {
+  /**
+   * onLine(text): each line of Playwright's own output (stdout, where the progress reporter writes) as it comes.
+   * profile: an Auto recording's sandbox profile (its app's, lib/db-door.js): the same command is
+   * started inside the sandbox, since a spec is the job's own code and could open a database
+   * connection. Its environment is as ever: the browser talks to the app, not to a database.
+   */
+  function runPlaywright(script, { configFile, cwd, specs, onLine = null, profile = null }) {
     return new Promise((resolve) => {
       let output = '';
       let partial = '';
-      const child = spawn(process.execPath, [script, 'test', '--config', configFile], {
+      const usual = { file: process.execPath, args: [script, 'test', '--config', configFile] };
+      const run = profile ? sandboxed(usual.file, usual.args, profile) : usual;
+      const child = spawnFn(run.file, run.args, {
         cwd, env: { ...process.env, FORCE_COLOR: '0', PLAYWRIGHT_HTML_OPEN: 'never' }, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
       });
       const limit = setTimeout(() => { if (child.pid) killTree(child.pid); }, 60_000 * (specs.length + 2));
@@ -258,6 +269,7 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
     let startedHere = false;
     let releaseHis = () => {};
     let handed = false;
+    let profile = null; // on Auto's database: the sandbox profile its app was started under
     const tryItRuns = () => { const r = local.jobs.get(f.slug)?.server; return Boolean(r && ['starting', 'running'].includes(r.status)); };
     return {
       handOver() { if (!onAutoDb) handed = true; },
@@ -290,6 +302,7 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
         if (onAutoDb || !runs) {
           try { await local.startServer(f, ...(onAutoDb ? [{ databaseUrl }] : [])); } catch (err) { throw new EvidenceError(409, err.message); }
           startedHere = true;
+          if (onAutoDb) profile = local.autoProfile(f.slug);
         }
         try {
           const until = Date.now() + SERVER_WAIT_MS;
@@ -310,6 +323,8 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
         }
       },
       releaseHis: () => releaseHis(),
+      // On Auto's database: the fence its app runs in, for the browser run (null: none, or not Auto's).
+      profile: () => profile,
       // The record's notes: on Auto's database, what its app asked the door for and was refused.
       notes: () => { const refusal = onAutoDb && startedHere ? local.autoRefusal(f.slug) : null; return refusal ? [autoRefusedNote(refusal)] : []; },
       stop: async () => { if (startedHere && !handed) await local.stopServerAndWait(f.slug); },
@@ -403,7 +418,13 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
         server: { start: async () => { holding.set(f.slug, server); if (onAutoDb) autoHolding.add(f.slug); const s = await server.start(); cwd = s.cwd ?? cwd; return s; }, stop: server.stop, cannotStart: server.cannotStart },
         // On Auto's database his is never looked at: making Auto's copy says whether the server is there.
         dbCheck: onAutoDb ? null : await dbCheckFor(f),
-        run: (opts) => runPlaywright(pw.script, { ...opts, cwd }),
+        // An Auto recording's browser run goes under the fence its app runs in (the specs are the job's code); with no fence, no run.
+        run: (opts) => {
+          if (!onAutoDb) return runPlaywright(pw.script, { ...opts, cwd });
+          const profile = server.profile();
+          if (!profile) throw new EvidenceError(409, AUTO_NO_FENCE);
+          return runPlaywright(pw.script, { ...opts, cwd, profile });
+        },
         notes: server.notes,
       });
       problems.delete(f.slug);

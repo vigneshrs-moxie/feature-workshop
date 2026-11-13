@@ -490,8 +490,8 @@ export class LocalRunner extends EventEmitter {
     const base = childEnv({ PORT: String(port), HOSTNAME: '127.0.0.1', HOST: '127.0.0.1' });
     // On Auto's database: refused (nothing starts) where this computer has no sandbox or a settings file can't be read.
     const fence = autoEnv ? await this.#autoFence(autoEnv, await this.#autoGate(w, (m) => new Error(m)), base) : null;
-    // door, hint: the fence's, kept for the recording's note (autoRefusal).
-    const server = { status: 'starting', port, url: fillPattern(w.tryIt.url, { port }), command, startedAt: new Date().toISOString(), output: '', child: null, exitCode: null, db: databaseUrl ? 'auto' : null, door: fence?.door ?? null, hint: fence?.hint ?? null };
+    // door, hint: the fence's, kept for the recording's note (autoRefusal). profile: the fence's, kept for the recording's browser run (autoProfile).
+    const server = { status: 'starting', port, url: fillPattern(w.tryIt.url, { port }), command, startedAt: new Date().toISOString(), output: '', child: null, exitCode: null, db: databaseUrl ? 'auto' : null, door: fence?.door ?? null, hint: fence?.hint ?? null, profile: fence?.profile ?? null };
     slot.server = server;
     if (this.demo) {
       server.output = `$ ${command}\nDemo mode: nothing real runs.\n`;
@@ -756,6 +756,16 @@ export class LocalRunner extends EventEmitter {
     const server = this.jobs.get(slug)?.server;
     const last = server?.door?.refused.at(-1);
     return last ? { asked: last.database, hint: server.hint } : null;
+  }
+
+  /**
+   * The sandbox profile the job's app on Auto's database was started under (lib/db-door.js), or null
+   * (no app, or his own Try it app, which has none). For what else an Auto recording starts that
+   * runs the job's code: its browser run goes under the same fence.
+   */
+  autoProfile(slug) {
+    const server = this.jobs.get(slug)?.server;
+    return server?.db === 'auto' ? server.profile ?? null : null;
   }
 
   /**

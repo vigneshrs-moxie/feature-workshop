@@ -112,14 +112,15 @@ async function world(opts = {}) {
 
 test("a session that names Auto's copy is passed on, byte for byte", async () => {
   const w = await world();
+  const unix = process.platform !== 'win32'; // a server behind a socket file: not on Windows, which has none
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-door-'));
-  const onSocket = await fakeServer({ path: path.join(dir, 'server.sock') });
-  const socketDoor = await openDoor({ target: { socket: path.join(dir, 'server.sock') }, database: AUTO });
+  const onSocket = unix ? await fakeServer({ path: path.join(dir, 'server.sock') }) : null;
+  const socketDoor = unix ? await openDoor({ target: { socket: path.join(dir, 'server.sock') }, database: AUTO }) : null;
   try {
     for (const [name, door, his, first] of [
       ['a host and a port', w.door, w.his, forDb(AUTO)],
       ['a newer protocol (3.2), the database first', w.door, w.his, startup([['database', AUTO], ['user', 'me'], ['options', '-c x=1'], ['_pq_.x', 'y']], { minor: 2 })],
-      ['a socket', socketDoor, onSocket, forDb(AUTO)],
+      ...(unix ? [['a socket', socketDoor, onSocket, forDb(AUTO)]] : []),
     ]) {
       const before = his.conns.length;
       const s = await session(door.port, first);
@@ -130,8 +131,8 @@ test("a session that names Auto's copy is passed on, byte for byte", async () =>
     }
     assert.deepEqual(w.door.refused, [], 'nothing was refused');
   } finally {
-    await socketDoor.close();
-    await onSocket.close();
+    await socketDoor?.close();
+    await onSocket?.close();
     await w.done();
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -327,9 +328,9 @@ test('the door listens on 127.0.0.1 only, never on 5432 or his port', async () =
     assert.notEqual(w.door.port, 5432);
     assert.notEqual(w.door.port, w.his.port);
     assert.equal((await talk(w.door.port, [], { waitMs: 300 })).error, null, 'it answers on 127.0.0.1');
-    assert.equal((await talk(w.door.port, [], { host: '::1', waitMs: 2000 })).error, 'ECONNREFUSED', 'not on ::1');
+    assert.equal((await talk(w.door.port, [], { host: '::1', waitMs: 8000 })).error, 'ECONNREFUSED', 'not on ::1');
     const lan = Object.values(os.networkInterfaces()).flat().find((i) => i && i.family === 'IPv4' && !i.internal)?.address ?? null;
-    if (lan) assert.equal((await talk(w.door.port, [], { host: lan, waitMs: 2000 })).error, 'ECONNREFUSED', 'not on this computer\'s network address');
+    if (lan) assert.equal((await talk(w.door.port, [], { host: lan, waitMs: 8000 })).error, 'ECONNREFUSED', 'not on this computer\'s network address');
   } finally { await w.done(); }
   // The port the OS hands out is 5432, or his: the door opens again, and lets that one go.
   for (const [what, taken] of [['5432', () => 5432], ['his port', (his) => his]]) {
@@ -381,7 +382,7 @@ test('close ends the sessions through the door', async () => {
     await w.door.close();
     await until(() => passed.closed() && waiting.closed(), 'a client stayed open');
     await until(() => w.his.conns[0].closed, 'the server side stayed open');
-    assert.equal((await talk(w.door.port, [], { waitMs: 2000 })).error, 'ECONNREFUSED', 'it no longer listens');
+    assert.equal((await talk(w.door.port, [], { waitMs: 8000 })).error, 'ECONNREFUSED', 'it no longer listens');
     await w.door.close(); // a second close is nothing
   } finally { await w.done(); }
 });

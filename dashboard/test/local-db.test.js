@@ -13,6 +13,12 @@ import { sandboxProfile } from '../lib/db-door.js';
 import { LocalRunner, AutoDbError, AUTO_TRY_IT_RUNNING, createdbArgs } from '../lib/local.js';
 import { State } from '../lib/state.js';
 
+// Auto's app, its migrate scripts and its browser run inside macOS's sandbox (lib/db-door.js). Where there is none,
+// Auto makes no recording at all, so every test that takes Auto past that gate is skipped there.
+const NEEDS_SANDBOX = process.platform !== 'darwin' && 'needs the macOS sandbox';
+// The fake Postgres tools (fixtures/fake-pg) are #! scripts, started as programs: Windows can't start one.
+const NEEDS_PG_TOOLS = process.platform === 'win32' && 'the fake Postgres tools are #! scripts';
+
 const FAKES = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'fake-pg');
 const FIXTURE_APP = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'auto-db-app');
 const PROFILE = {
@@ -109,7 +115,7 @@ test('createdbArgs uses the file copy only when asked', () => {
   assert.deepEqual(createdbArgs('a', 'b', { fileCopy: false }), ['-T', 'a', 'b']);
 });
 
-test('Try it\'s switch copies with the file copy on Postgres 15 or later, and without it before', async () => {
+test('Try it\'s switch copies with the file copy on Postgres 15 or later, and without it before', { skip: NEEDS_PG_TOOLS }, async () => {
   for (const [version, strategy] of [[170000, ['--strategy=file_copy']], [150000, ['--strategy=file_copy']], [140011, []]]) {
     const ctx = await setup({ version, original: false });
     try {
@@ -125,7 +131,7 @@ test('Try it\'s switch copies with the file copy on Postgres 15 or later, and wi
   }
 });
 
-test('autoDatabase makes __auto afresh from the original and adds this branch\'s migrations with Auto\'s address', async () => {
+test('autoDatabase makes __auto afresh from the original and adds this branch\'s migrations with Auto\'s address', { skip: NEEDS_SANDBOX }, async () => {
   const ctx = await setup();
   try {
     const before = await ctx.pg();
@@ -153,7 +159,7 @@ test('autoDatabase makes __auto afresh from the original and adds this branch\'s
   } finally { await ctx.done(); }
 });
 
-test('a copy that fails leaves the original and his database as they were, frees the switch, and the next turn builds it again', async () => {
+test('a copy that fails leaves the original and his database as they were, frees the switch, and the next turn builds it again', { skip: NEEDS_SANDBOX }, async () => {
   const ctx = await setup();
   try {
     await runAuto(ctx);
@@ -178,7 +184,7 @@ test('a copy that fails leaves the original and his database as they were, frees
   } finally { await ctx.done(); }
 });
 
-test('a migration that fails says which, with its last lines', async () => {
+test('a migration that fails says which, with its last lines', { skip: NEEDS_SANDBOX }, async () => {
   const ctx = await setup();
   try {
     process.env.FAKE_PG_FAIL = '0002_b';
@@ -197,7 +203,7 @@ test('a migration that fails says which, with its last lines', async () => {
   } finally { await ctx.done(); }
 });
 
-test('with no saved original and his app connected, Auto waits and stops nothing', async () => {
+test('with no saved original and his app connected, Auto waits and stops nothing', { skip: NEEDS_SANDBOX }, async () => {
   const ctx = await setup({ original: false, connections: 1 });
   try {
     const stopped = [];
@@ -219,7 +225,7 @@ test('with no saved original and his app connected, Auto waits and stops nothing
   } finally { await ctx.done(); }
 });
 
-test('with no saved original and nothing connected, Auto saves the original first', async () => {
+test('with no saved original and nothing connected, Auto saves the original first', { skip: NEEDS_SANDBOX }, async () => {
   const ctx = await setup({ original: false });
   try {
     const before = await ctx.pg();
@@ -237,7 +243,7 @@ test('with no saved original and nothing connected, Auto saves the original firs
   } finally { await ctx.done(); }
 });
 
-test('while Try it switches, Auto waits; while Auto copies, Try it\'s switch says it is busy', async () => {
+test('while Try it switches, Auto waits; while Auto copies, Try it\'s switch says it is busy', { skip: NEEDS_SANDBOX }, async () => {
   const ctx = await setup();
   try {
     const tryIt = ctx.local.database(ctx.f, 'match');
@@ -268,7 +274,7 @@ test('while Try it switches, Auto waits; while Auto copies, Try it\'s switch say
   } finally { await ctx.done(); }
 });
 
-test('autoConnections counts what is connected to __auto', async () => {
+test('autoConnections counts what is connected to __auto', { skip: NEEDS_SANDBOX }, async () => {
   const ctx = await setup();
   try {
     await runAuto(ctx);
@@ -283,7 +289,7 @@ test('autoConnections counts what is connected to __auto', async () => {
 
 // Review Focus 2. Each test checks its own commands (keepAuto); this is the total over the tests above,
 // so it says something only when the whole file runs.
-test('no command ever targets his database or the original', () => {
+test('no command ever targets his database or the original', { skip: NEEDS_SANDBOX }, () => {
   assert.ok(autoLines.length > 10, 'the tests above ran Auto');
   assert.equal(autoSaves, 1, 'the original is saved only in the test that has none and nothing connected');
 });
@@ -330,7 +336,7 @@ async function seenByBoth(ctx) {
   assert.deepEqual((await ctx.pg()).app.ledger, ['0001_a'], 'his database is as it was');
 }
 
-test('the job\'s app uses the address Starbase gives it over the one in its settings file', async () => {
+test('the job\'s app uses the address Starbase gives it over the one in its settings file', { skip: NEEDS_SANDBOX }, async () => {
   const ctx = await setup({ fixture: true });
   try {
     const view = await ctx.local.startServer(ctx.f, { databaseUrl: 'postgres://localhost/app__auto' });
@@ -339,7 +345,7 @@ test('the job\'s app uses the address Starbase gives it over the one in its sett
   } finally { await stopApp(ctx); await ctx.done(); }
 });
 
-test('the migrate script uses the address Starbase gives it', async () => {
+test('the migrate script uses the address Starbase gives it', { skip: NEEDS_SANDBOX }, async () => {
   const ctx = await setup({ fixture: true });
   try {
     const r = await ctx.local.autoDatabase(ctx.f);
@@ -359,7 +365,7 @@ test('without an address the app uses its settings file', async () => {
   } finally { await stopApp(ctx); await ctx.done(); }
 });
 
-test('a migration that exits clean but did not land on Auto\'s copy stops the turn', async () => {
+test('a migration that exits clean but did not land on Auto\'s copy stops the turn', { skip: NEEDS_SANDBOX }, async () => {
   const ctx = await setup();
   try {
     await fs.mkdir(path.join(ctx.f.worktree, 'app', 'prisma', 'migrations', '0003_c'), { recursive: true });
@@ -376,7 +382,7 @@ test('a migration that exits clean but did not land on Auto\'s copy stops the tu
   } finally { delete process.env.FAKE_PG_SILENT; await ctx.done(); }
 });
 
-test('only Auto\'s database reaches the migrate script and the app: a profile key that is not DATABASE_URL', async () => {
+test('only Auto\'s database reaches the migrate script and the app: a profile key that is not DATABASE_URL', { skip: NEEDS_SANDBOX }, async () => {
   const theirs = 'POSTGRES_URL=postgres://u:p@localhost:5432/app?schema=public\n';
   const ctx = await setup({ fixture: true, profile: { ...APP_PROFILE, database: { urlKey: 'POSTGRES_URL' } }, settings: theirs, appSettings: theirs });
   const had = process.env.DATABASE_URL;
@@ -386,7 +392,7 @@ test('only Auto\'s database reaches the migrate script and the app: a profile ke
   } finally { if (had === undefined) delete process.env.DATABASE_URL; else process.env.DATABASE_URL = had; await ctx.done(); }
 });
 
-test('only Auto\'s database reaches the migrate script and the app: a DIRECT_URL line in his settings file', async () => {
+test('only Auto\'s database reaches the migrate script and the app: a DIRECT_URL line in his settings file', { skip: NEEDS_SANDBOX }, async () => {
   const theirs = `DATABASE_URL=${HIS_URL}\nDIRECT_URL="postgres://u:p@127.0.0.1:5432/app"\nOTHER_DB=postgres://u:p@localhost:5433/app\n`;
   const ctx = await setup({ fixture: true, settings: theirs, appSettings: theirs });
   try {
@@ -402,7 +408,7 @@ test('only Auto\'s database reaches the migrate script and the app: a DIRECT_URL
   } finally { await ctx.done(); }
 });
 
-test('only Auto\'s database reaches the migrate script and the app: an inherited PGDATABASE and an inherited address of his database', async () => {
+test('only Auto\'s database reaches the migrate script and the app: an inherited PGDATABASE and an inherited address of his database', { skip: NEEDS_SANDBOX }, async () => {
   const ctx = await setup({ fixture: true });
   process.env.PGDATABASE = 'app';
   process.env.TEST_HIS_DB_URL = 'postgresql://u:p@localhost/app';
@@ -417,7 +423,7 @@ test('only Auto\'s database reaches the migrate script and the app: an inherited
   } finally { delete process.env.PGDATABASE; delete process.env.TEST_HIS_DB_URL; await ctx.done(); }
 });
 
-test('a failing migration\'s words never carry the address or its password', async () => {
+test('a failing migration\'s words never carry the address or its password', { skip: NEEDS_SANDBOX }, async () => {
   const theirs = 'DATABASE_URL=postgres://u:s3cret-pw@localhost:5432/app?schema=public\n';
   const ctx = await setup({ settings: theirs });
   try {
@@ -454,7 +460,7 @@ test('with Auto\'s address, his Try it server already running for the job is ref
   } finally { await stopApp(ctx); await ctx.done(); }
 });
 
-test('his database switch leaves an app on Auto\'s database running', async () => {
+test('his database switch leaves an app on Auto\'s database running', { skip: NEEDS_SANDBOX }, async () => {
   const ctx = await setup({ fixture: true });
   try {
     await ctx.local.startServer(ctx.f, { databaseUrl: AUTO_URL });
@@ -483,7 +489,7 @@ async function goneSoon(pid) {
 }
 const lastPid = async (ctx, tool) => (await ctx.log()).findLast((e) => e.tool === tool).pid;
 
-test('a Postgres tool that runs past the time limit is stopped, the turn ends as copy, and the switch is free', async () => {
+test('a Postgres tool that runs past the time limit is stopped, the turn ends as copy, and the switch is free', { skip: NEEDS_SANDBOX }, async () => {
   const ctx = await setup({ autoStepMs: 1000 });
   try {
     for (const hang of ['dropdb:app__auto', 'createdb:app__auto', 'psql:app__auto']) {
@@ -504,7 +510,7 @@ test('a Postgres tool that runs past the time limit is stopped, the turn ends as
   } finally { delete process.env.FAKE_PG_HANG; await ctx.done(); }
 });
 
-test('a migrate script that runs past the time limit is stopped with what it started, the turn ends as migration, and the switch is free', async () => {
+test('a migrate script that runs past the time limit is stopped with what it started, the turn ends as migration, and the switch is free', { skip: NEEDS_SANDBOX }, async () => {
   const ctx = await setup({ autoStepMs: 2000 });
   try {
     process.env.FAKE_PG_HANG = 'migrate:0002_b';
@@ -525,7 +531,7 @@ test('a migrate script that runs past the time limit is stopped with what it sta
   } finally { delete process.env.FAKE_PG_HANG; await ctx.done(); }
 });
 
-test('Try it\'s own switch has no time limit', async () => {
+test('Try it\'s own switch has no time limit', { skip: NEEDS_PG_TOOLS }, async () => {
   const ctx = await setup({ autoStepMs: 200 });
   try {
     process.env.FAKE_PG_SLOW = 'createdb:app__incoming'; // 1 s, past Auto's limit
@@ -534,7 +540,7 @@ test('Try it\'s own switch has no time limit', async () => {
   } finally { delete process.env.FAKE_PG_SLOW; await ctx.done(); }
 });
 
-test('a Try it switch asked for just before Auto\'s turn is refused once Auto holds the switch, and runs nothing', async () => {
+test('a Try it switch asked for just before Auto\'s turn is refused once Auto holds the switch, and runs nothing', { skip: NEEDS_SANDBOX }, async () => {
   const ctx = await setup();
   try {
     const tryIt = ctx.local.database(ctx.f, 'match'); // passes its first check, then reads the job's folders
@@ -549,7 +555,7 @@ test('a Try it switch asked for just before Auto\'s turn is refused once Auto ho
   } finally { await ctx.done(); }
 });
 
-test('the file copy is decided for each server', async () => {
+test('the file copy is decided for each server', { skip: NEEDS_SANDBOX }, async () => {
   const ctx = await setup();
   try {
     await patchState((s) => { s.versionByPort = { 5433: 140011 }; });
@@ -566,7 +572,7 @@ test('the file copy is decided for each server', async () => {
   } finally { await ctx.done(); }
 });
 
-test('the file copy needs createdb 15 or later too', async () => {
+test('the file copy needs createdb 15 or later too', { skip: NEEDS_SANDBOX }, async () => {
   const ctx = await setup();
   try {
     await patchState((s) => { s.clientVersion = '14.9'; });
@@ -577,7 +583,7 @@ test('the file copy needs createdb 15 or later too', async () => {
   } finally { await ctx.done(); }
 });
 
-test('when the server\'s version can\'t be read, Try it switches with the default copy and Auto stops as copy', async () => {
+test('when the server\'s version can\'t be read, Try it switches with the default copy and Auto stops as copy', { skip: NEEDS_SANDBOX }, async () => {
   const ctx = await setup({ version: 'fail' });
   try {
     await ctx.local.database(ctx.f, 'match');
@@ -587,7 +593,7 @@ test('when the server\'s version can\'t be read, Try it switches with the defaul
   } finally { await ctx.done(); }
 });
 
-test('an original with no applied_migrations table is no-database, and no migration runs', async () => {
+test('an original with no applied_migrations table is no-database, and no migration runs', { skip: NEEDS_SANDBOX }, async () => {
   const ctx = await setup();
   try {
     await patchState((s) => { s.databases.app__original.ledger = null; });
@@ -611,7 +617,7 @@ test('autoConnections in demo mode runs nothing', async () => {
   } finally { await ctx.done(); }
 });
 
-test('Try it\'s panel hears when Auto takes the switch and when it frees it', async () => {
+test('Try it\'s panel hears when Auto takes the switch and when it frees it', { skip: NEEDS_SANDBOX }, async () => {
   const ctx = await setup();
   try {
     const seen = [];
@@ -656,7 +662,7 @@ const REWRITTEN = {
   OTHER_DB_URL: 'postgres://u:p@localhost:5432/app2', // another database: left as it is
 };
 
-test('his Try it Start while the app runs on Auto\'s database is refused with the line, and the app is left as it was', async () => {
+test('his Try it Start while the app runs on Auto\'s database is refused with the line, and the app is left as it was', { skip: NEEDS_SANDBOX }, async () => {
   const { AUTO_RECORDING_APP } = await import('../lib/local.js');
   assert.equal(AUTO_RECORDING_APP, 'Auto is recording this job on its own copy of the database. Start Try it when the recording ends.');
   const ctx = await setup({ fixture: true });
@@ -679,7 +685,7 @@ test('startServer starts an app only on Auto\'s own copy: any other address is r
   } finally { await ctx.done(); }
 });
 
-test('two starts at once for one job start one app', async () => {
+test('two starts at once for one job start one app', { skip: NEEDS_SANDBOX }, async () => {
   const ctx = await setup({ fixture: true });
   try {
     const [a, b] = await Promise.allSettled([ctx.local.startServer(ctx.f, { databaseUrl: AUTO_URL }), ctx.local.startServer(ctx.f)]);
@@ -696,7 +702,7 @@ test('a short password printed by a tool is blanked however it is printed', asyn
   assert.match(out, /nothing else/);
 });
 
-test('hisBackends reads the backends on his database through the admin database only', async () => {
+test('hisBackends reads the backends on his database through the admin database only', { skip: NEEDS_PG_TOOLS }, async () => {
   const ctx = await setup({ connections: 2 });
   try {
     assert.deepEqual(await ctx.local.hisBackends(ctx.f), ['app-1', 'app-2']);
@@ -742,7 +748,7 @@ function seenRound2() {
   return seenOnce;
 }
 for (const [key, want] of Object.entries(ROUND2)) {
-  test(`every settings file is read the way dotenv reads it: ${key} reaches the migrate script and the app as ${want === undefined ? 'nothing Starbase set' : want}`, async () => {
+  test(`every settings file is read the way dotenv reads it: ${key} reaches the migrate script and the app as ${want === undefined ? 'nothing Starbase set' : want}`, { skip: NEEDS_SANDBOX }, async () => {
     const seen = await seenRound2();
     const through = (child) => want?.replace('<door>', child.PGPORT); // each child's own door
     assert.match(String(seen.migrated.PGPORT), /^\d+$/);
@@ -770,7 +776,7 @@ for (const [fixture, key, left, row] of [
   // NI1: a role named like its database, in an address that is not the profile's key.
   ['ok/docker.dot-env', 'POSTGRES_DB', 'app__auto', 'the Docker-style login named like the database'],
 ]) {
-  test(`17. a setting the reader can't point at Auto's copy no longer stops the recording: ${row}`, async () => {
+  test(`17. a setting the reader can't point at Auto's copy no longer stops the recording: ${row}`, { skip: NEEDS_SANDBOX }, async () => {
     const ctx = await turnWith(fixture);
     try {
       assert.deepEqual((await ctx.local.autoDatabase(ctx.f)).added, ['0002_b'], 'the copy is made and the migration added');
@@ -788,7 +794,7 @@ for (const [fixture, key, left, row] of [
 }
 
 for (const [fixture, what] of [['ok/commented.dot-env', 'a commented-out address'], ['ok/nextauth.dot-env', 'NEXTAUTH_URL=http://app.localhost:3000']]) {
-  test(`${what} does not refuse`, async () => {
+  test(`${what} does not refuse`, { skip: NEEDS_SANDBOX }, async () => {
     const ctx = await turnWith(fixture);
     try {
       assert.deepEqual((await ctx.local.autoDatabase(ctx.f)).added, ['0002_b']);
@@ -796,7 +802,7 @@ for (const [fixture, what] of [['ok/commented.dot-env', 'a commented-out address
   });
 }
 
-test('a settings file Starbase can\'t read refuses the turn', async () => {
+test('a settings file Starbase can\'t read refuses the turn', { skip: NEEDS_SANDBOX }, async () => {
   const ctx = await turnWith('ok/nextauth.dot-env');
   const file = path.join(ctx.f.worktree, 'app', '.env');
   try {
@@ -812,7 +818,7 @@ test('C2 #11, the decision: an app set up by parts (DB_HOST, DB_NAME) with no da
   try {
     assert.equal(await ctx.local.namesADatabase(ctx.f, {}), true);
     await assert.rejects(ctx.local.autoDatabase(ctx.f, { env: {} }), (err) => err.code === 'no-database'
-      && err.message === 'This job’s app looks like it uses a database (the job\'s app/.env, DB_HOST), but Starbase does not know which one, so Auto made no recording.');
+      && err.message === `This job’s app looks like it uses a database (the job's ${path.join('app', '.env')}, DB_HOST), but Starbase does not know which one, so Auto made no recording.`);
     assert.deepEqual(await ctx.log(), [], 'nothing ran');
   } finally { await ctx.done(); }
 });
@@ -834,7 +840,7 @@ test('namesADatabase: the profile\'s key, a database-like line in any file (a CR
   } finally { await keyed.done(); }
 });
 
-test('R6: hisSessions reads pg_stat_database through the admin database, and says null where the server keeps no such count', async () => {
+test('R6: hisSessions reads pg_stat_database through the admin database, and says null where the server keeps no such count', { skip: NEEDS_PG_TOOLS }, async () => {
   const ctx = await setup();
   try {
     assert.equal(await ctx.local.hisSessions(ctx.f), 0);
@@ -844,7 +850,7 @@ test('R6: hisSessions reads pg_stat_database through the admin database, and say
   } finally { delete process.env.FAKE_PG_NO_SESSIONS; await ctx.done(); }
 });
 
-test('NB5: stopAll ends Auto\'s database steps still running', async () => {
+test('NB5: stopAll ends Auto\'s database steps still running', { skip: NEEDS_SANDBOX }, async () => {
   const ctx = await setup({ autoStepMs: 6000 }); // without stopAll the step would live until its own limit
   try {
     process.env.FAKE_PG_HANG = 'createdb:app__auto';
@@ -860,7 +866,7 @@ test('NB5: stopAll ends Auto\'s database steps still running', async () => {
 
 // ---------- Task 9 fix round 3: the judge reads raw lines ----------
 
-test('8. filesToCopy from app/local.env: its keys are set, and its lines are judged', async () => {
+test('8. filesToCopy from app/local.env: its keys are set, and its lines are judged', { skip: NEEDS_SANDBOX }, async () => {
   const profile = { ...APP_PROFILE, filesToCopy: [{ from: '{app}/local.env', to: '{app}/local.env' }] };
   const ctx = await setup({ fixture: true, profile });
   try {
@@ -875,7 +881,7 @@ test('8. filesToCopy from app/local.env: its keys are set, and its lines are jud
   } finally { await ctx.done(); }
 });
 
-test('9. the hold: Try it\'s panel answers at once from the last facts; past 2 minutes it still holds; the 10-minute cap lets go', { timeout: 20_000 }, async (t) => {
+test('9. the hold: Try it\'s panel answers at once from the last facts; past 2 minutes it still holds; the 10-minute cap lets go', { timeout: 20_000, skip: NEEDS_PG_TOOLS }, async (t) => {
   const ctx = await setup();
   try {
     const before = await ctx.local.dbView(ctx.f, { fresh: true });
@@ -896,7 +902,7 @@ test('9. the hold: Try it\'s panel answers at once from the last facts; past 2 m
   } finally { await ctx.done(); }
 });
 
-test('9. the hold with nothing read yet: Try it\'s panel answers as a failed read does, without waiting', { timeout: 20_000 }, async () => {
+test('9. the hold with nothing read yet: Try it\'s panel answers as a failed read does, without waiting', { timeout: 20_000, skip: NEEDS_PG_TOOLS }, async () => {
   const ctx = await setup();
   try {
     const release = await ctx.local.holdHisReads(ctx.f);
@@ -908,7 +914,7 @@ test('9. the hold with nothing read yet: Try it\'s panel answers as a failed rea
   } finally { await ctx.done(); }
 });
 
-test('11. PGUSER and PGPASSWORD named like his database reach the migrate step unchanged', async () => {
+test('11. PGUSER and PGPASSWORD named like his database reach the migrate step unchanged', { skip: NEEDS_SANDBOX }, async () => {
   const ctx = await setup({ fixture: true, settings: 'DATABASE_URL=postgres://localhost:5432/app\n' });
   Object.assign(process.env, { PGUSER: 'app', PGPASSWORD: 'app' });
   try {
@@ -933,7 +939,6 @@ test('14. his database named postgres: refused up front with its line, nothing c
 // No Postgres anywhere: his server is a plain listener that counts what connects to it. Wherever a
 // fixture sends a real startup message, his settings name that listener's port, never 5432.
 
-const mac = process.platform === 'darwin';
 const NO_FENCE = 'Auto could not fence its app off from your database on this computer, so it made no recording.';
 const DOOR_WORDS = /SFATAL\0VFATAL\0C3D000\0MStarbase: Auto's app may only use its own copy of the database, app__auto\.\0/;
 
@@ -968,7 +973,7 @@ async function setScript(ctx, name, command) {
 }
 const serverOf = (ctx) => ctx.local.jobs.get(ctx.f.slug).server;
 
-test('14. Auto\'s app starts through sandbox-exec with settings that name the door; his own Try it app starts as before', { skip: !mac }, async () => {
+test('14. Auto\'s app starts through sandbox-exec with settings that name the door; his own Try it app starts as before', { skip: NEEDS_SANDBOX }, async () => {
   const his = await plainServer();
   const ctx = await setup({ fixture: true, settings: `DATABASE_URL=${his.url}\n` });
   try {
@@ -1000,7 +1005,7 @@ test('14. Auto\'s app starts through sandbox-exec with settings that name the do
   } finally { await stopApp(ctx); await ctx.done(); await his.close(); }
 });
 
-test('15. each migrate script runs through sandbox-exec with the migrate profile; Starbase\'s own psql, createdb and dropdb do not', { skip: !mac }, async () => {
+test('15. each migrate script runs through sandbox-exec with the migrate profile; Starbase\'s own psql, createdb and dropdb do not', { skip: NEEDS_SANDBOX }, async () => {
   const his = await plainServer();
   const ctx = await setup({ settings: `DATABASE_URL=${his.url}\n` });
   await fs.mkdir(path.join(ctx.f.worktree, 'app', 'prisma', 'migrations', '0003_c'), { recursive: true });
@@ -1041,7 +1046,7 @@ test('16. no sandbox on this computer: nothing is copied, started or run, with t
   } finally { await ctx.done(); }
 });
 
-test('18. two of the review\'s reaches end at the fence', { skip: !mac }, async () => {
+test('18. two of the review\'s reaches end at the fence', { skip: NEEDS_SANDBOX }, async () => {
   const his = await plainServer();
   // NC1: a slash after the name. NC2: a quoted value over two lines. The reader points neither at Auto's copy;
   // a driver reads his database's name out of both.
@@ -1065,7 +1070,7 @@ test('18. two of the review\'s reaches end at the fence', { skip: !mac }, async 
   } finally { await ctx.done(); await his.close(); }
 });
 
-test('19. the door is closed when the app stops and when the migrate loop ends, also when a script fails', { skip: !mac }, async () => {
+test('19. the door is closed when the app stops and when the migrate loop ends, also when a script fails', { skip: NEEDS_SANDBOX }, async () => {
   const his = await plainServer();
   const theirs = `DATABASE_URL=${his.url}\n`;
   const ctx = await setup({ fixture: true, settings: theirs, appSettings: theirs });
@@ -1098,7 +1103,7 @@ test('19. the door is closed when the app stops and when the migrate loop ends, 
   } finally { await stopApp(ctx); await ctx.done(); await his.close(); }
 });
 
-test('20. a migrate script the door refused fails with the name it asked for; one that fails by itself keeps its exit code', { skip: !mac }, async () => {
+test('20. a migrate script the door refused fails with the name it asked for; one that fails by itself keeps its exit code', { skip: NEEDS_SANDBOX }, async () => {
   const his = await plainServer();
   const theirs = `DATABASE_URL=${his.url}\n`;
   const ctx = await setup({ fixture: true, settings: theirs, appSettings: theirs });
@@ -1120,7 +1125,7 @@ test('20. a migrate script the door refused fails with the name it asked for; on
   } finally { delete process.env.FAKE_PG_FAIL; await ctx.done(); await his.close(); }
 });
 
-test('20. an app the door refused: the job\'s refusal names what it asked for, and the setting that may name it', { skip: !mac }, async () => {
+test('20. an app the door refused: the job\'s refusal names what it asked for, and the setting that may name it', { skip: NEEDS_SANDBOX }, async () => {
   const his = await plainServer();
   const theirs = `DATABASE_URL=${his.url}\n`;
   const ctx = await setup({ fixture: true, settings: theirs, appSettings: `${theirs}LEGACY_JDBC=jdbc:postgresql:app\n` });
@@ -1147,7 +1152,7 @@ test('20. an app the door refused: the job\'s refusal names what it asked for, a
   } finally { await stopApp(ctx); await ctx.done(); await his.close(); }
 });
 
-test('D6. the hold with nothing read yet says so in the lead\'s words, and the release is heard', async () => {
+test('D6. the hold with nothing read yet says so in the lead\'s words, and the release is heard', { skip: NEEDS_PG_TOOLS }, async () => {
   const ctx = await setup();
   try {
     const release = await ctx.local.holdHisReads(ctx.f);
@@ -1159,4 +1164,42 @@ test('D6. the hold with nothing read yet says so in the lead\'s words, and the r
     assert.deepEqual(heard, [ctx.f.slug], 'the page hears that the hold ended');
     assert.equal((await ctx.local.dbView(ctx.f)).available, true, 'and the next look reads again: the answer kept from the hold is gone (m-d)');
   } finally { await ctx.done(); }
+});
+
+// ---------- Task 9 fix round 5: his socket file can't be moved from inside the fence ----------
+// A stand-in socket only: a plain listener on a file named like Postgres's, in a folder the test makes.
+
+/** A plain listener on a socket file named like Postgres's, in a folder of its own: { path, dir, seen: { connections }, close() }. */
+async function standInSocket(port) {
+  const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'sb-fence-')));
+  const file = path.join(dir, `.s.PGSQL.${port}`);
+  const seen = { connections: 0 };
+  const server = net.createServer((s) => { seen.connections++; s.on('error', () => {}); s.end(); });
+  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(file, resolve); });
+  const close = async () => { await new Promise((r) => { server.close(r); }); await fs.rm(dir, { recursive: true, force: true }); };
+  return { path: file, dir, seen, close };
+}
+
+test('E1. an app that renames a .s.PGSQL. socket to connect under the new name: Auto\'s app gets EPERM on the rename and never reaches the server behind it', { skip: NEEDS_SANDBOX }, async () => {
+  const his = await plainServer();
+  const sock = await standInSocket(his.port);
+  const theirs = `DATABASE_URL=${his.url}\n`;
+  const ctx = await setup({ fixture: true, settings: theirs, appSettings: theirs });
+  const move = `/move?socket=${encodeURIComponent(sock.path)}`;
+  try {
+    const r = await ctx.local.autoDatabase(ctx.f);
+    await ctx.local.startServer(ctx.f, { databaseUrl: r.url });
+    try {
+      assert.deepEqual(JSON.parse(await appGet(ctx, move)), { direct: 'EPERM', rename: 'EPERM', moved: 'ENOENT' }, 'Auto\'s app');
+    } finally { await stopApp(ctx); }
+    assert.deepEqual(await fs.readdir(sock.dir), [path.basename(sock.path)], 'the socket is where it was');
+    assert.equal(sock.seen.connections, 0, 'nothing reached the server behind the socket');
+    assert.equal(his.seen.connections, 0, 'nor his server\'s port');
+    // His own Try it app has no fence: the same steps go through, so the refusal above is the fence's doing.
+    await ctx.local.startServer(ctx.f);
+    try {
+      assert.deepEqual(JSON.parse(await appGet(ctx, move)), { direct: 'connected', rename: 'renamed', moved: 'connected' }, 'his own Try it app');
+    } finally { await stopApp(ctx); }
+    assert.equal(sock.seen.connections, 2, 'both reached it');
+  } finally { await stopApp(ctx); await ctx.done(); await sock.close(); await his.close(); }
 });

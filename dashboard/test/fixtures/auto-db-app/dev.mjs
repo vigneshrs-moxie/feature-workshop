@@ -9,10 +9,16 @@
 //   GET /reach  tries every Postgres address in its own .env.local the way a driver that reads the
 //             file itself would (reach, below), and answers what happened. Only tests with a plain
 //             listener standing for his server ask for it.
+//   GET /move?socket=<path>  tries to get around the fence by moving a socket file: it connects to
+//             the socket, renames it to "moved" in the same folder and connects under that name, and
+//             answers what each met. Only for a socket in a folder named sb-fence-…, which a test
+//             made: never a real server's.
 // With --ask-his its first GET / also asks the server its environment names (PGHOST, PGPORT) for the
 // database its .env.local names, with a real startup message (ask.mjs): Auto's door refuses it.
 import fs from 'node:fs';
 import http from 'node:http';
+import net from 'node:net';
+import path from 'node:path';
 import { ask } from './ask.mjs';
 import { databaseSettings, dbName, loadSettings, readSettings } from './settings.mjs';
 
@@ -57,7 +63,27 @@ async function reach() {
   return out;
 }
 
+/** What a connection to a socket file meets: 'connected', or the error's code. */
+const meet = (file) => new Promise((resolve) => {
+  const s = net.connect({ path: file });
+  s.on('connect', () => { s.destroy(); resolve('connected'); });
+  s.on('error', (err) => resolve(err.code));
+});
+/** A test's stand-in socket, tried, renamed to a name with no .s.PGSQL. in it, and tried there: { direct, rename, moved }. */
+async function move(socket) {
+  const dir = path.dirname(socket);
+  if (!path.basename(dir).startsWith('sb-fence-')) return { error: 'not a test\'s socket' };
+  const out = { direct: await meet(socket) };
+  try { fs.renameSync(socket, path.join(dir, 'moved')); out.rename = 'renamed'; } catch (err) { out.rename = err.code; }
+  out.moved = await meet(path.join(dir, 'moved'));
+  return out;
+}
+
 const server = http.createServer((req, res) => {
+  if (req.url.startsWith('/move?')) {
+    move(new URL(req.url, 'http://app.test').searchParams.get('socket') ?? '').then((r) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(r)); });
+    return;
+  }
   if (req.url === '/env') {
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify(databaseSettings()));

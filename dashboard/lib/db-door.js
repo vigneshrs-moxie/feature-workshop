@@ -1,8 +1,9 @@
 // What keeps Auto's app and Auto's migrate scripts away from his Postgres server. Two parts, and the
 // guarantee rests on these two alone (no settings file is read here, and none has to be read right):
 //   - the sandbox: macOS's sandbox-exec, with a profile that denies the child his server (its port,
-//     port 5432, and every .s.PGSQL. socket). A sandbox is inherited by everything the child starts
-//     and can't be dropped.
+//     port 5432, and every .s.PGSQL. socket, which it can't rename, remove or link either: the
+//     sandbox judges the path a connect resolves to, so a socket moved to another name would
+//     connect). A sandbox is inherited by everything the child starts and can't be dropped.
 //   - the door: a relay on 127.0.0.1 that passes a session on to his server only when its startup
 //     message names exactly Auto's copy, <name>__auto. Everything else is refused before a byte
 //     reaches his server.
@@ -27,7 +28,8 @@ const SANDBOX_EXEC = '/usr/bin/sandbox-exec';
 /**
  * The sandbox profile for Auto's app (migrate: for one of Auto's migrate scripts, which also reaches
  * nothing outside this computer). port: his server's port, a whole number from 1 to 65535; anything
- * else throws, so nothing but that number and the fixed lines is ever in the text.
+ * else throws, so nothing but that number and the fixed lines is ever in the text. The two file
+ * lines keep a .s.PGSQL. socket under its name: no rename, removal or hard link from inside.
  */
 export function sandboxProfile({ port, migrate = false } = {}) {
   if (!wholePort(port)) throw new TypeError('The sandbox profile takes a port: a whole number from 1 to 65535.');
@@ -36,6 +38,8 @@ export function sandboxProfile({ port, migrate = false } = {}) {
     '(allow default)',
     ...(migrate ? ['(deny network-outbound (remote ip "*:*"))', '(allow network-outbound (remote ip "localhost:*"))'] : []),
     '(deny network-outbound (remote unix-socket (regex #"\\.s\\.PGSQL\\.")))',
+    '(deny file-write* (regex #"\\.s\\.PGSQL\\."))',
+    '(deny file-link (regex #"\\.s\\.PGSQL\\."))',
     '(deny network-outbound (remote tcp "*:5432"))',
     `(deny network-outbound (remote tcp "*:${port}"))`,
   ].join('\n');
@@ -46,11 +50,14 @@ export function sandboxed(file, args, profile) {
   return { file: SANDBOX_EXEC, args: ['-p', profile, file, ...args] };
 }
 
-// What the self-test's child runs: it tries each target and writes what happened to each.
+// What the self-test's child runs: it tries to rename the socket to a name the profile does not
+// know (in the same folder), then tries each target, and writes what happened to each.
 const SELF_TEST = [
   "const net = require('net');",
+  "const path = require('path');",
   'const targets = JSON.parse(process.argv[1]);',
   'const out = {};',
+  "try { require('fs').renameSync(targets.socket.path, path.join(path.dirname(targets.socket.path), 'moved')); out.rename = 'renamed'; } catch (e) { out.rename = String(e.code); }",
   'let left = Object.keys(targets).length;',
   'for (const k of Object.keys(targets)) {',
   '  const c = net.connect(targets[k]);',
@@ -62,10 +69,11 @@ const SELF_TEST = [
 
 /**
  * The self-test: two loopback listeners A and B and a socket named like Postgres's, then one child
- * under the app's profile for A's port. It passes only when the child says A and the socket were
+ * under the app's profile for A's port (profile: the function that makes it, the product's own). It
+ * passes only when the child says it could not rename the socket (EPERM), A and the socket were
  * refused (EPERM) and B answered. It cleans up what it made.
  */
-async function selfTest({ execPath, sandboxExec, timeoutMs }) {
+async function selfTest({ execPath, sandboxExec, timeoutMs, profile }) {
   if (!fs.existsSync(sandboxExec)) return false;
   const servers = [];
   let dir = null;
@@ -83,7 +91,7 @@ async function selfTest({ execPath, sandboxExec, timeoutMs }) {
     if (Buffer.byteLength(socket) >= 104) return false; // too long for a unix socket: no test, no fence
     await listen({ path: socket });
     const targets = { a: { host: '127.0.0.1', port: a.address().port }, socket: { path: socket }, b: { host: '127.0.0.1', port: b.address().port } };
-    const { args } = sandboxed(execPath, ['-e', SELF_TEST, JSON.stringify(targets)], sandboxProfile({ port: a.address().port }));
+    const { args } = sandboxed(execPath, ['-e', SELF_TEST, JSON.stringify(targets)], profile({ port: a.address().port }));
     const said = await new Promise((resolve) => {
       let text = '';
       const timer = setTimeout(() => resolve(null), timeoutMs);
@@ -95,7 +103,7 @@ async function selfTest({ execPath, sandboxExec, timeoutMs }) {
     });
     let answer = null;
     try { answer = JSON.parse(said); } catch { return false; }
-    return Boolean(answer) && Object.keys(answer).length === 3 && answer.a === 'EPERM' && answer.socket === 'EPERM' && answer.b === 'connected';
+    return Boolean(answer) && Object.keys(answer).length === 4 && answer.rename === 'EPERM' && answer.a === 'EPERM' && answer.socket === 'EPERM' && answer.b === 'connected';
   } finally {
     try { child?.kill('SIGKILL'); } catch { /* gone */ }
     for (const s of servers) s.close();
@@ -103,20 +111,23 @@ async function selfTest({ execPath, sandboxExec, timeoutMs }) {
   }
 }
 
-const tested = new Map(); // execPath and sandbox-exec -> { ok, at } or { pending }
+const testedWith = new WeakMap(); // the profile function -> Map: execPath and sandbox-exec -> { ok, at } or { pending }
 
 /**
  * Whether this computer can fence a child off from his server: only on macOS, with sandbox-exec
  * there, and after the self-test passed. A yes is kept for the life of the process; a no is tested
  * again at most once a minute. timeoutMs: how long the self-test's child may take (5 seconds).
+ * profile: the function whose profile is tested, sandboxProfile (the tests hand in a weaker one).
  */
-export function sandboxWorks({ platform = process.platform, execPath = process.execPath, sandboxExec = SANDBOX_EXEC, timeoutMs = 5000 } = {}) {
+export function sandboxWorks({ platform = process.platform, execPath = process.execPath, sandboxExec = SANDBOX_EXEC, timeoutMs = 5000, profile = sandboxProfile } = {}) {
   if (platform !== 'darwin') return Promise.resolve(false);
+  if (!testedWith.has(profile)) testedWith.set(profile, new Map());
+  const tested = testedWith.get(profile);
   const key = `${execPath}\n${sandboxExec}`;
   const last = tested.get(key);
   if (last?.pending) return last.pending;
   if (last && (last.ok || Date.now() - last.at < 60_000)) return Promise.resolve(last.ok);
-  const pending = selfTest({ execPath, sandboxExec, timeoutMs }).catch(() => false).then((ok) => {
+  const pending = selfTest({ execPath, sandboxExec, timeoutMs, profile }).catch(() => false).then((ok) => {
     tested.set(key, { ok, at: Date.now() });
     return ok;
   });

@@ -96,7 +96,7 @@ async function readBesideFifo(fifo, opts) {
   try { return await readSettings(opts); } finally { clearTimeout(letGo); }
 }
 
-test('7. links: to a regular file (read), dangling (ignored), to a folder (ignored), a FIFO named .env.x (unreadable, never opened)', { timeout: 10_000 }, async () => {
+test('7. links: to a regular file (read), dangling (ignored), to a folder (ignored), a FIFO named .env.x (unreadable, never opened)', { timeout: 10_000, skip: process.platform === 'win32' && 'links need admin rights on Windows, and it has no FIFOs' }, async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'starbase-db-settings-'));
   const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'starbase-db-settings-out-'));
   try {
@@ -171,7 +171,7 @@ test('a database-like line that holds the name once its variables are filled in 
   assert.deepEqual(check([["the job's .env", 'X=${A}\nA=socket:/tmp?db=$B\nB=orbit\n']]).left?.key, 'A');
 });
 
-test('m3: a folder that can\'t be listed is unreadable; a root that does not exist is not', async () => {
+test('m3: a folder that can\'t be listed is unreadable; a root that does not exist is not', { skip: process.platform === 'win32' && 'Windows has no POSIX modes' }, async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'starbase-db-settings-'));
   try {
     await fs.mkdir(path.join(dir, 'locked'));
@@ -189,7 +189,7 @@ test('15. a nested worktree\'s .env is not read; a submodule\'s is; .claude and 
     await fs.writeFile(path.join(dir, 'mod', '.git'), 'gitdir: ../.git/modules/mod\n');
     for (const d of ['wt', 'mod', '.claude/worktrees/x', '.worktrees/y']) await fs.writeFile(path.join(dir, d, '.env'), 'DIRECT_URL=postgres://localhost/orbit\n');
     const settings = await readSettings({ job: dir });
-    assert.deepEqual(settings.files.map((f) => f.label), ["the job's mod/.env"]);
+    assert.deepEqual(settings.files.map((f) => f.label), [`the job's ${path.join('mod', '.env')}`]);
   } finally { await fs.rm(dir, { recursive: true, force: true }); }
 });
 
@@ -201,7 +201,7 @@ test('S9: a file is named by where it is: the job\'s, your main folder\'s, or ~/
     await fs.writeFile(path.join(home, 'main', '.env'), 'B=1\n');
     await fs.writeFile(path.join(home, 'shared', 'local.env'), 'C=1\n');
     const settings = await readSettings({ job: path.join(home, 'job'), main: path.join(home, 'main'), extra: [path.join(home, 'shared', 'local.env')], home });
-    assert.deepEqual(settings.files.map((f) => f.label), ["the job's .env", "your main folder's .env", '~/shared/local.env']);
+    assert.deepEqual(settings.files.map((f) => f.label), ["the job's .env", "your main folder's .env", `~/${path.join('shared', 'local.env')}`]);
   } finally { await fs.rm(home, { recursive: true, force: true }); }
 });
 
@@ -328,7 +328,7 @@ for (const [what, text, also] of [
   });
 }
 
-test('21. D5: a FIFO in the job\'s folder is not opened: it counts as unreadable, at once', { timeout: 10_000 }, async () => {
+test('21. D5: a FIFO in the job\'s folder is not opened: it counts as unreadable, at once', { timeout: 10_000, skip: process.platform === 'win32' && 'Windows has no FIFOs' }, async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'starbase-db-settings-'));
   const fifo = path.join(dir, '.env');
   try {
@@ -344,7 +344,7 @@ test('21. D5: a FIFO in the job\'s folder is not opened: it counts as unreadable
   }
 });
 
-test('21. D5: a FIFO named .git in a folder of the job is not opened either: the folder is read like any other, at once', { timeout: 10_000 }, async () => {
+test('21. D5: a FIFO named .git in a folder of the job is not opened either: the folder is read like any other, at once', { timeout: 10_000, skip: process.platform === 'win32' && 'Windows has no FIFOs' }, async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'starbase-db-settings-'));
   const fifo = path.join(dir, 'app', '.git');
   try {
@@ -366,4 +366,24 @@ test('m-h: a key with DBNAME as a part is a database setting: it is the hint, an
   assert.deepEqual(dbHint(r.settings, {}), { file: "the job's .env", key: 'APP_DBNAME' });
   assert.equal(r.env.APP_DBNAME, 'orbit__auto');
   assert.equal(r.left, null);
+});
+
+// ---------- Task 9 fix round 5 ----------
+
+test('m1: the empty folder for PGSYSCONFDIR is one per process, and it is gone once the process has ended', async () => {
+  // A process of its own: it builds two child environments, says which folder they name, and ends.
+  const script = `
+    import fs from 'node:fs';
+    const { autoDbEnvParts, settingsFromTexts } = await import(${JSON.stringify(new URL('../lib/db-settings.js', import.meta.url).href)});
+    const folder = () => autoDbEnvParts(${JSON.stringify(DB)}, settingsFromTexts([]), {}, { port: 6543 }).env.PGSYSCONFDIR;
+    const dir = folder();
+    console.log(JSON.stringify({ dir, again: folder(), files: fs.readdirSync(dir) }));
+  `;
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  const said = JSON.parse(r.stdout);
+  assert.ok(said.dir.startsWith(path.join(os.tmpdir(), 'starbase-pgsysconf-')), said.dir);
+  assert.equal(said.again, said.dir, 'one folder for the process');
+  assert.deepEqual(said.files, [], 'there, and empty, while the process ran');
+  assert.equal(await fs.stat(said.dir).then(() => true, () => false), false, 'gone once it ended');
 });
