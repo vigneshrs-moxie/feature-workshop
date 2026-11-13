@@ -11,8 +11,10 @@
 // a step for Auto: if "Auto demo" gets to PR #1, Auto did it. It checks that
 //   1. "Auto demo" shows PR #1 open within 120 s, with no click and no request that changes anything,
 //      and its job page has the Auto switch and "What Auto decided" in its header (.sb-job-top);
-//   2. "What Auto decided" on its card lists one entry per approval (the summary counts them), each
-//      with the Approver's reason, and says Auto finished;
+//   2. "What Auto decided" on its job page lists one entry per approval (the summary counts them), each
+//      with the Approver's reason, and says Auto finished; and on the Jobs page's Auto tab the job is a
+//      row in Ready for you to try that says "No risky calls" (a finished Auto job is on the Auto tab,
+//      not a card under Yours);
 //   3. "Auto demo: migrate", on the Jobs page's Auto tab, is a row in Ready for you to try (within 120 s)
 //      and not in Needs you; on its job page, "What Auto decided" lists a refusal (an entry with
 //      data-kind="refuse", chose "Refused: …") whose Why: is the database note's reason
@@ -79,14 +81,9 @@ try {
   if ((await pageWhat.count()) !== 1) fail(`the job page has ${await pageWhat.count()} "What Auto decided" buttons in its header, expected 1`);
   else ok('the job page has What Auto decided');
 
-  // 2. What Auto decided, on the Jobs page card.
-  await page.goto(`${BASE}#/`, { waitUntil: 'networkidle' });
-  await page.waitForTimeout(1500);
-  const card = page.locator('.job-card', { hasText: 'Auto demo' }).filter({ hasNotText: 'Auto demo: migrate' });
-  if ((await card.count()) !== 1) fail(`expected one "Auto demo" card on Jobs, found ${await card.count()}`);
-  else {
-    const button = card.getByRole('button', { name: 'What Auto decided' });
-    await button.click();
+  // 2. What Auto decided, on the job's own page (still open from step 1).
+  if ((await pageWhat.count()) === 1) {
+    await pageWhat.click();
     await page.locator('.auto-entry').first().waitFor({ timeout: 10_000 }).catch(() => {});
     const entries = await page.locator('.auto-entry').allInnerTexts();
     const summary = (await page.locator('.auto-summary').innerText().catch(() => '')).replace(/\s+/g, ' ');
@@ -102,8 +99,21 @@ try {
     await page.keyboard.press('Escape');
   }
 
-  // 3. The migrate job: its database card refused, and still at PR #1, under Ready for you to try.
+  // 2b. Its row on the Jobs page's Auto tab: Ready for you to try, with no risky calls.
+  await page.goto(`${BASE}#/`, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(1500);
   await page.getByRole('tab', { name: 'Auto', exact: true }).click();
+  const demoRow = page.locator('section.lane-ready .sb-auto-row', { hasText: 'Auto demo' }).filter({ hasNotText: 'Auto demo: migrate' });
+  if ((await demoRow.count()) !== 1) fail(`expected one "Auto demo" row in Ready for you to try on the Auto tab, found ${await demoRow.count()}`);
+  else {
+    const rowText = (await demoRow.innerText()).replace(/\s+/g, ' ');
+    if (!/No risky calls/.test(rowText)) fail(`the Auto demo row does not say No risky calls (it says: ${rowText})`);
+    else ok('Auto demo is a row in Ready for you to try, with No risky calls');
+  }
+  const yoursCard = page.locator('.job-card', { hasText: 'Auto demo' });
+  if ((await yoursCard.count()) !== 0) fail(`${await yoursCard.count()} "Auto demo" card(s) show beside the Auto tab's rows`);
+
+  // 3. The migrate job: its database card refused, and still at PR #1, under Ready for you to try.
   const readyRow = page.locator('section.lane-ready .sb-auto-row', { hasText: 'Auto demo: migrate' });
   const readyFrom = Date.now();
   while (Date.now() - readyFrom < WAIT_MS && (await readyRow.count()) === 0) await page.waitForTimeout(1000);
