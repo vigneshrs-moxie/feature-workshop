@@ -363,7 +363,10 @@ p.sb-test-note { margin: 0; }
 .sb-phone-back:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .sb-phone-back .icon { flex: none; }
 .sb-phone-back-words { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sb-phone-laptop { font-size: var(--text-xs); color: var(--text-2); text-align: right; }
+/* On the website the gear's place says the menu is on the laptop: a line of its own under the row,
+   so ‹ Jobs and Try the new job page keep their words at 360 px. */
+.sb-phone-nav:has(.sb-phone-laptop) { flex-wrap: wrap; row-gap: 0; }
+.sb-phone-laptop { order: 1; flex-basis: 100%; padding-bottom: var(--space-1); font-size: var(--text-xs); color: var(--text-2); }
 .sb-phone-title { display: flex; align-items: center; gap: var(--space-2); margin: 0; font-family: var(--font-heading); font-size: var(--text-lg); font-weight: var(--weight-bold); line-height: 1.25; overflow-wrap: anywhere; }
 .sb-phone-title .icon { flex: none; color: var(--text-2); }
 .sb-phone-facts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); margin-top: var(--space-1); font-size: var(--text-sm); color: var(--text-2); }
