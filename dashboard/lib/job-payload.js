@@ -28,7 +28,8 @@
 //   move         null | GateMove | QuestionMove | PermissionMove (below): what waits for him
 //   asked        null (R5, Task 18)
 //   steps        StepRow[]: the seven steps in order
-//   rows         { conversation: { count }, decisions: { count } } (the page counts what is new itself)
+//   rows         { conversation: { count }, decisions: { count } } (the page counts what is new itself;
+//                the cache and mirrorJobPage add conversation.more: older items left out, the website's case)
 //   open         { kind: ReaderKind, id }: what the reader shows on arrival (decision 2)
 //   thread       ThreadLine[]: one line per conversation item, oldest first, no bodies
 //   waiting      null (R8, Task 16: the one message waiting for the Foreman)
@@ -40,7 +41,8 @@
 //                  and current steps), durationMs: number | null, startedAt: string | null, outputs: Output[] }
 //   Output       { kind: 'doc' | 'screens' | 'changes' | 'checks' | 'recording' | 'hand-test' | 'findings'
 //                  | 'walkthrough' | 'pr', id (a doc's file, a PR's '1' | '2' | '3', else the kind), label,
-//                  meta: string | null, version: string | null }
+//                  meta: string | null, version: string | null; a doc also gets `hash`, its text's hash,
+//                  stamped by the cache (runner jobPageSource) }
 //   ThreadLine   { id, kind: 'reply' | 'you' | 'brief' | 'problem' | 'small', at: string | null,
 //                  step: StopId | null, headline, mine: boolean, hash (12 hex of the body),
 //                  answered?: 'Go' | 'Send back' | 'Stop' | true | false (briefs), by?: 'auto' }
@@ -654,5 +656,9 @@ export function mirrorJobPage(job, { row = null, v = 0 } = {}) {
     commits: null, evidence: null, usage: null, hosted: true,
   });
   for (const k of LOCAL_ONLY) delete payload[k];
+  // The same extras the laptop's cache stamps: a document's text hash (not on the record: null here), and
+  // whether older conversation is left out (the record keeps the newest 60; the rest show on the laptop).
+  for (const st of payload.steps) for (const o of st.outputs) if (o.kind === 'doc') o.hash = null;
+  payload.rows.conversation.more = Boolean(j.threadMore);
   return payload;
 }

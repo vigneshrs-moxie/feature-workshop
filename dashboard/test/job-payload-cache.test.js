@@ -5,7 +5,7 @@
 
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { jobPageCache, itemSources, REBUILD_DELAY_MS, REBUILD_MAX_WAIT_MS, OPEN_MS } from '../lib/job-payload-cache.js';
+import { jobPageCache, itemSources, REBUILD_DELAY_MS, REBUILD_MAX_WAIT_MS, MISSING_MS } from '../lib/job-payload-cache.js';
 import { longJobPage } from './fixtures/long-job.js';
 import { renderMarkdown } from '../lib/markdown.js';
 
@@ -27,6 +27,10 @@ function store() {
   return s;
 }
 
+// A page's event stream (site/index.js gives each one an id); a request naming it puts the stream on that job.
+const V = 'a1'.repeat(8);
+const W = 'b2'.repeat(8);
+
 const payloadOf = (title, extra = {}) => ({ v: 0, slug: 'job-a', title, state: 'working', thread: [], ...extra });
 
 test('v stays when a rebuild gives the same JSON, and goes up by one when it changes; the event only on a change', async () => {
@@ -34,9 +38,10 @@ test('v stays when a rebuild gives the same JSON, and goes up by one when it cha
   const s = store();
   const told = [];
   const cache = jobPageCache({ build: s.build, onVersion: (slug, v) => told.push([slug, v]) });
+  cache.viewerOpen(V);
   try {
     s.set('job-a', payloadOf('First'));
-    const first = await cache.page('job-a');
+    const first = await cache.page('job-a', null, { viewer: V });
     assert.equal(first.v, 1);
     assert.equal(first.title, 'First');
     assert.deepEqual(told, [['job-a', 1]]);
@@ -101,7 +106,8 @@ test('a body of an answered brief is rendered once: asked again, and after a reb
   try {
     const bodies = { 'brief:briefs/001-plan.md': { version: 'aaa', text: 'The plan', meta: { answered: 'Go' } } };
     s.set('job-a', payloadOf('First'), bodies);
-    const one = await cache.item('job-a', 'brief:briefs/001-plan.md');
+    cache.viewerOpen(V);
+    const one = await cache.item('job-a', 'brief:briefs/001-plan.md', { viewer: V });
     assert.deepEqual(one, { id: 'brief:briefs/001-plan.md', kind: 'brief', version: 'aaa', html: '<p>The plan</p>', text: 'The plan', meta: { answered: 'Go' } });
     await cache.item('job-a', 'brief:briefs/001-plan.md');
     assert.equal(s.renders, 1);
@@ -144,7 +150,8 @@ test('a job that goes away leaves the cache at its next rebuild', async () => {
   const cache = jobPageCache({ build: s.build });
   try {
     s.set('job-a', payloadOf('First'));
-    await cache.page('job-a');
+    cache.viewerOpen(V);
+    await cache.page('job-a', null, { viewer: V });
     s.jobs.delete('job-a');
     cache.touch('job-a');
     mock.timers.tick(REBUILD_DELAY_MS);
@@ -159,7 +166,8 @@ test('rebuilds wait 150 ms after the last change, and never more than 1 s behind
   const cache = jobPageCache({ build: s.build });
   try {
     s.set('job-a', payloadOf('First'));
-    await cache.page('job-a');
+    cache.viewerOpen(V);
+    await cache.page('job-a', null, { viewer: V });
     const base = s.builds;
     // Five changes 50 ms apart: one rebuild, 150 ms after the last.
     for (let i = 0; i < 5; i++) { cache.touch('job-a'); mock.timers.tick(50); await settled(); }
@@ -180,35 +188,53 @@ test('rebuilds wait 150 ms after the last change, and never more than 1 s behind
   } finally { cache.close(); mock.timers.reset(); }
 });
 
-test('a change with no job rebuilds only the jobs opened in the last 10 minutes; a quiet one is rebuilt behind its next request', async () => {
+test('only a job a live page watches rebuilds on a change; one nobody watches waits, stale, and rebuilds behind its next request', async () => {
   mock.timers.enable({ apis: ['setTimeout', 'Date'] });
   const s = store();
   const cache = jobPageCache({ build: s.build });
   try {
     s.set('job-a', payloadOf('A'));
     s.set('job-b', payloadOf('B', { slug: 'job-b' }));
-    await cache.page('job-a');
-    mock.timers.tick(OPEN_MS + 1000);
-    await cache.page('job-b');
+    cache.viewerOpen(V);
+    await cache.page('job-a', null, { viewer: V }); // the page's stream watches job-a
+    await cache.page('job-b'); // asked once, by no stream
+    assert.equal(cache.stats().viewers, 1);
     const base = s.builds;
+    // A change naming no job, hours later: job-a (watched) rebuilds, job-b does not.
+    mock.timers.tick(5 * 60 * 60 * 1000);
     cache.touchAll();
     mock.timers.tick(REBUILD_DELAY_MS);
     await settled();
-    assert.equal(s.builds, base + 1, 'only job-b, opened just now');
-    // job-a, quiet for over 10 minutes, answers at once from what it holds, and rebuilds behind the answer.
-    s.set('job-a', payloadOf('A, later'));
-    assert.equal((await cache.page('job-a')).title, 'A');
+    assert.equal(s.builds, base + 1, 'only the watched job');
+    // job-b's own change: nobody watches it, so it is only marked stale.
+    s.set('job-b', payloadOf('B, later', { slug: 'job-b' }));
+    cache.touch('job-b');
+    mock.timers.tick(REBUILD_MAX_WAIT_MS);
+    await settled();
+    assert.equal(s.builds, base + 1, 'no rebuild for a job nobody watches');
+    // Its next request answers at once from what it holds, and rebuilds behind the answer.
+    assert.equal((await cache.page('job-b')).title, 'B');
     mock.timers.tick(REBUILD_DELAY_MS);
     await settled();
     assert.equal(s.builds, base + 2);
-    assert.equal((await cache.page('job-a')).title, 'A, later');
-    // A change to job-a itself always rebuilds it, opened lately or not.
-    mock.timers.tick(OPEN_MS + 1000);
-    s.set('job-a', payloadOf('A, latest'));
+    assert.equal((await cache.page('job-b')).title, 'B, later');
+    // The stream moves to job-b (its newest request): job-a is no longer watched.
+    await cache.page('job-b', null, { viewer: V });
     cache.touch('job-a');
+    cache.touch('job-b');
     mock.timers.tick(REBUILD_DELAY_MS);
     await settled();
+    assert.equal(s.builds, base + 3, 'job-b only');
+    // The stream closes: nothing is watched.
+    cache.viewerGone(V);
+    assert.equal(cache.stats().viewers, 0);
+    cache.touch('job-b');
+    mock.timers.tick(REBUILD_MAX_WAIT_MS);
+    await settled();
     assert.equal(s.builds, base + 3);
+    // A viewer id the site never opened (a page holding an old stream's id) watches nothing.
+    await cache.page('job-b', null, { viewer: W });
+    assert.equal(cache.stats().viewers, 0);
   } finally { cache.close(); mock.timers.reset(); }
 });
 
@@ -235,7 +261,8 @@ test('a build that fails keeps what the page had; a first one that fails is an e
     s.set('job-a', payloadOf('First'));
     await assert.rejects(cache.page('job-a'), /disk gone/);
     fail = false;
-    assert.equal((await cache.page('job-a')).title, 'First');
+    cache.viewerOpen(V);
+    assert.equal((await cache.page('job-a', null, { viewer: V })).title, 'First');
     fail = true;
     cache.touch('job-a');
     mock.timers.tick(REBUILD_DELAY_MS);
@@ -278,4 +305,44 @@ test('itemSources: one body per conversation item and per document the steps sho
   assert.equal(renders, 1, 'only the reply that was asked for');
   // Bodies carry no reply words twice: the text is the body, meta the rest.
   assert.equal(sources.get(reply.id).meta.reply, undefined);
+});
+
+test('a job whose first build is still running is never pushed out: its waiters get their answer', async () => {
+  const s = store();
+  let release;
+  const slow = new Promise((r) => { release = r; });
+  const cache = jobPageCache({ build: async (slug) => { if (slug === 'job-a') await slow; return s.build(slug); }, maxJobs: 1 });
+  try {
+    s.set('job-a', payloadOf('A'));
+    s.set('job-b', payloadOf('B', { slug: 'job-b' }));
+    s.set('job-c', payloadOf('C', { slug: 'job-c' }));
+    const waiting = cache.page('job-a');
+    await cache.page('job-b');
+    await cache.page('job-c');
+    release();
+    assert.equal((await waiting).title, 'A');
+    assert.equal(cache.has('job-a'), true);
+  } finally { cache.close(); }
+});
+
+test('a slug that is no job answers 404 without a build for a few seconds; one that cannot be a folder name never builds; a change for it clears the mark', async () => {
+  mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const s = store();
+  const cache = jobPageCache({ build: s.build });
+  try {
+    await assert.rejects(cache.page('nope'), (err) => err.status === 404);
+    assert.equal(s.builds, 1);
+    for (let i = 0; i < 5; i++) await assert.rejects(cache.page('nope'), (err) => err.status === 404);
+    await assert.rejects(cache.item('nope', 'x'), (err) => err.status === 404);
+    assert.equal(s.builds, 1, 'no build while it is known to be no job');
+    mock.timers.tick(MISSING_MS + 1);
+    await assert.rejects(cache.page('nope'), (err) => err.status === 404);
+    assert.equal(s.builds, 2, 'asked again later: looked for again');
+    // The job is made now: its first change clears the mark.
+    s.set('nope', payloadOf('Now a job', { slug: 'nope' }));
+    cache.touch('nope');
+    assert.equal((await cache.page('nope')).title, 'Now a job');
+    for (const bad of ['.hidden', '..', 'a\\b']) await assert.rejects(cache.page(bad), (err) => err.status === 404);
+    assert.equal(s.builds, 3, 'no build for a name no job folder can have');
+  } finally { cache.close(); mock.timers.reset(); }
 });

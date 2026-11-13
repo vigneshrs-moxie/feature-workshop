@@ -91,8 +91,12 @@ export function sseFrame(log, event) {
 /**
  * Open a v2 stream on res. Catching up and subscribing happen in the same tick, so no event
  * falls in between. Returns a function that closes the subscription (also run when the response closes).
+ * viewer: this connection's id (site/index.js), told after any catching up and before every live
+ * event, as one `viewer` event { id } with no SSE id (the page's resume point stays its last real
+ * event) and seq 0 (a store that orders by seq never applies it). The new job page sends it back as
+ * ?viewer= so the server knows which job it watches.
  */
-export function openStream(_req, res, { log, headers = {}, resume = null, pingMs = 25000 }) {
+export function openStream(_req, res, { log, headers = {}, resume = null, pingMs = 25000, viewer = null }) {
   res.writeHead(200, { ...headers, 'Content-Type': 'text/event-stream', Connection: 'keep-alive' });
   res.write('retry: 3000\n\n');
   if (resume) {
@@ -105,6 +109,7 @@ export function openStream(_req, res, { log, headers = {}, resume = null, pingMs
       for (const e of back.events) res.write(sseFrame(log, e));
     }
   }
+  if (viewer) res.write(`data: ${JSON.stringify({ v: 2, type: 'viewer', job: null, data: { id: viewer }, seq: 0 })}\n\n`);
   const unsubscribe = log.subscribe((e) => res.write(sseFrame(log, e)));
   const ping = setInterval(() => res.write(': ping\n\n'), pingMs);
   ping.unref?.();

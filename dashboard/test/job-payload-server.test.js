@@ -57,6 +57,7 @@ before(async () => {
   await writeJob(SLUG, {
     'briefs/001-clarify.md': '**Notes on customers** (demo)\n\n- Managers want notes.\n',
     'briefs/002-plan.md': '**The plan** (demo)\n\n- Two screens.\n',
+    'implementation-plan.md': '# Implementation plan\n\n1. The notes table.\n',
   });
   runner = await createRunner({
     testHooks: (hooks = {}),
@@ -78,6 +79,34 @@ after(async () => {
   await runner?.stop();
   if (root) await fsp.rm(root, { recursive: true, force: true });
 });
+
+/**
+ * A page's event stream (GET /api/events?v=2), as the web app opens it: its first event is `viewer`
+ * { id }, with seq 0 and no SSE id. Returns the id, every frame read so far, and close().
+ */
+async function openViewer() {
+  const frames = [];
+  let req;
+  const id = await new Promise((resolve, reject) => {
+    req = http.get(`${base}/api/events?v=2`, (res) => {
+      let buf = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => {
+        buf += chunk;
+        let at;
+        while ((at = buf.indexOf('\n\n')) >= 0) {
+          const frame = buf.slice(0, at);
+          buf = buf.slice(at + 2);
+          frames.push(frame);
+          const data = /^data: (.*)$/m.exec(frame)?.[1];
+          if (data) { const e = JSON.parse(data); if (e.type === 'viewer') resolve(e.data.id); }
+        }
+      });
+    });
+    req.on('error', reject);
+  });
+  return { id, frames, close: () => req.destroy() };
+}
 
 const get = async (p) => {
   const res = await fetch(`${base}${p}`);
@@ -183,9 +212,67 @@ test('an unknown job is a 404 on both routes; an unknown item a 404; an item wit
   assert.equal(hooks.jobPages.has('no-such-job'), false);
 });
 
+test('the event stream names itself first (viewer { id }, seq 0, no SSE id); a page that sends it watches the job until the stream closes', { timeout: 60_000 }, async () => {
+  const viewer = await openViewer();
+  try {
+    assert.match(viewer.id, /^[0-9a-f]{16}$/);
+    const frame = viewer.frames.find((f) => f.includes('"viewer"'));
+    assert.doesNotMatch(frame, /^id:/m, 'no SSE id: the resume point stays the last real event');
+    assert.equal(JSON.parse(/^data: (.*)$/m.exec(frame)[1]).seq, 0, 'seq 0: the old store never applies it');
+    assert.equal(hooks.jobPages.stats().viewers, 0);
+    await get(`/api/job/${SLUG}/page?viewer=${viewer.id}`);
+    assert.equal(hooks.jobPages.stats().viewers, 1);
+    await get(`/api/job/${SLUG}/page?viewer=${'0'.repeat(16)}`);
+    assert.equal(hooks.jobPages.stats().viewers, 1, 'an id no open stream has watches nothing');
+  } finally { viewer.close(); }
+  const end = Date.now() + 5000;
+  while (Date.now() < end && hooks.jobPages.stats().viewers) await sleep(20);
+  assert.equal(hooks.jobPages.stats().viewers, 0, 'gone with its stream');
+});
+
+test('a document rewritten without a new version moves v: its output carries its text’s hash, the item’s version', { timeout: 60_000 }, async () => {
+  const viewer = await openViewer();
+  try {
+    const { body } = await get(`/api/job/${SLUG}/page?viewer=${viewer.id}`);
+    const out = body.steps.flatMap((st) => st.outputs).find((o) => o.id === 'implementation-plan.md');
+    assert.ok(out, JSON.stringify(body.steps.map((st) => st.outputs.map((o) => o.id))));
+    assert.match(out.hash, /^[0-9a-f]{12}$/);
+    assert.equal((await get(`/api/job/${SLUG}/item?id=implementation-plan.md`)).body.version, out.hash);
+    assert.equal(body.rows.conversation.more, false);
+    await fsp.writeFile(path.join(dirs.features, SLUG, 'implementation-plan.md'), '# Implementation plan\n\n1. The notes table.\n2. The export.\n');
+    hooks.jobPages.touch(SLUG); // the file's change point (fs.watch → thread), which this runner, not started, does not watch
+    let now = body;
+    const end = Date.now() + 10_000;
+    while (Date.now() < end && now.v === body.v) { await sleep(50); now = (await get(`/api/job/${SLUG}/page?viewer=${viewer.id}`)).body; }
+    assert.equal(now.v, body.v + 1);
+    const after = now.steps.flatMap((st) => st.outputs).find((o) => o.id === 'implementation-plan.md');
+    assert.equal(after.version, out.version, 'the same version number');
+    assert.notEqual(after.hash, out.hash);
+    const item = (await get(`/api/job/${SLUG}/item?id=implementation-plan.md`)).body;
+    assert.equal(item.version, after.hash);
+    assert.match(item.text, /The export/);
+  } finally { viewer.close(); }
+});
+
+test('a job no open page watches is not rebuilt on its changes: it rebuilds behind its next request', { timeout: 60_000 }, async () => {
+  await get(`/api/job/${SLUG}/page`);
+  const end0 = Date.now() + 5000;
+  while (Date.now() < end0 && hooks.jobPages.stats().viewers) await sleep(20);
+  const builds = hooks.jobPages.stats().builds;
+  hooks.jobPages.touch(SLUG);
+  hooks.jobPages.touch(SLUG);
+  await sleep(1300);
+  assert.equal(hooks.jobPages.stats().builds, builds, 'nobody watches it');
+  await get(`/api/job/${SLUG}/page`);
+  const end = Date.now() + 5000;
+  while (Date.now() < end && hooks.jobPages.stats().builds === builds) await sleep(20);
+  assert.equal(hooks.jobPages.stats().builds, builds + 1, 'rebuilt behind the request');
+});
+
 test('a change to the job rebuilds its page: v goes up and a job-page event { slug, v } is sent', { timeout: 60_000 }, async () => {
   assert.ok(EVENT_TYPES.includes('job-page'));
-  const { body } = await get(`/api/job/${SLUG}/page`);
+  const viewer = await openViewer();
+  const { body } = await get(`/api/job/${SLUG}/page?viewer=${viewer.id}`);
   const seen = [];
   const off = runner.on('job-page', (job, data) => seen.push({ job, data }));
   try {
@@ -199,7 +286,7 @@ test('a change to the job rebuilds its page: v goes up and a job-page event { sl
     const now = await get(`/api/job/${SLUG}/page`);
     assert.equal(now.body.v, body.v + 1);
     assert.equal(now.body.state, 'done');
-  } finally { off(); }
+  } finally { off(); viewer.close(); }
 });
 
 test('the site link takes no notice of job-page: it reads no job again for it', async () => {
@@ -242,6 +329,9 @@ test('the website’s payload: the same shape from the mirrored job record, host
   for (const k of LOCAL_ONLY) assert.equal(k in site, false, k);
   assert.equal(site.hosted, true);
   assert.equal(site.v, 5);
+  assert.equal(site.rows.conversation.more, false);
+  assert.equal(mirrorJobPage({ ...record, threadMore: true }).rows.conversation.more, true, 'the record cut to the newest 60 says so');
+  assert.ok(site.steps.flatMap((st) => st.outputs).filter((o) => o.kind === 'doc').every((o) => o.hash === null), 'no text on the record: no hash');
   assert.equal(site.state, payload.state);
   assert.deepEqual(site.steps.map((s) => [s.id, s.state]), payload.steps.map((s) => [s.id, s.state]));
   assert.deepEqual(site.move?.kind, payload.move?.kind);

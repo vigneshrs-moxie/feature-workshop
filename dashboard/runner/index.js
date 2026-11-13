@@ -93,7 +93,7 @@ import { reviewRows } from '../lib/play.js';
 import { stopOf } from '../lib/stage-view.js';
 import { checkCounts } from '../lib/job-page.js';
 import { buildJobPage } from '../lib/job-payload.js';
-import { itemSources, jobPageCache } from '../lib/job-payload-cache.js';
+import { bodyHash, itemSources, jobPageCache } from '../lib/job-payload-cache.js';
 import { writeFileAtomic } from '../lib/atomic-write.js';
 import { UsageLog, TurnMeter, turnLines, usageDir, starbaseUser, claudeAccountId } from '../lib/usage-log.js';
 import { statusTicketKey, slugTicketKey } from '../lib/orbit.js';
@@ -1572,9 +1572,12 @@ export async function createRunner(config) {
     // Moved: a lane's place or one of its PRs' state or review (a merge on an org branch that
     // already existed doesn't move the lane, but it changes the job's nudges).
     const mark = (l) => l && JSON.stringify([l.position, l.pr1?.state, l.pr2?.state, l.pr2?.review]);
-    const moved = [...lanes].some(([slug, l]) => mark(flowLanes.get(slug)) !== mark(l)) || [...flowLanes.keys()].some((slug) => !lanes.has(slug));
+    const movedSlugs = [...[...lanes].filter(([slug, l]) => mark(flowLanes.get(slug)) !== mark(l)).map(([slug]) => slug), ...[...flowLanes.keys()].filter((slug) => !lanes.has(slug))];
+    const moved = movedSlugs.length > 0;
     flowLanes = lanes;
     if (moved) { invalidate(); broadcast('change', { at: Date.now() }); events.emit('change', null, { at: Date.now() }); }
+    // The new job page: each job whose lane moved is a change to that job (lib/job-payload-cache.js).
+    for (const slug of movedSlugs) jobPages.touch(slug);
     events.emit('flow', null, view, { replay: false });
     if (!view.refreshing) flowNotices(view).catch((err) => console.error('flow notices:', err));
   });
@@ -2233,6 +2236,12 @@ export async function createRunner(config) {
     });
     const files = [...new Set(payload.steps.flatMap((st) => st.outputs).filter((o) => o.kind === 'doc').map((o) => o.id))];
     const docs = (await Promise.all(files.map((file) => docOf(f, file).catch(() => null)))).filter(Boolean);
+    // Each document output carries its text's hash (its body's version), so a document rewritten without
+    // a new version number still moves v and the page can tell its kept copy is old.
+    const docHash = new Map(docs.map((d) => [d.file, bodyHash(d.text)]));
+    for (const st of payload.steps) for (const o of st.outputs) if (o.kind === 'doc') o.hash = docHash.get(o.id) ?? null;
+    // The whole conversation is here (the website's is cut to the newest 60: mirrorJobPage says more there).
+    payload.rows.conversation.more = false;
     const sources = itemSources({
       payload, thread: detail.threadAll, briefTexts: detail.briefTexts, docs,
       decided: detail.decidedOnYourBehalf, autoDecided: Array.isArray(detail.auto?.decided) ? detail.auto.decided : [],
@@ -2251,6 +2260,7 @@ export async function createRunner(config) {
     if (type === 'run') {
       if (!job || !data?.id || runStatusSeen.get(data.id) === data.status) return;
       runStatusSeen.set(data.id, data.status);
+      if (runStatusSeen.size > 500) runStatusSeen.delete(runStatusSeen.keys().next().value); // a run that never ended goes in time
       if (!ACTIVE_RUN.has(data.status)) setTimeout(() => runStatusSeen.delete(data.id), 60_000).unref?.();
       jobPages.touch(job);
     } else if (type === 'usage') {
@@ -3554,9 +3564,9 @@ export async function createRunner(config) {
     },
     hasJob: async (slug) => Boolean(await featureBySlug(slug)),
     /** The new job page's payload from the warm cache, or { same: true, v } when v is current (site/routes-job-page.js). */
-    jobPage: (slug, v = null) => jobPages.page(slug, v),
+    jobPage: (slug, v = null, o = {}) => jobPages.page(slug, v, o),
     /** One body of the new job page, from the warm cache: { id, kind, version, html, text, meta }. */
-    jobItem: (slug, id) => jobPages.item(slug, id),
+    jobItem: (slug, id, o = {}) => jobPages.item(slug, id, o),
     /** The job a name means: its slug, or a ticket key (ORBIT-479) an open job is for. Null: none. */
     async jobForName(name) {
       if (await featureBySlug(name)) return name;
@@ -3702,6 +3712,8 @@ export async function createRunner(config) {
   // ---------- Local mode only: what this computer's own page uses beyond jobs ----------
 
   const local_ = {
+    /** The page's event streams opening and closing (site/index.js): which jobs an open page watches (lib/job-payload-cache.js). */
+    jobPageViewers: { open: (id) => jobPages.viewerOpen(id), gone: (id) => jobPages.viewerGone(id) },
     /** The page is visible: notifications that it shows anyway don't pop on macOS meanwhile. */
     presence(visible) {
       if (visible === true) notifier.seen();

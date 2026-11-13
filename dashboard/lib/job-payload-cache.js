@@ -9,41 +9,59 @@
 //     build(slug)          → null (no such job) | { payload, sources }: the payload (lib/job-payload.js
 //                            buildJobPage) and one source per body the page may fetch (itemSources)
 //     onVersion(slug, v)   called when a job's v goes up (the runner sends SSE `job-page` { slug, v })
-//   .page(slug, v?)        the payload, or { same: true, v } when v is the current one
-//   .item(slug, id)        one body: { id, kind, version, html, text, meta }; its html is rendered on the
-//                          first ask and kept until its version changes
-//   .touch(slug)           the job changed: rebuild it (only when it is in the cache)
-//   .touchAll()            something changed that names no job: rebuild the jobs opened in the last
-//                          10 minutes; the others are rebuilt behind their next request
-//   .has(slug), .stats() → { builds, renders, jobs }, .close()
+//   .page(slug, v?, { viewer }?)   the payload, or { same: true, v } when v is the current one
+//   .item(slug, id, { viewer }?)   one body: { id, kind, version, html, text, meta }; its html is rendered
+//                          on the first ask and kept until its version changes
+//   .viewerOpen(id), .viewerGone(id)   a page's event stream opened or closed (site/index.js)
+//   .touch(slug)           the job changed: rebuild it if a page has it open, else mark it stale
+//   .touchAll()            something changed that names no job: the same for every cached job
+//   .has(slug), .stats() → { builds, renders, jobs, viewers }, .close()
+//
+// Open means watched: a request that names a live event stream (viewer) puts that stream on this job
+// (a stream watches one job at a time; its newest request moves it), and the stream's close takes it
+// off. A watched job is rebuilt on every change (debounced); a cached job nobody watches is only marked
+// stale, answers its next request at once from what it holds and rebuilds behind that answer (the page
+// then hears `job-page`). So the rebuilds cost what the open pages need, however long they stay open.
 //
 // `v` goes up by one only when the payload's JSON (without its own v) changed; a job's last v is kept
 // when its entry goes, so a page never sees a v used for other content.
 //
 // The first request for a job not in the cache waits for that job's first build (the one time a
 // request starts a build: there is nothing to answer from yet). Every later request answers at once.
+// A slug that turned out to be no job answers 404 at once for a few seconds (no build), and a slug
+// that cannot be a job folder's name is refused without one.
 
 import { createHash } from 'node:crypto';
 import { HttpError } from './http-guard.js';
 
 export const REBUILD_DELAY_MS = 150;
 export const REBUILD_MAX_WAIT_MS = 1000;
-/** A job asked for in the last 10 minutes counts as open: a change that names no job rebuilds it. */
-export const OPEN_MS = 10 * 60 * 1000;
-/** At most this many jobs are kept; the one asked for longest ago goes first. */
+/** At most this many jobs are kept; the one asked for longest ago (and watched by no page) goes first. */
 export const MAX_JOBS = 16;
+/** How long a slug that is no job answers 404 without a build. */
+export const MISSING_MS = 5000;
+/** What a job folder's name can be: no path parts, not hidden. */
+const SLUG_OK = /^[^./\\][^/\\]{0,199}$/;
+/** A viewer id: the event stream's (site/index.js). */
+export const VIEWER_ID = /^[0-9a-f]{16,32}$/;
 
 const NO_JOB = 'No job by that name.';
 const NO_ITEM = 'That isn’t on this job’s page. Reload the job.';
 
 const hashOf = (text) => createHash('sha1').update(String(text ?? '')).digest('hex').slice(0, 12);
+/** A body's content hash (12 hex of sha1): the version of a document's body, and its output's `hash`. */
+export const bodyHash = hashOf;
 
-/** @param {{ build: (slug: string) => Promise<null | { payload: object, sources: Map<string, object> }>, onVersion?: Function, log?: Function, delayMs?: number, maxWaitMs?: number, openMs?: number, maxJobs?: number }} o */
-export function jobPageCache({ build, onVersion = () => {}, log = console.error, delayMs = REBUILD_DELAY_MS, maxWaitMs = REBUILD_MAX_WAIT_MS, openMs = OPEN_MS, maxJobs = MAX_JOBS }) {
+/** @param {{ build: (slug: string) => Promise<null | { payload: object, sources: Map<string, object> }>, onVersion?: Function, log?: Function, delayMs?: number, maxWaitMs?: number, maxJobs?: number, missingMs?: number }} o */
+export function jobPageCache({ build, onVersion = () => {}, log = console.error, delayMs = REBUILD_DELAY_MS, maxWaitMs = REBUILD_MAX_WAIT_MS, maxJobs = MAX_JOBS, missingMs = MISSING_MS }) {
   const entries = new Map(); // slug -> entry
   const versions = new Map(); // slug -> the last v given (kept when the entry goes)
+  const live = new Set(); // event streams open now
+  const watching = new Map(); // live stream -> the slug it watches
+  const missing = new Map(); // slug -> until when it answers 404 without a build
   let builds = 0;
   let renders = 0;
+  const watched = (slug) => { for (const s of watching.values()) if (s === slug) return true; return false; };
 
   function entryFor(slug) {
     const e = {
@@ -103,8 +121,8 @@ export function jobPageCache({ build, onVersion = () => {}, log = console.error,
         if (!e.payload) { drop(e); e.reject(err); }
         return;
       }
-      if (entries.get(e.slug) !== e) return; // pushed out meanwhile
-      if (!out) { drop(e); e.reject(new HttpError(404, NO_JOB)); return; }
+      if (entries.get(e.slug) !== e) { if (!e.payload) e.reject(new HttpError(503, 'The job page was busy. Try again.')); return; } // gone meanwhile
+      if (!out) { drop(e); missing.set(e.slug, Date.now() + missingMs); e.reject(new HttpError(404, NO_JOB)); return; }
       apply(e, out);
     })().finally(() => {
       e.building = null;
@@ -126,41 +144,53 @@ export function jobPageCache({ build, onVersion = () => {}, log = console.error,
     e.timer.unref?.();
   }
 
-  /** Asked for: counts as open; one that went quiet and missed a change rebuilds behind this answer. */
-  function seen(e) {
+  /** A change: a watched job rebuilds; one nobody watches waits, stale, for its next request. */
+  function changed(e) {
+    if (watched(e.slug)) schedule(e);
+    else e.stale = true;
+  }
+
+  /** Asked for: a live viewer now watches it; one that missed a change rebuilds behind this answer. */
+  function seen(e, viewer) {
     e.seenAt = Date.now();
+    if (viewer && live.has(viewer)) watching.set(viewer, e.slug);
     if (e.stale) { e.stale = false; schedule(e); }
   }
 
+  // Only jobs with a payload that no page watches are pushed out (a first build in flight never is).
   function trim() {
     while (entries.size > maxJobs) {
       let oldest = null;
-      for (const e of entries.values()) if (!oldest || e.seenAt < oldest.seenAt) oldest = e;
+      for (const e of entries.values()) if (e.payload && !watched(e.slug) && (!oldest || e.seenAt < oldest.seenAt)) oldest = e;
+      if (!oldest) return;
       drop(oldest);
     }
   }
 
-  async function warm(slug) {
+  async function warm(slug, viewer = null) {
     let e = entries.get(slug);
     if (!e) {
+      if (!SLUG_OK.test(String(slug)) || (missing.get(slug) ?? 0) > Date.now()) throw new HttpError(404, NO_JOB);
+      missing.delete(slug);
       e = entryFor(slug);
       entries.set(slug, e);
+      seen(e, viewer);
       trim();
       run(e);
     } else {
-      seen(e);
+      seen(e, viewer);
     }
     if (!e.payload) await e.ready;
     return e;
   }
 
   return {
-    async page(slug, v = null) {
-      const e = await warm(slug);
+    async page(slug, v = null, { viewer = null } = {}) {
+      const e = await warm(slug, viewer);
       return v === e.v ? { same: true, v: e.v } : e.payload;
     },
-    async item(slug, id) {
-      const e = await warm(slug);
+    async item(slug, id, { viewer = null } = {}) {
+      const e = await warm(slug, viewer);
       const s = e.sources.get(id);
       if (!s) throw new HttpError(404, NO_ITEM);
       const key = `${id}\n${s.version}`;
@@ -173,18 +203,18 @@ export function jobPageCache({ build, onVersion = () => {}, log = console.error,
       return { id, kind: s.kind, version: s.version, html, text: s.text, meta: s.meta };
     },
     touch(slug) {
-      const e = slug ? entries.get(slug) : null;
-      if (e) schedule(e);
+      if (!slug) return;
+      missing.delete(slug); // a job made just now is no longer "no job"
+      const e = entries.get(slug);
+      if (e) changed(e);
     },
     touchAll() {
-      const now = Date.now();
-      for (const e of entries.values()) {
-        if (now - e.seenAt <= openMs) schedule(e);
-        else e.stale = true;
-      }
+      for (const e of entries.values()) changed(e);
     },
+    viewerOpen(id) { if (VIEWER_ID.test(String(id))) live.add(id); },
+    viewerGone(id) { live.delete(id); watching.delete(id); },
     has: (slug) => entries.has(slug),
-    stats: () => ({ builds, renders, jobs: entries.size }),
+    stats: () => ({ builds, renders, jobs: entries.size, viewers: watching.size }),
     close() { for (const e of entries.values()) clearTimeout(e.timer); },
   };
 }

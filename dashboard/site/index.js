@@ -14,6 +14,7 @@
 // answer every method under their own prefix ({ owns, mount }).
 
 import fsp from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { AGENTS } from '../lib/stages.js';
 import { HttpError, checkWrite, hostAllowed } from '../lib/http-guard.js';
@@ -188,7 +189,12 @@ export function createSite({ runner, port, token, wireframesOrigin, dashboardDir
     try { urlPath = decodeURIComponent(url.pathname); } catch { return send(res, 400, 'Bad request'); }
     try {
       if (req.method === 'GET' && urlPath === '/api/events' && url.searchParams.get('v') === '2') {
-        return openStream(req, res, { log: events, headers: SECURITY_HEADERS, resume: resumePoint(req.headers, url.searchParams) });
+        // Each connection's id (the `viewer` event): the new job page names it on its reads, so the runner
+        // rebuilds only the jobs an open page watches (lib/job-payload-cache.js); gone when the stream closes.
+        const viewer = randomBytes(8).toString('hex');
+        local?.jobPageViewers?.open(viewer);
+        res.on('close', () => local?.jobPageViewers?.gone(viewer));
+        return openStream(req, res, { log: events, headers: SECURITY_HEADERS, resume: resumePoint(req.headers, url.searchParams), viewer });
       }
       if (req.method === 'GET' && urlPath === '/api/events') return openEvents(req, res);
       for (const mount of mounts) if (mount.owns(urlPath)) return await mount.mount(req, res, urlPath, url);
