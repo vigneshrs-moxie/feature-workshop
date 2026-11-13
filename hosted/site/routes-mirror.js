@@ -35,7 +35,7 @@ import dashboardStageRoutes from '../../dashboard/site/routes-stage.js';
 import dashboardJobPageRoutes from '../../dashboard/site/routes-job-page.js';
 import { createHash } from 'node:crypto';
 import { mirrorJobPage } from '../../dashboard/lib/job-payload.js';
-import { ticketMarkdown } from '../../dashboard/lib/job-payload-cache.js';
+import { bodyHash, ticketMarkdown } from '../../dashboard/lib/job-payload-cache.js';
 import { mirrorWork } from '../../dashboard/lib/work-rows.js';
 import { renderMarkdown } from '../../dashboard/lib/markdown.js';
 import { decisionKind, madeOnFor } from '../../dashboard/lib/made-on.js';
@@ -55,6 +55,9 @@ const WRITES = new Set(['POST', 'PUT', 'DELETE']);
 
 /** The dashboard's HttpError (lib/http-guard.js) as the site's own, so the router answers it in words. */
 const asSiteError = (err) => (err && !(err instanceof HttpError) && Number.isInteger(err.status) ? new HttpError(err.status, err.message, err.extra ?? {}) : err);
+
+/** The website's decisions list as one Markdown list (the decisions record's rows: { question, choice, … }). */
+const decisionsText = (rows) => (Array.isArray(rows) ? rows : []).map((r) => `- ${String(r?.choice ?? r?.decision ?? '').trim()}${r?.question ? ` — ${String(r.question).trim()}` : ''}`).join('\n');
 
 export default function mirrorRoutes(ctx) {
   const { db, now } = ctx;
@@ -208,7 +211,10 @@ export default function mirrorRoutes(ctx) {
       // queuedDecisions: every decision made here and still shown for the job, newest first (a Go and a
       // message made one after the other are both followed, each by its id).
       const { byJob, allByJob } = await shownFor(person.id);
-      return { ...mirrorJobPage(rec.value, { row, v: Date.parse(rec.updatedAt) || 0 }), queuedDecision: byJob.get(slug) ?? null, queuedDecisions: allByJob.get(slug) ?? [] };
+      // The hashes of the bodies the payload names no line for (as the laptop sends them), so a kept copy is dropped when it moves on.
+      const decided = decisionsText((await records.get(person.id, 'decisions', slug))?.value?.decisions ?? []);
+      const hashes = { ticket: bodyHash(ticketMarkdown(rec.value.page)), decisions: bodyHash(decided) };
+      return { ...mirrorJobPage(rec.value, { row, v: Date.parse(rec.updatedAt) || 0 }), hashes, queuedDecision: byJob.get(slug) ?? null, queuedDecisions: allByJob.get(slug) ?? [] };
     },
     /**
      * One body of the new job page: a brief or document from its mirrored doc, the decisions list, the ticket and
@@ -227,7 +233,7 @@ export default function mirrorRoutes(ctx) {
       }
       if (id === 'decisions') {
         const rows = (await records.get(person.id, 'decisions', slug))?.value?.decisions ?? [];
-        const text = rows.map((r) => `- ${String(r?.choice ?? r?.decision ?? '').trim()}${r?.question ? ` — ${String(r.question).trim()}` : ''}`).join('\n');
+        const text = decisionsText(rows);
         return { id, kind: 'decisions', version: hash(text), html: renderMarkdown(text), text, meta: { rows } };
       }
       const it = (rec.value.thread ?? []).find((t) => String(t.id) === id) ?? null;

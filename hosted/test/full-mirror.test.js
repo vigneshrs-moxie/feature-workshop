@@ -781,6 +781,9 @@ test('the new job page on the site: the same payload, built from the mirrored re
     assert.equal(ticket.status, 200, JSON.stringify(ticket.body));
     assert.equal(ticket.body.kind, 'ticket');
     assert.match(ticket.body.html, /<h2[^>]*>The ticket<\/h2>/);
+    // The payload carries both bodies' hashes, so the page drops a kept copy that moved on.
+    assert.equal(page.body.hashes.ticket, ticket.body.version);
+    assert.equal(page.body.hashes.decisions, (await olive.person.json('/api/job/add-export/item?id=decisions')).body.version);
     const reply = await olive.person.json('/api/job/add-export/item?id=reply%3Aabc');
     assert.match(reply.body.text, /Its words show on your laptop/);
     assert.doesNotMatch(JSON.stringify(reply.body), /readSource/, 'none of the reply’s words');

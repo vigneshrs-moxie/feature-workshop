@@ -239,7 +239,8 @@ const metaOf = (it) => Object.fromEntries(Object.entries(it).filter(([k]) => !BO
  *     text (briefTexts: file -> text), his message, a note; versioned by its payload line's hash;
  *     a detail brief (folded out of the payload) by its own id, named on its brief as meta.detail
  *   - every document a step shows (docs: { file, name, type, text, updatedAt, size, summary }), id its
- *     file, versioned by its text
+ *     file, versioned by its text; an older version (lib/doc-versions.js) is one of these too, id its
+ *     copy's path (versions/…), with its version number and `of` (the document it is a version of)
  *   - 'decisions': what was decided for him (and what Auto decided), one line each
  *   - 'ticket': the ticket and goal (ticketMarkdown of the job's page facts, `page`)
  * Each is { kind, version, text, meta, html() }; html() renders (render(text, { json })) and is called
@@ -272,7 +273,7 @@ export function itemSources({ payload, thread = [], briefTexts = new Map(), docs
     const json = d.type === 'json';
     sources.set(id, {
       kind: 'doc', version: hashOf(d.text), text: d.text,
-      meta: { name: d.name ?? id, type: json ? 'json' : 'md', updatedAt: d.updatedAt ?? null, size: d.size ?? null, summary: d.summary ?? null, version: shown.get(id)?.version ?? null, step: shown.get(id)?.step ?? null },
+      meta: { name: d.name ?? id, type: json ? 'json' : 'md', updatedAt: d.updatedAt ?? null, size: d.size ?? null, summary: d.summary ?? null, version: shown.get(id)?.version ?? d.version ?? null, step: shown.get(id)?.step ?? null, ...(d.of ? { of: String(d.of) } : {}) },
       html: () => render(d.text, { json }),
     });
   }

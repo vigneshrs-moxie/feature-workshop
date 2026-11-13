@@ -436,3 +436,50 @@ test('Task 12: the ticket and goal is served by the item route (id ticket) from 
   assert.match(item.body.text, /### It works when\n\n1\. A manager can add a note\./);
   assert.match(item.body.html, /<h2[^>]*>What to check<\/h2>/);
 });
+
+test('Task 12 fix round 1: a document’s older version is copied into the job’s versions/ at a rebuild, listed on its output, served by the item route; requests write nothing', { timeout: 60_000 }, async () => {
+  const slug = 'notes-versions';
+  const dir = await writeJob(slug, { 'implementation-plan.md': '# Implementation plan v1\n\n1. The notes table.\n' });
+  const status = async (version) => {
+    const st = JSON.parse(await fsp.readFile(path.join(dir, 'status.json'), 'utf8'));
+    st.artifacts = [{ name: 'Implementation plan', path: 'implementation-plan.md', version }];
+    await fsp.writeFile(path.join(dir, 'status.json'), JSON.stringify(st, null, 2));
+  };
+  await status('1');
+  await sleep(1600); // past the runner's 1.5 s job list, so it lists the new job
+  const viewer = await openViewer();
+  try {
+    const { body } = await get(`/api/job/${slug}/page?viewer=${viewer.id}`);
+    const out = body.steps.flatMap((st) => st.outputs).find((o) => o.id === 'implementation-plan.md');
+    assert.equal(out.version, '1');
+    assert.deepEqual(out.versions, [], 'nothing older yet');
+    assert.equal(await fsp.readFile(path.join(dir, 'versions', 'implementation-plan.v1.md'), 'utf8'), '# Implementation plan v1\n\n1. The notes table.\n');
+    // The bodies with no line or output of their own carry their hash on the payload.
+    assert.equal(body.hashes.ticket, (await get(`/api/job/${slug}/item?id=ticket`)).body.version);
+    assert.equal(body.hashes.decisions, (await get(`/api/job/${slug}/item?id=decisions`)).body.version);
+    await fsp.writeFile(path.join(dir, 'implementation-plan.md'), '# Implementation plan v2\n\n1. The notes table.\n2. The export.\n');
+    await status('2');
+    await sleep(1600);
+    hooks.jobPages.touch(slug);
+    let now = body;
+    const end = Date.now() + 10_000;
+    while (Date.now() < end && now.v === body.v) { await sleep(50); now = (await get(`/api/job/${slug}/page?viewer=${viewer.id}`)).body; }
+    const after = now.steps.flatMap((st) => st.outputs).find((o) => o.id === 'implementation-plan.md');
+    assert.equal(after.version, '2');
+    assert.deepEqual(after.versions, [{ n: '1', id: 'versions/implementation-plan.v1.md' }]);
+    const v1 = (await get(`/api/job/${slug}/item?id=${encodeURIComponent('versions/implementation-plan.v1.md')}`)).body;
+    assert.equal(v1.kind, 'doc');
+    assert.match(v1.text, /Implementation plan v1/);
+    assert.equal(v1.meta.version, '1');
+    assert.equal(v1.meta.of, 'implementation-plan.md');
+    // Requests read from the cache: no copy is written or rewritten by them.
+    const files = async () => Promise.all((await fsp.readdir(path.join(dir, 'versions'))).sort().map(async (n) => [n, (await fsp.stat(path.join(dir, 'versions', n))).mtimeMs]));
+    const before = await files();
+    for (let i = 0; i < 3; i++) {
+      await get(`/api/job/${slug}/page?viewer=${viewer.id}`);
+      await get(`/api/job/${slug}/item?id=${encodeURIComponent('versions/implementation-plan.v1.md')}`);
+    }
+    assert.deepEqual(await files(), before);
+    assert.deepEqual(before.map(([n]) => n), ['implementation-plan.v1.md', 'implementation-plan.v2.md']);
+  } finally { viewer.close(); }
+});

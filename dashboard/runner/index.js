@@ -94,6 +94,7 @@ import { stopOf } from '../lib/stage-view.js';
 import { checkCounts } from '../lib/job-page.js';
 import { buildJobPage } from '../lib/job-payload.js';
 import { bodyHash, itemSources, jobPageCache } from '../lib/job-payload-cache.js';
+import { keepVersions } from '../lib/doc-versions.js';
 import { crewLogs, jobWork, runLines, workFacts } from '../lib/work-rows.js';
 import { writeFileAtomic } from '../lib/atomic-write.js';
 import { UsageLog, TurnMeter, turnLines, usageDir, starbaseUser, claudeAccountId } from '../lib/usage-log.js';
@@ -2243,13 +2244,22 @@ export async function createRunner(config) {
     // a new version number still moves v and the page can tell its kept copy is old.
     const docHash = new Map(docs.map((d) => [d.file, bodyHash(d.text)]));
     for (const st of payload.steps) for (const o of [...st.outputs, ...st.more]) if (o.kind === 'doc') o.hash = docHash.get(o.id) ?? null;
+    // Each numbered document's words are kept by version in the job's versions/ folder (lib/doc-versions.js),
+    // here at the rebuild only; each output lists its older versions, and the item route serves them.
+    const versionOf = new Map();
+    for (const st of payload.steps) for (const o of [...st.outputs, ...st.more]) if (o.kind === 'doc' && !versionOf.has(o.id)) versionOf.set(o.id, o.version);
+    const older = await keepVersions(f.dir, docs.map((d) => ({ file: d.file, name: d.name, version: versionOf.get(d.file) ?? null, text: d.text, type: d.type }))).catch(() => new Map());
+    for (const st of payload.steps) for (const o of [...st.outputs, ...st.more]) if (o.kind === 'doc') o.versions = (older.get(o.id) ?? []).map(({ n, id }) => ({ n, id }));
+    const versionDocs = [...older.entries()].flatMap(([of, list]) => list.map((v) => ({ file: v.id, name: v.name, type: 'md', text: v.text, updatedAt: v.updatedAt, size: v.text.length, summary: null, version: v.n, of })));
     // The whole conversation is here (the website's is cut to the newest 60: mirrorJobPage says more there).
     payload.rows.conversation.more = false;
     const sources = itemSources({
-      payload, thread: detail.threadAll, briefTexts: detail.briefTexts, docs,
+      payload, thread: detail.threadAll, briefTexts: detail.briefTexts, docs: [...docs, ...versionDocs],
       decided: detail.decidedOnYourBehalf, autoDecided: Array.isArray(detail.auto?.decided) ? detail.auto.decided : [], page: detail.page,
       render: (text, { json = false } = {}) => (json ? jsonHtml(text) : renderMarkdown(text, { idHref: idHref(f) })),
     });
+    // The bodies the payload names no line or output for carry their hash here, so a kept copy is dropped when it moves on.
+    payload.hashes = { ticket: sources.get('ticket')?.version ?? null, decisions: sources.get('decisions')?.version ?? null };
     // Details (lib/work-rows.js): the corrected activity, the cost rows and the replies' ends; the crew's logs are read only when Details asks.
     return { payload, sources, work: workFacts(detail) };
   }
