@@ -455,3 +455,36 @@ test('F8: a .sql file stays a database command when a program on the line could 
   assert.equal(verdictOf('cat x.sql; gh pr merge 1'), 'merge');
   assert.equal(verdictOf('cat x.sql postgres://u:p@db.example/x'), 'database');
 });
+
+// ---------- a quote mark the shell does not read as one (found in this round; not in the review) ----------
+
+// Where a command cannot be read properly, Auto's reader took a quote mark for a quote wherever it stood. In each form
+// below the shell reads none there (or ends one somewhere else), so the reader took the refused call that follows for
+// quoted text: the words of a harmless echo.
+const MISREAD_FORMS = [
+  ['a quote mark in a comment', (p) => `echo hi # don't\n${p}`],
+  ['a double quote in a comment', (p) => `echo hi # say "\n${p}`],
+  ['a comment with no space after #', (p) => `echo hi #don't\n${p}`],
+  ['a backslash at the end of a comment', (p) => `echo hi # x \\\n${p}`],
+  ["\\' inside $'…'", (p) => `echo $'don\\'t'; ${p}`],
+  ["\\' inside $'…', the quote closed again later", (p) => `echo $'a\\'b' ; ${p} \\'`],
+  ['a ) inside quotes inside $( … )', (p) => `echo hi & echo $(echo ")"); ${p}`],
+  ['a quote mark in a here-document', (p) => `cat <<EOF\necho '\nEOF\n${p} #'`],
+  ['a quote mark in a here-document under a quoted end word', (p) => `cat <<'EOF'\necho '\nEOF\n${p} #'`],
+  ['$( … ) in a here-document after a quote mark', (p) => `cat <<EOF\necho '$(${p})\nEOF\necho '`],
+  ['`…` in a here-document after a quote mark', (p) => `cat <<EOF\necho '\`${p}\`\nEOF\necho '`],
+  ['a backtick written \\` inside `…`', (p) => `echo \`echo \\\`date\\\` '\`; ${p}; echo \`'\``],
+];
+
+test('a refused call after a quote mark the shell does not read as one is refused, in every such form', async () => {
+  const rows = [];
+  for (const [p, want] of PAYLOADS) if (want) for (const [, f] of MISREAD_FORMS) rows.push([f(p), REFUSED]);
+  assert.equal(rows.length, 17 * MISREAD_FORMS.length);
+  assert.deepEqual(await wrongRows(rows), []);
+  // The job's own push is judged as it is after a comment with no quote mark in it.
+  assert.deepEqual(await outcome('echo hi # don\'t\ngit push origin feature/x'), await outcome('echo hi # dont\ngit push origin feature/x'));
+  // A real quoted string is still one: nothing in it runs. And a harmless line with a comment comes out as it did.
+  assert.equal((await outcome('echo hi#don\'t\npsql -c "select 1"\necho \'')).end, 'routine');
+  assert.equal((await outcome('echo \'it is # not a comment\'; ls')).end, 'routine');
+  for (const c of ['ls # list files', 'npm test # don\'t skip', 'git status # what\'s new', 'cat > notes.md <<\'EOF\'\n# Title\ndon\'t\nEOF\nls']) assert.equal((await outcome(c)).end, 'asked', c);
+});

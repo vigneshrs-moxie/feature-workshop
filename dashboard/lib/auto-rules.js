@@ -569,11 +569,19 @@ const DB_ADDRESS = /(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|rediss?):\/\//i;
 
 // Splits a command we could not read properly (backticks, comments, here-documents, a trailing &) at
 // ; & | ( ) and newlines outside quotes, lifting $( … ) and `…` out to be read on their own.
-function rawSplit(src) {
+//
+// That reading takes a quote mark for a quote wherever it stands, so one the shell does not read as a quote swallows the
+// commands after it (echo hi # don't, then psql on the next line, was one echo). With `shell` the same text is read as the
+// shell reads it in those places: a comment ends at the end of its line whatever is in it; $'…' ends at its own quote
+// (\' inside is not it); $( … ) ends at its own parenthesis (one inside quotes is not it); a backtick written \` closes
+// nothing; and a here-document's body is text, of which only $( … ) and `…` run, and only under an unquoted end word.
+// analyze judges both readings, so nothing the first one refuses is lost.
+function rawSplit(src, shell = false) {
   const pieces = [];
   const inner = [];
   let cur = '';
   let q = null;
+  const waiting = []; // (shell) the here-documents opened on this line, whose bodies start on the next
   const flush = () => { if (cur.trim()) pieces.push(cur.trim()); cur = ''; };
   for (let i = 0; i < src.length; i++) {
     const c = src[i];
@@ -583,14 +591,14 @@ function rawSplit(src) {
     if (c === '$' && n === '(') {
       let d = 1;
       let j = i + 2;
-      for (; j < src.length && d > 0; j++) { if (src[j] === '(') d++; else if (src[j] === ')') d--; }
+      if (shell) { const end = subEnd(src, j); j = end < 0 ? src.length : end + 1; d = end < 0 ? 1 : 0; } else for (; j < src.length && d > 0; j++) { if (src[j] === '(') d++; else if (src[j] === ')') d--; }
       inner.push(src.slice(i + 2, d === 0 ? j - 1 : j));
       cur += '$SUB';
       i = j - 1;
       continue;
     }
     if (c === '`') {
-      const j = src.indexOf('`', i + 1);
+      const j = shell ? tickEnd(src, i + 1) : src.indexOf('`', i + 1);
       const end = j < 0 ? src.length : j;
       inner.push(src.slice(i + 1, end));
       cur += '$SUB';
@@ -598,13 +606,88 @@ function rawSplit(src) {
       continue;
     }
     if (q === '"') { cur += c; if (c === '"') q = null; continue; }
+    if (shell && c === '#' && /(^|\s)$/.test(cur)) { const nl = src.indexOf('\n', i); i = (nl < 0 ? src.length : nl) - 1; continue; }
+    if (shell && c === '$' && n === "'") {
+      let j = i + 2;
+      while (j < src.length && src[j] !== "'") j += src[j] === '\\' ? 2 : 1;
+      cur += `'$${src.slice(i + 2, j).replace(/'/g, '')}'`; // one word, whose value is made while the line runs
+      i = j;
+      continue;
+    }
+    if (shell && c === '<' && n === '<' && src[i + 2] !== '<') {
+      const m = /^<<(-?)[ \t]*(?:'([^'\n]*)'|"([^"\n]*)"|([^\s;&|<>()'"`$]+))/.exec(src.slice(i));
+      if (m) {
+        waiting.push({ word: m[2] ?? m[3] ?? m[4].replace(/\\/g, ''), tabs: m[1] === '-', expands: m[4] !== undefined && !m[4].includes('\\') });
+        cur += m[0];
+        i += m[0].length - 1;
+        continue;
+      }
+    }
     if (c === "'" || c === '"') { q = c; cur += c; continue; }
     if (c === '&' && (n === '>' || src[i - 1] === '>' || src[i - 1] === '<')) { cur += c; continue; }
+    if (shell && c === '\n' && waiting.length) {
+      flush();
+      for (const doc of waiting.splice(0)) {
+        let body = '';
+        while (i < src.length) {
+          const nl = src.indexOf('\n', i + 1);
+          const line = src.slice(i + 1, nl < 0 ? src.length : nl);
+          i = nl < 0 ? src.length : nl; // on the newline that ends this line of the body
+          if ((doc.tabs ? line.replace(/^\t+/, '') : line) === doc.word) break;
+          body += `${line}\n`;
+        }
+        if (doc.expands) inner.push(...bodyRuns(body));
+      }
+      continue;
+    }
     if (';&|\n()'.includes(c)) { flush(); continue; }
     cur += c;
   }
   flush();
   return { pieces, inner };
+}
+
+// Index of the ) that closes a $( whose text starts at `from`, as the shell finds it: -1 when there is none.
+function subEnd(src, from, deep = 0) {
+  let d = 1;
+  let q = null;
+  for (let i = from; i < src.length; i++) {
+    const c = src[i];
+    if (q === "'") { if (c === "'") q = null; continue; }
+    if (c === '\\') { i++; continue; }
+    if (q === '"') {
+      if (c === '"') q = null;
+      else if (c === '$' && src[i + 1] === '(') { const end = deep > 40 ? -1 : subEnd(src, i + 2, deep + 1); if (end < 0) return -1; i = end; }
+      continue;
+    }
+    if (c === '#' && (i === from || /\s/.test(src[i - 1]))) { const nl = src.indexOf('\n', i); if (nl < 0) return -1; i = nl; continue; }
+    if (c === "'" || c === '"') q = c;
+    else if (c === '(') d++;
+    else if (c === ')' && --d === 0) return i;
+  }
+  return -1;
+}
+
+// Index of the backtick that closes one whose text starts at `from` (\` inside is not it): -1 when there is none.
+function tickEnd(src, from) {
+  let i = from;
+  while (i < src.length && src[i] !== '`') i += src[i] === '\\' ? 2 : 1;
+  return i < src.length ? i : -1;
+}
+
+// What runs in the body of a here-document under an unquoted end word: its $( … ) and `…`. Quote marks there quote nothing.
+function bodyRuns(body) {
+  const out = [];
+  for (let i = 0; i < body.length; i++) {
+    if (body[i] === '\\') { i++; continue; }
+    const tick = body[i] === '`';
+    if (!tick && !(body[i] === '$' && body[i + 1] === '(')) continue;
+    const from = tick ? i + 1 : i + 2;
+    const end = tick ? tickEnd(body, from) : subEnd(body, from);
+    out.push(body.slice(from, end < 0 ? body.length : end));
+    i = end < 0 ? body.length : end;
+  }
+  return out;
 }
 
 // Words and redirections of one raw piece: the same shape commandParts gives.
@@ -661,7 +744,10 @@ function analyze(command, cwd, st, depth, viaXargs) {
     }
     return;
   }
-  const { pieces, inner } = rawSplit(command);
+  // Both readings of the text (rawSplit): the commands only the second one finds are judged as well.
+  const [plain, shell] = [rawSplit(command), rawSplit(command, true)];
+  const pieces = [...plain.pieces, ...new Set(shell.pieces.filter((p) => !plain.pieces.includes(p)))];
+  const inner = [...plain.inner, ...new Set(shell.inner.filter((s) => !plain.inner.includes(s)))];
   for (const piece of pieces) { const { ws, redirects } = rawWords(piece); st.hint = noCd ? cwd : null; simple(ws, redirects, null, st, depth, viaXargs); }
   for (const s of inner) analyze(s, null, st, depth + 1, viaXargs);
 }
