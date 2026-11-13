@@ -55,7 +55,7 @@ test('gate and job rules', () => {
   assert.equal(fixedStop({ kind: 'gate', stage: 'plan', nextStage: 'implement' }, ctx()), null);
   const job = (over) => fixedStop({ kind: 'job', level: 1, suggestedLevel: null, triggers: [], stageState: 'running', statusCard: null, step: null, failures: 0, ...over }, ctx());
   assert.equal(job({}), null);
-  assert.equal(job({ triggers: ['migrations'] }).rule, 'database');
+  assert.equal(job({ triggers: ['migrations'] }), null, 'a migration is no stop: Starbase applies it on Auto\'s own copy of the database');
   assert.equal(job({ level: 3 }), null);
   assert.equal(job({ suggestedLevel: 3 }), null);
   assert.deepEqual(job({ step: { stage: 'plan', count: 3 } }), { rule: 'loop', reason: 'the Plan step came back for approval three times without moving on.' });

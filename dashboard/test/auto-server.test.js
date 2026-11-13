@@ -589,14 +589,16 @@ test('a build\'s diff that raises the level to L3 keeps the job in Auto', { time
     assert.equal((await w.ownOptions()).level, 3, 'the build\'s diff raised the level');
     await w.pass();
     const rec = await w.record();
-    // Still in Auto: the level is no stop. The build's migration still is (the migrations trigger, until Auto queue Task 11).
-    assert.deepEqual([rec.on, rec.stopped?.rule ?? null], [true, 'database'], 'still in Auto');
+    // Still in Auto: the level is no stop, and since Auto queue Task 11 neither is the build's migration.
+    assert.deepEqual([rec.on, rec.stopped?.rule ?? null], [true, null], 'still in Auto');
     assert.equal((await w.optionsFile()).auto, true);
   } finally { await w.stop(); }
 });
 
-test('a job whose own files say L1 but whose worktree holds a new migration stops Auto as a predicted migration does, before the Approver is asked', { timeout: 30_000 }, async () => {
-  const w = await world();
+test('a job whose own files say L1 but whose worktree holds a new migration is answered like any job, and a psql card on it is still refused', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  // The Foreman's reply to Auto's go-ahead asks to run psql.
+  const w = await world({ query: cardQuery([{ tool: 'Bash', input: { command: 'psql -d orbit -c "select 1"' } }], outcomes) });
   try {
     const base = w.git('rev-parse', 'HEAD').toString().trim();
     await fs.mkdir(path.join(w.dirs.repo, 'db', 'migrations'), { recursive: true });
@@ -605,13 +607,23 @@ test('a job whose own files say L1 but whose worktree holds a new migration stop
     await w.writeStatus(status(1, { worktree: w.dirs.repo, base_sha: base, predicted_paths: ['src/visits.js'] }));
     await new Promise((r) => setTimeout(r, 1600));
     await w.pass();
-    assert.equal(w.asks.length, 0, 'the Approver is not asked');
-    assert.equal((await w.sends()).length, 0);
-    assert.equal((await w.record()).stopped?.rule, 'database');
-  } finally { await w.stop(); }
+    // The migration is no stop: the Approver is asked about the gate and Auto's go-ahead is sent.
+    assert.equal(w.asks.length, 1, 'the Approver is asked about the gate');
+    assert.equal(w.asks[0].task.kind, 'gate');
+    assert.deepEqual((await w.sends()).map((s) => [s.by, s.kind, s.gateBrief]), [['auto', 'approve', 1]]);
+    // The psql card in the reply that follows is refused with the database note and never reaches the Approver.
+    await w.until(() => outcomes.length >= 1, 'the refusal');
+    assert.deepEqual([outcomes[0].result.behavior, outcomes[0].result.message], ['deny', DB_NOTE]);
+    await w.idle();
+    const lines = await w.until(async () => { const l = await w.autoLines('refuse'); return l.length ? l : null; }, 'Auto\'s refuse line');
+    assert.deepEqual(lines.map((l) => l.rule), ['database']);
+    assert.equal(cardsOnly(w).length, 0, 'the Approver is never asked about the card');
+    const rec = await w.record();
+    assert.deepEqual([rec.on, rec.stopped], [true, null], 'Auto is still on and not stopped');
+  } finally { await clear(w); await w.stop(); }
 });
 
-test('F6: the real changes are read from the verified worktree against the org remote\'s default branch, whatever folder or base status.json names', { timeout: 120_000 }, async () => {
+test('F6: a new migration in the job\'s verified worktree does not stop Auto, whatever folder or base status.json names', { timeout: 120_000 }, async () => {
   // The branch, in its own worktree, holds a new migration; status.json predicts only src/visits.js.
   const variants = [
     ['names no folder and no base', () => ({})],
@@ -638,8 +650,8 @@ test('F6: the real changes are read from the verified worktree against the org r
       await new Promise((r) => setTimeout(r, 1700));
       await w.pass();
       await w.idle();
-      assert.equal(w.asks.length, 0, `${what}: the Approver is not asked`);
-      assert.equal((await w.record()).stopped?.rule, 'database', `${what}: Auto stops for the migration`);
+      assert.equal(w.asks.length, 1, `${what}: the Approver is asked`);
+      assert.equal((await w.record()).stopped, null, `${what}: Auto does not stop for the migration`);
     } finally { await w.stop(); }
   }
 });
@@ -6303,4 +6315,39 @@ test('a migration that did not land on Auto\'s copy stops Auto on the job throug
   assert.ok(u.lines.some((l) => l.action === 'auto' && l.what === 'stop' && l.reason === AUTO_NOT_LANDED_STOP), 'the stop is logged');
   assert.equal(u.notes.length, 1);
   assert.match(u.notes[0].body, /did not land on Auto's copy/);
+});
+
+// ---------- Auto queue Task 11: a ticket with migrations runs; Starbase applies them on Auto's copy ----------
+
+test('a job with a migration reaches its go into Test like any job, and waits for the test place if another job holds it', { timeout: 60_000 }, async () => {
+  // Another Auto job is in Test and holds the place.
+  const w = await world({ jobStatus: intoTest(), also: { slug: 'zzz-other', status: inTest({ title: 'Other' }), options: { level: 1, flow: 'quick', title: 'Other' } } });
+  const cardOf = async (slug) => (await w.runner.read.features()).features.find((c) => c.slug === slug);
+  try {
+    // This job's branch adds a migration, and its Foreman expects to touch it: both readings say migrations.
+    const base = w.git('rev-parse', 'HEAD').toString().trim();
+    await fs.mkdir(path.join(w.dirs.repo, 'db', 'migrations'), { recursive: true });
+    await fs.writeFile(path.join(w.dirs.repo, 'db', 'migrations', '001_visits.sql'), 'alter table visits add column x int;\n');
+    w.git('add', '.'); w.git('commit', '-q', '-m', 'build');
+    await w.writeStatus(intoTest({ worktree: w.dirs.repo, base_sha: base, predicted_paths: ['db/migrations/001_visits.sql'] }));
+    await new Promise((r) => setTimeout(r, 1700));
+    await w.pass();
+    // The migration is no stop, and no way around the one-at-a-time rule: the job waits for its turn to test.
+    assert.equal((await w.runner.read.snapshot()).autoQueue.testing, 'zzz-other');
+    assert.equal((await gateSends(w)).length, 0, 'no Go while the other job holds the place');
+    assert.equal(w.asks.length, 0, 'the Approver is not asked for a job that waits');
+    const rec = await w.record();
+    assert.deepEqual([rec.on, rec.stopped], [true, null], 'Auto is still on and not stopped');
+    await new Promise((r) => setTimeout(r, 1700));
+    const card = await cardOf(w.slug);
+    assert.deepEqual({ waitingToTest: card.auto.waitingToTest, lane: card.lane, laneReason: card.laneReason }, { waitingToTest: true, lane: 'working', laneReason: 'Waiting for its turn to test' });
+    // The other job moves on to the review: the place is free, and the next pass sends this job's Go into Test, as for any job.
+    await writeOther(w, inTest({ stage: 'review', title: 'Other' }));
+    await new Promise((r) => setTimeout(r, 1700));
+    await w.pass();
+    assert.deepEqual((await gateSends(w)).map((s) => [s.slug, s.by]), [[w.slug, 'auto']]);
+    assert.equal((await w.runner.read.snapshot()).autoQueue.testing, w.slug);
+    assert.equal((await w.record()).stopped, null);
+    await w.idle();
+  } finally { await w.stop(); }
 });

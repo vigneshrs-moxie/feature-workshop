@@ -6,7 +6,7 @@
 // beyond following symlinks to see where a path really lands. input is one of
 //   { kind: 'gate', stage, nextStage, prOpen }
 //   { kind: 'card', toolName, input, hardLine, blockedPath }
-//   { kind: 'job', level, suggestedLevel, triggers, stageState, statusCard, step, failures, problem }
+//   { kind: 'job', level, suggestedLevel, stageState, statusCard, step, failures, problem }
 // ctx = { worktrees, featureDir, specDirs, cwd, forkRemote, remoteUrl(name, dir), branches?, stateDir?, mainCheckout?, readRoots? }
 //   mainCheckout is the repository's own checkout and readRoots the session's read folders (skills, agents):
 //   places the job may read but not change.
@@ -134,8 +134,8 @@ function gateStop(input) {
 const stageLabel = (id) => STAGES.find((s) => s.id === id)?.label ?? String(id ?? 'this');
 
 function jobStop(j) {
-  const ids = (j.triggers ?? []).map((t) => (typeof t === 'string' ? t : t?.id));
-  if (ids.includes('migrations')) return stop('database');
+  // No stop for migrations in the job's changes (Auto queue Task 11): Starbase applies them itself, only on Auto's own copy of
+  // the database, and the crew still can't run one (a database card is refused). triggers is no longer read.
   // No stop for the level: Auto runs an L3 job to PR #1. AUTO_STOP_REASONS.level stays for old audit lines.
   if ((j.step?.count ?? 0) >= 3) return { rule: 'loop', reason: `the ${stageLabel(j.step.stage)} step came back for approval three times without moving on.` };
   if ((j.failures ?? 0) >= 2) return { rule: 'approver', reason: `the Approver failed twice running (${j.problem ?? 'no usable answer'}).` };
