@@ -263,4 +263,14 @@ describe('the key registry', () => {
     }
     expect(new Set(Object.values(SCOPES).map((s) => s.title)).size).toBe(Object.keys(SCOPES).length);
   });
+
+  it('Mod+Enter reads ⌘↵ on a Mac and Ctrl+Enter elsewhere; a plain Enter stays Enter', () => {
+    const mac = vi.spyOn(navigator, 'platform', 'get').mockReturnValue('MacIntel');
+    expect(keyLabel('Mod+Enter')).toBe('⌘↵');
+    expect(keyLabel('Mod+K')).toBe('⌘K');
+    mac.mockReturnValue('Win32');
+    expect(keyLabel('Mod+Enter')).toBe('Ctrl+Enter');
+    mac.mockRestore();
+    expect(keyLabel('Enter')).toBe('Enter');
+  });
 });

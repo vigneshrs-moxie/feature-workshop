@@ -210,9 +210,10 @@ export const isMac = () => typeof navigator !== 'undefined' && /Mac|iPhone|iPad/
 
 const KEY_WORDS: Record<string, string> = { ArrowDown: '↓', ArrowUp: '↑', ArrowLeft: '←', ArrowRight: '→', Escape: 'Esc', ' ': 'Space' };
 
-/** One key as shown on screen: 'Mod+K' is ⌘K on a Mac and Ctrl+K elsewhere; 'ArrowDown' is ↓; 'g h' stays. */
+/** One key as shown on screen: 'Mod+K' is ⌘K on a Mac and Ctrl+K elsewhere ('Mod+Enter' ⌘↵); 'ArrowDown' is ↓; 'g h' stays. */
 export function keyLabel(key: string): string {
-  if (key.startsWith('Mod+')) return isMac() ? `⌘${key.slice(4)}` : `Ctrl+${key.slice(4)}`;
+  // ⌘↵ on a Mac (as Your move's Go shows it); Ctrl+Enter elsewhere.
+  if (key.startsWith('Mod+')) return isMac() ? `⌘${key.slice(4) === 'Enter' ? '↵' : key.slice(4)}` : `Ctrl+${key.slice(4)}`;
   return key.split(' ').map((k) => KEY_WORDS[k] ?? k).join(' ');
 }
 
