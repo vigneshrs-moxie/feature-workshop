@@ -12,7 +12,7 @@ import { parseBrief, overviewFromRecord, buildOverview } from '../lib/overview.j
 import { parseEvents, summariseSessions } from '../lib/hook-events.js';
 import { parsePs } from '../lib/live.js';
 import { startDashboard } from './helpers/dashboard.js';
-import { rowWorking, jobWorking, cardPaused, STALE_WORKER_MS } from '../lib/working.js';
+import { rowWorking, jobWorking, jobPaused, cardPaused, STALE_WORKER_MS } from '../lib/working.js';
 
 // ---------- routine steps ----------
 
@@ -519,8 +519,40 @@ test('a job whose crew stopped before Starbase started is not working: after a c
       const detail = await (await fetch(`${dashboard.base}/api/job/${slug}`)).json();
       assert.deepEqual(detail.activity.filter((a) => a.who === 'feature-implementer').map((a) => a.state), [state], slug);
     }
+    // He picks the cut-off job up in a terminal (it takes the lock after Starbase started): the terminal works it now,
+    // so the restart's pause no longer holds and its Builder counts again.
+    await fs.writeFile(path.join(dirs.features, 'cut-job', 'lock.json'), JSON.stringify({ owner: 'terminal', pid: process.pid, branch: 'feature/cut', acquiredAt: new Date().toISOString() }));
+    let taken = null;
+    for (const end = Date.now() + 10_000; Date.now() < end;) {
+      taken = (await (await fetch(`${dashboard.base}/api/snapshot`)).json()).jobs.find((j) => j.slug === 'cut-job');
+      if (taken.lock) break;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    assert.ok(taken.lock, 'the terminal holds the job');
+    assert.equal(taken.paused, false);
+    assert.equal(taken.restartPaused, undefined);
+    assert.equal(taken.working, true);
+    assert.deepEqual(taken.nowDoing.map((d) => d.who), ['feature-implementer']);
+    const takenDetail = await (await fetch(`${dashboard.base}/api/job/cut-job`)).json();
+    assert.deepEqual(takenDetail.activity.filter((a) => a.who === 'feature-implementer').map((a) => a.state), ['running']);
   } finally {
     await dashboard.stop();
     await fs.rm(root, { recursive: true, force: true });
   }
+});
+
+test('jobPaused: the usage limit pauses a job; a restart\'s pause holds only until a live process takes the job\'s lock', () => {
+  assert.equal(jobPaused({}), false);
+  assert.equal(jobPaused({ limit: true }), true);
+  assert.equal(jobPaused({ limit: true, locked: true }), true, 'the limit holds a terminal too');
+  assert.equal(jobPaused({ restart: true }), true);
+  assert.equal(jobPaused({ restart: true, locked: false }), true);
+  assert.equal(jobPaused({ restart: true, locked: true }), false, 'a terminal took the job up');
+  assert.equal(jobPaused({ restart: true, locked: () => true }), false);
+  // The lock is asked only when a restart's pause is in question.
+  let asked = 0;
+  const ask = () => { asked += 1; return true; };
+  jobPaused({ locked: ask });
+  jobPaused({ limit: true, locked: ask });
+  assert.equal(asked, 0);
 });

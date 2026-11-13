@@ -98,7 +98,7 @@ import { writeFileAtomic } from '../lib/atomic-write.js';
 import { UsageLog, TurnMeter, turnLines, usageDir, starbaseUser, claudeAccountId } from '../lib/usage-log.js';
 import { statusTicketKey, slugTicketKey } from '../lib/orbit.js';
 import { AUTO_MAX, AUTO_START_FILE, AutoStarter, countAuto, normalizeAutoStart, pausedFor } from '../lib/auto-start.js';
-import { jobWorking, rowWorking } from '../lib/working.js';
+import { jobPaused, jobWorking, rowWorking } from '../lib/working.js';
 import { autoQueueView } from '../lib/auto-queue.js';
 import { activeWarnings } from '../lib/usage-warnings.js';
 import { telemetry as telemetryOf } from '../lib/telemetry.js';
@@ -251,6 +251,8 @@ export async function createRunner(config) {
   // carries on by itself) or 'crash' (it waits for Resume), at, runId, sessionId, cwd, model, slug }.
   // Gone once anything is sent to the job, or it is marked done.
   const restartPaused = new Map();
+  // When this Starbase started: no run of its own is older (lib/working.js rowWorking).
+  const RUNNER_STARTED_AT = new Date().toISOString();
   // Past Claude Code conversations, to start a job from one.
   const history = new History(PROJECTS_DIR);
   async function historyContext() {
@@ -897,13 +899,12 @@ export async function createRunner(config) {
   // job is paused; on a job Starbase ran, not from before its last run ended, nor from before this
   // Starbase started unless another live process holds the job's lock; else while recent or locked.
   function stillRunning(f, a, active) {
+    const locked = () => lockView(f.dir) !== null;
     return rowWorking(a, {
-      active, paused: Boolean(restartPaused.get(f.dir) || limits.pausedJob(f.dir)), endedAt: runEnds[f.dir]?.at ?? null,
-      startedAt: RUNNER_STARTED_AT, locked: () => lockView(f.dir) !== null,
+      active, paused: jobPaused({ restart: restartPaused.has(f.dir), limit: Boolean(limits.pausedJob(f.dir)), locked }), endedAt: runEnds[f.dir]?.at ?? null,
+      startedAt: RUNNER_STARTED_AT, locked,
     });
   }
-  // When this Starbase started: no run of its own is older.
-  const RUNNER_STARTED_AT = new Date().toISOString();
   let runEnds = {};
   // Each job's flow lane (lib/flow.js laneOf) by slug, from the last map refresh: where its PRs are.
   let flowLanes = new Map();
@@ -930,7 +931,8 @@ export async function createRunner(config) {
     // The record says "working" but nobody is: say so honestly instead of showing a busy crew.
     const notRunning = !active && !running.length && f.stageState === 'working';
     const limitPaused = !active && limits.pausedJob(f.dir) ? limits.view().resetsAt : null;
-    const restart = !active ? restartPaused.get(f.dir) ?? null : null;
+    // A restart's pause holds until a terminal takes the job's lock (lib/working.js jobPaused).
+    const restart = !active && jobPaused({ restart: restartPaused.has(f.dir), locked: () => lockView(f.dir) !== null }) ? restartPaused.get(f.dir) : null;
     const pausedHere = Boolean(limitPaused) || Boolean(restart) || (notRunning && runEnds[f.dir]?.status === 'stopped');
     const nowDoing = running.map((a) => ({
       who: a.who, name: a.name, doing: a.doing, quietMs: a.quiet?.quietMs ?? null,

@@ -4,7 +4,8 @@
 // pauses, its last recorded run end, when this Starbase started and the job's lock. No process scan
 // and no disk here, so it is cheap on every snapshot.
 //
-//   A paused job (by a restart or the usage limit) is never working: nothing of it runs.
+//   A paused job is never working: nothing of it runs. The usage limit pauses it; a restart's pause
+//   holds until another live process (a terminal) takes the job's lock, since that process works it now.
 //   A crew row works only with a live process behind it: an active run, or another live process
 //   holding the job's lock (a terminal). Without either:
 //   - on a job Starbase ran (a run end on record), a row that stopped before that end ended with it,
@@ -46,4 +47,16 @@ export function jobWorking({ active = false, paused = false, working = false } =
 /** Whether a board card (runner boardCard) says its job is paused: a stopped reply, the usage limit or a restart. */
 export function cardPaused(card) {
   return Boolean(card?.paused || card?.limitPaused || card?.restartPaused);
+}
+
+/**
+ * Whether a job is paused, so nothing of it runs (and no crew row of it works). Pure.
+ * limit: the usage limit holds it (a terminal is held by it too). restart: a restart paused it (runner/replay.js),
+ * which holds only while no other live process holds the job's lock: one that took the job up works it now.
+ * locked: a boolean, or a function asked only when a restart's pause is in question.
+ */
+export function jobPaused({ restart = false, limit = false, locked = false } = {}) {
+  if (limit) return true;
+  if (!restart) return false;
+  return !(typeof locked === 'function' ? locked() : locked);
 }
