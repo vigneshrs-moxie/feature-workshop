@@ -406,7 +406,7 @@ const SQL_MORE_ROWS = [
   'git --no-pager diff x.sql', `git -C ${W} --no-pager log -3 -- x.sql`, 'git commit -m "add x.sql"', 'git add -A && git commit -m \'it adds `visits.audit` in 0157_x/migration.sql\'',
   'git add x.sql && git commit -m "$(cat <<\'EOF\'\nadd the migration\n\nIt adds `visits.audit`.\nEOF\n)"',
   'head -20 x.sql', 'tail -5 x.sql', 'grep -n "create table" x.sql', 'egrep -c users x.sql', 'fgrep users x.sql', 'rg -n users x.sql', 'ls x.sql', 'ls *.sql', 'diff a.sql b.sql', 'cmp a.sql b.sql', 'file x.sql', 'stat x.sql', 'less x.sql', 'more x.sql',
-  'sort x.sql | uniq | cut -c1-80 | nl', 'shasum x.sql', 'md5 x.sql', 'md5sum x.sql', 'sha1sum x.sql', 'sha256sum x.sql', 'echo x.sql', 'printf "%s\\n" x.sql', 'test -f x.sql && echo yes', '[ -f x.sql ] && echo yes || false', 'pwd; true; ls x.sql',
+  'uniq x.sql | cut -c1-80 | nl', 'shasum x.sql', 'md5 x.sql', 'md5sum x.sql', 'sha1sum x.sql', 'sha256sum x.sql', 'echo x.sql', 'printf "%s\\n" x.sql', 'test -f x.sql && echo yes', '[ -f x.sql ] && echo yes || false', 'pwd; true; ls x.sql',
   'cp a.sql b.sql', 'rm x.sql', 'touch x.sql', 'mkdir -p prisma/migrations/0157_x && mv a.sql prisma/migrations/0157_x/migration.sql',
   'if test -f x.sql; then cat x.sql; else echo none; fi', 'if ! grep -q users x.sql; then echo no; fi', '{ cat a.sql; cat b.sql; } | wc -l', '( cat x.sql )', 'cat x.sql 2>/dev/null | head -5', 'cat x.sql > out.txt',
   // a # inside a word or inside quotes is no comment, and a $ before a closing quote makes no word
@@ -579,5 +579,36 @@ test('F9: a job that is not Auto\'s sees no change: its hook never reads Auto\'s
   for (const c of UNREAD_ROWS) {
     const out = await hook({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: c }, cwd: REPO, tool_use_id: 't' });
     assert.equal(out?.hookSpecificOutput?.permissionDecision ?? 'nothing', 'nothing', show(c));
+  }
+});
+
+// ---------- F11 (addendum 2): the .sql rule's guard holds in every spelling ----------
+
+test('F11: with a .sql file named, an option that names a program to run is caught in every spelling', async () => {
+  const M = 'app/prisma/migrations/0157_x/migration.sql';
+  // The final review's three lines (finding 11), then the other spellings of the same options.
+  const runs = [
+    `git grep -nO'psql -f' -e CREATE -- ${M}`, `git grep --open-files-in-p='psql -f' -e CREATE -- ${M}`, 'sort --compress-prog=psql x.sql',
+    'git grep -O CREATE -- x.sql', 'git grep -Opsql CREATE -- x.sql', 'git grep -inO CREATE -- x.sql', 'git grep --op CREATE -- x.sql', 'git grep --open=psql CREATE -- x.sql', 'git grep --open-files-in-pager=psql CREATE -- x.sql',
+    `git -C ${W} --no-pager grep -nOpsql CREATE -- x.sql`, 'git diff --ext-d x.sql', 'git diff --ext-diff x.sql', 'git log -p --ext-d -- x.sql', 'git show --ext HEAD -- x.sql', 'git grep --textc CREATE -- x.sql', 'git grep --textconv CREATE -- x.sql',
+    'rg --pre ./run.sh CREATE x.sql', 'rg --pre=./run.sh CREATE x.sql', 'rg --hostname-bin ./h.sh CREATE x.sql', 'rg --hostname-bin=./h.sh CREATE x.sql',
+    // sort is off the list: it takes --compress-program in any shortening
+    'sort x.sql', 'sort x.sql | uniq', 'sort -o y.txt x.sql', 'sort --compress-program=psql x.sql', 'sort --comp=psql x.sql', 'cat x.sql | sort',
+    // less and more start a command given after +
+    'less \'+!psql -f x.sql\' x.sql', 'more +5 x.sql',
+  ];
+  const wrong = runs.filter((c) => verdictOf(c) !== 'database').map((c) => ({ command: show(c), got: verdictOf(c) }));
+  assert.deepEqual(wrong, []);
+  for (const c of runs.slice(0, 3)) assert.deepEqual(await outcome(c), { hook: 'ask', end: 'refused (database)', note: L.refuseNote('database', L.REFUSE_REASONS.database) }, c);
+  // Reading and searching the file with no such option is judged as a file of any other name, as F8 says.
+  const twin = (c) => c.replace(/\.sql\b/g, '.txt');
+  const reads = [
+    'git grep -n CREATE -- x.sql', 'rg CREATE x.sql', 'git diff -- x.sql', 'git log --oneline -- x.sql', 'git log --pretty=oneline -- x.sql', 'git diff --exit-code x.sql', 'git grep --only-matching CREATE -- x.sql', 'git grep --or -e CREATE -e ALTER -- x.sql',
+    'grep --extended-regexp "CREATE|ALTER" x.sql', 'rg --pretty CREATE x.sql', 'uniq x.sql', 'less x.sql', 'more x.sql', 'git commit -m "Order the columns in x.sql"',
+  ];
+  for (const c of reads) {
+    assert.notEqual(verdictOf(c), 'database', c);
+    assert.equal(verdictOf(c), verdictOf(twin(c)), c);
+    assert.deepEqual(await outcome(c), await outcome(twin(c)), c);
   }
 });
