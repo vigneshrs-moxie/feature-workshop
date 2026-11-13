@@ -21,6 +21,16 @@ export function execGitSync(args, options) {
   return execFileSync('git', [...NO_FSMONITOR, ...args], options);
 }
 
+/**
+ * The environment for gh, which can start git itself: core.fsmonitor off for every git it starts,
+ * added after any GIT_CONFIG_KEY_n / GIT_CONFIG_VALUE_n already there (none is overwritten).
+ */
+export function noFsmonitorEnv(base = process.env) {
+  const count = Number.parseInt(base.GIT_CONFIG_COUNT ?? '', 10);
+  const n = Number.isInteger(count) && count > 0 ? count : 0;
+  return { ...base, GIT_CONFIG_COUNT: String(n + 1), [`GIT_CONFIG_KEY_${n}`]: 'core.fsmonitor', [`GIT_CONFIG_VALUE_${n}`]: 'false' };
+}
+
 /** git as promisify(execFile) runs it, with core.fsmonitor off: { stdout, stderr }, or rejects with the error carrying both. */
 export function runGit(args, options = {}) {
   return new Promise((resolve, reject) => {
@@ -116,7 +126,7 @@ export function ghRunner(bin = 'gh', { timeout = 30000 } = {}) {
   // A .js stand-in (STARBASE_GH in tests) runs through node: Windows can't start a script directly.
   const viaNode = /\.[cm]?js$/i.test(bin);
   return (args) => new Promise((resolve) => {
-    execFile(viaNode ? process.execPath : bin, viaNode ? [bin, ...args] : args, { timeout, maxBuffer: 16 * 1024 * 1024, windowsHide: true, env: { ...process.env, GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1' } },
+    execFile(viaNode ? process.execPath : bin, viaNode ? [bin, ...args] : args, { timeout, maxBuffer: 16 * 1024 * 1024, windowsHide: true, env: noFsmonitorEnv({ ...process.env, GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1' }) },
       (err, stdout, stderr) => resolve({ ok: !err, out: String(stdout ?? ''), err: err ? String(stderr || err.message).split('\n')[0] : null }));
   });
 }

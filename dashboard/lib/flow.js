@@ -25,7 +25,7 @@
 
 import { EventEmitter } from 'node:events';
 import { execFile } from 'node:child_process';
-import { execGit } from './git.js';
+import { execGit, noFsmonitorEnv } from './git.js';
 import path from 'node:path';
 
 import { ORG_REMOTES, ORG_URL } from './hard-lines.js';
@@ -59,7 +59,7 @@ function run(start, args, { cwd, timeout = 15000 } = {}) {
   });
 }
 const git = (dir, args, opts) => run(execGit, ['-C', dir, ...args], opts);
-const execGh = (args, options, callback) => execFile('gh', args, options, callback);
+const execGh = (args, options, callback) => execFile('gh', args, { ...options, env: noFsmonitorEnv(options.env) }, callback);
 
 /** "Owner/name" for a GitHub address, or null. */
 export function githubSlug(url) {
