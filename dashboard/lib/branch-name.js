@@ -54,6 +54,8 @@ function namePrompt(ticket, description) {
 }
 
 const LATE = Symbol('late');
+/** The only fields suggestName takes from its caller's options. */
+const CALLER_FIELDS = ['cwd', 'env', 'pathToClaudeCodeExecutable'];
 
 /** The model's reply, trimmed, with one pair of surrounding quotes or backticks taken off. */
 function cleanReply(text) {
@@ -65,8 +67,9 @@ function cleanReply(text) {
 
 /**
  * One ask, no tools, no retry. Resolves the model's name, or null on a timeout, an error, or a reply
- * that is not a valid name (or is one of `avoid`). Never throws. `options` carries the caller's
- * working folder, Claude Code program and environment; the rest of the ask is fixed here.
+ * that is not a valid name (or is one of `avoid`). Never throws. Of the caller's `options` only the
+ * working folder (cwd), the environment (env) and the Claude Code program (pathToClaudeCodeExecutable)
+ * are taken; anything else in it is dropped, and the rest of the ask is fixed here.
  */
 export async function suggestName({ ticket, description = null, avoid = [], query, options = {}, timeoutMs = NAME_TIMEOUT_MS } = {}) {
   let timer;
@@ -74,12 +77,13 @@ export async function suggestName({ ticket, description = null, avoid = [], quer
   try {
     if (typeof query !== 'function' || !ticket) return null;
     const avoided = (Array.isArray(avoid) ? avoid : []).map(ownName).filter(Boolean).slice(0, 5);
+    const own = Object.fromEntries(CALLER_FIELDS.filter((k) => options?.[k] !== undefined).map((k) => [k, options[k]]));
     const run = (async () => {
       let text = null;
       const q = query({
         prompt: namePrompt(ticket, description),
         options: {
-          ...options,
+          ...own,
           model: HAIKU,
           systemPrompt: avoided.length ? `${NAME_SYSTEM}\nNot one of: ${avoided.join(', ')}.` : NAME_SYSTEM,
           tools: [], allowedTools: [], settingSources: [], mcpServers: {}, strictMcpConfig: true,

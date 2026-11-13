@@ -5258,7 +5258,7 @@ test('a name that breaks the rule is refused with NAME_PROBLEM and nothing is cr
   const w = await world({ auto: null, namer });
   try {
     const before = await fs.readdir(w.dirs.features);
-    for (const name of ['status filter', 'feature/status-filter', 'one-two-three-four-five-six', '', 'a'.repeat(41)]) {
+    for (const name of ['status filter', 'feature/status-filter', 'one-two-three-four-five-six', 'a'.repeat(41)]) {
       await assert.rejects(w.runner.handle({ type: 'start', ...ticketBody(w), name }, { from: 'local' }), (err) => err.status === 400 && err.message === NAME_PROBLEM_WORDS, JSON.stringify(name));
     }
     assert.deepEqual(await fs.readdir(w.dirs.features), before, 'no folder');
@@ -5335,10 +5335,26 @@ test('a second job on the same name gets -2', { timeout: 30_000 }, async () => {
     assert.deepEqual([first.slug, second.slug], ['orbit-471-employee-status-filter', 'orbit-471-employee-status-filter-2']);
     await w.until(() => w.texts.length === 2, 'both first messages');
     assert.match(w.texts[1], /\nBranch: feature\/orbit-471-employee-status-filter-2 /, 'the branch follows the folder');
-    // His Start and a tag start at once on one name: never one folder.
-    const [a, b] = await Promise.all([w.hooks.startJob(ticketBody(w)), w.hooks.startJob(ticketBody(w, { options: { auto: true, level: 1 } }), { autoStart: { tag: 'auto' } })]);
-    assert.notEqual(a.slug, b.slug);
-    assert.deepEqual([a.slug, b.slug].sort(), ['orbit-471-employee-status-filter-3', 'orbit-471-employee-status-filter-4']);
+    await w.idle();
+    // His Start and a tag start at once on one ticket (fix round 1, one start per ticket): never one folder. Whichever
+    // holds the ticket first goes on; his Start behind Auto's is refused, Auto's start behind his is not (its starter
+    // never picks a ticket that is starting: see the tests below), so then both start, in folders of their own.
+    const [a, b] = await Promise.allSettled([w.hooks.startJob(ticketBody(w)), w.hooks.startJob(ticketBody(w, { options: { auto: true, level: 1 } }), { autoStart: { tag: 'auto' } })]);
+    assert.equal(b.status, 'fulfilled', String(b.reason));
+    if (a.status === 'fulfilled') assert.deepEqual([a.value.slug, b.value.slug].sort(), ['orbit-471-employee-status-filter-3', 'orbit-471-employee-status-filter-4']);
+    else assert.equal(a.reason.status, 409);
+    await w.idle();
+    // Two of his Starts at once on one ticket: one starts, the other is refused.
+    const two = await Promise.allSettled([w.hooks.startJob(ticketBody(w)), w.hooks.startJob(ticketBody(w))]);
+    assert.deepEqual(two.map((r) => r.status).sort(), ['fulfilled', 'rejected']);
+    assert.equal(two.find((r) => r.status === 'rejected').reason.status, 409);
+    await w.idle();
+    // Two tickets at once, and two jobs with no ticket and the same words at once: folders of their own.
+    const T472 = { key: 'ORBIT-472', title: 'Export visits', url: null };
+    const pair = await Promise.all([w.hooks.startJob(ticketBody(w, { ticket: T472, description: 'ORBIT-472: Export visits' })), w.hooks.startJob(ticketBody(w, { ticket: { ...T472, key: 'ORBIT-473' }, description: 'ORBIT-473: Export visits' }))]);
+    assert.deepEqual(pair.map((r) => r.slug), ['orbit-472-employee-status-filter', 'orbit-473-employee-status-filter']);
+    const plain = await Promise.all([1, 2].map(() => w.hooks.startJob({ description: 'Visit export button', repoPath: w.dirs.repo, options: { level: 1 } })));
+    assert.deepEqual(plain.map((r) => r.slug).sort(), ['visit-export-button', 'visit-export-button-2']);
   } finally { await w.stop(); }
 });
 
@@ -5445,4 +5461,164 @@ test('two cards at once: Auto stops on the first, and the second is told as on a
     await new Promise((r) => setTimeout(r, 300));
     assert.equal(w.notes.length, 2, 'every waiting card was told once');
   } finally { await clear(w); await w.stop(); }
+});
+
+// ---------- Task 20, fix round 1: one ticket, one start at a time; a restart keeps its recorded name ----------
+
+const STARTING_471 = 'A job for ORBIT-471 is starting right now. It will show in a few seconds.';
+/** A namer whose first ask waits until open() is called; later asks answer at once. */
+function gatedNamer(answer = 'employee-status-filter') {
+  let open;
+  const gate = new Promise((r) => { open = r; });
+  const fn = namerOf(async (_input, n) => { if (n === 1) await gate; return answer; });
+  fn.open = () => open();
+  return fn;
+}
+/** ORBIT-471 can be started by Auto: Orbit's repository registered, the ticket in the Inbox with the auto tag (no Orbit is read). */
+async function autoCanStart471(w) {
+  await fs.writeFile(path.join(w.dirs.repo, 'starbase.md'), '---\nname: Orbit\ngithub: acme-org/orbit\nremotes:\n  fork: origin\n  org: upstream\n---\nNotes.\n');
+  w.git('remote', 'add', 'origin', 'git@github.com:acme/orbit.git');
+  w.git('remote', 'add', 'upstream', 'git@github.com:acme-org/orbit.git');
+  const reg = await w.local.registry.addRepo(w.dirs.repo);
+  assert.equal(reg.ok, true, JSON.stringify(reg));
+  w.hooks.orbitInbox.audience = 'tech';
+  w.hooks.orbitInbox.rows.set(471, { row: { id: 'id-471', number: 471, subject: T471.title, type: 'feature', status: 'open', tags: [{ id: 't0', name: 'auto', color: 'blue', archived: false }] }, audience: 'tech', why: new Set(['assigned']) });
+}
+const autoMemory = async (w) => JSON.parse(await fs.readFile(path.join(w.dirs.state, 'auto-start.json'), 'utf8').catch(() => 'null'));
+const folders471 = async (w) => (await fs.readdir(w.dirs.features)).filter((n) => n.startsWith('orbit-471'));
+
+test('a ticket that is still being named counts as having a job: Auto\'s pass starts nothing for it', { timeout: 60_000 }, async () => {
+  const namer = gatedNamer();
+  const w = await world({ auto: null, namer });
+  try {
+    await autoCanStart471(w);
+    const his = w.hooks.startJob({ ...ticketBody(w), repoPath: undefined });
+    await w.until(() => namer.calls.length === 1, 'his start to ask for a name');
+    let passes = 0;
+    w.hooks.autoStartAsked = () => { passes++; };
+    await w.runner.handle({ type: 'settings', workflow: { autoStart: { on: true, tag: 'auto' } } }, { from: 'local' });
+    await w.until(() => passes > 0, 'an Auto start pass');
+    await new Promise((r) => setTimeout(r, 1000));
+    assert.equal(namer.calls.length, 1, 'Auto started nothing (it would have asked for a name)');
+    assert.deepEqual((await autoMemory(w))?.started ?? [], []);
+    namer.open();
+    assert.equal((await his).slug, 'orbit-471-employee-status-filter');
+    await w.runner.handle({ type: 'settings', workflow: { autoStart: { on: true, tag: 'auto' } } }, { from: 'local' });
+    await new Promise((r) => setTimeout(r, 1000));
+    assert.deepEqual(await folders471(w), ['orbit-471-employee-status-filter'], 'one job for the ticket');
+    await w.runner.handle({ type: 'settings', workflow: { autoStart: { on: false, tag: 'auto' } } }, { from: 'local' });
+  } finally { await w.stop(); }
+});
+
+test('his second Start on a ticket that is still starting is refused with the sentence, and nothing is left held', { timeout: 60_000 }, async () => {
+  const namer = gatedNamer();
+  const w = await world({ auto: null, namer });
+  try {
+    const first = w.hooks.startJob(ticketBody(w));
+    await w.until(() => namer.calls.length === 1, 'the first start to ask for a name');
+    await assert.rejects(w.runner.handle({ type: 'start', ...ticketBody(w) }, { from: 'local' }), (err) => err.status === 409 && err.message === STARTING_471);
+    assert.equal(namer.calls.length, 1, 'the refused start asked nothing');
+    namer.open();
+    assert.equal((await first).slug, 'orbit-471-employee-status-filter');
+    await w.idle();
+    assert.equal((await w.hooks.startJob(ticketBody(w))).slug, 'orbit-471-employee-status-filter-2', 'held no longer');
+  } finally { await w.stop(); }
+});
+
+test('a start that fails gives the ticket back', { timeout: 60_000 }, async () => {
+  const namer = namerOf('employee-status-filter');
+  const w = await world({ auto: null, namer });
+  try {
+    await autoCanStart471(w);
+    // A refusal after the ticket is held (a past conversation that isn't there), and a throw from the Foreman's start.
+    await assert.rejects(w.hooks.startJob({ ...ticketBody(w), fromSession: { id: 'f'.repeat(36) } }), (err) => err.status === 400);
+    const start = w.driver.start;
+    w.driver.start = async () => { throw new Error('The Foreman could not be started.'); };
+    await assert.rejects(w.hooks.startJob({ ...ticketBody(w), ticket: { ...T471, key: 'ORBIT-472' }, description: 'ORBIT-472: x' }), /could not be started/);
+    w.driver.start = start;
+    // His next Start of ORBIT-472 is not refused as starting.
+    await assert.doesNotReject(w.hooks.startJob({ ...ticketBody(w), ticket: { ...T471, key: 'ORBIT-472' }, description: 'ORBIT-472: x' }));
+    // And Auto's pass starts ORBIT-471.
+    await w.runner.handle({ type: 'settings', workflow: { autoStart: { on: true, tag: 'auto' } } }, { from: 'local' });
+    const mem = await w.until(async () => { const m = await autoMemory(w); return m?.started?.[0]?.slug || m?.failed?.length ? m : null; }, 'Auto to start ORBIT-471');
+    assert.deepEqual(mem.started.map((e) => e.key), ['ORBIT-471']);
+    await w.runner.handle({ type: 'settings', workflow: { autoStart: { on: false, tag: 'auto' } } }, { from: 'local' });
+  } finally { await w.stop(); }
+});
+
+test('a blank name is no name: the model is asked as usual', { timeout: 30_000 }, async () => {
+  const namer = namerOf('employee-status-filter');
+  const w = await world({ auto: null, namer });
+  try {
+    assert.equal((await w.runner.handle({ type: 'start', ...ticketBody(w), name: '' }, { from: 'local' })).slug, 'orbit-471-employee-status-filter');
+    await w.idle();
+    assert.equal((await w.runner.handle({ type: 'start', ...ticketBody(w), name: '   ' }, { from: 'local' })).slug, 'orbit-471-employee-status-filter-2');
+    assert.equal(namer.calls.length, 2);
+    assert.deepEqual((await nameLines(w)).map((l) => l.by), ['model', 'model']);
+  } finally { await w.stop(); }
+});
+
+test('a third preview at once is answered from the title without a model', { timeout: 30_000 }, async () => {
+  let open;
+  const gate = new Promise((r) => { open = r; });
+  const namer = namerOf(async () => { await gate; return 'employee-status-filter'; });
+  const w = await world({ auto: null, namer });
+  try {
+    const ask = () => w.runner.handle({ type: 'name', ticket: T471, repoPath: w.dirs.repo }, { from: 'local' });
+    const first = ask();
+    const second = ask();
+    await w.until(() => namer.calls.length === 2, 'two asks in flight');
+    assert.deepEqual(await ask(), { name: SHORT_471, by: 'title', slug: `orbit-471-${SHORT_471}`, branch: `feature/orbit-471-${SHORT_471}` });
+    assert.equal(namer.calls.length, 2, 'the third asked nothing');
+    // A start is never held by this.
+    const started = w.hooks.startJob(ticketBody(w, { ticket: { ...T471, key: 'ORBIT-472' }, description: 'ORBIT-472: x' }));
+    await w.until(() => namer.calls.length === 3, 'the start to ask anyway');
+    open();
+    assert.deepEqual([(await first).by, (await second).by], ['model', 'model']);
+    assert.equal((await started).slug, 'orbit-472-employee-status-filter');
+    assert.equal((await ask()).by, 'model', 'free again');
+  } finally { await w.stop(); }
+});
+
+test('a restarted -2 job under a branch pattern with {title} keeps its folder and its branch', { timeout: 60_000 }, async () => {
+  const namer = namerOf('status-filter');
+  const w = await world({ auto: null, namer });
+  try {
+    await fs.writeFile(path.join(w.dirs.repo, 'starbase.md'), '---\nname: Work\ngithub: acme-org/work\nslug: "w{n}-{title}"\nbranch: "work/{kind}/{title}"\n---\nNotes.\n');
+    assert.equal((await w.hooks.startJob(ticketBody(w))).slug, 'w471-status-filter');
+    await w.idle();
+    const second = await w.hooks.startJob(ticketBody(w));
+    assert.equal(second.slug, 'w471-status-filter-2');
+    await w.until(() => w.texts.length === 2, 'two first messages');
+    assert.match(w.texts[1], /\nBranch: work\/feature\/status-filter \(/);
+    await w.idle();
+    const res = await w.runner.handle({ type: 'restart', slug: second.slug, model: FABLE }, { from: 'local' });
+    assert.equal(res.slug, 'w471-status-filter-2', 'its folder');
+    await w.until(() => w.texts.length === 3, 'the new job\'s first message');
+    assert.match(w.texts[2], /\nBranch: work\/feature\/status-filter \(/, 'its branch');
+    assert.deepEqual((await nameLines(w)).at(-1), { ...(await nameLines(w)).at(-1), name: 'status-filter', by: 'kept' });
+    assert.equal(namer.calls.length, 2, 'the restart asked nothing');
+  } finally { await w.stop(); }
+});
+
+test('a restart keeps the name when the ticket\'s title has changed since', { timeout: 60_000 }, async () => {
+  const namer = namerOf(null);
+  const w = await world({ auto: null, namer });
+  try {
+    await fs.writeFile(path.join(w.dirs.repo, 'starbase.md'), '---\nname: Work\ngithub: acme-org/work\nslug: "w{n}"\nbranch: "work/{kind}/{title}"\n---\nNotes.\n');
+    const out = await w.hooks.startJob(ticketBody(w));
+    assert.equal(out.slug, 'w471');
+    await w.until(() => w.texts.length === 1, 'the first message');
+    assert.match(w.texts[0], new RegExp(`\\nBranch: work/feature/${SHORT_471} \\(`));
+    await w.idle();
+    // The ticket's title was edited in Orbit since, and the job's record has the new one.
+    const file = path.join(w.dirs.features, out.slug, 'options.json');
+    const opts = JSON.parse(await fs.readFile(file, 'utf8'));
+    await fs.writeFile(file, JSON.stringify({ ...opts, ticket: { ...opts.ticket, title: 'Employee status filter' } }, null, 2));
+    const res = await w.runner.handle({ type: 'restart', slug: out.slug, model: FABLE }, { from: 'local' });
+    assert.equal(res.slug, 'w471');
+    await w.until(() => w.texts.length === 2, 'the new job\'s first message');
+    assert.match(w.texts[1], new RegExp(`\\nBranch: work/feature/${SHORT_471} \\(`), 'the name it was given, not one from the new title');
+    assert.deepEqual((await nameLines(w)).map((l) => [l.name, l.by]), [[SHORT_471, 'title'], [SHORT_471, 'kept']]);
+  } finally { await w.stop(); }
 });

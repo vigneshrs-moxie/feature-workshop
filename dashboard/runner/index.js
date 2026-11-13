@@ -1431,6 +1431,18 @@ export async function createRunner(config) {
     if (reserve) startingSlugs.add(slug);
     return slug;
   }
+  // The New job form's previews (HANDLERS.name) asking the model right now, and how many may.
+  const PREVIEWS_ASKING = 2;
+  let previewsAsking = 0;
+  // Tickets whose start is in flight, key → how many (HANDLERS.start holds and lets go of its own). A ticket's job has no
+  // folder until its name is known (up to five seconds), so meanwhile Auto's starter counts it as having a job and his own
+  // second Start of it is refused. A count, so one start's letting go never frees another's.
+  const startingTickets = new Map();
+  const holdTicket = (key) => { startingTickets.set(key, (startingTickets.get(key) ?? 0) + 1); };
+  const letGoTicket = (key) => {
+    const left = (startingTickets.get(key) ?? 1) - 1;
+    if (left > 0) startingTickets.set(key, left); else startingTickets.delete(key);
+  };
 
   // The demo's pretend jobs never reach the real site: it publishes only through a skills folder of
   // its own that holds a script, which is the tests' stand-in.
@@ -1826,6 +1838,16 @@ export async function createRunner(config) {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  /**
+   * The name a restarted job was given: the `name` of the old job's last name line (whatever its `by`; every line in the
+   * file, since the restart's boundary is already written), else read back from its slug (a job from before names were
+   * recorded), else null (today's short title).
+   */
+  async function keptName(oldDir, ticket, profile) {
+    const line = (await state.auditAll().catch(() => [])).filter((e) => e?.featureDir === oldDir && e.action === 'name' && typeof e.name === 'string' && /^[a-z0-9-]{1,60}$/.test(e.name)).at(-1);
+    return line?.name ?? slugName(path.basename(oldDir), ticket, profile);
   }
 
   /** Change a job's Auto record under the Auto lock (fn(prev) returns the next record, or null for no change); options.json follows. */
@@ -2307,6 +2329,7 @@ export async function createRunner(config) {
         const key = (f.dir ? await statusTicketKey(f.dir) : null) ?? slugTicketKey(f.slug);
         if (key) ticketsWithJobs.add(key);
       }
+      for (const key of startingTickets.keys()) ticketsWithJobs.add(key); // a start in flight, its folder not made yet
       return { ticketsWithJobs, ...autoPlaces(list) };
     },
     start: async (item, tag) => {
@@ -2515,44 +2538,58 @@ export async function createRunner(config) {
       try { ticket = normalizeTicket(body.ticket); } catch (err) { throw new HttpError(400, err.message); }
       // His own name for a ticket's folder and branch (the New job form), checked before anything is made. A start
       // with no ticket takes no name.
-      const nameGiven = Boolean(ticket) && body.name !== undefined && body.name !== null;
+      // A blank name (empty, or only white space) is no name: the laptop names the job itself.
+      const nameGiven = Boolean(ticket) && body.name !== undefined && body.name !== null && !(typeof body.name === 'string' && !body.name.trim());
       const ownNamed = nameGiven ? ownName(body.name) : null;
       if (nameGiven && !ownNamed) throw new HttpError(400, NAME_PROBLEM);
-      // Starting from a past conversation: a fresh Foreman reads an extract of it (history.md), or
-      // a copy of the conversation itself becomes the Foreman (the original is never changed).
+      // One ticket, one start at a time (startingTickets): held from here until the start ends, whichever way. His own
+      // second Start of a ticket that is starting is refused; Auto's start is not (its starter never picks a held ticket).
+      // A restart is neither held nor refused.
+      const holds = Boolean(ticket) && !internal.restartOf;
+      if (holds && !internal.autoStart && startingTickets.has(ticket.key)) throw new HttpError(409, `A job for ${ticket.key} is starting right now. It will show in a few seconds.`);
+      if (holds) holdTicket(ticket.key);
       let from = null;
       let sessionId = null;
       let cwd = repo.path;
-      if (body.fromSession) {
-        const id = str(body.fromSession.id, 40);
-        const mode = body.fromSession.mode === 'continue' ? 'continue' : 'summary';
-        const d = /^[0-9a-f-]{36}$/.test(id) ? await history.detail(id, await historyContext()) : null;
-        if (!d) throw new HttpError(400, 'That conversation isn’t there any more, or has nothing in it.');
-        from = { id: d.id, chain: d.chain, mode, branch: d.branch ?? null, cwd: d.cwd ?? null, title: d.title };
-        if (mode === 'continue') {
-          if (DEMO || PROJECTS_DIR !== path.join(CLAUDE_DIR, 'projects')) throw new HttpError(400, 'Continuing a conversation only works with your real Claude Code history. Use “Fresh Foreman with a summary” instead.');
-          if (!d.cwd || !fs.existsSync(d.cwd)) throw new HttpError(400, `The folder that conversation ran in (${d.cwd ?? 'unknown'}) isn’t there any more, so it can’t be continued. Use “Fresh Foreman with a summary” instead.`);
-          // The continued conversation runs where it ran before, so that must be inside the job's repository.
-          if (!isInside(d.cwd, repo.path)) throw new HttpError(400, `That conversation ran in ${d.cwd}, which isn’t inside ${repo.path}. Pick that repository, or use “Fresh Foreman with a summary”.`);
-          const { forkSession } = await import('@anthropic-ai/claude-agent-sdk');
-          sessionId = (await forkSession(d.id, { dir: d.cwd, title: `${d.title} (${PRODUCT})` })).sessionId;
-          cwd = d.cwd;
-          from.forkedTo = sessionId;
-        }
-        from.detail = d;
-      }
-      // The repository's profile names a ticket's folder and branch (lib/profile.js); none: the general case.
-      const hit = ticket ? await local.registry.profileFor(repo.path).catch(() => null) : null;
-      const profile = hit?.ok ? hit.profile : null;
-      // A ticket's short name (lib/branch-name.js) fills the slug's and the branch's {title}: his own; on a restart the
-      // old job's (it keeps its folder and branch); else the model's, checked by code. None: today's short title.
+      let profile = null;
       let named = null;
-      if (ticket) {
-        const kept = internal.restartOf ? slugName(path.basename(internal.restartOf), ticket, profile) : null;
-        const asked = ownNamed || internal.restartOf ? null : await modelName({ ticket, description });
-        named = ownNamed ? { name: ownNamed, by: 'you' } : kept ? { name: kept, by: 'kept' } : asked ? { name: asked, by: 'model' } : { name: null, by: 'title' };
+      let slug;
+      try {
+        // Starting from a past conversation: a fresh Foreman reads an extract of it (history.md), or
+        // a copy of the conversation itself becomes the Foreman (the original is never changed).
+        if (body.fromSession) {
+          const id = str(body.fromSession.id, 40);
+          const mode = body.fromSession.mode === 'continue' ? 'continue' : 'summary';
+          const d = /^[0-9a-f-]{36}$/.test(id) ? await history.detail(id, await historyContext()) : null;
+          if (!d) throw new HttpError(400, 'That conversation isn’t there any more, or has nothing in it.');
+          from = { id: d.id, chain: d.chain, mode, branch: d.branch ?? null, cwd: d.cwd ?? null, title: d.title };
+          if (mode === 'continue') {
+            if (DEMO || PROJECTS_DIR !== path.join(CLAUDE_DIR, 'projects')) throw new HttpError(400, 'Continuing a conversation only works with your real Claude Code history. Use “Fresh Foreman with a summary” instead.');
+            if (!d.cwd || !fs.existsSync(d.cwd)) throw new HttpError(400, `The folder that conversation ran in (${d.cwd ?? 'unknown'}) isn’t there any more, so it can’t be continued. Use “Fresh Foreman with a summary” instead.`);
+            // The continued conversation runs where it ran before, so that must be inside the job's repository.
+            if (!isInside(d.cwd, repo.path)) throw new HttpError(400, `That conversation ran in ${d.cwd}, which isn’t inside ${repo.path}. Pick that repository, or use “Fresh Foreman with a summary”.`);
+            const { forkSession } = await import('@anthropic-ai/claude-agent-sdk');
+            sessionId = (await forkSession(d.id, { dir: d.cwd, title: `${d.title} (${PRODUCT})` })).sessionId;
+            cwd = d.cwd;
+            from.forkedTo = sessionId;
+          }
+          from.detail = d;
+        }
+        // The repository's profile names a ticket's folder and branch (lib/profile.js); none: the general case.
+        const hit = ticket ? await local.registry.profileFor(repo.path).catch(() => null) : null;
+        profile = hit?.ok ? hit.profile : null;
+        // A ticket's short name (lib/branch-name.js) fills the slug's and the branch's {title}: his own; on a restart the
+        // old job's (it keeps its folder and branch); else the model's, checked by code. None: today's short title.
+        if (ticket) {
+          const kept = internal.restartOf ? await keptName(internal.restartOf, ticket, profile) : null;
+          const asked = ownNamed || internal.restartOf ? null : await modelName({ ticket, description });
+          named = ownNamed ? { name: ownNamed, by: 'you' } : kept ? { name: kept, by: 'kept' } : asked ? { name: asked, by: 'model' } : { name: null, by: 'title' };
+        }
+        slug = await uniqueSlug(ticket ? ticketSlug(ticket, profile, { name: named.name }) : slugify(description), { restartOf: internal.restartOf ?? null });
+      } catch (err) {
+        if (holds) letGoTicket(ticket.key);
+        throw err;
       }
-      const slug = await uniqueSlug(ticket ? ticketSlug(ticket, profile, { name: named.name }) : slugify(description), { restartOf: internal.restartOf ?? null });
       const featureDir = path.join(FEATURES_DIR, slug);
       let autoWritten = false;
       try {
@@ -2613,6 +2650,7 @@ export async function createRunner(config) {
         throw err;
       } finally {
         startingSlugs.delete(slug);
+        if (holds) letGoTicket(ticket.key);
       }
     },
 
@@ -2636,7 +2674,13 @@ export async function createRunner(config) {
       const hit = await local.registry.profileFor(repo.path).catch(() => null);
       const profile = hit?.ok ? hit.profile : null;
       const description = str(body.description, 600).replace(/\s+/g, ' ').trim() || null;
-      const asked = await modelName({ ticket, description, avoid });
+      // At most PREVIEWS_ASKING previews ask the model at once (each runs a Claude program); one more is answered from
+      // the title at once. Starts are not counted and never wait on this.
+      let asked = null;
+      if (previewsAsking < PREVIEWS_ASKING) {
+        previewsAsking++;
+        try { asked = await modelName({ ticket, description, avoid }); } finally { previewsAsking--; }
+      }
       const slug = await uniqueSlug(ticketSlug(ticket, profile, { name: asked }), { reserve: false });
       return { name: asked ?? shortTitle(ticket.title), by: asked ? 'model' : 'title', slug, branch: ticketBranch(kind, slug, { profile, ticket, name: asked }) };
     },

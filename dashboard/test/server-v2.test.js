@@ -297,3 +297,22 @@ test('POST /api/jobs/name answers with the name, slug and branch, reserves nothi
   assert.equal((await plain.json()).slug, named.slug);
   assert.equal((await (await post('/api/jobs/name', ask)).json()).slug, `${short}-2`, 'taken now: the next one');
 });
+
+test('a blank name on POST /api/jobs is no name: the job starts and the laptop names it', { timeout: 60_000 }, async () => {
+  const { body: snap } = await getJson('/api/snapshot');
+  const repo = path.join(root, 'blank-name-repo');
+  await fs.mkdir(repo);
+  execFileSync('git', ['-C', repo, 'init', '-q'], { stdio: 'pipe' });
+  const post = (p, body) => fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Starbase-Token': snap.meta.token }, body: JSON.stringify(body) });
+  const ticket = { key: 'ORBIT-481', title: 'Rating freezes on save' };
+  const slugs = [];
+  for (const name of ['', '   ']) {
+    const res = await post('/api/jobs', { description: `ORBIT-481: ${ticket.title}`, ticket, repoPath: repo, name, options: { level: 1 } });
+    assert.equal(res.status, 200, `${JSON.stringify(name)}: ${res.status}`);
+    slugs.push((await res.json()).slug);
+  }
+  // The demo asks no model: today's short title.
+  assert.deepEqual(slugs, ['orbit-481-rating-freezes-on-save', 'orbit-481-rating-freezes-on-save-2']);
+  const audit = (await fs.readFile(path.join(root, 'state', 'audit.jsonl'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
+  assert.deepEqual(audit.filter((a) => a.action === 'name' && slugs.includes(a.slug)).map((a) => a.by), ['title', 'title']);
+});
