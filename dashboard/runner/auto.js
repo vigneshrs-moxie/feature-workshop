@@ -594,8 +594,11 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
    * Auto answers it, refuses it (refuseCard), or stops on it with a reason, and he is told Needs you (Task 13, fix round 1): while
    * Auto is on and not stopped, no card is left silently. A card left while the record is still on and not stopped, by a path
    * that wrote no stop, gets its stop here (CARD_THREW after a throw, else CARD_LEFT). Left without a stop on purpose ("quiet"):
-   * Auto went off, stopped, or the job is closing or restarting (auto-gone), and PR feedback and review round cards.
-   * leftWaiting(card) is called, at most once, whenever the card is left and no stop was written for it; the runner passes none.
+   * the job is closing or restarting (auto-gone), and PR feedback and review round cards.
+   * What a left card tells is decided once, here, from the record when Auto is done with it (follow-up K1): Auto off, gone or
+   * restarting, nothing; Auto stopped by another card or a gate, leftWaiting(card), the runner's tellPermission, as on any job
+   * (he answered that card, the stop clears, and this one would wait unannounced); stopped on this card, nothing more (its Needs
+   * you told him); on and not stopped, a stop on it unless it is quiet. leftWaiting is called at most once.
    * Cards of one job are handled one at a time, in the order they came; a card is taken up once. Resolves when this card is done with.
    */
   function onPermission(card, { leftWaiting = () => {} } = {}) {
@@ -609,7 +612,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     let quiet = false;
     let threw = false;
     const mine = (queues.get(dir) ?? Promise.resolve())
-      .then(() => attendCard(card, tell, takenAt, () => { quiet = true; }))
+      .then(() => attendCard(card, takenAt, () => { quiet = true; }))
       .catch((err) => {
         console.error(`auto card (${card.slug}):`, err.message);
         threw = true;
@@ -618,7 +621,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
         if (!cards.has(card.id) || !pendingCard(card.id)) return;
         // Done with, and it still waits: Auto has left it to the person (a stop, Auto gone, a card it never answers).
         cards.set(card.id, 'left');
-        if (!quiet) await stopOnLeft(card, threw ? CARD_THREW : CARD_LEFT, tell);
+        await whenLeft(card, threw ? CARD_THREW : CARD_LEFT, { quiet, tell });
       })
       .catch((err) => console.error(`auto card (${card.slug}):`, err.message))
       .finally(() => { if (queues.get(dir) === mine) queues.delete(dir); });
@@ -626,15 +629,21 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     return mine;
   }
 
-  /**
-   * A card left while the job's record is still on and not stopped: a stop on it (stop writes nothing once Auto is off or
-   * stopped). Already stopped: the stop that left it has told him. Off or restarting: no stop, and leftWaiting is called.
-   */
-  async function stopOnLeft(card, reason, tell) {
+  /** A card Auto has left, by the record now (see onPermission): told as on any job, a stop on it, or nothing. */
+  async function whenLeft(card, reason, { quiet, tell }) {
+    const byRecord = (job) => {
+      if (!job || job.auto?.on !== true || job.restarting) return 'silent'; // off, finished, set aside, closed or restarting
+      if (job.auto.stopped) return job.auto.stopped.cardId === card.id ? 'silent' : 'tell'; // stopped on another card or a gate
+      return quiet ? 'silent' : 'stop';
+    };
     const [job] = await read(card.featureDir);
-    if (job?.auto?.on === true && job.auto.stopped) return;
-    if (!job || job.auto?.on !== true || job.restarting) { tell(); return; }
-    await stopOnCard(job, { rule: 'blocked', reason }, tell, { cardId: card.id });
+    const what = byRecord(job);
+    if (what === 'tell') tell();
+    if (what !== 'stop') return;
+    if (await stop(job, { rule: 'blocked', reason }, { card: true, cardId: card.id })) return;
+    // No stop was written: the record went off or stopped meanwhile. Decide again.
+    const [now] = await read(card.featureDir);
+    if (byRecord(now) === 'tell') tell();
   }
 
   /** A card that has gone away (answered, the reply ended) is forgotten. */
@@ -644,21 +653,25 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
   /** Whether Auto is handling this card now: taken up, and not done with. Any other card that waits is the person's. */
   function handlingCard(id) { return cards.get(id) === true; }
 
-  /** A stop on the card: its own notification tells the person; when none was written (Auto went off or stopped), leave() is called. */
+  /**
+   * A stop on the card: its own notification tells the person. When none was written (Auto went off or stopped meanwhile),
+   * leave() is called; what that card tells is decided in onPermission's last step (whenLeft).
+   */
   async function stopOnCard(job, hit, leave, opts = {}) {
     if (!(await stop(job, hit, { ...opts, card: true }))) leave();
   }
 
-  // hush(): the card is left without a stop on purpose (Auto went off or stopped, the job is restarting, auto-gone, or a PR
-  // feedback or review round card), so onPermission writes none for it.
-  async function attendCard(card, leftWaiting, takenAt = Date.now(), hush = () => {}) {
-    let left = false;
-    const leave = () => { if (!left) { left = true; leftWaiting(card); } };
-    const quietly = () => { hush(); leave(); };
+  // leave(): Auto is done with the card without answering it; onPermission's last step (whenLeft) decides what it tells.
+  // hush(): it is left without a stop on purpose while Auto is on and not stopped (auto-gone while closing or restarting, or a
+  // PR feedback or review round card), so no stop is written for it.
+  async function attendCard(card, takenAt = Date.now(), hush = () => {}) {
+    const leave = () => {};
+    const quietly = () => { hush(); };
     const waits = () => pendingCard(card.id);
     if (!waits()) { cards.delete(card.id); return; } // gone while it queued: answered, or the reply ended
     const [job] = await read(card.featureDir);
-    if (!job || job.auto?.on !== true || job.auto.stopped || job.restarting) return quietly();
+    // Off, gone, restarting or stopped: Auto does not take the card up. A stopped Auto's card is told as on any job (whenLeft).
+    if (!job || job.auto?.on !== true || job.auto.stopped || job.restarting) return leave();
     // Never answered: a card about Starbase's own checks, PR feedback, a review round (they come after PR #1, when the finish
     // that follows tells him). A status card also stops Auto.
     if (card.feedbackCard || card.roundCard) return quietly();
@@ -722,7 +735,8 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       const [fresh] = await read(job.dir);
       if (!waits() || !fresh || fresh.auto?.on !== true || fresh.auto.stopped || fresh.restarting) {
         await settleDropped(job, cost);
-        if (waits()) quietly(); // Auto went off or stopped meanwhile: no stop is written for it
+        // Auto went off, stopped or is restarting meanwhile: no stop is written for it (whenLeft: stopped, it is told; else silent).
+        if (waits()) leave();
         return null;
       }
       // The person wrote to the job since Auto took the card up (while it waited, or while the Approver thought): the
@@ -853,6 +867,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     if (!gone) console.error(`auto card (${job.slug}):`, err.message);
     await settleIfOff(job);
     if (!pendingCard(card.id)) return;
+    // Auto-gone: no stop (quiet even while the record is on, for a job being closed or restarted); stopped, whenLeft tells it.
     if (gone) quietly();
     else await stopOnCard(job, { rule: 'blocked', reason: CARD_NOT_SENT }, leave, { cardId: card.id });
   }

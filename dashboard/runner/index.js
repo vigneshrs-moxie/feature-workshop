@@ -2080,7 +2080,8 @@ export async function createRunner(config) {
   driver.on('permission', (p) => {
     state.sessionFor(p.featureDir).then((record) => {
       // Auto handles a card only while it is on and not stopped; a stopped Auto job's cards are his, told as on any job.
-      if (record?.auto?.on === true && !record.auto.stopped) return auto.onPermission(p);
+      // leftWaiting: a card that reaches Auto after it stopped (queued behind the card it stopped on) is told here too.
+      if (record?.auto?.on === true && !record.auto.stopped) return auto.onPermission(p, { leftWaiting: tellPermission });
       return tellPermission(p);
     }).catch((err) => { console.error('permission:', err.message); tellPermission(p); });
   });

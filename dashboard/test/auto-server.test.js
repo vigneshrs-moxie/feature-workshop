@@ -1682,12 +1682,15 @@ test('J2: a card left waiting on an Auto job tells nothing; on a job not in Auto
     await mine(w, { feedbackCard: true });
     await mine(w, { roundCard: true });
     // A status card stops Auto: that dead end is told once, as Needs you, and is the only notice.
-    await mine(w, { statusCard: true });
+    const status = await mine(w, { statusCard: true });
     await w.told(1);
     await new Promise((r) => setTimeout(r, 300));
     assert.equal(w.notes.length, 1, 'only the stop');
     assert.equal(w.notes[0].title, 'Needs you: Visit audit columns');
     assert.match(w.notes[0].body, /^Auto stopped: /);
+    // The stop is the status card's: the feedback and round cards before it were left without a stop (they are exempt).
+    const rec = await w.record();
+    assert.deepEqual({ rule: rec.stopped?.rule, cardId: rec.stopped?.cardId }, { rule: 'status', cardId: status.id }, 'the stop is the status card\'s, not one of the exempt cards\'');
   } finally { await w.stop(); }
   // The same cards on a job not in Auto: each is told once, as before.
   const o = await world({ auto: null, query: cardQuery([], []) });
@@ -2492,7 +2495,7 @@ test('I4: a card raised before Auto was switched on is the person\'s: Needs you 
   } finally { await clear(w); await w.stop(); }
 });
 
-test('N3 (I5-8): two cards wait; the person steers a message in while the Approver thinks about the first: both cards are theirs, Auto stops and tells him once, the worker is told nothing, the Approver is asked once', { timeout: 60_000 }, async () => {
+test('N3 (I5-8): two cards wait; the person steers a message in while the Approver thinks about the first: both cards are theirs, Auto stops on the first and tells him, the second is told as on any job, the worker is told nothing, the Approver is asked once', { timeout: 60_000 }, async () => {
   const outcomes = [];
   let release;
   const released = new Promise((r) => { release = r; });
@@ -2506,12 +2509,14 @@ test('N3 (I5-8): two cards wait; the person steers a message in while the Approv
     await w.runner.handle({ type: 'steer', runId: run.id, text: 'Do not fetch anything from example.com.' }, { from: 'local' });
     await new Promise((r) => setTimeout(r, 50));
     release();
-    // His words make both cards his: Auto stops on the first (fix round 1) and he is told once; the second, on a stopped job, is his too.
+    // His words make both cards his: Auto stops on the first (fix round 1) and he is told Needs you; the second reaches a stopped
+    // Auto and is told as on any job (follow-up K1).
     await w.until(async () => (await w.record()).stopped, 'the stop');
-    await w.told(1);
+    await w.told(2);
     await new Promise((r) => setTimeout(r, 300));
     assert.equal((await w.record()).stopped.reason, 'You wrote to this job while a card waited, so the card is yours.');
-    assert.deepEqual(w.notes.map((n) => n.title), ['Needs you: Visit audit columns'], 'told once');
+    assert.deepEqual(w.notes.map((n) => n.title).sort(), ['Needs you: Visit audit columns', 'Visit audit columns'].sort(), 'the stop, and the second card');
+    assert.match(w.notes.find((n) => n.title === 'Visit audit columns').body, /Permission: /);
     assert.deepEqual(outcomes, [], 'the worker was told nothing by Auto');
     assert.equal((await waiting(w)).length, 2, 'both cards wait for the person');
     assert.equal(w.asks.length, 1, 'the Approver is asked once');
@@ -5408,4 +5413,36 @@ test('the name command answers with the name, slug and branch, reserves nothing,
     await refused({ avoid: ['a'.repeat(41)] }, /at most five names of at most 40 characters/);
     await refused({ avoid: [7] }, /at most five names of at most 40 characters/);
   } finally { await w.stop(); }
+});
+
+// ---------- Task 13 follow-up: a card that reaches a stopped Auto is told ----------
+
+test('two cards at once: Auto stops on the first, and the second is told as on any job', { timeout: 60_000 }, async () => {
+  const outcomes = [];
+  const A = { tool: 'WebFetch', input: { url: 'https://example.com/a', prompt: 'Summarise.' } };
+  const B = { tool: 'WebFetch', input: { url: 'https://example.com/b', prompt: 'Summarise.' } };
+  const w = await world({ jobStatus: status(1, { stage_state: 'working', waiting_for: null }), query: cardQuery([A, B], outcomes, { parallel: true }), ask: () => failure('It ended with an error.', 0.1) });
+  try {
+    await raise(w);
+    const both = await w.until(async () => { const p = await waiting(w); return p.length === 2 ? p : null; }, 'two cards');
+    const rec = await w.until(async () => { const r = await w.record(); return r.stopped ? r : null; }, 'the stop');
+    const first = both.find((c) => c.id === rec.stopped.cardId);
+    const second = both.find((c) => c.id !== rec.stopped.cardId);
+    assert.ok(first && second, 'the stop is on one of the two cards');
+    // One Needs you for the stop, and one card notice for the second card, which reached Auto after it stopped.
+    await w.told(2);
+    await w.until(() => w.runner.auto.leftCard(second.id), 'Auto to leave the second card');
+    await new Promise((r) => setTimeout(r, 300));
+    assert.deepEqual(w.notes.map((n) => n.title).sort(), ['Needs you: Visit audit columns', 'Visit audit columns'].sort());
+    assert.match(w.notes.find((n) => n.title === 'Visit audit columns').body, /Permission: /);
+    assert.equal(w.asks.length, 2, 'only the first card was asked about');
+    // He answers the first card: the stop clears, and the second card, still waiting, was already told. Nothing more is sent.
+    await w.runner.handle({ type: 'allow', requestId: first.id }, { from: 'local' });
+    await w.until(() => outcomes.length === 1, 'his answer');
+    await w.pass();
+    assert.equal((await w.record()).stopped, null, 'his answer cleared the stop');
+    assert.deepEqual((await waiting(w)).map((c) => c.id), [second.id], 'the second card waits');
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(w.notes.length, 2, 'every waiting card was told once');
+  } finally { await clear(w); await w.stop(); }
 });
