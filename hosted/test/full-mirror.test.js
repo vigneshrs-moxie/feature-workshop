@@ -769,6 +769,14 @@ test('the new job page on the site: the same payload, built from the mirrored re
     const you = await olive.person.json('/api/job/add-export/item?id=you%3Adef');
     assert.equal(you.body.text, 'Looks good');
     assert.equal(you.body.kind, 'you');
+    // Each line's body is versioned by the line's hash, as on the laptop, so a kept body can be checked.
+    const hashes = new Map(page.body.thread.map((t) => [t.id, t.hash]));
+    assert.equal(you.body.version, hashes.get('you:def'));
+    assert.equal(brief.body.version, hashes.get('brief:briefs/002-plan.md'));
+    assert.equal(page.body.rows.conversation.more, false);
+    const decisions = await olive.person.json('/api/job/add-export/item?id=decisions');
+    assert.equal(decisions.status, 200, JSON.stringify(decisions.body));
+    assert.match(decisions.body.text, /CSV/);
     const reply = await olive.person.json('/api/job/add-export/item?id=reply%3Aabc');
     assert.match(reply.body.text, /Its words show on your laptop/);
     assert.doesNotMatch(JSON.stringify(reply.body), /readSource/, 'none of the reply’s words');

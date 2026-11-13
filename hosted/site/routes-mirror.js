@@ -196,25 +196,37 @@ export default function mirrorRoutes(ctx) {
       const row = boards.filter((b) => b.runnerId === rec.runnerId).flatMap((b) => b.value.jobs ?? []).find((j) => j.slug === slug) ?? null;
       return mirrorJobPage(rec.value, { row, v: Date.parse(rec.updatedAt) || 0 });
     },
-    /** One body of the new job page: a brief or document from its mirrored doc, a line's own words; a reply's words stay on the laptop. */
+    /**
+     * One body of the new job page: a brief or document from its mirrored doc, the decisions list, a line's own
+     * words; a reply's words stay on the laptop. A line's body is versioned by its payload line's hash (as on the
+     * laptop), a document by its text.
+     */
     async jobItem(slug, id) {
       const person = who();
       const rec = await jobOf(slug);
-      const it = (rec.value.thread ?? []).find((t) => String(t.id) === id) ?? null;
       const hash = (text) => createHash('sha1').update(text).digest('hex').slice(0, 12);
+      const lines = new Map(mirrorJobPage(rec.value).thread.map((l) => [l.id, l]));
+      if (id === 'decisions') {
+        const rows = (await records.get(person.id, 'decisions', slug))?.value?.decisions ?? [];
+        const text = rows.map((r) => `- ${String(r?.choice ?? r?.decision ?? '').trim()}${r?.question ? ` — ${String(r.question).trim()}` : ''}`).join('\n');
+        return { id, kind: 'decisions', version: hash(text), html: renderMarkdown(text), text, meta: { rows } };
+      }
+      const it = (rec.value.thread ?? []).find((t) => String(t.id) === id) ?? null;
+      const line = it ? lines.get(String(it.id)) ?? null : null;
       const file = it ? (it.kind === 'brief' ? it.file : null) : id;
       if (file) {
         const doc = await records.get(person.id, 'doc', `${slug}\n${file}`);
         if (doc && !doc.value.tooBig && typeof doc.value.text === 'string') {
           const { html, text, vscode: _v, ...meta } = doc.value;
-          return { id, kind: it ? 'brief' : 'doc', version: hash(text), html: html ?? renderMarkdown(text), text, meta: it ? { ...meta, number: it.number ?? null, stage: it.stage ?? null } : meta };
+          return { id, kind: it ? 'brief' : 'doc', version: line?.hash ?? hash(text), html: html ?? renderMarkdown(text), text, meta: it ? { ...meta, number: it.number ?? null, stage: it.stage ?? null } : meta };
         }
         if (!it) throw new HttpError(404, 'That isn’t on the site yet. It shows here once your laptop sends it.');
       }
-      const text = typeof it.text === 'string' ? it.text : '';
+      // A brief whose file isn't on the site yet: its headline and first point, as the line shows them.
+      const text = it.kind === 'brief' ? [it.headline, it.point].filter((x) => typeof x === 'string' && x).join('\n\n') : typeof it.text === 'string' ? it.text : '';
       const { text: _t, html: _h, reply: _r, ...meta } = it;
-      const kind = ['reply', 'you', 'brief', 'problem'].includes(it.kind) ? it.kind : 'small';
-      return { id, kind, version: hash(text), html: renderMarkdown(text), text, meta };
+      const kind = line?.kind ?? (['reply', 'you', 'brief', 'problem'].includes(it.kind) ? it.kind : 'small');
+      return { id, kind, version: line?.hash ?? hash(text), html: renderMarkdown(text), text, meta };
     },
     async threadBefore() { throw new HttpError(404, 'Older messages show on your laptop.'); },
     async notes() { throw new HttpError(409, 'A job’s notes are on your laptop for now.'); },
