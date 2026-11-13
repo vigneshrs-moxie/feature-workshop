@@ -417,7 +417,8 @@ describe('Task 7 fix round 1', () => {
     const move = p.move as { ask: string; since: string };
     const row = { ...ROW, headline: move.ask, waitingSince: move.since, waitingFor: 'approval' };
     const { release } = open(`#/job/${SLUG}`, { hold: true, row });
-    const card = () => document.querySelector('.jp2-ym')!.innerHTML;
+    // The label and the ask (what the row has) do not change; the options and Go (Task 9) fill in under them.
+    const card = () => [...document.querySelectorAll('.jp2-ym .jp2-card-label, .jp2-ym .jp2-card-ask')].map((e) => e.outerHTML).join('');
     const painted = card();
     expect(painted).toContain('Needs you · since');
     release();

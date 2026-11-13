@@ -57,6 +57,28 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2-card-label { margin: 0; font-size: 11px; line-height: 14px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--lane-needs-you-fg); }
 .jp2-card-ask { margin: 0; font-size: 16px; line-height: 22px; font-weight: 600; text-wrap: balance; }
 .jp2-ym-one { margin: 0; padding: 4px 6px; font-size: 13px; line-height: 18px; }
+/* Your move's questions (left/YourMove.tsx): one option row each, the recommended one picked */
+.jp2-ym-qs { display: flex; flex-direction: column; gap: 6px; }
+.jp2-ym-q { display: flex; flex-direction: column; gap: 4px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.jp2-ym-qt { margin-top: 2px; padding: 0; font-size: 13px; line-height: 18px; font-weight: 600; }
+.jp2-ym-opt.option-row { align-items: center; gap: 10px; min-height: 38px; padding: 3px 10px; border-color: var(--border-2); border-radius: 8px; }
+.jp2-ym-opt.option-row .choice { margin-top: 0; }
+.jp2-ym-ot { flex: 1; min-width: 0; font-size: 13px; line-height: 17px; }
+.jp2-ym-ol b { font-weight: 600; }
+.jp2-ym-rec { margin-left: 6px; font-size: 12px; color: var(--text-2); }
+.jp2-ym-ot small { display: block; overflow: hidden; font-size: 12px; line-height: 16px; color: var(--text-2); white-space: nowrap; text-overflow: ellipsis; }
+.jp2-ym-opt.jp2-ym-ownrow { min-height: 30px; border-style: dashed; color: var(--text-2); }
+.jp2-ym-opt.jp2-ym-ownrow:has(.choice:checked) { border-style: solid; color: var(--text-1); }
+.jp2-ym-ownin { height: 30px; font-size: 13px; }
+.jp2-ym-dec { display: flex; align-items: center; gap: 2px; margin: 0; font-size: 12px; line-height: 16px; color: var(--text-2); }
+.jp2-ym-look { margin-left: 2px; }
+.jp2-ym-calls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.jp2-ym-why { margin: 0; font-size: 12px; line-height: 16px; color: var(--text-2); }
+.jp2-ym-why.is-problem { font-size: 13px; line-height: 18px; color: var(--text-1); font-weight: 500; }
+.jp2-ym-check { margin-top: 0; font-size: 13px; }
+.jp2-ym-cmd { position: relative; max-height: 140px; margin: 0; padding: 7px 9px; overflow: auto; border: 1px solid var(--border-2); border-radius: 6px; background: var(--surface-1); color: var(--text-1); font-family: var(--font-mono); font-size: 12px; line-height: 17px; white-space: pre-wrap; word-break: break-all; }
+.jp2-ym-quick { display: flex; flex-wrap: wrap; gap: 6px; }
+.jp2-ym-sent { margin: 0; padding: 4px 6px; font-size: 13px; line-height: 18px; color: var(--text-1); }
 
 /* Rows on the left: the steps, a step's outputs, the job's rows */
 .jp2-row { display: flex; align-items: center; gap: 10px; width: 100%; margin: 0; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
@@ -128,6 +150,11 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2[data-layout="phone"] .jp2-auto { order: 4; margin-left: -6px; }
 .jp2[data-layout="phone"] .jp2-ym { padding: 12px; }
 .jp2[data-layout="phone"] .jp2-ym-one { padding: 12px 6px; font-size: 15px; }
+.jp2[data-layout="phone"] .jp2-ym-opt.option-row { min-height: 52px; }
+.jp2[data-layout="phone"] .jp2-ym-opt.jp2-ym-ownrow { min-height: 44px; }
+.jp2[data-layout="phone"] .jp2-ym-ot small { white-space: normal; }
+.jp2[data-layout="phone"] .jp2-ym-ownin { height: 44px; font-size: 16px; }
+.jp2[data-layout="phone"] .jp2-ym-sent { padding: 12px 6px; font-size: 15px; }
 .jp2[data-layout="phone"] .jp2-st { padding: 0 8px 6px; border-bottom: 0; }
 .jp2[data-layout="phone"] .jp2-st-row, .jp2[data-layout="phone"] .jp2-jr { height: 52px; font-size: 15px; border-radius: 0; }
 .jp2[data-layout="phone"] .jp2-step + .jp2-step .jp2-st-row, .jp2[data-layout="phone"] .jp2-jr + .jp2-jr { border-top: 1px solid var(--border-1); }

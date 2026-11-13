@@ -99,6 +99,12 @@ export const KEYS = {
   'jp-ticket': { keys: ['g t'], label: 'Open the ticket and goal', scope: 'jobpage' },
   'jp-write': { keys: ['c', 'i'], label: 'Put the cursor in the message box', scope: 'jobpage' },
   'jp-note': { keys: ['n'], label: 'Kept for a note on the part under the pointer (not built yet)', scope: 'jobpage', where: 'Notes and options are in the ⋯ menu.', hidden: true },
+  // Your move (jobpage/left/YourMove.tsx)
+  'jp-go': { keys: ['Mod+Enter'], label: 'Go: send the picks shown', scope: 'jobpage', where: 'While Your move waits for your yes; from anywhere on the page, the message box too.', always: true },
+  'jp-yes': { keys: ['a'], label: 'Go, or Allow once', scope: 'jobpage', where: 'While Your move waits for your yes. Never allows a hard line or a risky step.' },
+  'jp-opt-next': { keys: ['ArrowDown'], label: 'Move to the next option in Your move', scope: 'jobpage', where: 'While Your move asks questions, outside the reader.' },
+  'jp-opt-prev': { keys: ['ArrowUp'], label: 'Move to the option before', scope: 'jobpage', where: 'While Your move asks questions, outside the reader.' },
+  'jp-opt-pick': { keys: [' '], label: 'Pick that option', scope: 'jobpage', where: 'On the option ↑ or ↓ moved to.' },
   // The job page's steps: [ and ] move the open step
   'stage-prev': { keys: ['['], label: 'The step before this one', scope: 'stage' },
   'stage-next': { keys: [']'], label: 'The step after this one', scope: 'stage' },

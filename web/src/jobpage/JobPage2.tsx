@@ -248,7 +248,7 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
       <div className="jp2-panes">
         <div className="jp2-left" aria-hidden={leftHidden || undefined} inert={leftHidden || undefined}>
           <div className="jp2-lscroll">
-            <YourMove job={job} />
+            <YourMove job={job} onOpen={pickReader} />
             <Steps job={job} cursor={cursor} onStep={pickStep} onOpen={pickReader} />
             <JobRows cursor={cursor} first={lines.findIndex((l) => l.target)} onOpen={pickReader} />
           </div>
