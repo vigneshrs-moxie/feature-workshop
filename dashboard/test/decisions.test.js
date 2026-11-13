@@ -401,6 +401,8 @@ test('the go-ahead into PR #1 with the block: the row\'s why is Auto\'s why alon
   assert.ok(!long.why.includes('(Sent by'));
   // Without the block, as before.
   assert.equal(gateRow([why]).why, why);
+  // A long why with no block: the row never ends in a piece of the mark (the mark comes off first).
+  assert.ok(!gateRow([`Why: ${'w'.repeat(180)}`]).why.includes('(Sent'));
   // A person's own reply is read as before: the heading words in it are his.
   const own = decisionRows([{ at: '2026-11-12T09:00:00Z', action: 'send', kind: 'approve', gateBrief: 2, text: 'I approve. Go ahead with the next stage: PR #1\nShip it.\nDecisions Auto made\nall fine' }], { prefix: 'P' }).find((r) => r.kind === 'gate');
   assert.equal(own.why, 'Ship it. Decisions Auto made all fine');
