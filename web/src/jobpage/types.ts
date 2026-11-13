@@ -161,7 +161,7 @@ export interface JobPagePayload {
   hosted: boolean;
   /** The hashes of the bodies no line or output names (the ticket and goal, the decisions list): a kept
    *  copy whose hash moved on is dropped. Absent from an older Starbase. */
-  hashes?: { ticket: string | null; decisions: string | null };
+  hashes?: { ticket: string | null; decisions: string | null; findings?: string | null; checks?: string | null };
   /** Website only: the decision made there for this job's gate (the old page's `queued`), until it is put away. */
   queuedDecision?: unknown;
   /** Website only: every decision made there and still shown for the job, newest first (each followed by its id). */
