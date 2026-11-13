@@ -166,6 +166,18 @@ describe('Recording', () => {
   });
 });
 
+describe('Recording with nothing to see', () => {
+  it('when no check has a picture or a video, the checks are a list alone, with no empty frame', async () => {
+    const v = evidenceView();
+    v.evidence!.criteria = v.evidence!.criteria.map((c) => ({ ...c, screenshots: [], video: null }));
+    open({ id: 'recording', evidence: v });
+    await settle();
+    expect(document.querySelector('.jp2-rec-player')).toBeNull();
+    expect(document.querySelector('.jp2-rec-grid')).toHaveClass('is-list');
+    expect(document.querySelectorAll('.jp2-rec-r')).toHaveLength(2);
+  });
+});
+
 describe('Your hand test (R7)', () => {
   it('the list to check, Start the app, Open it, It works, Something is wrong…', async () => {
     open({ id: 'hand-test' });

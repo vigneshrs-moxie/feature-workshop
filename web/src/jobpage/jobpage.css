@@ -424,6 +424,8 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2-rec-problem { color: var(--status-error); }
 .jp2-rec-laptop { margin: 0; max-width: 260px; font-size: 13px; line-height: 18px; }
 .jp2-rec-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
+.jp2-rec-grid.is-list { grid-template-columns: minmax(0, 1fr); max-width: 610px; }
+.jp2-rec-grid.is-list .jp2-rec-list { max-height: none; }
 .jp2-rec-frame { display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: contain; border-radius: 10px; background: var(--bg-2); }
 .jp2-rec-none { display: grid; place-items: center; padding: 24px; color: var(--text-2); font-size: 14px; text-align: center; }
 .jp2-rec-under { margin-top: 10px; font-size: 14px; line-height: 21px; }

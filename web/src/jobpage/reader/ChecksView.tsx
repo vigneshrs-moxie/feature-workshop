@@ -183,6 +183,8 @@ function Recording({ slug, hosted, ev, commits }: { slug: string; hosted: boolea
   const passed = criteria.filter((c) => c.status === 'passed');
   const quiet = criteria.filter((c) => c.status !== 'failed' && c.status !== 'passed');
   const shown = criteria.find((c) => c.id === pick) ?? failed[0] ?? passed[0] ?? quiet[0] ?? null;
+  // No check has a picture or a video (a recording of checks with nothing to see): the list alone, no empty frame.
+  const visual = criteria.some((c) => Boolean(c.video) || (Array.isArray(c.screenshots) && c.screenshots.length > 0));
   const made = evd ? commitWords('Recorded', evd.commit, commits, view.commit, sinceWords(evd.at)) : null;
   const again = hosted
     ? <p className="jp2-dim jp2-rec-laptop">Evidence is recorded on your laptop. Open the job there to record again.</p>
@@ -207,8 +209,8 @@ function Recording({ slug, hosted, ev, commits }: { slug: string; hosted: boolea
         {(evd || view.problem || view.wanted) && again}
       </div>
       {criteria.length > 0 && (
-        <div className="jp2-rec-grid">
-          <div className="jp2-rec-player">{shown && <Player slug={slug} c={shown} hosted={hosted} onSite={view.onSite} />}</div>
+        <div className={`jp2-rec-grid${visual ? '' : ' is-list'}`}>
+          {visual && <div className="jp2-rec-player">{shown && <Player slug={slug} c={shown} hosted={hosted} onSite={view.onSite} />}</div>}
           <div className="jp2-rec-list" aria-label="Each check">
             {failed.length > 0 && <><div className="jp2-rec-g">{`Failed · ${failed.length}`}</div>{failed.map(row)}</>}
             {passed.length > 0 && <><div className="jp2-rec-g">{`Passed · ${passed.length}`}</div>{passed.map(row)}</>}
