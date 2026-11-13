@@ -83,7 +83,7 @@ test('database: clients, tools, wrappers, sql files', () => {
     ['npx prisma db push', 'database'], ['npx prisma migrate deploy', 'database'], ['pnpm drizzle-kit push', 'database'],
     ['supabase db reset', 'database'], ['docker exec db psql -U x', 'database'], ['rails db:migrate', 'database'],
     ['python manage.py migrate', 'database'], ['knex migrate:latest', 'database'], ['npx knex migrate:latest', 'database'],
-    ['cat db/schema.sql', 'database'], ['node load.js seed.sql', 'database'], ['mysql < dump.sql', 'database'],
+    ['cat db/schema.sql', null], ['cat db/schema.sql | psql', 'database'], ['node load.js seed.sql', 'database'], ['mysql < dump.sql', 'database'],
     ['env X=1 psql -c x', 'database'], ['sudo psql -c x', 'database'], ['nohup psql -c x', 'database'], ['time psql -c x', 'database'],
     ['echo q | xargs psql -c', 'database'], ['bash -c "psql -c x"', 'database'], ["sh -c 'psql -c x'", 'database'],
     ['true && psql -c x', 'database'], ['false || psql -c x', 'database'], ['true; psql -c x', 'database'], ['echo | psql', 'database'],

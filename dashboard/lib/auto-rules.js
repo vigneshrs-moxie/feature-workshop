@@ -386,7 +386,12 @@ function bashVerdict(whole, hard, ctx) {
   if (hard?.line === 'database') st.hits.add('database');
   if (hard && !plainPushCard(hard, whole, ctx.branches)) st.prLine = true; // the card is refused as its hard line (runner/auto.js): see ghStep
   if (DB_ADDRESS.test(command)) st.hits.add('database'); // a database address anywhere in the call
-  analyze(quotedBodies(command), ctx.cwd ?? null, st, 0, null);
+  const read = quotedBodies(command);
+  analyze(read, ctx.cwd ?? null, st, 0, null);
+  // A word that ends in .sql is a database command because some program may run the file. It is not one when nothing on
+  // the line can: every command only reads, moves, stages or commits files (sqlHarmless), and no word or command is made
+  // while the line runs. Then the line is judged as the same line with a file of any other name.
+  if (st.sqlWord && (st.sqlRuns || madeWhileItRuns(read))) st.hits.add('database');
   // A branch changed and a push in one call: where the push goes can't be told from here (C3).
   if (st.branchChange && st.pushed) st.hits.add('push');
   if (st.gitSetting && st.pushed) st.hits.add('push'); // a git setting changed and a push in one call: the remembered lookups are stale (I6)
@@ -462,6 +467,62 @@ function setupForm(words, at, main, ctx) {
 // in single quotes, so a cd before it is still followed (R13: cd <worktree> && git commit -m "$(cat <<'EOF' …)").
 function quotedBodies(command) {
   return command.replace(/"\$\(cat <<'(\w+)'\n([\s\S]*?)\n\1\n\)"/g, (all, delim, body) => (body.split('\n').includes(delim) ? all : `'${body.replace(/\n+$/, '').replace(/'/g, "'\\''")}'`));
+}
+
+// ---------- a .sql file that nothing on the line can run ----------
+// Programs that only read and print, the moves of files (the outside rule still judges where they write), and the git
+// subcommands that read, stage, commit or move files. A line made only of these runs no .sql file.
+const SQL_READS = new Set(['cat', 'head', 'tail', 'wc', 'grep', 'egrep', 'fgrep', 'rg', 'ls', 'diff', 'cmp', 'file', 'stat', 'less', 'more', 'sort', 'uniq', 'cut', 'nl', 'md5', 'md5sum', 'shasum', 'sha1sum', 'sha256sum', 'echo', 'printf', 'test', '[', 'true', 'false', 'pwd', 'cd']);
+const SQL_MOVES = new Set(['cp', 'mv', 'rm', 'touch', 'mkdir']);
+const SQL_GIT = new Set(['add', 'commit', 'diff', 'status', 'log', 'show', 'blame', 'mv', 'rm', 'restore', 'ls-files', 'grep']);
+// The shell's own words around a command, which start nothing themselves: in front of one, and alone at the end of a block.
+const SQL_FRONT = new Set(['if', 'elif', 'while', 'until', 'then', 'else', 'do', '!', '{']);
+const SQL_CLOSERS = new Set(['fi', 'done', '}']);
+// An option of one of those programs that names a program to run: rg --pre, sort --compress-program, git grep -O and
+// --open-files-in-pager, git diff --ext-diff, git grep --textconv.
+const SQL_RUNS_OPTION = /^--(pre|compress-program|hostname-bin|open-files-in-pager|ext-diff|textconv)(=|$)|^-O/;
+
+// Is this one command (unwrap's rest, assigns and wrappers) one that cannot run a file it is given? Written plainly only:
+// no variable in front, no wrapper but the shell's own words, the program by its bare name. For git, only -C <folder>
+// and --no-pager may stand before the subcommand.
+function sqlHarmless(rest, assigns, wrappers) {
+  if (assigns.length || wrappers.some((w) => !SQL_FRONT.has(w))) return false;
+  if (!rest.length) return true; // then, else, do or { alone
+  if (rest[0].dyn || rest[0].t.includes('/')) return false; // a command chosen while it runs, or a program named by its path
+  const cmd = rest[0].t;
+  const a = rest.slice(1).map((x) => x.t);
+  if (!a.length && SQL_CLOSERS.has(cmd)) return true;
+  if (a.some((x) => SQL_RUNS_OPTION.test(x))) return false;
+  if (SQL_READS.has(cmd) || SQL_MOVES.has(cmd)) return true;
+  if (cmd !== 'git') return false;
+  let i = 0;
+  while (i < a.length && a[i].startsWith('-')) {
+    if (a[i] === '-C' && i + 1 < a.length && !rest[i + 2].dyn) { i += 2; continue; }
+    if (a[i] === '--no-pager') { i++; continue; }
+    return false; // -c <setting>, --git-dir and the like
+  }
+  return SQL_GIT.has(a[i] ?? '');
+}
+
+// Does the line hold a command or a word made while it runs: $( … ), a backtick, <( … ) or >( … ) outside single quotes,
+// or a here-document (whose body the shell expands)? Also yes for what a reader of words can misread, so that the
+// commands read are the commands that run: a comment (a quote mark in one opens nothing for the shell) and $'…' or
+// $"…" quoting. The text is bashVerdict's, after quotedBodies.
+function madeWhileItRuns(text) {
+  if (/<</.test(text)) return true;
+  let q = null;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q === "'") { if (c === "'") q = null; continue; }
+    if (c === '\\') { i++; continue; }
+    if (c === '`' || (c === '$' && text[i + 1] === '(')) return true;
+    if (q === '"') { if (c === '"') q = null; continue; }
+    if (c === '$' && (text[i + 1] === "'" || text[i + 1] === '"')) return true;
+    if (c === "'" || c === '"') { q = c; continue; }
+    if ((c === '<' || c === '>') && text[i + 1] === '(') return true;
+    if (c === '#' && (i === 0 || /[\s;&|(){}]/.test(text[i - 1]))) return true;
+  }
+  return q !== null; // a quote left open: the words cannot be read
 }
 
 // The text inside ( … ) when the parentheses hold the whole command, else null. Quotes and $( … ) are followed.
@@ -769,8 +830,11 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
   for (const r of redirects) if ((r.op === '<' || r.op === '<&') && !r.dyn && !/^(\d+|-)$/.test(r.target) && readElsewhere(physicalPath(r.target, cwd ?? st.hint ?? null), st.readRoots)) st.asks.push('a read outside the job\'s folders');
   for (const w of ws) if (/\/dev\/(tcp|udp)\//.test(w.t)) hit('outside'); else if (!isEnvCopy && secretWord(w.t, readsAll)) { hit('outside'); st.secret = true; } // a network file of bash's; a secret place
   for (const r of redirects) if (/\/dev\/(tcp|udp)\//.test(r.target)) hit('outside');
-  if (ws.some((w) => SQL.test(w.t))) hit('database'); // a .sql file given to any program
+  // A .sql file among the words: a database command when a program on the line could run it (decided in bashVerdict,
+  // once every command of the line has been read: sqlRuns).
+  if (ws.some((w) => SQL.test(w.t))) st.sqlWord = true;
   const { rest, assigns, wrappers } = unwrap(ws, st, cwd, depth);
+  if (depth > 0 || viaXargs || !sqlHarmless(rest, assigns, wrappers)) st.sqlRuns = true;
   if (wrappers.some((w) => DANGEROUS.has(w))) hit('outside');
   if (wrappers.includes('coproc')) { hit('outside'); st.unknown = true; } // coproc stays a program Auto does not know; what it runs is judged below as well
   if (assigns.some((x) => REDIRECT_VAR.test(x.split('=')[0]))) hit('outside'); // a variable that redirects a tool (T3d)

