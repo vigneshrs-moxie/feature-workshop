@@ -158,6 +158,8 @@ describe('NewJobSheet: the Branch row', () => {
     const field = branchField(dialog);
     await waitFor(() => expect(field).toHaveValue('employee-status-filter'));
     expect(within(dialog).queryByText(RULE)).toBeNull();
+    // The brief's exact words.
+    expect(BRANCH_RULE).toBe('Use short words joined by hyphens, like employee-status-filter (up to five words, 40 characters).');
     for (const bad of ['Not a good name!', 'one-two-three-four-five-six', 'a'.repeat(41), 'trailing-', 'two--hyphens']) {
       fireEvent.change(field, { target: { value: bad } });
       expect(within(dialog).getByText(RULE)).toBeInTheDocument();
@@ -435,5 +437,156 @@ describe('NewJobSheet: the Branch row', () => {
     await waitFor(() => expect(branchField(dialog)).toHaveValue('status-filter'));
     expect(again).not.toHaveAttribute('aria-disabled', 'true');
     expect(again).toHaveFocus();
+  });
+
+  // Fix round 2: a typed key waits for its description; the shown branch is never wrong.
+  it('a typed key with no description yet asks nothing; the first settled description asks once', async () => {
+    const { wrap, nameCalls } = setup(async () => byModel('comment-save', 'feature/orbit-124-'));
+    wrap(<NewJobSheet onClose={vi.fn()} />);
+    const dialog = sheet();
+    await waitFor(() => expect(within(dialog).getByRole('combobox', { name: 'Repository' })).toHaveAttribute('data-value', '/tmp/fw-test/sample-one'));
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Orbit ticket (optional)' }), { target: { value: 'orbit-124' } });
+    await pause(2000);
+    expect(nameCalls()).toHaveLength(0);
+    expect(branchField(dialog)).toHaveValue('');
+    expect(branchField(dialog)).toHaveAttribute('placeholder', WAITING);
+    const desc = within(dialog).getByRole('textbox', { name: /What should the crew build/ });
+    fireEvent.change(desc, { target: { value: 'Fix the comment save' } });
+    fireEvent.blur(desc);
+    await waitFor(() => expect(branchField(dialog)).toHaveValue('comment-save'));
+    await pause(600);
+    expect(nameCalls()).toEqual([{ ticket: { key: 'ORBIT-124', title: 'Fix the comment save', url: null }, description: 'Fix the comment save', kind: 'feature', repoPath: '/tmp/fw-test/sample-one' }]);
+  });
+
+  it('Suggest again’s ask is not overtaken by the automatic ask its press lets go', async () => {
+    const hand = deferred<NameAnswer>();
+    const { wrap, nameCalls } = setup(() => hand.promise);
+    wrap(<NewJobSheet onClose={vi.fn()} />);
+    const dialog = sheet();
+    await waitFor(() => expect(within(dialog).getByRole('combobox', { name: 'Repository' })).toHaveAttribute('data-value', '/tmp/fw-test/sample-one'));
+    // The description is still being written, so the form has not asked by itself yet.
+    fireEvent.change(within(dialog).getByRole('textbox', { name: /What should the crew build/ }), { target: { value: 'Fix the comment save' } });
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Orbit ticket (optional)' }), { target: { value: 'orbit-124' } });
+    await pause(400);
+    expect(nameCalls()).toHaveLength(0);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Suggest again' }));
+    await pause(600);
+    expect(nameCalls()).toHaveLength(1);
+    await act(async () => { hand.resolve(byModel('hand-name', 'feature/orbit-124-')); });
+    await waitFor(() => expect(branchField(dialog)).toHaveValue('hand-name'));
+  });
+
+  it('a kind switch whose ask fails takes the old prefix away', async () => {
+    const bug = deferred<NameAnswer>();
+    const one = setup((body) => (body.kind === 'bug' ? bug.promise : Promise.resolve(byModel('employee-status-filter'))));
+    const view = one.wrap(<NewJobSheet onClose={vi.fn()} ticket={TICKET} />);
+    let dialog = sheet();
+    await waitFor(() => expect(branchField(dialog)).toHaveValue('employee-status-filter'));
+    fireEvent.click(within(dialog).getByRole('radio', { name: 'Bug fix' }));
+    await waitFor(() => expect(one.nameCalls()).toHaveLength(2));
+    // While the bug ask is out, the old prefix stays.
+    expect(within(dialog).getByText('feature/orbit-471-')).toBeInTheDocument();
+    await act(async () => { bug.reject(new ApiError(400, 'Something went wrong on the laptop.')); });
+    await settle();
+    expect(within(dialog).queryByText('feature/orbit-471-')).toBeNull();
+    expect(branchField(dialog)).toHaveValue('employee-status-filter');
+    expect(within(dialog).queryByRole('alert')).toBeNull();
+    view.unmount();
+
+    // An answer with no usable prefix (no name) takes it away too.
+    const two = setup(async (body) => (body.kind === 'bug' ? { name: '', by: 'title', slug: 'orbit-471', branch: 'fix/orbit-471' } : byModel('employee-status-filter')));
+    two.wrap(<NewJobSheet onClose={vi.fn()} ticket={TICKET} />);
+    dialog = sheet();
+    await waitFor(() => expect(branchField(dialog)).toHaveValue('employee-status-filter'));
+    fireEvent.click(within(dialog).getByRole('radio', { name: 'Bug fix' }));
+    await waitFor(() => expect(two.nameCalls()).toHaveLength(2));
+    await settle();
+    expect(within(dialog).queryByText('feature/orbit-471-')).toBeNull();
+    expect(within(dialog).queryByText(/^fix\//)).toBeNull();
+    expect(branchField(dialog)).toHaveValue('employee-status-filter');
+  });
+
+  it('a kind switch keeps the -2 line right', async () => {
+    const bug = deferred<NameAnswer>();
+    let failFeature = false;
+    const { wrap, nameCalls } = setup((body) => {
+      if (body.kind === 'bug') return bug.promise;
+      if (failFeature) return Promise.reject(new ApiError(400, 'Something went wrong on the laptop.'));
+      return Promise.resolve({ name: 'employee-status-filter', by: 'model', slug: 'orbit-471-employee-status-filter-2', branch: 'feature/orbit-471-employee-status-filter-2' });
+    });
+    wrap(<NewJobSheet onClose={vi.fn()} ticket={TICKET} />);
+    const dialog = sheet();
+    await waitFor(() => expect(within(dialog).getByText('feature/orbit-471-employee-status-filter-2')).toBeInTheDocument());
+    fireEvent.click(within(dialog).getByRole('radio', { name: 'Bug fix' }));
+    await waitFor(() => expect(nameCalls()).toHaveLength(2));
+    expect(within(dialog).getByText('feature/orbit-471-employee-status-filter-2')).toBeInTheDocument();
+    // The bug answer names another job, but the field keeps its name, which still takes "-2".
+    await act(async () => { bug.resolve(byModel('status-filter-crash', 'fix/orbit-471-')); });
+    await waitFor(() => expect(within(dialog).getByText('fix/orbit-471-employee-status-filter-2')).toBeInTheDocument());
+    expect(branchField(dialog)).toHaveValue('employee-status-filter');
+    expect(within(dialog).queryByText('feature/orbit-471-employee-status-filter-2')).toBeNull();
+    expect(within(dialog).queryByText('fix/orbit-471-')).toBeNull();
+    // Back to Feature, and that ask fails: no branch is shown rather than a wrong one.
+    failFeature = true;
+    fireEvent.click(within(dialog).getByRole('radio', { name: 'Feature' }));
+    await waitFor(() => expect(nameCalls()).toHaveLength(3));
+    await settle();
+    expect(within(dialog).queryByText(/employee-status-filter-2$/)).toBeNull();
+    expect(within(dialog).queryByText(/orbit-471-$/)).toBeNull();
+    expect(branchField(dialog)).toHaveValue('employee-status-filter');
+  });
+
+  it('typing a hyphen between words shows no sentence; leaving the field with one at the end does', async () => {
+    const { wrap } = setup(async () => byModel('employee-status-filter'));
+    wrap(<NewJobSheet onClose={vi.fn()} ticket={TICKET} />);
+    const dialog = sheet();
+    const field = branchField(dialog);
+    await waitFor(() => expect(field).toHaveValue('employee-status-filter'));
+    fireEvent.focus(field);
+    for (const typing of ['status', 'status-', 'status-f', 'status-filter-']) {
+      fireEvent.change(field, { target: { value: typing } });
+      expect(within(dialog).queryByText(RULE)).toBeNull();
+      expect(field).not.toHaveAttribute('aria-invalid', 'true');
+      // Start stays off until the name is whole.
+      if (typing.endsWith('-')) expect(startButton(dialog)).toBeDisabled();
+      else expect(startButton(dialog)).toBeEnabled();
+    }
+    fireEvent.blur(field);
+    expect(within(dialog).getByText(RULE)).toBeInTheDocument();
+    expect(field).toHaveAttribute('aria-invalid', 'true');
+    // Back in the field: Enter (trying Start) shows it too.
+    fireEvent.focus(field);
+    fireEvent.change(field, { target: { value: 'status-filter-x' } });
+    expect(within(dialog).queryByText(RULE)).toBeNull();
+    fireEvent.change(field, { target: { value: 'status-' } });
+    expect(within(dialog).queryByText(RULE)).toBeNull();
+    fireEvent.keyDown(field, { key: 'Enter' });
+    expect(within(dialog).getByText(RULE)).toBeInTheDocument();
+    // Anything else that breaks the rule shows at once, even in the field.
+    fireEvent.change(field, { target: { value: 'status--' } });
+    expect(within(dialog).getByText(RULE)).toBeInTheDocument();
+    fireEvent.change(field, { target: { value: 'Status filter' } });
+    expect(within(dialog).getByText(RULE)).toBeInTheDocument();
+  });
+
+  it('Start pressed inside the wait sends no name ask', async () => {
+    const { wrap, nameCalls, jobBody } = setup(async () => byModel('employee-status-filter'));
+    wrap(<NewJobSheet onClose={vi.fn()} ticket={TICKET} />);
+    const dialog = sheet();
+    await startJob(dialog);
+    expect(jobBody()).toBeDefined();
+    expect(jobBody()).not.toHaveProperty('name');
+    await pause(600);
+    expect(nameCalls()).toHaveLength(0);
+  });
+
+  it('the name field itself has the field look, so each theme’s focus, error and disabled looks reach it', async () => {
+    const { wrap } = setup(async () => byModel('employee-status-filter'));
+    wrap(<NewJobSheet onClose={vi.fn()} ticket={TICKET} />);
+    const dialog = sheet();
+    const field = branchField(dialog);
+    expect(field).toHaveClass('text-input');
+    await waitFor(() => expect(within(dialog).getByText('feature/orbit-471-')).toBeInTheDocument());
+    expect(field.closest('.branch-box')?.querySelectorAll('.text-input')).toHaveLength(1);
   });
 });

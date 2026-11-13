@@ -22,7 +22,7 @@
 // repositories are the chosen laptop's (names only), there is no past conversation, the branch is
 // named when the job starts (the site can't ask for a name), and Start job hands the choices to
 // `hosted.onStart` instead of POSTing /api/jobs.
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import type { HistoryList, HistoryRow, JobNameAnswer, LevelNumber, ModelChoice, Repo } from '../../api/types';
 import { BRAND } from '../../app/brand';
 import { navigate } from '../../app/router';
@@ -95,6 +95,14 @@ const AVOID_MAX = 5;
 function ownBranchName(raw: string): string | null {
   const name = raw.trim().toLowerCase();
   return name.length <= 40 && /^[a-z0-9]+(-[a-z0-9]+){0,4}$/.test(name) ? name : null;
+}
+/** An answer's branch as prefix + name + ending (the ending '' or "-2"), or null when the branch isn't built that way. */
+function splitBranch(a: JobNameAnswer): { prefix: string; suffix: string } | null {
+  if (!a.name) return null;
+  if (a.branch.endsWith(a.name)) return { prefix: a.branch.slice(0, -a.name.length), suffix: '' };
+  const at = a.branch.lastIndexOf(a.name);
+  const rest = at > 0 ? a.branch.slice(at + a.name.length) : '';
+  return /^-\d+$/.test(rest) ? { prefix: a.branch.slice(0, at), suffix: rest } : null;
 }
 const isNameAnswer = (a: unknown): a is JobNameAnswer => {
   const x = a as Partial<JobNameAnswer> | null;
@@ -283,7 +291,7 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
   // Inbox ticket at once; a typed key once the description is left alone), and again on a kind or
   // repository switch. Editing the description after that asks nothing. An answer that comes by
   // itself only fills an empty field, so a name in the field changes only by his hand (typing, or
-  // Suggest again). The prefix (feature/orbit-471-) is kept per ticket key until an answer replaces it.
+  // Suggest again). After a switch, the old prefix stays only while the new ask is out.
   const ticketKey = ticketText.trim() ? ticketKeyOf(ticketText) : null;
   const chosenRepo = repo === OTHER ? otherPath.trim() : repo;
   const nameBody = ticketKey && chosenRepo && !hosted
@@ -294,13 +302,24 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
   const descTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // The ticket key the form has asked for (by itself or by Suggest again).
   const [askedFor, setAskedFor] = useState<string | null>(null);
-  const titleReady = fromInbox?.key === ticketKey || descSettled;
+  // A typed key's title is the description: it waits until that is written and left alone.
+  const titleReady = fromInbox?.key === ticketKey || (descSettled && description.trim() !== '');
   const autoKey = nameBody && (askedFor === ticketKey || titleReady) ? `${ticketKey} ${kind} ${chosenRepo}` : null;
   // His own once he types; until then the model's name, or empty (the laptop names it at the start).
   const [branchName, setBranchName] = useState<{ value: string; by: 'model' | 'own' }>({ value: '', by: 'model' });
   const [nameAnswer, setNameAnswer] = useState<JobNameAnswer | null>(null);
-  const [goodPrefix, setGoodPrefix] = useState<{ key: string; prefix: string } | null>(null);
+  // What the last answer says about the branch, for the ticket, kind and repository it was asked
+  // with (`at`): the prefix before a name, or, when its branch can't be split, that branch whole.
+  const [shape, setShape] = useState<{ at: string; ticket: string; prefix: string | null; odd: { name: string; branch: string } | null } | null>(null);
+  // A name's ending in the branch: '' or a "-2" when a job with that name exists (the same for every kind).
+  const [suffixes, setSuffixes] = useState<Record<string, string>>({});
   const [shownNames, setShownNames] = useState<string[]>([]);
+  // X5: his own name while he types in the field; one hyphen at its end is a word still coming.
+  const [branchFocused, setBranchFocused] = useState(false);
+  const [ruleForced, setRuleForced] = useState(false);
+  // The prefix sits over the field's own left padding; the field's text starts after it.
+  const prefixRef = useRef<HTMLSpanElement | null>(null);
+  const [prefixWidth, setPrefixWidth] = useState(0);
   // Suggest again's ask while it runs: the button rests (keeping its focus) and its answer lands.
   const [handBusy, setHandBusy] = useState(false);
   const handSeq = useRef(0);
@@ -332,22 +351,34 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
     const seq = ++askSeq.current;
     if (byHand) { askedByHand.current = seq; handSeq.current = seq; setHandBusy(true); }
     const key = body.ticket.key;
+    const at = `${key} ${body.kind} ${body.repoPath}`;
     const done = () => { if (byHand) { handSeq.current = 0; setHandBusy(false); } };
+    // After a switch, a branch shown for the old kind or repository is wrong once this ask ends without a new one.
+    const dropOld = () => setShape((cur) => (cur && cur.at !== at ? null : cur));
     api.post<unknown>('/api/jobs/name', avoid?.length ? { ...body, avoid } : body).then(
       (a) => {
         // Only the latest ask lands: a later ask, or another ticket, kind or repository, drops this one.
         if (seq !== askSeq.current) return;
         done();
-        if (isNameAnswer(a)) takeName(a, key, seq);
+        if (isNameAnswer(a)) takeName(a, key, at, seq);
+        else dropOld();
       },
-      // A failed or slow ask shows nothing: the form stays as it was.
-      () => { if (seq === askSeq.current) done(); },
+      // A failed or slow ask shows nothing new: the form stays as it was, less a branch now out of date.
+      () => { if (seq === askSeq.current) { done(); dropOld(); } },
     );
   }
 
-  function takeName(a: JobNameAnswer, key: string, seq: number) {
+  function takeName(a: JobNameAnswer, key: string, at: string, seq: number) {
     setNameAnswer(a);
-    if (a.name && a.branch.endsWith(a.name)) setGoodPrefix({ key, prefix: a.branch.slice(0, -a.name.length) });
+    const split = splitBranch(a);
+    if (split) {
+      setShape({ at, ticket: key, prefix: split.prefix, odd: null });
+      setSuffixes((s) => (s[a.name] === split.suffix ? s : { ...s, [a.name]: split.suffix }));
+    } else if (a.name) {
+      setShape({ at, ticket: key, prefix: null, odd: { name: a.name, branch: a.branch } });
+    } else {
+      setShape((cur) => (cur && cur.at !== at ? null : cur));
+    }
     // A title answer is only the placeholder; its name never goes in the field or back to the laptop.
     if (a.by !== 'model' || !a.name) return;
     const byHand = askedByHand.current === seq;
@@ -382,6 +413,7 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
     setBranchName((cur) => (cur.by === 'model' && cur.value ? { value: '', by: 'model' } : cur));
     setShownNames((s) => (s.length ? [] : s));
     setNameAnswer(null);
+    setSuffixes((s) => (Object.keys(s).length ? {} : s));
   }, [ticketKey]);
 
   // The model's names shown in the field, latest last: Suggest again asks to avoid them.
@@ -395,16 +427,36 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
     // An automatic ask still waiting never goes; one already out is dropped (askName raises the count).
     if (autoTimer.current) { clearTimeout(autoTimer.current); autoTimer.current = null; }
     setAskedFor(nameBody.ticket.key);
-    askName(nameBody, true, shownNames.slice(-AVOID_MAX));
+    // The name on screen is always avoided, even before the effect that collects it has run.
+    const onScreen = branchName.by === 'model' ? branchName.value : '';
+    askName(nameBody, true, (onScreen ? [...shownNames.filter((x) => x !== onScreen), onScreen] : shownNames).slice(-AVOID_MAX));
   }
 
-  const answer = nameAnswer;
-  const branchPlaceholder = answer?.by === 'title' && answer.name ? answer.name : BRANCH_LATER;
-  // The name shown is the model's, but the branch doesn't end with it (a "-2"): the whole branch, as plain text.
-  const wholeBranch = answer?.by === 'model' && branchName.by === 'model' && branchName.value === answer.name && !answer.branch.endsWith(answer.name) ? answer.branch : null;
-  const branchPrefix = !wholeBranch && goodPrefix?.key === ticketKey ? goodPrefix.prefix : null;
+  const branchPlaceholder = nameAnswer?.by === 'title' && nameAnswer.name ? nameAnswer.name : BRANCH_LATER;
   const ownName = branchName.by === 'own' ? ownBranchName(branchName.value) : null;
-  const branchProblem = branchName.by === 'own' && branchName.value.trim() !== '' && !ownName;
+  // The branch the field's name gets. With a "-2" (or a branch that can't be split) it is shown
+  // whole on the label's line; else the prefix sits in the box. Nothing is shown rather than a wrong one.
+  const nameNow = branchName.by === 'own' ? ownName ?? '' : branchName.value;
+  const shapeNow = shape && shape.ticket === ticketKey ? shape : null;
+  const suffixNow = nameNow && shapeNow?.prefix != null ? suffixes[nameNow] : undefined;
+  const wholeBranch = shapeNow?.odd && shapeNow.odd.name === nameNow ? shapeNow.odd.branch
+    : suffixNow && shapeNow?.prefix != null ? `${shapeNow.prefix}${nameNow}${suffixNow}` : null;
+  const branchPrefix = !wholeBranch ? shapeNow?.prefix ?? null : null;
+  // Breaks the rule: Start is off. The sentence (and aria-invalid) wait while he is still typing a
+  // word: one hyphen at the end, in the field, before he leaves it or tries Start.
+  const branchBroken = branchName.by === 'own' && branchName.value.trim() !== '' && !ownName;
+  const wordComing = branchFocused && !ruleForced && /-$/.test(branchName.value.trim()) && ownBranchName(branchName.value.trim().slice(0, -1)) !== null;
+  const branchProblem = branchBroken && !wordComing;
+
+  useLayoutEffect(() => {
+    const el = prefixRef.current;
+    const measure = () => setPrefixWidth(el ? Math.ceil(el.getBoundingClientRect().width) : 0);
+    measure();
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const watch = new ResizeObserver(measure);
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, [branchPrefix]);
   // What Start sends as `name`: the model's name, or his own that keeps the rule; else nothing.
   const sentName = branchName.by === 'model' ? branchName.value || null : ownName;
 
@@ -440,7 +492,9 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
     if (ticketText.trim() && !key) { setError(TICKET_KEY_PROBLEM); return; }
     const ticket = key ? ticketOf(key, fromInbox, text) : undefined;
     // A name of his own that breaks the rule: its sentence is under the field and Start is off.
-    if (key && branchProblem) return;
+    if (key && branchBroken) { setRuleForced(true); return; }
+    // A waiting automatic ask never goes: no model call beside the start's own.
+    if (autoTimer.current) { clearTimeout(autoTimer.current); autoTimer.current = null; }
     setBusy(true);
     setError(null);
     try {
@@ -575,16 +629,20 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
                 {wholeBranch && <span className="branch-whole">{wholeBranch}</span>}
               </div>
               <div className="branch-line">
-                {/* One box in the field's look, the same place and size in every state: the prefix
-                    is its quiet leading part (cut at its left when long), the name the rest. */}
-                <div className="text-input branch-box">
-                  {branchPrefix && <span className="branch-prefix" id={prefixId}><span dir="ltr">{branchPrefix}</span></span>}
-                  <input
+                {/* The box is the field itself (a real .text-input, so every theme's focus, error and
+                    disabled looks reach it), the same place and size in every state. The prefix lies
+                    over its left padding, quiet and cut at its left when long, and lets clicks
+                    through to the field; the field's text starts after it. */}
+                <div className="branch-box" style={{ '--branch-prefix-w': `${branchPrefix ? prefixWidth : 0}px` } as CSSProperties}>
+                  {branchPrefix && <span ref={prefixRef} className="branch-prefix" id={prefixId}><span dir="ltr">{branchPrefix}</span></span>}
+                  <TextInput
                     id={branchId}
-                    type="text"
                     className="branch-input"
                     value={branchName.value}
-                    onChange={(e) => { askedByHand.current = 0; setBranchName({ value: e.target.value, by: 'own' }); }}
+                    onChange={(e) => { askedByHand.current = 0; setRuleForced(false); setBranchName({ value: e.target.value, by: 'own' }); }}
+                    onFocus={() => setBranchFocused(true)}
+                    onBlur={() => setBranchFocused(false)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && branchBroken) setRuleForced(true); }}
                     placeholder={branchPlaceholder}
                     spellCheck={false}
                     autoComplete="off"
@@ -645,7 +703,7 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
         {error && <p className="field-problem" role="alert">{error}</p>}
         <div className="sheet-actions">
           <Button onClick={onClose} disabled={busy} title="Close without starting anything.">Cancel</Button>
-          <Button type="submit" kind="primary" busy={busy} busyLabel="Starting…" disabled={Boolean(ticketKey) && branchProblem} title="Start the job now. Its Foreman reads your request and replies in the conversation.">
+          <Button type="submit" kind="primary" busy={busy} busyLabel="Starting…" disabled={Boolean(ticketKey) && branchBroken} title="Start the job now. Its Foreman reads your request and replies in the conversation.">
             Start job
           </Button>
         </div>
