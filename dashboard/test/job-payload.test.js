@@ -144,7 +144,7 @@ const thread = () => [
   { id: 'brief:briefs/015-review.md', kind: 'brief', at: T(15, 38), number: 15, stage: 'review', file: 'briefs/015-review.md', headline: 'Review done.' },
 ];
 
-test('notes, decisions made for him, routine steps and blocked actions are small; a failed reply is a problem', () => {
+test('notes, his permission answers, routine steps and blocked actions are small; a failed reply is a problem', () => {
   const p = buildJobPage(atGate({ thread: thread() }));
   const kinds = Object.fromEntries(p.thread.map((l) => [l.id, l.kind]));
   assert.equal(kinds['note:bb'], 'small');
@@ -420,4 +420,34 @@ test('buildJobPage is pure: it changes nothing it is given, and the same facts g
   const a = buildJobPage(f);
   const b = buildJobPage(f);
   assert.equal(JSON.stringify(a), JSON.stringify(b));
+});
+
+// ---------- Fix round 1 ----------
+
+test('stateOf: a stopped reply’s pause does not hide a PR on GitHub or a recording in progress', () => {
+  // card.paused stays true after he stops a reply, until the next run.
+  const stopped = { paused: true, stageState: 'paused' };
+  const inReview = buildJobPage(facts({ lane: 'in-review', laneReason: 'PR #1 is open, waiting on a review', card: stopped }));
+  assert.equal(inReview.state, 'waiting-github');
+  assert.equal(inReview.stateLine, 'PR #1 is open, waiting on a review');
+  assert.equal(stateOf(facts({ lane: 'ready', laneReason: 'Checks passed and PR #1 is approved', card: stopped })), 'waiting-github');
+  assert.equal(stateOf(facts({ lane: 'working', laneReason: 'Recording evidence: line 4 of 19', card: { ...stopped, testing: 'Recording evidence: line 4 of 19' } })), 'working');
+  // With no lane at all, the pause still wins.
+  assert.equal(stateOf(facts({ lane: undefined, card: { ...stopped, working: true } })), 'paused');
+});
+
+test('a reply’s bold opener counts only in its first prose block, and a bold label takes the whole line’s first sentence', () => {
+  assert.equal(headlineOf({ kind: 'reply', reply: 'I checked the branch and it is clean.\n\n- **Build:** 9 commits\n- **Test:** 19 passed' }), 'I checked the branch and it is clean.');
+  assert.equal(headlineOf({ kind: 'reply', reply: '**Status:** the build is done. Two more things.' }), 'Status: the build is done.');
+  assert.equal(headlineOf({ kind: 'reply', reply: '- **Short answer:** yes, it ships today. More below.' }), 'Short answer: yes, it ships today.');
+  assert.equal(headlineOf({ kind: 'reply', reply: '## Where we are\n\n**Plan v3 is ready. It drops step 4.**\n\n- **Build:** later' }), 'Plan v3 is ready.');
+});
+
+test('a bold line with no sentence in it stands as a heading; a word that ends right at the cut is kept whole', () => {
+  assert.equal(headlineOf({ kind: 'reply', reply: '**Where we are**\n\nPlan v3 is ready. More soon.' }), 'Plan v3 is ready.');
+  assert.equal(headlineOf({ kind: 'reply', reply: '**Summary:**\n\n- The build is done.' }), 'The build is done.');
+  // 'abcdef ' repeated: the 140th character is a space, so the 20th word fits whole before the ….
+  const cutHere = headlineOf({ kind: 'you', text: 'abcdef '.repeat(25).trim() });
+  assert.equal(cutHere.length, 140);
+  assert.ok(cutHere.endsWith('abcdef…'));
 });

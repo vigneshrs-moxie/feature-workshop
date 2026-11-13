@@ -60,6 +60,7 @@ import { STAGE_STOP, STOPS, stopOf, stopStates } from './stage-view.js';
 import { STAGES, detectStage } from './stages.js';
 import { modelLabel } from './cost.js';
 import { slugTicketKey } from './orbit.js';
+import { EVIDENCE_JSON, WIREFRAMES_FILE, WIREFRAMES_JSON } from './docs.js';
 
 /**
  * What buildJobPage takes: what the runner already computed for the job (runner/index.js).
@@ -94,8 +95,8 @@ const liveRun = (run) => Boolean(run && ACTIVE_RUN.has(run.status));
 /**
  * The job's one state word. Done (closed or the done lane) first, then needs-you (the snapshot's
  * lane; without a lane, a card, a gate or the record saying so), then a live reply is working; a
- * pause (usage limit, restart, a stopped reply) is paused even while old crew rows still read as
- * running; then the working lane; in-review and ready wait on GitHub; resting (and anything else)
+ * pause (usage limit, restart, a stopped reply) on a working lane that is not a recording, or with
+ * no lane, is paused even while old crew rows still read as running; then the working lane; in-review and ready wait on GitHub; resting (and anything else)
  * is paused.
  * @param {JobFacts} facts
  */
@@ -105,7 +106,10 @@ export function stateOf(facts) {
   if (lane === 'needs-you') return 'needs-you';
   if (!lane && ((detail.permissionsPending ?? []).length || detail.gate || card.needsYou)) return 'needs-you';
   if (liveRun(detail.run)) return 'working';
-  if (facts?.lanePaused || card.paused || card.limitPaused || card.restartPaused) return 'paused';
+  // A pause wins only over a working lane that is not a recording, or when there is no lane: card.paused
+  // stays true after a stopped reply, while a PR waits on GitHub or the evidence is recorded.
+  const pausable = lane === 'working' ? !card.testing : !lane;
+  if (pausable && (facts?.lanePaused || card.paused || card.limitPaused || card.restartPaused)) return 'paused';
   if (lane === 'working' || (!lane && card.working)) return 'working';
   if (lane === 'in-review' || lane === 'ready') return 'waiting-github';
   return 'paused';
@@ -125,7 +129,8 @@ function cut(text) {
   const t = String(text ?? '').replace(/\s+/g, ' ').trim();
   if (t.length <= HEADLINE_MAX) return t;
   const room = t.slice(0, HEADLINE_MAX - 1);
-  const space = room.lastIndexOf(' ');
+  // A word that ends right at the cut is kept whole.
+  const space = t[HEADLINE_MAX - 1] === ' ' ? room.length : room.lastIndexOf(' ');
   return `${(space > HEADLINE_MAX / 2 ? room.slice(0, space) : room).trimEnd()}…`;
 }
 
@@ -178,13 +183,31 @@ function firstParagraph(md) {
   return head ? inline(unblock(head.raw)) : '';
 }
 
-/** A reply's first bold sentence: a bold run that starts a line. Null when no line starts bold. */
-function boldSentence(md) {
-  for (const l of proseLines(md)) {
-    const m = /^(\*\*|__)(.+?)\1/.exec(unblock(l.raw).trim());
-    if (m) return firstSentence(inline(m[2]));
+const SENTENCE_END = /[.!?](\s|$)/;
+// A line that is only a bold run with no sentence end in it ("**Where we are**", "**Summary:**") stands as a heading.
+function boldOnly(line) {
+  const m = /^(\*\*|__)(.+?)\1\s*$/.exec(unblock(line).trim());
+  return Boolean(m) && !SENTENCE_END.test(m[2]);
+}
+
+/**
+ * A reply's headline from its first prose block (headings and bold-only lines skipped): a bold opener
+ * that holds a sentence gives that sentence; anything else (a plain line, a bold label like
+ * `**Status:** the build is done.`) gives the first sentence of the block, marks dropped. Bold further
+ * down never counts. Only headings: the first one.
+ */
+function replyHeadline(md) {
+  const lines = proseLines(md);
+  const at = lines.findIndex((l) => !l.heading && l.raw.trim() && !boldOnly(l.raw));
+  if (at < 0) return firstSentence(firstParagraph(md));
+  const m = /^(\*\*|__)(.+?)\1/.exec(unblock(lines[at].raw).trim());
+  if (m && SENTENCE_END.test(m[2])) return firstSentence(inline(m[2]));
+  const para = [];
+  for (const l of lines.slice(at)) {
+    if (l.heading || !l.raw.trim()) break;
+    para.push(inline(unblock(l.raw)));
   }
-  return null;
+  return firstSentence(para.join(' '));
 }
 
 function stageLabel(stage) {
@@ -205,7 +228,7 @@ export function headlineOf(item, { answered } = {}) {
   const it = item ?? {};
   switch (it.kind) {
     case 'reply':
-      return cut(boldSentence(it.reply ?? '') ?? firstSentence(firstParagraph(it.reply ?? '')));
+      return cut(replyHeadline(it.reply ?? ''));
     case 'you': {
       const words = firstSentence(firstParagraph(it.text ?? ''));
       return cut(words || ANSWER_WORDS[it.sendKind] || 'Your message');
@@ -279,6 +302,7 @@ function threadLines(thread, { answeredBriefs = [], openBrief = null } = {}) {
   const items = (Array.isArray(thread) ? thread : []).filter((it) => it && typeof it === 'object' && !isDetail(it));
   const answered = new Set(answeredBriefs ?? []);
   const briefs = items.filter((it) => it.kind === 'brief' && typeof it.at === 'string');
+  // Times are buildThread's ISO times (UTC, `Z`), oldest first, so a string comparison orders them.
   const stepAt = (at) => {
     if (typeof at !== 'string') return null;
     let stop = null;
@@ -303,7 +327,7 @@ function threadLines(thread, { answeredBriefs = [], openBrief = null } = {}) {
 
 const STEP_STATE = { done: 'done', now: 'current', waiting: 'current', next: 'todo', skipped: 'skipped' };
 // Files with an output of their own: the screens, the recording.
-const OWN_OUTPUT = new Set(['wireframes.html', 'wireframes.json', 'evidence/evidence.json']);
+const OWN_OUTPUT = new Set([WIREFRAMES_FILE, WIREFRAMES_JSON, EVIDENCE_JSON]);
 const ROUND_FILE = /^(review|fable)\/(.+?)(?:-r(\d+))?\.md$/;
 const PLAN_FILES = new Set(['implementation-plan.md', 'quick-plan.md', 'diagnosis.md']);
 const many = (n, one, more = `${one}s`) => `${n} ${n === 1 ? one : more}`;
