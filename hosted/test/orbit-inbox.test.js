@@ -965,3 +965,32 @@ test('Auto start from the site to a laptop older than protocol 7 goes without ma
     assert.deepEqual(await queued(), { type: 'auto-start', on: true, tag: 'auto', max: 4 });
   } finally { await s.close(); }
 });
+
+test('a board whose protocol is not a whole number gets the command without max', async () => {
+  const { makeEvent } = await import('../../dashboard/lib/protocol.js');
+  const s = await makeOrbitSite();
+  const olive = await paired(s, OLIVE, 'Olive’s Mac');
+  const queued = async () => (await s.db.query('SELECT command FROM commands ORDER BY created_at DESC, id DESC LIMIT 1')).rows.map((x) => (typeof x.command === 'string' ? JSON.parse(x.command) : x.command))[0];
+  try {
+    for (const [i, protocol] of ['7', [7], 7.5].entries()) {
+      const e = makeEvent('record', { kind: 'board', key: '', value: { jobs: [], protocol } });
+      const r = await s.fetch(`${SITE}/api/runner/events`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${olive.token}` }, body: JSON.stringify({ events: [{ eid: `p-${i}`, ...e.event }] }) });
+      assert.equal((await r.json()).accepted, 1);
+      s.clock.t += 1000;
+      assert.equal((await olive.person.send('POST', '/api/orbit/auto-start', { on: true, tag: 'auto', max: 4 })).status, 200);
+      assert.deepEqual(await queued(), { type: 'auto-start', on: true, tag: 'auto' }, JSON.stringify(protocol));
+    }
+  } finally { await s.close(); }
+});
+
+test('a bad max is a 400 even for a laptop that would not be sent it', async () => {
+  const s = await makeOrbitSite();
+  const olive = await paired(s, OLIVE, 'Olive’s Mac');
+  try {
+    // No board: the laptop counts as older, so max would be left out; a bad one is still refused, and nothing is queued.
+    for (const max of [0, 11, '3']) {
+      assert.equal((await olive.person.send('POST', '/api/orbit/auto-start', { on: true, tag: 'auto', max })).status, 400, JSON.stringify(max));
+    }
+    assert.equal((await s.db.query('SELECT count(*)::int AS n FROM commands')).rows[0].n, 0);
+  } finally { await s.close(); }
+});

@@ -221,7 +221,9 @@ export default function orbitRoutes(ctx) {
         const checked = parseCommand(full, { from: 'site' });
         if (!checked.ok) throw new HttpError(400, checked.error, { code: 'bad-command' });
         const { max, ...asBefore } = full;
-        const takesMax = max !== undefined && (await ctx.mirror.records.ofRunner(laptop.id, 'board', ''))?.protocol >= MAX_PROTOCOL;
+        // A whole number only: "7", [7] or 7.5 is not a protocol this site knows.
+        const protocol = max !== undefined ? (await ctx.mirror.records.ofRunner(laptop.id, 'board', ''))?.protocol : undefined;
+        const takesMax = Number.isInteger(protocol) && protocol >= MAX_PROTOCOL;
         const commandId = await ctx.queueCommand(laptop.id, takesMax ? full : asBefore, { by: person.id });
         // As the site's other laptop commands answer: queued for that laptop, not done, and whether it is
         // there to take it now. The page goes on showing the laptop's own value until it mirrors the change.
