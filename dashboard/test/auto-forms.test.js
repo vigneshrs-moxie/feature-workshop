@@ -774,3 +774,43 @@ test('G3: a job that is not Auto\'s sees no change for these lines: the hook ask
     }
   }
 });
+
+// ---------- Fix round 2, G4: N4's rule narrowed ----------
+
+test('G4: only a cd inside brackets with a command after them loses the could-not-read words', async () => {
+  const card = (c) => ({ toolName: 'Bash', input: { command: c } });
+  const UNREAD = { verdict: 'outside', end: 'refused (outside)', note: UNREAD_NOTE, why: L.REFUSE_REASONS['outside-unread'] };
+  const OWN = { verdict: 'outside', end: 'refused (outside)', note: noteOf('outside', 'outside'), why: L.REFUSE_REASONS.outside };
+  // A redirection or a pipe after the group, or a group with no cd in it: the same commands without the brackets are what
+  // the line does, so it can be written plainly. The lead's five lines, then more of the same kinds.
+  const again = [
+    `(cd ${W} && npm test) 2>&1 | tail -5`, `cd ${W} && (npm test) && echo ok`, `(cd ${W} && npm test)`, `(cd ${W} && npm test) | tail -5`, '(npm test) && echo ok',
+    `(cd ${W} && npm run build) &`, `(cd ${W} && npm test) > ${W}/out.txt`, `(cd ${W} && npm test) # all of them`, `cd ${W} && (npm test) | tail -5`, '(npm test); (npm run check)', `cd ${W} && (npm run check)`,
+  ];
+  for (const c of again) assert.equal(R.refusedAsWritten(card(c), CTX, 'implement'), true, show(c));
+  // Where such a line is refused (the reader cannot follow the brackets), it is refused as before and the crew is told to
+  // write it plainly: from the worktree and from the main checkout.
+  for (const c of [again[0], again[1], again[3], again[5], again[6], again[7], again[8], again[10]]) {
+    for (const ctx of [CTX, AT_MAIN]) assert.deepEqual(await refusalAt(c, ctx), UNREAD, show(c));
+  }
+  // The rest are not refused from the worktree, as before; from the main checkout a group with no cd runs outside the
+  // job's folders, written plainly too, so it keeps the outside words.
+  for (const ctx of [CTX, AT_MAIN]) assert.equal((await refusalAt(again[2], ctx)).end, 'asked');
+  for (const c of [again[4], again[9]]) {
+    assert.equal((await refusalAt(c, CTX)).end, 'asked', c);
+    assert.deepEqual(await refusalAt(c, AT_MAIN), OWN, c);
+  }
+  // A cd inside brackets does not reach a command that comes after them (after ; && || & or a line break), so without the
+  // brackets the line would read as if it did: these keep the outside words. The lead's lines, the same with line
+  // breaks, then other spellings.
+  const keep = [
+    `cd ${REPO}; (cd ${W}); rm -rf build`, `cd ${REPO}; (cd ${W}); npm test`, `(cd ${W}); npm test`, `(cd ${W} && npm test) && rm -rf build`, `(cd ${W} && npm test) 2>&1 | tail -5; rm -rf build`,
+    `cd ${REPO}\n(cd ${W})\nrm -rf build`, `cd ${REPO}\n(cd ${W})\nnpm test`, `(cd ${W})\nnpm test`, `(cd ${W} && npm test)\nrm -rf build`, `(cd ${W} && npm test) 2>&1 | tail -5\nrm -rf build`,
+    `(cd ${W} && npm test) & rm -rf build`, `(cd ${W} && npm test) || rm -rf build`, `('cd' ${W}); rm -rf build`, `(command cd ${W}); rm -rf build`, `(npm test; cd ${W}); rm -rf build`,
+    `((cd ${W})); rm -rf build`, `((cd ${W}); rm -rf build)`, `(cd ${W} && npm test) | tail -5 && rm -rf build`,
+  ];
+  for (const c of keep) {
+    assert.equal(R.refusedAsWritten(card(c), CTX, 'implement'), false, show(c));
+    for (const ctx of [CTX, AT_MAIN]) assert.deepEqual(await refusalAt(c, ctx), OWN, show(c));
+  }
+});

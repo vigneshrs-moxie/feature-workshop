@@ -523,18 +523,22 @@ export function refusedAsWritten(input, ctx = {}, stage = null) {
 
 // The same commands with what Auto's reader cannot follow taken out: no comment, a cd on a line of its own (or before ;)
 // joined to the next command with &&, no brackets round a command, nothing in the background, $( … ) for backticks.
-// null when the command holds none of these, or cannot be rewritten for sure (a here-document, a quote left open, a
-// bracket that is not round a whole command, a bracketed group that closes before the end of the line: a cd inside it
-// moves nothing after it, and without the brackets it would read as if it did).
+// null when the command holds none of these, or cannot be rewritten for sure: a here-document, a quote left open, a
+// bracket that is not round a whole command, and a cd inside brackets with a command after them. That cd does not reach
+// a command that comes after the group (after ; && || & or a line break), and without the brackets the line would read
+// as if it did. A redirection or a pipe after the group, and a group with no cd in it, are rewritten.
 function plainForm(text) {
   if (/<</.test(text)) return null;
   let out = '';
   let cmd = ''; // the simple command being read
   let q = null;
-  let open = 0; // brackets round a command, not yet closed
-  let closed = false; // a bracketed group has closed: only more closing brackets, blanks and a comment may follow
+  const holds = []; // one entry for each bracketed group not yet closed: does it hold a cd?
+  let cdClosed = false; // a group that holds a cd has closed
+  let after = false; // … and a ; && || & or line break has come since: a command from here on is one that cd does not reach
   let changed = false;
   const put = (s) => { out += s; cmd += s; };
+  // The command just read is a cd, or has cd as a word of its own ('cd', command cd, echo cd: in doubt it counts).
+  const seeCd = () => { if (holds.length && /(^|\s)cd(\s|$)/.test(cmd.replace(/['"\\]/g, ''))) holds.fill(true); };
   const end = (sep) => { // a command ends at ; a line break or a background &
     if (!cmd.trim()) return;
     const cdAlone = sep !== '&' && /^\s*cd\s+\S+\s*$/.test(cmd);
@@ -545,7 +549,7 @@ function plainForm(text) {
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
     const n = text[i + 1];
-    if (closed && !/\s/.test(c) && c !== ')' && !(c === '#' && /(^|\s)$/.test(cmd))) return null;
+    if (after && !/\s/.test(c) && !(c === '#' && /(^|\s)$/.test(cmd))) return null;
     if (q === "'") { put(c); if (c === "'") q = null; continue; }
     if (c === '\\') { put(c + (n ?? '')); i++; continue; }
     if (c === '$' && n === '(') { const e = subEnd(text, i + 2); if (e < 0) return null; put(text.slice(i, e + 1)); i = e; continue; }
@@ -553,16 +557,16 @@ function plainForm(text) {
     if (q === '"') { put(c); if (c === '"') q = null; continue; }
     if (c === "'" || c === '"') { q = c; put(c); continue; }
     if (c === '#' && /(^|\s)$/.test(cmd)) { const nl = text.indexOf('\n', i); i = (nl < 0 ? text.length : nl) - 1; changed = true; continue; }
-    if (c === '(') { if (cmd.trim()) return null; open++; changed = true; continue; }
-    if (c === ')') { if (!open) return null; open--; closed = true; continue; }
-    if (c === '&' && n === '&') { out += '&&'; cmd = ''; i++; continue; }
-    if (c === '|') { const two = n === '|' || n === '&'; out += two ? c + n : c; if (two) i++; cmd = ''; continue; }
+    if (c === '(') { if (cmd.trim()) return null; holds.push(false); changed = true; continue; }
+    if (c === ')') { if (!holds.length) return null; seeCd(); if (holds.pop()) cdClosed = true; continue; }
+    if (c === '&' && n === '&') { seeCd(); after = cdClosed; out += '&&'; cmd = ''; i++; continue; }
+    if (c === '|') { const two = n === '|' || n === '&'; seeCd(); if (n === '|') after = cdClosed; out += two ? c + n : c; if (two) i++; cmd = ''; continue; }
     if (c === '&' && (n === '>' || text[i - 1] === '>' || text[i - 1] === '<')) { put(c); continue; }
-    if (c === '&') { changed = true; end('&'); continue; }
-    if (c === ';' || c === '\n') { end(c); continue; }
+    if (c === '&') { changed = true; seeCd(); after = cdClosed; end('&'); continue; }
+    if (c === ';' || c === '\n') { seeCd(); after = cdClosed; end(c); continue; }
     put(c);
   }
-  if (q || open || !changed) return null;
+  if (q || holds.length || !changed) return null;
   return out.replace(/(\s*(;|&&)\s*)+$/, '').trim() || null;
 }
 
