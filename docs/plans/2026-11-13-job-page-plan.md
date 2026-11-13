@@ -58,7 +58,7 @@ The first redesign passed a prototype review and failed in daily use. This one i
 - Every test command: `nice -n 15`. Server: `nice -n 15 node --test --test-timeout=240000 dashboard/test/<file>`; whole suite `nice -n 15 npm test` once per phase with nothing else running. Web: `nice -n 15 npm run web:test -- --maxWorkers=3` (one file: add its path). Build: `npm run web:build` (type-checks first).
 - At most two agents building or testing at once; one writing agent per worktree. `dashboard/test/evidence-server.test.js` is run by one process at a time.
 - Subagents stall silently on permission prompts: every dispatch forbids deleting (`rm`), forbids subagents of their own, and names the files it may change.
-- One known failure on `main`: `gate-server` test "I2 B". It is Task L2 below; until then it is not yours.
+- One known failure on `main`: `gate-server` test "I2 B", and CI is red because of it (Task L2 below; do that first, on its own branch).
 
 **Code rules already enforced by tests**
 - The CSP is `style-src 'self'`: no inline `style=` and no style tags (`web/src/app/inlineStyle.test.ts`). Dynamic sizes go through CSS classes or custom properties set from script on an element's `style` property only where an existing component already does so.
@@ -473,9 +473,13 @@ git runs a program named in a job folder's git settings when Starbase runs git t
 - [ ] Test: a repository whose config names a program in `core.fsmonitor`; after each kind of Starbase git call the program has not run. One test walks the source and fails on a git spawn that does not go through the helper.
 - [ ] Whole server suite; the harness's no-database run (21 checks) still passes.
 
-### Task L2: The one failing test on `main`
+### Task L2: CI is red on `main`; make it green (do this first)
 
-`gate-server` test "I2 B" fails on `main` and on this branch. The last two CI runs on `main` before go-live failed; check the run for `912703e` (`gh run list --limit 3` in the repository) — it was also the first run of this code on Windows. Find the root cause with superpowers:systematic-debugging; fix the code or the test, whichever is wrong; say which in the commit.
+- Locally the whole server suite is 2,105 of 2,106: `gate-server` test "I2 B" fails, on `main` before the Auto queue too.
+- On GitHub the `Tests` workflow has failed on `main` since 11 Nov. For `912703e` (run `43466953613`) the macOS job failed in the step `Server tests (dashboard/)`, so its web tests were skipped; the Windows job was still running when this was written, and it is the first Windows run of this code. The logs could not be read before the run finished.
+- [ ] `gh run view 43466953613 --log-failed` in `/Users/moxie/Projects/feature-workshop` (reading only). List every failing test on each system. More than "I2 B" may fail there: tests that need this laptop's tools, or that time out on a slower machine.
+- [ ] For each: find the root cause with superpowers:systematic-debugging; fix the code or the test, whichever is wrong, and say which in the commit. A test that cannot run on CI is skipped there by a stated condition, not deleted.
+- [ ] Green on both systems is the goal; a Windows-only failure in a part he does not use on Windows (he has no Windows laptop) may be listed for him instead of fixed, with the reason.
 
 ### Task L3: The go-ahead for a push covers only the push
 
