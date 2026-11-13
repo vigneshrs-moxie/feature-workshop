@@ -19,7 +19,7 @@
 //
 // First paint: from the Jobs snapshot's row for the job (the `job` prop: title, state, steps), so the
 // header, Your move and the steps paint before the page's own payload lands; the payload then fills
-// them in place. The left pane and the reader here are the frame: Tasks 8 to 14 fill each part.
+// them in place. The reader is reader/Reader.tsx.
 //
 // Keys (app/keyRegistry.ts, scope 'jobpage', which wins over the others while the page is mounted):
 // [ ] the step before and after; j k the next and previous line on the left; Enter opens that line;
@@ -32,18 +32,18 @@ import type { Job } from '../api/types';
 import { useKeyScope } from '../app/keyRegistry';
 import { readHref, replaceHash, stageHref, type JobView } from '../app/router';
 import { Button } from '../components/Button';
-import { Icon } from '../components/Icon';
 import { useMinWidth, useNarrow } from '../components/page/Page';
 import { useWorkshop } from '../state/store';
 import { browserDrafts, createJobStore, type JobPageState, type JobStore } from './jobStore';
 import { recentPage, rememberPage } from './recent';
-import { CONVERSATION, DECISIONS, DETAILS, readerOf, sameTarget, TICKET } from './targets';
-import type { JobPagePayload, ReaderKind, ReaderTarget, StopId } from './types';
+import { CONVERSATION, DECISIONS, DETAILS, TICKET } from './targets';
+import type { JobPagePayload, ReaderTarget, StopId } from './types';
 import { Header } from './left/Header';
 import { JobRows } from './left/JobRows';
 import { MessageBox } from './left/MessageBox';
 import { Steps, stepsFromRow } from './left/Steps';
-import { sinceWords, YourMove } from './left/YourMove';
+import { YourMove } from './left/YourMove';
+import { Reader } from './reader/Reader';
 import { JobStoreContext, useJob, useJobStore } from './useJob';
 import './jobpage.css';
 
@@ -160,9 +160,10 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
     const was = from ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     // The reader itself (g c, g t or / pressed inside it) is never where Back returns to.
     if (!was || !reader.current?.contains(was)) opener.current = was;
-    // Under 1100 px the reader comes over the left pane and takes the focus.
+    // Under 1100 px the reader comes over the left pane and takes the focus (a pick made inside the
+    // reader, its previous and next, keeps the focus where it is).
     flushSync(() => setCovered(true));
-    if (layout !== 'wide') reader.current?.focus();
+    if (layout !== 'wide' && !reader.current?.contains(document.activeElement)) reader.current?.focus();
   }, [layout]);
 
   const pickReader = useCallback((t: ReaderTarget, from?: HTMLElement | null) => {
@@ -279,7 +280,7 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
               <Button kind="quiet" size="sm" icon="chevron-left" onClick={back} title="Close the reader and go back to the job.">Back to the job</Button>
             </div>
           )}
-          <Reader job={job} searchRef={search} />
+          <Reader fallback={job?.title ?? ''} searchRef={search} onOpen={pickReader} />
         </section>
       </div>
     </main>
@@ -301,121 +302,4 @@ interface Line { step?: StopId; target?: ReaderTarget }
 /** The lines j and k move over: the steps, then the job's four rows. */
 function leftLines(payload: JobPagePayload | null, job: Job | null): Line[] {
   return [...stepIds(payload, job).map((step) => ({ step })), ...[TICKET, CONVERSATION, DECISIONS, DETAILS].map((target) => ({ target }))];
-}
-
-// ---------- The reader (Tasks 12 to 14 fill it) ----------
-
-const BODY_KINDS = new Set<ReaderKind>(['message', 'brief', 'doc', 'decisions']);
-
-const TITLES: Partial<Record<ReaderKind, string>> = {
-  conversation: 'Conversation', ticket: 'Ticket and goal', decisions: 'Decisions', details: 'Details', changes: 'Changes',
-  checks: 'Checks and recording', findings: 'Findings', walkthrough: 'Walkthrough', ship: 'Ship', permission: 'Permission', 'not-yet': 'Not yet',
-};
-
-/** The reader's title row words: what it is, and a dim line of facts. */
-function titleOf(t: ReaderTarget, payload: JobPagePayload | null): { title: string; meta: string | null } {
-  if (t.kind === 'message' || t.kind === 'brief') {
-    const line = payload?.thread.find((l) => l.id === t.id);
-    return { title: line?.headline ?? (t.kind === 'brief' ? 'Brief' : 'Message'), meta: line?.at ? sinceWords(line.at) : null };
-  }
-  if (t.kind === 'doc') {
-    for (const s of payload?.steps ?? []) {
-      const o = s.outputs.find((x) => x.id === t.id);
-      if (o) return { title: o.label, meta: [o.version ? `v${o.version}` : null, s.label].filter(Boolean).join(' · ') };
-    }
-    return { title: t.id.split('/').pop() ?? t.id, meta: null };
-  }
-  if (t.kind === 'pr') return { title: `PR #${t.id}`, meta: null };
-  if (t.kind === 'not-yet') {
-    const step = payload?.steps.find((x) => x.id === t.id);
-    return { title: step?.label ?? 'Not yet', meta: step?.state === 'skipped' ? 'skipped for this job' : 'not started' };
-  }
-  if (t.kind === 'conversation') return { title: 'Conversation', meta: payload ? `${payload.rows.conversation.count} items` : null };
-  if (t.kind === 'decisions') return { title: 'Decisions', meta: payload ? `${payload.rows.decisions.count} made for you` : null };
-  if (t.kind === 'ticket') return { title: 'Ticket and goal', meta: payload?.key ?? null };
-  if (t.kind === 'details') return { title: 'Details', meta: 'every piece of work, newest first' };
-  return { title: TITLES[t.kind] ?? 'Reader', meta: null };
-}
-
-const Reader = memo(function Reader({ job, searchRef }: { job: Job | null; searchRef: React.RefObject<HTMLInputElement | null> }) {
-  const target = useJob(readerOf, sameTarget);
-  // Only the title row's words: a new thread line elsewhere does not redraw the reader.
-  const head = useJob((s) => (target ? titleOf(target, s.payload) : null), (a, b) => a?.title === b?.title && a?.meta === b?.meta);
-  if (!target || !head) {
-    return (
-      <>
-        <div className="jp2-rv-top"><h2 className="jp2-rv-title">{job?.title ?? ''}</h2></div>
-        <div className="jp2-rv-body" />
-      </>
-    );
-  }
-  const { title, meta } = head;
-  return (
-    <>
-      <div className="jp2-rv-top">
-        <h2 className="jp2-rv-title">{title}</h2>
-        {meta && <span className="jp2-rv-meta">{meta}</span>}
-      </div>
-      {target.kind === 'conversation'
-        ? <ConversationFrame searchRef={searchRef} />
-        : <div className="jp2-rv-body">{BODY_KINDS.has(target.kind) ? <BodyText id={target.id} /> : target.kind === 'not-yet' ? <NotYet id={target.id} /> : <p className="jp2-dim">This view comes in a later build of the new page.</p>}</div>}
-    </>
-  );
-});
-
-/** A step not started (or skipped): it has made nothing yet, said plainly. */
-function NotYet({ id }: { id: string }) {
-  const skipped = useJob((s) => s.payload?.steps.find((x) => x.id === id)?.state === 'skipped');
-  return <p className="jp2-notyet">{skipped ? 'This job skips this step.' : 'Nothing yet. This step has not started.'}</p>;
-}
-
-/** A body's plain words (Task 12 typesets it); nothing until it lands, so nothing above it moves. */
-function BodyText({ id }: { id: string }) {
-  const store = useJobStore();
-  const body = useJob((s) => s.bodies[id]);
-  const error = useJob((s) => s.error);
-  useEffect(() => { if (!body) void store.loadBody(id); }, [store, id, body]);
-  if (!body) return error ? <p className="jp2-dim" role="alert">{error}</p> : null;
-  return <div className="jp2-plain">{body.text}</div>;
-}
-
-/** The conversation's lines, one each, with a filter (Task 13 groups and opens them). */
-function ConversationFrame({ searchRef }: { searchRef: React.RefObject<HTMLInputElement | null> }) {
-  const thread = useJob((s) => s.payload?.thread ?? null);
-  const [words, setWords] = useState('');
-  const shown = useMemo(() => {
-    const all = (thread ?? []).filter((l) => l.kind !== 'small');
-    const q = words.trim().toLowerCase();
-    return q ? all.filter((l) => l.headline.toLowerCase().includes(q)) : all;
-  }, [thread, words]);
-  return (
-    <>
-      <div className="jp2-cv-tools">
-        <label className="jp2-cv-sbox">
-          <Icon name="search" size={14} />
-          <input
-            ref={searchRef}
-            className="jp2-cv-search"
-            type="search"
-            aria-label="Search the conversation"
-            placeholder="Search the conversation"
-            value={words}
-            onChange={(e) => setWords(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Escape' && words) { e.stopPropagation(); setWords(''); } }}
-          />
-        </label>
-        {thread && <span className="jp2-dim jp2-cv-count">{shown.length} shown</span>}
-      </div>
-      <div className="jp2-rv-body jp2-cv-body">
-        <ul className="jp2-cv-lines">
-          {shown.map((l) => (
-            <li key={l.id} className={`jp2-cv-line${l.mine ? ' is-you' : ''}`}>
-              <span className="jp2-cv-h">{l.headline}</span>
-              {l.at && <time className="jp2-dim" dateTime={l.at}>{sinceWords(l.at)}</time>}
-            </li>
-          ))}
-        </ul>
-      </div>
-    </>
-  );
 }

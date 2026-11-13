@@ -71,7 +71,7 @@ export interface StepsProps {
 }
 
 /** Whether the reader's target is something of this step: its main output, a listed output, or one in `more`. */
-const owns = (s: StepRow, t: ReaderTarget | null) => !!t && (sameTarget(s.main, t) || s.outputs.some((o) => sameTarget(outputTarget(o), t)) || s.more.some((o) => sameTarget(outputTarget(o), t)));
+const owns = (s: StepRow, t: ReaderTarget | null) => !!t && (sameTarget(s.main, t) || s.outputs.some((o) => sameTarget(outputTarget(o), t)) || (s.more ?? []).some((o) => sameTarget(outputTarget(o), t)));
 
 export const Steps = memo(function Steps({ job, cursor, onStep, onOpen }: StepsProps) {
   const steps = useJob((s) => s.payload?.steps ?? null);

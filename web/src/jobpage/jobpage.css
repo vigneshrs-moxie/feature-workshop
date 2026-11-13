@@ -136,12 +136,70 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2-mb-ta:focus { outline: 2px solid var(--focus-ring); outline-offset: -1px; }
 
 /* The reader: one thing, a thin title row, prose at most 80 characters */
-.jp2-rv-top { flex: none; display: flex; align-items: baseline; gap: 10px; height: 44px; padding: 13px 12px 0 40px; border-bottom: 1px solid var(--border-1); white-space: nowrap; overflow: hidden; }
+/* The title row: what it is and its dim line (cut to one line), then Older, previous and next. Its menu
+   drops over the body, so the row itself never hides what overflows it. */
+.jp2-rv-top { position: relative; z-index: 2; flex: none; display: flex; align-items: center; gap: 6px; height: 44px; padding: 0 12px 0 40px; border-bottom: 1px solid var(--border-1); background: var(--bg-0); }
+.jp2-rv-tt { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 10px; white-space: nowrap; overflow: hidden; }
 .jp2-rv-title { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; font-size: 14px; line-height: 18px; font-weight: 600; }
 .jp2-rv-meta { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 12px; color: var(--text-3); }
-.jp2-rv-body { position: relative; flex: 1; min-height: 0; overflow: auto; padding: 22px 24px 48px 40px; scrollbar-width: thin; }
-.jp2-plain { max-width: 610px; font-size: 15px; line-height: 24px; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.jp2-rv-nav { flex: none; display: flex; align-items: center; gap: 2px; }
+.jp2-rv-older { flex: none; }
+.jp2-rv-older-menu { position: absolute; min-width: 280px; max-width: min(420px, 80vw); max-height: min(60vh, 420px); overflow-y: auto; }
+.jp2-rv-older-menu .menu-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jp2-rv-older-meta { flex: none; margin-left: 8px; font-size: 12px; color: var(--text-3); white-space: nowrap; }
+/* The body: the one scroll area; a container, so a document's outline shows only when there is room. */
+.jp2-rv-body { position: relative; flex: 1; min-height: 0; overflow: auto; padding: 22px 24px 48px 40px; scrollbar-width: thin; container-type: inline-size; }
 .jp2-notyet { margin: 0; max-width: 610px; font-size: 15px; line-height: 24px; color: var(--text-2); }
+
+/* Reading text (reader/Prose.tsx): 15 on 24, at most 80 characters; every heading one step above it */
+.jp2-prose { max-width: min(80ch, 610px); font-size: 15px; line-height: 24px; color: var(--text-1); overflow-wrap: break-word; user-select: text; -webkit-user-select: text; }
+.jp2-prose > :first-child, .jp2-ask > :first-child { margin-top: 0; }
+.jp2-prose :is(p, ul, ol, blockquote, pre) { margin: 0 0 12px; }
+.jp2-prose ul { list-style: disc; padding-left: 22px; }
+.jp2-prose ol { list-style: decimal; padding-left: 24px; }
+.jp2-prose ul ul { list-style: circle; }
+.jp2-prose li { margin: 3px 0; }
+.jp2-prose li > p { margin: 0 0 6px; }
+.jp2-prose li > :is(ul, ol) { margin: 4px 0 6px; }
+.jp2-prose :is(h1, h2, h3, h4, h5, h6) { margin: 22px 0 6px; font-size: 16px; line-height: 24px; font-weight: 650; color: var(--text-1); }
+.jp2-prose :is(h1, h2, h3, h4, h5, h6):focus { outline: none; }
+.jp2-prose strong { font-weight: 600; }
+.jp2-prose a { color: var(--accent-strong); text-underline-offset: 2px; }
+.jp2-prose code { padding: 1px 4px; border-radius: 4px; background: var(--bg-2); font-family: var(--font-mono); font-size: 13px; }
+.jp2-prose pre { position: relative; padding: 10px 12px; overflow-x: auto; border: 1px solid var(--border-2); border-radius: 8px; background: var(--bg-1); font-family: var(--font-mono); font-size: 13px; line-height: 20px; }
+.jp2-prose pre code { padding: 0; background: none; }
+.jp2-prose blockquote { padding-left: 14px; border-left: 3px solid var(--border-2); color: var(--text-2); }
+.jp2-prose hr { margin: 20px 0; border: 0; border-top: 1px solid var(--border-1); }
+.jp2-prose img { max-width: 100%; }
+.jp2-prose .table-wrap { position: relative; margin: 0 0 14px; overflow-x: auto; }
+.jp2-prose table { border-collapse: collapse; font-size: 13px; line-height: 19px; }
+.jp2-prose :is(th, td) { padding: 6px 8px; border-bottom: 1px solid var(--border-1); text-align: left; vertical-align: top; }
+.jp2-prose th { color: var(--text-2); font-weight: 600; }
+/* The part that asks him: a quiet rule in the margin, so the eye lands on it */
+.jp2-ask { margin: 6px 0 14px -19px; padding: 0 0 2px 16px; border-left: 3px solid var(--border-3); }
+.jp2-prose-hint { max-width: 610px; margin: 4px 0 0; font-size: 13px; line-height: 18px; color: var(--text-2); }
+.jp2-rv-after { max-width: 610px; margin: 4px 0 0; font-size: 14px; }
+/* A document: its outline at the right edge, only when the reader's body has room for both */
+.jp2-doc { display: block; }
+.jp2-doc-ol { display: none; }
+@container (min-width: 850px) {
+  .jp2-doc { display: grid; grid-template-columns: minmax(0, 610px) 200px; gap: 40px; align-items: start; }
+  .jp2-doc-ol { position: sticky; top: 0; display: flex; flex-direction: column; gap: 1px; max-height: calc(100vh - 180px); overflow-y: auto; scrollbar-width: thin; font-size: 12.5px; line-height: 17px; }
+}
+.jp2-ol-t { margin: 0 0 6px; padding: 0 8px; font-size: 11px; line-height: 14px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-3); }
+.jp2-ol-i { display: block; width: 100%; padding: 3px 8px; overflow: hidden; border: 0; border-radius: 5px; background: none; color: var(--text-2); font: inherit; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.jp2-ol-i:hover { background: var(--hover-bg); color: var(--text-1); }
+.jp2-ol-i:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.jp2-ol-i.is-l3 { padding-left: 18px; color: var(--text-3); }
+/* Decisions: one item each, the decision, why, where */
+.jp2-decs { margin: 0; padding: 0; list-style: none; }
+.jp2-prose.jp2-decs { padding-left: 0; list-style: none; }
+.jp2-dec { margin: 0; padding: 10px 0; border-bottom: 1px solid var(--border-1); }
+.jp2-dec:first-child { padding-top: 0; }
+.jp2-dec p { margin: 0; }
+.jp2-dec-what { font-weight: 600; }
+.jp2-dec-why { color: var(--text-2); }
+.jp2-dec-facts { font-size: 13px; line-height: 20px; color: var(--text-3); }
 .jp2-cv-tools { flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 12px 8px 40px; border-bottom: 1px solid var(--border-1); }
 .jp2-cv-sbox { display: inline-flex; align-items: center; gap: 6px; width: 300px; max-width: 100%; height: 30px; padding: 0 8px; border: 1px solid var(--border-2); border-radius: var(--radius-md); background: var(--surface-1); color: var(--text-3); }
 .jp2-cv-sbox:focus-within { outline: 2px solid var(--focus-ring); outline-offset: -1px; }
@@ -196,10 +254,12 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2[data-layout="phone"] .jp2-mb-ta { min-height: 40px; max-height: 194px; font-size: 16px; line-height: 22px; padding: 8px 10px; }
 .jp2[data-layout="phone"] .jp2-mb-line { padding: 10px 18px 0; font-size: 14px; line-height: 20px; }
 .jp2[data-layout="phone"] .jp2-back { padding: 0 8px; }
-.jp2[data-layout="phone"] .jp2-rv-top { height: auto; padding: 10px 16px; white-space: normal; flex-wrap: wrap; }
-.jp2[data-layout="phone"] .jp2-rv-title { font-size: 18px; line-height: 24px; font-weight: 650; overflow: visible; }
+.jp2[data-layout="phone"] .jp2-rv-top { height: auto; align-items: flex-start; padding: 10px 8px 10px 16px; }
+.jp2[data-layout="phone"] .jp2-rv-tt { flex-wrap: wrap; gap: 2px 10px; white-space: normal; overflow: visible; }
+.jp2[data-layout="phone"] .jp2-rv-title { flex-basis: 100%; font-size: 18px; line-height: 24px; font-weight: 650; overflow: visible; }
 .jp2[data-layout="phone"] .jp2-rv-body { padding: 6px 16px 40px; }
-.jp2[data-layout="phone"] .jp2-plain { max-width: none; }
+.jp2[data-layout="phone"] .jp2-prose, .jp2[data-layout="phone"] .jp2-notyet { max-width: none; }
+.jp2[data-layout="phone"] .jp2-ask { margin-left: -13px; padding-left: 10px; }
 .jp2[data-layout="phone"] .jp2-cv-tools { padding: 8px 16px; }
 .jp2[data-layout="phone"] .jp2-cv-sbox { flex: 1; width: auto; height: 36px; }
 .jp2[data-layout="phone"] .jp2-cv-line { height: 40px; }
