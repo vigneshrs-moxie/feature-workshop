@@ -583,3 +583,28 @@ describe('the new job page’s switch', () => {
     expect(window.location.hash).toMatch(/^#\/job\//);
   });
 });
+
+describe('Jobs fetch the new job page ahead (Task 7 fix round 1)', () => {
+  beforeEach(async () => { (await import('../jobpage/recent')).forgetRecentPages(); });
+  afterEach(async () => { (await import('../jobpage/recent')).forgetRecentPages(); });
+
+  it('the pointer or the focus on a job card asks for its page once, only while the new page is on', async () => {
+    const { longJob } = await import('../jobpage/fixtures/longJob');
+    const base = serverGet();
+    const get = vi.fn(async (path: string) => (/\/page/.test(path) ? { ...JSON.parse(JSON.stringify(longJob.payload)), slug: 'beta' } : base(path)));
+    const api = { snapshot: vi.fn(async () => snapshot({ jobs: [job('alpha', 'needs-you'), job('beta', 'running')] })), setToken: vi.fn(), get } as unknown as ApiClient;
+    const pages = () => get.mock.calls.map((c) => c[0] as string).filter((p) => p.includes('/page'));
+    const { unmount } = render(<App api={api} openStream={() => new FakeStream()} />);
+    await screen.findByRole('main', { name: 'Jobs' });
+    fireEvent.pointerEnter(screen.getAllByRole('link', { name: 'Job beta' })[0]);
+    expect(pages()).toEqual([]);
+    unmount();
+    localStorage.setItem('sb.jobPage', 'new');
+    render(<App api={api} openStream={() => new FakeStream()} />);
+    await screen.findByRole('main', { name: 'Jobs' });
+    const link = screen.getAllByRole('link', { name: 'Job beta' })[0];
+    fireEvent.pointerEnter(link);
+    fireEvent.focus(link);
+    await waitFor(() => expect(pages()).toEqual(['/api/job/beta/page']));
+  });
+});

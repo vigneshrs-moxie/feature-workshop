@@ -34,7 +34,9 @@ import { useFlip } from '../lib/flip';
 import { useHeldWhileHovered } from '../lib/useHeldWhileHovered';
 import { relativeTime, useNow } from '../lib/time';
 import { usePlayIfAny } from '../play/usePlay';
-import { useWorkshopState } from '../state/store';
+import { useWorkshop, useWorkshopState } from '../state/store';
+import { prefetchProps } from '../jobpage/recent';
+import { useNewJobPage } from '../jobpage/switch';
 import { StackJobCard, useStackIndex, type StackIndex } from '../views/Stack/StackRows';
 import { StepDots } from '../views/Stack/StacksPage';
 import type { Permission, ReviewView } from '../api/types';
@@ -152,6 +154,8 @@ export function chipTone(lane: JobLane, word: string): ChipTone {
 function JobCard({ job, now, play, review, full, onPeek, peeked }: { job: Job; now: Date; play: 'full' | 'subtle' | 'off'; review?: ReviewView | null; full: boolean; onPeek?: (slug: string) => void; peeked?: boolean }) {
   const lane = laneOf(job);
   const { permissions } = useWorkshopState();
+  // The new job page's payload, fetched ahead as the pointer or the focus reaches the job.
+  const ahead = prefetchProps(useWorkshop().api, job.slug, useNewJobPage());
   const chip = stateChip(job, permissions);
   const t = since(job);
   const working = lane === 'working' && chip.word === 'Working';
@@ -170,6 +174,7 @@ function JobCard({ job, now, play, review, full, onPeek, peeked }: { job: Job; n
         <a
           className="job-card-title"
           href={jobHref(job.slug)}
+          {...ahead}
           title={onPeek ? `Open ${name}. Space, or a click on the card, takes a quick look instead.` : `Open ${name}.`}
           onKeyDown={onPeek ? (e) => { if (e.key === ' ') { e.preventDefault(); onPeek(job.slug); } } : undefined}
         >
@@ -218,6 +223,8 @@ export const TABS: readonly { id: JobsTab; name: string; title: string }[] = [
 
 export function JobsPage() {
   const { jobs, autoQueue } = useWorkshopState();
+  const { api } = useWorkshop();
+  const newPage = useNewJobPage();
   const now = useNow();
   const ui = useUi();
   const playState = usePlayIfAny();
@@ -330,7 +337,7 @@ export function JobsPage() {
         return (
           <li key={j.slug} className={`jobs-list-row lane-${l}`}>
             <Chip tone={chipTone(l, LANE_INFO[l].word)} icon={LANE_INFO[l].icon} className={`state-chip is-${l}`}>{LANE_INFO[l].word}</Chip>
-            <a className="job-card-title" href={stacks.stackOf(j.slug) ? stackHref(j.slug) : jobHref(j.slug)}>{j.title || j.slug}</a>
+            <a className="job-card-title" href={stacks.stackOf(j.slug) ? stackHref(j.slug) : jobHref(j.slug)} {...prefetchProps(api, j.slug, newPage && !stacks.stackOf(j.slug))}>{j.title || j.slug}</a>
             {stacks.stackOf(j.slug)
               ? <StepDots steps={stacks.stackOf(j.slug)!.steps} label="Stack" />
               : <StopMap job={{ ...j, lane: l }} compact tips label={`${j.title || j.slug}: its stops`} />}

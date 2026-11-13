@@ -236,6 +236,7 @@ describe('job store: the payload', () => {
   it('destroy stops listening to the stream', async () => {
     const live = stream();
     const store = createJobStore(SLUG, { api: server().api, events: live.events });
+    await store.loadPage(); // it listens from its first load (Task 7 fix round 1)
     expect(live.count()).toBe(1);
     store.destroy();
     expect(live.count()).toBe(0);
@@ -566,5 +567,35 @@ describe('job store: carried into Task 7', () => {
     expect(asked).toEqual([null, null, 1]);
     expect(store.getState().payload?.v).toBe(2);
     expect(store.getState().payload?.title).toBe('Crew schedule export, moved on');
+  });
+});
+
+describe('job store: Task 7 fix round 1', () => {
+  it('a payload it is given paints at once; the first load asks with its v and a "same" answer changes nothing', async () => {
+    const s = server();
+    const given = base();
+    const store = createJobStore(SLUG, { api: s.api, events: stream().events, initial: given });
+    expect(store.getState().payload).toBe(given);
+    let told = 0;
+    store.subscribe(() => { told++; });
+    await store.loadPage();
+    expect(s.pages).toEqual([1]);
+    expect(store.getState().payload).toBe(given);
+    expect(told).toBe(0);
+  });
+
+  it('listens to the stream only from its first load, so a store that is never loaded holds nothing open', async () => {
+    const live = stream();
+    const s = server();
+    const store = createJobStore(SLUG, { api: s.api, events: live.events });
+    expect(live.count()).toBe(0);
+    await store.loadPage();
+    expect(live.count()).toBe(1);
+    await store.loadPage();
+    expect(live.count()).toBe(1);
+    store.destroy();
+    expect(live.count()).toBe(0);
+    await store.loadPage();
+    expect(live.count()).toBe(0);
   });
 });

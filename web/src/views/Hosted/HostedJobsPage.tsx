@@ -14,6 +14,7 @@
 // remembered tab. With no snapshot, a failed one, or an older laptop's with no queue, the page is the
 // list alone, with no tabs.
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import type { ApiClient } from '../../api/client';
 import type { AutoQueue, Job, Snapshot } from '../../api/types';
 import { Button } from '../../components/Button';
 import { Icon } from '../../components/Icon';
@@ -25,6 +26,8 @@ import { relativeTime, useNow } from '../../lib/time';
 import { useDelayedFlag } from '../../lib/useDelayedFlag';
 import { usePlayIfAny } from '../../play/usePlay';
 import { createStore, WorkshopContext } from '../../state/store';
+import { prefetchProps } from '../../jobpage/recent';
+import { useNewJobPage } from '../../jobpage/switch';
 import { isSignedOut, words, type HostedProps } from './shared';
 import type { LaptopJobs, MirroredJob } from './types';
 
@@ -59,11 +62,13 @@ export function LaptopState({ laptop, now }: { laptop: { online: boolean; lastSe
     : <span className="hosted-online is-offline" title="The job carries on there; this is how it last was."><Icon name="circle-dashed" size={12} />Laptop offline{laptop.lastSeenAt ? ` · seen ${relativeTime(laptop.lastSeenAt, now)}` : ''}</span>;
 }
 
-function JobCard({ job, laptop, now }: { job: MirroredJob; laptop: LaptopJobs; now: Date }) {
+function JobCard({ job, laptop, now, api }: { job: MirroredJob; laptop: LaptopJobs; now: Date; api: ApiClient }) {
   const state = job.state ? STATE_WORDS[job.state] ?? job.stateWords ?? job.state : null;
+  // The new job page's payload, fetched ahead as the pointer or the focus reaches the job.
+  const newPage = useNewJobPage();
   return (
     <li className="hosted-job" data-job={job.slug} data-state={job.state ?? undefined}>
-      <a className="hosted-job-link" href={`#/job/${encodeURIComponent(job.slug)}`} title="Open the job: its brief, documents and decisions, from your laptop.">
+      <a className="hosted-job-link" href={`#/job/${encodeURIComponent(job.slug)}`} {...prefetchProps(api, job.slug, newPage)} title="Open the job: its brief, documents and decisions, from your laptop.">
         <span className="hosted-job-title">{job.title}</span>
       </a>
       <span className="hosted-job-meta">
@@ -190,7 +195,7 @@ export function HostedJobsPage({ api, onSignedOut }: HostedProps) {
                 <span className="muted">{allAuto ? 'None of yours' : l.jobs.length === 1 ? '1 open job' : `${l.jobs.length} open jobs`}</span>
               </header>
               {l.jobs.length ? (
-                <ul className="hosted-jobs">{l.jobs.map((j) => <JobCard key={j.id} job={j} laptop={l} now={now} />)}</ul>
+                <ul className="hosted-jobs">{l.jobs.map((j) => <JobCard key={j.id} job={j} laptop={l} now={now} api={api} />)}</ul>
               ) : allAuto ? (
                 <p className="muted hosted-empty">Its open jobs are Auto’s: see the Auto tab. <LaptopState laptop={l} now={now} /></p>
               ) : (

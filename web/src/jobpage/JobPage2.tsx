@@ -41,6 +41,7 @@ import { statesOf } from '../job/page/stepWords';
 import { formatCost } from '../panes/Foreman/thread';
 import { useWorkshop } from '../state/store';
 import { createJobStore, type JobPageState, type JobStore } from './jobStore';
+import { recentPage, rememberPage } from './recent';
 import { backToOldJobPage } from './switch';
 import type { JobPagePayload, JobState, Output, ReaderKind, ReaderTarget, StepRow, StopId } from './types';
 import { JobStoreContext, useJob, useJobStore } from './useJob';
@@ -89,15 +90,18 @@ function addressTarget(view: JobView | undefined, read: ReaderTarget | undefined
 function usePageStore(slug: string, given: JobStore | undefined, first: (s: JobStore) => void): JobStore {
   const { api } = useWorkshop();
   const made = useRef<{ store: JobStore; ended: boolean } | null>(null);
-  const make = () => { const store = createJobStore(slug, { api }); first(store); return { store, ended: false }; };
+  // A job opened lately (or fetched ahead from Jobs) paints complete at once; the first load checks it.
+  const make = () => { const store = createJobStore(slug, { api, initial: recentPage(slug) }); first(store); return { store, ended: false }; };
   if (!given && !made.current) made.current = make();
   const [store, setStore] = useState<JobStore>(() => given ?? made.current!.store);
   useEffect(() => {
     if (given) { void given.loadPage(); return undefined; }
     if (made.current!.ended) { made.current = make(); setStore(made.current.store); }
     const mine = made.current!;
+    const keep = () => { const p = mine.store.getState().payload; if (p) rememberPage(p); };
+    const unkeep = mine.store.subscribe(keep);
     void mine.store.loadPage().then(() => { if (!mine.ended) idle(() => { if (!mine.ended) void mine.store.prefetch(); }); });
-    return () => { mine.ended = true; mine.store.destroy(); };
+    return () => { mine.ended = true; unkeep(); mine.store.destroy(); };
     // The page is keyed by the slug: the store lives as long as the page does.
   }, []);
   return store;
@@ -156,7 +160,9 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
   const pickReader = useCallback((t: ReaderTarget, from?: HTMLElement | null) => {
     store.setReader(t);
     replaceHash(readHref(slug, t));
-    opener.current = from ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    const was = from ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    // The reader itself (g c, g t or / pressed inside it) is never where Back returns to.
+    if (!was || !reader.current?.contains(was)) opener.current = was;
     // Under 1100 px the reader comes over the left pane and takes the focus.
     flushSync(() => setCovered(true));
     if (layout !== 'wide') reader.current?.focus();
@@ -177,13 +183,24 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
   }, [lines, pickStep, pickReader]);
 
   const leftHidden = single && covered;
+  // Crossing from two panes to one while the reader is open: the focus goes into it, not to the page.
+  useEffect(() => {
+    if (!leftHidden) return;
+    const at = document.activeElement;
+    if (!at || at === document.body || !reader.current?.contains(at)) reader.current?.focus();
+  }, [leftHidden]);
   useKeyScope('jobpage', {
-    'jp-step-prev': () => { stepBy(-1); },
-    'jp-step-next': () => { stepBy(1); },
+    'jp-step-prev': () => { uncover(); stepBy(-1); },
+    'jp-step-next': () => { uncover(); stepBy(1); },
     'jp-line-next': () => { if (!leftHidden) moveCursor(1); },
     'jp-line-prev': () => { if (!leftHidden) moveCursor(-1); },
-    'jp-open': () => {
-      if (cursor === null || leftHidden) return false;
+    // Enter on a line opens that line (j and k move the focus to it); elsewhere it belongs to the control.
+    'jp-open': (e) => {
+      if (leftHidden) return false;
+      const on = e.target instanceof Element ? e.target.closest<HTMLElement>('[data-jp-line]') : null;
+      if (on) { openLine(Number(on.dataset.jpLine)); return; }
+      if (e.target instanceof Element && e.target.closest('button, a, summary, [role="button"], [role="option"], [role="tab"], input, textarea, select')) return false;
+      if (cursor === null) return false;
       openLine(cursor);
     },
     'jp-search': () => {
@@ -193,13 +210,18 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
     'jp-convo': () => { pickReader(CONVERSATION); },
     'jp-ticket': () => { pickReader(TICKET); },
     'jp-write': () => {
-      if (leftHidden) flushSync(() => setCovered(false));
+      uncover();
       box.current?.focus();
     },
     // Kept for a note on the part under the pointer (Task 17): it does nothing yet, and no longer
     // opens Notes and options.
     'jp-note': () => {},
   });
+
+  /** Under 1100 px: take the reader off the left pane, so a key that acts there is seen. */
+  function uncover() {
+    if (leftHidden) flushSync(() => setCovered(false));
+  }
 
   function stepBy(by: 1 | -1) {
     const s = store.getState();
@@ -211,10 +233,15 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
 
   function moveCursor(by: 1 | -1) {
     if (!lines.length) return;
-    const now = cursor ?? (by > 0 ? -1 : lines.length);
+    // From the line with the focus (a click leaves it there), else from the last cursor line.
+    const focused = document.activeElement instanceof HTMLElement ? document.activeElement.closest<HTMLElement>('[data-jp-line]') : null;
+    const now = focused ? Number(focused.dataset.jpLine) : cursor ?? (by > 0 ? -1 : lines.length);
     const next = Math.max(0, Math.min(lines.length - 1, now + by));
-    setCursor(next);
-    document.querySelector(`[data-jp-line="${next}"]`)?.scrollIntoView?.({ block: 'nearest' });
+    flushSync(() => setCursor(next));
+    // Roving focus: the line takes the focus, so Enter and a screen reader are on the same line.
+    const el = document.querySelector<HTMLElement>(`.jp2 [data-jp-line="${next}"]`);
+    el?.focus();
+    el?.scrollIntoView?.({ block: 'nearest' });
   }
 
   return (
@@ -234,6 +261,7 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
           className="jp2-reader"
           aria-label="Reader"
           tabIndex={-1}
+          onKeyDown={single ? (e) => { if (e.key === 'Escape' && covered && !e.defaultPrevented) { e.preventDefault(); back(); } } : undefined}
           aria-hidden={single && !covered ? true : undefined}
           inert={single && !covered ? true : undefined}
         >
@@ -357,17 +385,21 @@ const YourMove = memo(function YourMove({ job }: { job: Job | null }) {
     // Before the payload: the snapshot row's words.
     if (!job) return <div className="jp2-ym" />;
     const st = stateFromRow(job);
-    if (st === 'needs-you') return <div className="jp2-ym"><Card label="Needs you" ask={job.headline || job.laneReason || 'This job waits for you.'} /></div>;
+    if (st === 'needs-you') return <div className="jp2-ym"><Card label={moveLabel(job.waitingFor === 'permission', job.waitingSince)} ask={job.headline || job.laneReason || 'This job waits for you.'} /></div>;
     return <div className="jp2-ym"><p className="jp2-ym-one">{STATE_WORDS[st]}{job.laneReason ? ` · ${job.laneReason}` : ''}</p></div>;
   }
   if (move) {
     const ask = move.kind === 'permission' ? move.what : move.ask;
-    const since = sinceWords(move.since);
-    const label = `Needs you${move.kind === 'permission' ? ' · permission' : ''}${since ? ` · since ${since}` : ''}`;
-    return <div className="jp2-ym"><Card label={label} ask={ask} /></div>;
+    return <div className="jp2-ym"><Card label={moveLabel(move.kind === 'permission', move.since)} ask={ask} /></div>;
   }
   return <div className="jp2-ym"><p className="jp2-ym-one">{state ? STATE_WORDS[state] : ''}{line ? ` · ${line}` : ''}</p></div>;
 });
+
+/** Your move's label, the same from the snapshot row (waitingFor, waitingSince) and from the payload, so it does not change when the payload lands. */
+function moveLabel(permission: boolean, at: string | null | undefined): string {
+  const since = sinceWords(at);
+  return `Needs you${permission ? ' · permission' : ''}${since ? ` · since ${since}` : ''}`;
+}
 
 function Card({ label, ask }: { label: string; ask: string }) {
   return (
@@ -497,8 +529,9 @@ function titleOf(t: ReaderTarget, payload: JobPagePayload | null): { title: stri
 
 const Reader = memo(function Reader({ job, searchRef }: { job: Job | null; searchRef: React.RefObject<HTMLInputElement | null> }) {
   const target = useJob(readerOf);
-  const payload = useJob((s) => s.payload);
-  if (!target) {
+  // Only the title row's words: a new thread line elsewhere does not redraw the reader.
+  const head = useJob((s) => (target ? titleOf(target, s.payload) : null), (a, b) => a?.title === b?.title && a?.meta === b?.meta);
+  if (!target || !head) {
     return (
       <>
         <div className="jp2-rv-top"><h2 className="jp2-rv-title">{job?.title ?? ''}</h2></div>
@@ -506,7 +539,7 @@ const Reader = memo(function Reader({ job, searchRef }: { job: Job | null; searc
       </>
     );
   }
-  const { title, meta } = titleOf(target, payload);
+  const { title, meta } = head;
   return (
     <>
       <div className="jp2-rv-top">

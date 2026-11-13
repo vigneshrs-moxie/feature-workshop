@@ -36,6 +36,7 @@ import { CopyDecisions } from '../CopyDecisions';
 import { ticketOf } from '../NextStep';
 import { WhatAutoDecided } from '../WhatAutoDecided';
 import { foremanModel } from './foremanModel';
+import { tryNewJobPage } from '../../jobpage/switch';
 import './page.css';
 
 /** The job page's guide (How it works); its own id (the old page's was 'job'), so it opens once by itself on this page. */
@@ -55,6 +56,11 @@ export const MODEL_LOCK = 'Fixed once the job starts. Change model… in the gea
 export const MODEL_LOCK_HOSTED = 'Fixed once the job starts. Change model… on your laptop starts it again.';
 /** In the gear's place on the website. */
 export const MENU_ON_LAPTOP = 'The job menu is on your laptop.';
+
+/** On the website, where the job menu is not: the switch to the new job page (jobpage/switch.ts). */
+export function TryNewPage() {
+  return <Button kind="quiet" size="sm" onClick={tryNewJobPage} title="Show this job on the new job page. Its ⋯ menu brings this page back.">Try the new job page</Button>;
+}
 export const AUTO_START_WHERE = 'Settings, Workflow, Auto start';
 
 /**
@@ -155,7 +161,7 @@ export function JobTop({ job, detail, run, sent, reload }: { job: Job; detail: J
         <div className="sb-top-acts">
           <AutoSwitch job={job} word tagLine={false} />
           {hosted
-            ? <span className="sb-top-laptop">{MENU_ON_LAPTOP}</span>
+            ? <><span className="sb-top-laptop">{MENU_ON_LAPTOP}</span><TryNewPage /></>
             : <JobMenu job={job} dir={detail?.dir} policyOverride={detail?.policyOverride} run={run} worktree={detail?.worktree} started={Boolean(detail?.drive?.sessionId)} gear />}
           <Button kind="quiet" icon="help" className="page-how" onClick={() => setGuideOpen(true)} title="The three things to know about this page.">How it works</Button>
         </div>

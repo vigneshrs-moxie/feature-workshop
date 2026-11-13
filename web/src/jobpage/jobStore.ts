@@ -10,7 +10,7 @@
 //   Starbase restarted and counts v from 1 again) forgets the held v and asks for the whole payload.
 //   On the laptop every read names the stream (?viewer=, state/live.ts liveViewer) so the runner
 //   knows the job is open; a new viewer id (the stream reconnected) asks once more to say so.
-//   Nothing else makes it do work, and it starts no timer.
+//   It listens to the stream from its first load. Nothing else makes it do work, and it starts no timer.
 // - A newer payload keeps the identity of every part whose data is equal (per top-level key, per
 //   step and per thread line, matched by id), so their readers do not redraw.
 // - A body is fetched once; a newer payload drops a kept body whose line hash (a doc's hash) moved
@@ -87,6 +87,9 @@ export interface JobStoreOptions {
   events?: (listener: (e: LiveEvent) => void) => () => void;
   /** The stream's viewer id, read when each request is sent; state/live.ts liveViewer when left out. */
   viewer?: () => string | null;
+  /** A payload already held (a job opened lately, or fetched ahead from Jobs): painted at once, then
+   *  checked by the first load with its v. */
+  initial?: JobPagePayload | null;
 }
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
@@ -195,10 +198,10 @@ const DECISIONS = 'decisions';
 const EMPTY_UI: JobUi = { step: null, reader: null, picks: {}, notes: [], draft: '' };
 const sameTarget = (a: ReaderTarget | null, b: ReaderTarget | null) => a === b || (!!a && !!b && a.kind === b.kind && a.id === b.id);
 
-export function createJobStore(slug: string, { api = createApi(), events = onLiveEvent, viewer = liveViewer }: JobStoreOptions = {}): JobStore {
+export function createJobStore(slug: string, { api = createApi(), events = onLiveEvent, viewer = liveViewer, initial = null }: JobStoreOptions = {}): JobStore {
   const reads: JobApi = 'page' in api ? api : jobApi(api);
   const client = 'page' in api ? null : api;
-  let state: JobPageState = { slug, payload: null, bodies: {}, error: null, ui: EMPTY_UI };
+  let state: JobPageState = { slug, payload: initial && initial.slug === slug ? initial : null, bodies: {}, error: null, ui: EMPTY_UI };
   const listeners = new Set<() => void>();
   const bodyFetches = new Map<string, Promise<JobBody>>();
   let pageFetch: Promise<void> | null = null;
@@ -262,6 +265,8 @@ export function createJobStore(slug: string, { api = createApi(), events = onLiv
 
   function loadPage(): Promise<void> {
     if (destroyed) return Promise.resolve();
+    // It listens from its first load, so a store made and dropped (a render React threw away) holds nothing open.
+    unsubscribe ??= events(onEvent);
     if (pageFetch) { again = true; return pageFetch; }
     pageFetch = (async () => {
       try {
@@ -348,7 +353,7 @@ export function createJobStore(slug: string, { api = createApi(), events = onLiv
     if ((e.type === 'thread' || e.type === 'change') && hosted() && (e.job === slug || e.job === null)) void loadPage();
   }
 
-  const unsubscribe = events(onEvent);
+  let unsubscribe: (() => void) | null = null;
 
   return {
     getState: () => state,
@@ -374,7 +379,8 @@ export function createJobStore(slug: string, { api = createApi(), events = onLiv
     setDraft(draft) { if (state.ui.draft !== draft) setUi({ draft }); },
     destroy() {
       destroyed = true;
-      unsubscribe();
+      unsubscribe?.();
+      unsubscribe = null;
       listeners.clear();
     },
   };

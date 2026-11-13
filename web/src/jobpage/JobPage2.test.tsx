@@ -8,10 +8,12 @@ import { installKeyListener, resetChord } from '../app/keyRegistry';
 import { useRoute } from '../app/router';
 import { createStore, WorkshopContext } from '../state/store';
 import { job as jobRow, snapshot } from '../state/test-fixtures';
+import { formatCost } from '../panes/Foreman/thread';
 import { HostedWorkshop } from '../views/Hosted/HostedWorkshop';
 import { longJob } from './fixtures/longJob';
 import { createJobStore, type JobStore } from './jobStore';
 import { JobPage2 } from './JobPage2';
+import { forgetRecentPages } from './recent';
 import { JOB_PAGE_KEY } from './switch';
 import type { JobBody, JobPagePayload } from './types';
 
@@ -28,6 +30,12 @@ vi.mock('./jobStore', async (importOriginal) => {
       return { ...store, destroy };
     },
   };
+});
+
+// The header's one call per render that the test can count (Task 7 fix round 1: the row is frozen once the payload is in).
+vi.mock('../panes/Foreman/thread', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../panes/Foreman/thread')>();
+  return { ...real, formatCost: vi.fn(real.formatCost) };
 });
 
 const SLUG = longJob.payload.slug;
@@ -100,7 +108,7 @@ const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 0)
 const key = (k: string, target: Element = document.body) => act(() => { fireEvent.keyDown(target, { key: k }); });
 
 let offKeys: () => void = () => {};
-beforeEach(() => { windowWidth(1512); made.length = 0; offKeys = installKeyListener(); resetChord(); });
+beforeEach(() => { windowWidth(1512); made.length = 0; forgetRecentPages(); offKeys = installKeyListener(); resetChord(); });
 afterEach(() => { offKeys(); vi.unstubAllGlobals(); localStorage.clear(); window.history.replaceState(null, '', '/'); });
 
 describe('first paint and the payload', () => {
@@ -357,16 +365,114 @@ describe('the snapshot row is for the first paint only', () => {
   it('a newer row shows before the payload lands, and redraws nothing after', async () => {
     window.history.replaceState(null, '', `/#/job/${SLUG}`);
     const c = client({ hold: true });
-    const tree = (row: Job) => <WorkshopContext.Provider value={{ api: c.api, store: createStore() }}><Routed row={row} /></WorkshopContext.Provider>;
+    const workshop = { api: c.api, store: createStore() };
+    const tree = (row: Job) => <WorkshopContext.Provider value={workshop}><Routed row={row} /></WorkshopContext.Provider>;
     const { rerender } = render(tree(ROW));
     rerender(tree({ ...ROW, title: 'Renamed on Jobs' }));
     expect(screen.getByRole('heading', { level: 1, name: 'Renamed on Jobs' })).toBeInTheDocument();
     c.release();
     await settle();
     const steps = screen.getByRole('navigation', { name: 'Steps' });
-    rerender(tree({ ...ROW, title: 'Renamed again', stage: 'ship' }));
+    // The header draws once per render; a newer row after the payload must not draw it again.
+    const drawn = vi.mocked(formatCost).mock.calls.length;
+    rerender(tree({ ...ROW, title: 'Renamed again', stage: 'ship', cost: { totalUsd: 12 } }));
+    expect(vi.mocked(formatCost).mock.calls.length).toBe(drawn);
     expect(screen.getByRole('heading', { level: 1, name: 'Crew schedule export' })).toBeInTheDocument();
     expect(screen.getByRole('navigation', { name: 'Steps' })).toBe(steps);
     expect(stepRow('Review')).toHaveAttribute('aria-expanded', 'true');
+  });
+});
+
+describe('Task 7 fix round 1', () => {
+  const leftPane = () => document.querySelector('.jp2-left')!.innerHTML;
+
+  it('a reopen paints the open step’s outputs in the first frame, and nothing moves when the payload lands', async () => {
+    const first = open(`#/job/${SLUG}`);
+    await settle();
+    first.unmount();
+    const again = open(`#/job/${SLUG}`, { hold: true });
+    // Before any answer: the payload kept from the last open, outputs and all.
+    expect(screen.getByRole('button', { name: /^Findings/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Conversation · 52' })).toBeInTheDocument();
+    const painted = leftPane();
+    again.release();
+    await settle();
+    expect(again.get).toHaveBeenCalledWith(`/api/job/${SLUG}/page?v=1`);
+    expect(leftPane()).toBe(painted);
+  });
+
+  it('a cold first open: Your move’s label and ask come from the row as the payload will say them, so the card does not change', async () => {
+    const p = payload();
+    const move = p.move as { ask: string; since: string };
+    const row = { ...ROW, headline: move.ask, waitingSince: move.since, waitingFor: 'approval' };
+    const { release } = open(`#/job/${SLUG}`, { hold: true, row });
+    const card = () => document.querySelector('.jp2-ym')!.innerHTML;
+    const painted = card();
+    expect(painted).toContain('Needs you · since');
+    release();
+    await settle();
+    expect(card()).toBe(painted);
+  });
+
+  it('j and k move the focus with the cursor: after a click, j j Enter opens the line the cursor is on', async () => {
+    open(`#/job/${SLUG}`);
+    await settle();
+    fireEvent.click(stepRow('Plan'));
+    stepRow('Plan').focus();
+    key('j', document.activeElement!);
+    key('j', document.activeElement!);
+    expect(document.activeElement).toBe(stepRow('Test'));
+    expect(stepRow('Test')).toHaveClass('is-cursor');
+    key('Enter', document.activeElement!);
+    expect(stepRow('Test')).toHaveAttribute('aria-expanded', 'true');
+    expect(window.location.hash).toBe(`#/job/${SLUG}/stage/test`);
+    // Enter on another control is still that control's.
+    const send = screen.getByRole('button', { name: 'More for this job' });
+    send.focus();
+    key('Enter', send);
+    expect(window.location.hash).toBe(`#/job/${SLUG}/stage/test`);
+  });
+
+  it('under 1100 px: [ ] take the reader off the left pane; Escape closes it; Back never returns to the reader itself; a narrowing window moves the focus into an open reader', async () => {
+    windowWidth(1512);
+    open(`#/job/${SLUG}`);
+    await settle();
+    const row = screen.getByRole('button', { name: 'Ticket and goal' });
+    row.focus();
+    fireEvent.click(row);
+    resizeTo(900);
+    const reader = document.querySelector<HTMLElement>('.jp2-reader')!;
+    expect(document.activeElement).toBe(reader);
+    // g c inside the reader, then Back: the focus goes to the row that opened it first.
+    key('g', reader);
+    key('c', reader);
+    expect(readerTitle()).toBe('Conversation');
+    fireEvent.click(within(reader).getByRole('button', { name: 'Back to the job' }));
+    expect(document.activeElement).toBe(row);
+    // Escape closes the cover.
+    fireEvent.click(row);
+    expect(page()).toHaveAttribute('data-covered');
+    key('Escape', reader);
+    expect(page()).not.toHaveAttribute('data-covered');
+    // ] while covered: the step moves and the left pane shows it.
+    fireEvent.click(row);
+    act(() => { reader.focus(); });
+    key(']', reader);
+    expect(page()).not.toHaveAttribute('data-covered');
+    expect(stepRow('Ship')).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('on the website the old page offers Try the new job page, and the new page’s ⋯ brings the old one back', async () => {
+    const store = createStore();
+    store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [ROW], meta: { token: null, settings: { play: { mode: 'off' } } } as never }) });
+    const api = { ...client().api, hosted: () => true } as unknown as ApiClient;
+    render(<HostedWorkshop api={api} store={store} route={{ name: 'job', slug: SLUG }} />);
+    expect(await screen.findByRole('main', { name: 'Job' })).not.toHaveClass('jp2');
+    fireEvent.click(screen.getByRole('button', { name: 'Try the new job page' }));
+    expect(localStorage.getItem(JOB_PAGE_KEY)).toBe('new');
+    expect(await screen.findByRole('main', { name: 'Job' })).toHaveClass('jp2');
+    fireEvent.click(screen.getByRole('button', { name: 'More for this job' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Back to the old job page' }));
+    expect(await screen.findByRole('main', { name: 'Job' })).not.toHaveClass('jp2');
   });
 });
