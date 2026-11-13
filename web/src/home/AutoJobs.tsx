@@ -23,11 +23,15 @@ export const AUTO_EMPTY = {
   ready: 'Nothing is ready yet.',
 } as const;
 
-/** Why a stopped job waits: the card's own lane reason, else the reason its record keeps. */
+/**
+ * Why a stopped job waits: the card's own lane reason, else the reason its record keeps. In another
+ * lane than Needs you (a reply of yours is running, so the lane's words are the reply's): the record's.
+ */
 function stopReason(job: Job): string | null {
-  if (job.laneReason) return job.laneReason;
   const s = job.auto?.stopped;
-  return typeof s === 'string' ? s : s?.reason ?? null;
+  const kept = typeof s === 'string' ? s : s?.reason ?? null;
+  if (job.lane !== 'needs-you') return kept;
+  return job.laneReason || kept;
 }
 
 /** One row of Needs you or Ready: its title opens the job; a click on the row, or Space on the title, takes the quick look. */

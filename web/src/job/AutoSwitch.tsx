@@ -1,6 +1,7 @@
 // The Auto switch: a checkbox, on the New job form (controlled; the job doesn't exist yet) and in
 // the job header (it posts /api/job/:slug/auto and spins until the server answers). Auto lets the
-// job run to its first pull request while a read-only agent answers for you; fixed rules stop it.
+// job run to its first pull request while a read-only agent answers for you; what the fixed rules
+// forbid is refused, and the job carries on.
 // It is on or off at every level (Auto runs L3 jobs too). In the header it also keeps one line
 // (Auto is on / Auto stopped: why / Started by Auto) in a place reserved for it, so nothing moves
 // when the line appears. On the hosted website the same POST is queued for the laptop: the job's
@@ -16,7 +17,7 @@ import { useSent } from '../lib/sentState';
 import './auto.css';
 
 export const AUTO_LABEL = 'Auto: run to PR #1 without asking me.';
-export const AUTO_HINT = 'A Fable agent approves each step for you and takes the recommended answers. It stops and asks you when something is risky. It never merges.';
+export const AUTO_HINT = 'A Fable agent approves each step for you and takes the recommended answers, up to PR #1. When something is risky it takes the safer option and lists it under What Auto decided. It never merges.';
 const messageOf = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 interface ViewProps {

@@ -133,3 +133,22 @@ describe('Jobs: the Auto tab, a set-aside job\'s reason in the row', () => {
     expect(group('Needs you, 1').querySelector('.sb-auto-reason')).toBeNull();
   });
 });
+
+// Final review, finding 8: Auto stopped on the job and a reply of yours is running, so its lane is
+// Working and the lane's words are the reply's. The Auto tab keeps it under Needs you, with why Auto stopped.
+describe('Jobs: the Auto tab, a stopped job whose lane is working', () => {
+  it.each([['the laptop app', false], ['the website', true]] as const)('shows why Auto stopped, not the lane\'s words (%s)', (_where, hosted) => {
+    const stopped = (record: NonNullable<Job['auto']>['stopped']) => job('n1', 'running', { title: 'Customer notes', stage: 'plan', lane: 'working', laneReason: 'The crew is at work', auto: { on: true, ran: true, stopped: record, group: 'needs-you' } });
+    for (const record of [{ reason: 'the Foreman says it is blocked' }, 'the Foreman says it is blocked']) {
+      setup({ jobs: [stopped(record)], hosted });
+      const row = within(group('Needs you, 1')).getByRole('link', { name: 'Customer notes' }).closest('li')!;
+      expect(row.querySelector('.sb-auto-reason')?.textContent).toBe('the Foreman says it is blocked');
+      expect(row).not.toHaveTextContent('The crew is at work');
+      cleanup();
+    }
+    // A record that keeps no reason: nothing is said, rather than the reply's words.
+    setup({ jobs: [stopped({})], hosted });
+    expect(group('Needs you, 1').querySelector('.sb-auto-reason')).toBeNull();
+    expect(group('Needs you, 1')).not.toHaveTextContent('The crew is at work');
+  });
+});
