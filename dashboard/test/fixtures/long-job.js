@@ -32,7 +32,7 @@ export const SIZES = [52, 200];
 export const LONG_JOB_COUNTS = Object.freeze({
   52: Object.freeze({
     items: 52, replies: 16, you: 16, briefs: 15, small: 5, steps: 7,
-    reviewFiles: 22, reviewShown: 12, findings: 2, findingsOpen: 1, commits: 9, commitFiles: 14,
+    reviewFiles: 22, reviewShown: 1, findings: 2, findingsOpen: 1, commits: 9, commitFiles: 14,
     recordings: 1, prs: 3, replyMedianWords: 450, replyMaxWords: 800, longestReplies: 1,
     checks: 14, decisions: 13, planSteps: 5,
   }),
@@ -40,7 +40,7 @@ export const LONG_JOB_COUNTS = Object.freeze({
   // 60 each (four times 16 would make 208).
   200: Object.freeze({
     items: 200, replies: 60, you: 60, briefs: 60, small: 20, steps: 7,
-    reviewFiles: 88, reviewShown: 18, findings: 8, findingsOpen: 4, commits: 36, commitFiles: 56,
+    reviewFiles: 88, reviewShown: 1, findings: 8, findingsOpen: 4, commits: 36, commitFiles: 56,
     recordings: 1, prs: 3, replyMedianWords: 450, replyMaxWords: 800, longestReplies: 4,
     checks: 56, decisions: 52, planSteps: 20,
   }),

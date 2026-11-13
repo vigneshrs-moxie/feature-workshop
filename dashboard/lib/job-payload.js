@@ -437,7 +437,11 @@ function stepParts(id, { facts, page, card, detail }) {
       const word = findingsWord(page.review);
       const outputs = [];
       if (page.review) outputs.push(own('findings', 'Findings', word));
-      outputs.push(...docs.map((d) => docOutput(d)));
+      // Once the combined review exists it is the one document listed: the lenses' rounds, the
+      // review facts and the Fable second looks are read from inside the reader (design brief:
+      // "Findings, Review (combined), Walkthrough"). Before it, the latest round of each lens shows.
+      const combined = docs.some((d) => d.file === 'review.md');
+      outputs.push(...docs.filter((d) => !combined || !ROUND_FILE.test(String(d.file))).map((d) => docOutput(d)));
       if (card.walkthrough) outputs.push(own('walkthrough', 'Walkthrough'));
       return { word, outputs, main: page.review ? { kind: 'findings', id: 'findings' } : null };
     }

@@ -256,7 +256,7 @@ test('steps: only the latest version of each document is listed; briefs are not 
   assert.deepEqual(docs('spec'), [['spec', '0.5']]);
   assert.deepEqual(docs('plan'), [['implementation-plan.md', '3'], ['test-plan.md', '3']]);
   assert.deepEqual(docs('test'), [['test-report.md', '5']]);
-  assert.deepEqual(docs('review'), [['review.md', '2'], ['review/errors-r2.md', null], ['review/tests-r1.md', null], ['review/facts-r2.md', null]]);
+  assert.deepEqual(docs('review'), [['review.md', '2']]);
   assert.equal(step('plan').outputs.find((o) => o.id === 'implementation-plan.md').meta, '3 steps');
   // The step's own outputs: Changes under Build, Checks under Test, Findings and the walkthrough under Review, the PRs under Ship.
   assert.deepEqual(step('build').outputs[0], { kind: 'changes', id: 'changes', label: 'Changes', meta: '9 commits', version: null });
@@ -482,4 +482,20 @@ test('the ⋯ menu’s laptop items get the job’s folder, worktree, own permis
   assert.deepEqual(buildJobPage(f).local, { dir: '/made/up/jobs/orbit-901-widget-export', worktree: '/made/up/worktrees/widget-export', policyOverride: 'ask-all', started: true });
   assert.deepEqual(buildJobPage(facts()).local, { dir: null, worktree: null, policyOverride: null, started: false });
   assert.equal('local' in mirrorJobPage({ ...f.card, ...f.detail }), false);
+});
+
+test('Review lists the combined review only: the lenses’ rounds, the review facts and the Fable second looks are read from inside the reader (Task 10)', () => {
+  const f = atReview();
+  f.detail.page.docs.review.push(
+    { file: 'fable/001-plan.md', name: 'Fable second look #1 · plan', version: '1' },
+    { file: 'fable/002-review.md', name: 'Fable second look #2 · review', version: '2' },
+  );
+  const p = buildJobPage(f);
+  const review = p.steps.find((s) => s.id === 'review');
+  assert.deepEqual(review.outputs.map((o) => [o.kind, o.id]), [['findings', 'findings'], ['doc', 'review.md'], ['walkthrough', 'walkthrough']]);
+  // With no combined review yet, the latest round of each lens still shows, so the step is never empty.
+  const early = atReview();
+  early.detail.page.docs.review = early.detail.page.docs.review.filter((d) => d.file !== 'review.md');
+  const docs = buildJobPage(early).steps.find((s) => s.id === 'review').outputs.filter((o) => o.kind === 'doc').map((o) => o.id);
+  assert.deepEqual(docs, ['review/errors-r2.md', 'review/tests-r1.md', 'review/facts-r2.md']);
 });

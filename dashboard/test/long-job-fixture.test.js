@@ -73,13 +73,9 @@ for (const size of SIZES) {
     assert.equal(shown.length, c.reviewShown);
     assert.ok(shown.includes('review.md'));
     assert.ok(!shown.some((f) => f.startsWith('briefs/')), 'briefs are in the conversation, not the step');
-    // Each lens's highest round is the one shown.
-    const round = (f) => Number(/-r(\d+)\.md$/.exec(f)?.[1] ?? 1);
-    const lens = (f) => f.replace(/^review\//, '').replace(/(-r\d+)?\.md$/, '');
-    for (const f of files.filter((x) => x.startsWith('review/'))) {
-      const best = Math.max(...files.filter((x) => x.startsWith('review/') && lens(x) === lens(f)).map(round));
-      assert.equal(shown.includes(f), round(f) === best, f);
-    }
+    // The combined review is the one document listed (Task 10): the lenses' rounds and the Fable
+    // second looks are read from inside the reader.
+    assert.ok(!shown.some((f) => f.startsWith('review/') || f.startsWith('fable/')), 'lens rounds and second looks are not listed');
     assert.ok(files.some((f) => /-r[2-9]\.md$/.test(f)), 'some lenses have later rounds');
   });
 
@@ -171,13 +167,13 @@ test('the web’s long job says nothing the web source checks refuse (the produc
 test('the counts are the brief’s numbers, written out (editing the constant fails here)', () => {
   assert.deepEqual({ ...LONG_JOB_COUNTS[52] }, {
     items: 52, replies: 16, you: 16, briefs: 15, small: 5, steps: 7,
-    reviewFiles: 22, reviewShown: 12, findings: 2, findingsOpen: 1, commits: 9, commitFiles: 14,
+    reviewFiles: 22, reviewShown: 1, findings: 2, findingsOpen: 1, commits: 9, commitFiles: 14,
     recordings: 1, prs: 3, replyMedianWords: 450, replyMaxWords: 800, longestReplies: 1,
     checks: 14, decisions: 13, planSteps: 5,
   });
   assert.deepEqual({ ...LONG_JOB_COUNTS[200] }, {
     items: 200, replies: 60, you: 60, briefs: 60, small: 20, steps: 7,
-    reviewFiles: 88, reviewShown: 18, findings: 8, findingsOpen: 4, commits: 36, commitFiles: 56,
+    reviewFiles: 88, reviewShown: 1, findings: 8, findingsOpen: 4, commits: 36, commitFiles: 56,
     recordings: 1, prs: 3, replyMedianWords: 450, replyMaxWords: 800, longestReplies: 4,
     checks: 56, decisions: 52, planSteps: 20,
   });
