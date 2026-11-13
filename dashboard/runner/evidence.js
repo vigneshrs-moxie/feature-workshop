@@ -16,11 +16,14 @@
 // his: the app starts with Auto's address (startServer's databaseUrl), is asked once, and must
 // connect to Auto's database within 30 s (AUTO_DB_NOT_USED). His Try it server for the job is never
 // stopped for it (AUTO_TRY_IT_RUNNING). No saved original yet: the Test step says it waits
-// (AUTO_DB_WAITING) and it looks again. A migration that fails goes to the Foreman (onAutoDbProblem).
+// (AUTO_DB_WAITING) and it looks again. A recording put off like that is still made after the job
+// has moved on past Test (stillOwed). A migration that fails goes to the Foreman (onAutoDbProblem).
 // Its Playwright run starts inside the sandbox its app runs in (lib/db-door.js): a spec is the job's
 // own code, and could open a database connection. An Auto job whose app names no database where
 // Starbase looks has no copy and no door, but its app and its Playwright run start inside the sandbox
-// all the same (startServer's fenced): its own code may name one. No sandbox, no recording.
+// all the same (startServer's fenced): its own code may name one. No sandbox, no recording. A
+// recording asked for while the job was Auto's, whose turn comes once it no longer is, is not made
+// (recordNow's wasAuto): it would start as any job of his, on his database.
 //   returns the door the site's routes use (site/routes-evidence.js, through runner.local.evidence):
 //     view(slug)          { evidence, commit, wanted, why, recording, problem, progress, watch, folder, folderUrl }
 //                         (progress: by line while Playwright runs, else null; each change is an
@@ -59,6 +62,7 @@ import { killTree, shellFor } from '../lib/platform.js';
 import { PRODUCT } from '../lib/brand.js';
 import { AUTO_NO_FENCE, AUTO_RECORDING_APP, AUTO_RECORDING_NO_DB, AUTO_TRY_IT_RUNNING, AUTO_TRY_IT_RUNNING_NO_DB, AutoDbError } from '../lib/local.js';
 import { sandboxed } from '../lib/db-door.js';
+import { STAGE_IDS } from '../lib/stages.js';
 
 const require = createRequire(import.meta.url);
 const SERVER_WAIT_MS = 180_000;
@@ -81,6 +85,8 @@ export const AUTO_DB_HIS_NEW_STOP = "Something new connected to your database ea
 export const AUTO_DB_TAKEN_STOP = "Something stayed connected to Auto's copy of the database through 3 tries, so no recording was made. Stop whatever is using it, then switch Auto on again.";
 /** A migration that exited well but isn't in Auto's copy: Auto stops on the job with this reason (lead's words). */
 export const AUTO_NOT_LANDED_STOP = 'A migration from this job did not land on Auto\'s copy of the database. It may have run on yours. Check your database before this job goes on.';
+/** A recording asked for while the job was Auto's, whose turn came once it no longer was: nothing is recorded (lead's words). */
+export const AUTO_ENDED = "Auto was no longer on for this job when its recording's turn came, so nothing was recorded. Press Record to record it as your own job.";
 /**
  * The note on a recording during which the door refused a session (lib/db-door.js): Auto's app asked
  * for another database than its own copy. The recording is kept. refusal: lib/local.js autoRefusal's
@@ -394,6 +400,13 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
     };
   }
 
+  /** Whether the job would be recorded as an Auto job now: its Auto record says on. Never in demo mode (nothing real runs there). */
+  async function isAuto(f) {
+    if (demo) return false;
+    const now = (await jobs().catch(() => [])).find((x) => x.slug === f.slug) ?? f;
+    return now.auto?.on === true;
+  }
+
   /**
    * Whether this recording is an Auto job's (auto: the job's Auto record says on now, as the
    * recording starts; switched off later, it finishes as it began), and whether it is on Auto's
@@ -402,14 +415,21 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
    * and a door. Never in demo mode (nothing real runs there).
    */
   async function autoFor(f) {
-    if (demo) return { auto: false, onAutoDb: false };
-    const now = (await jobs().catch(() => [])).find((x) => x.slug === f.slug) ?? f;
-    if (now.auto?.on !== true) return { auto: false, onAutoDb: false };
+    if (!(await isAuto(f))) return { auto: false, onAutoDb: false };
     // Decided by the address, not the profile: an app that names any database records on Auto's or not at all.
     return { auto: true, onAutoDb: await local.namesADatabase(f, env) }; // Starbase's own environment (the runner's)
   }
 
-  async function recordNow(f, via) {
+  /**
+   * wasAuto: the job was Auto's when this recording was asked for (queued by the look, or by his
+   * Record). One recording runs at a time, so its turn may come minutes later. Asked for as an Auto
+   * job's and not Auto's now (Auto finished on it when PR #1 opened, or was switched off): nothing is
+   * recorded, since it would start as any job of his does, on his database and with no fence. The
+   * commit is forgotten (a job of his still in Test is recorded by the next look) and a waiting line
+   * goes. The look's ends as an answer; his own press is told why (AUTO_ENDED) as any refusal is.
+   * Asked for as his and Auto's now: recorded as Auto's.
+   */
+  async function recordNow(f, via, wasAuto = false) {
     const pw = playwright();
     const { auto, onAutoDb } = await autoFor(f);
     const sayRecording = () => events.emit('evidence', f.slug, { slug: f.slug, outcome: 'recording', at: new Date().toISOString() });
@@ -418,6 +438,11 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
     let cwd = f.worktree ?? f.repoPath;
     const at = new Date().toISOString();
     try {
+      if (wasAuto && !auto) {
+        tried.delete(`${f.slug}@${await reportCommit(f.dir)}`);
+        if (problems.get(f.slug)?.waiting) problems.delete(f.slug);
+        throw new EvidenceError(409, AUTO_ENDED, { code: via === 'page' ? 'auto-ended' : 'not-wanted' });
+      }
       if (!pw && evidenceWanted(f.options).on) {
         throw new EvidenceError(409, demo ? 'Demo mode: nothing real runs, so no evidence is recorded.' : `Playwright isn’t installed with ${PRODUCT}. Run npm install in ${PRODUCT}’s folder, then press Record again.`);
       }
@@ -509,16 +534,36 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
     }
   }
 
-  /** One recording at a time; a job already recording says so. */
-  function record(f, via) {
+  /** One recording at a time; a job already recording says so. wasAuto: whether the job is Auto's now, as it is asked for (recordNow). */
+  function record(f, via, wasAuto = false) {
     if (recording.has(f.slug)) return Promise.reject(new EvidenceError(409, 'Evidence for this job is being recorded now.', { code: 'busy' }));
     recording.add(f.slug);
-    const job = queue.then(() => recordNow(f, via)).finally(() => { recording.delete(f.slug); });
+    const job = queue.then(() => recordNow(f, via, wasAuto)).finally(() => { recording.delete(f.slug); });
     queue = job.catch(() => {});
     return job;
   }
 
   // ---------- After the tester: a job folder changed ----------
+
+  /** A stage after Test in the product's own stage order (Review, the PRs). An unknown stage is not. */
+  const afterTest = (stage) => STAGE_IDS.indexOf(stage) > STAGE_IDS.indexOf('test');
+
+  /**
+   * Whether a job that has left Test is still owed a recording: one that was put off (it waits for
+   * Auto's database: its problem says waiting) for the commit the test report names now. Auto's pass
+   * does not wait for a recording, so the job may have moved on while its recording waited. Only
+   * while it would still be recorded as an Auto job: with Auto switched off on it since, the put-off
+   * recording is dropped, so the Test step stops saying it waits. And only in a stage after Test: a
+   * job sent back to Build (or in a stage Starbase does not know) drops it the same way, and the
+   * ordinary look records the job when it reaches Test again.
+   */
+  async function stillOwed(f) {
+    const p = problems.get(f.slug);
+    if (!p?.waiting) return false; // never put off: recorded only in Test
+    if (!afterTest(f.stage) || !(await isAuto(f))) { problems.delete(f.slug); return false; }
+    return p.commit === await reportCommit(f.dir);
+  }
+
   let looking = false;
   let again = false;
   async function lookForReady() {
@@ -528,11 +573,13 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
       do {
         again = false;
         for (const f of await jobs()) {
-          if (f.closed || f.stage !== 'test' || recording.has(f.slug)) continue;
+          if (f.closed || recording.has(f.slug)) continue;
+          if (f.stage !== 'test' && !(await stillOwed(f))) continue;
           const ready = await readyToRecord(f).catch(() => null);
           if (!ready || tried.has(`${f.slug}@${ready.commit}`)) continue;
+          const wasAuto = await isAuto(f);
           tried.add(`${f.slug}@${ready.commit}`);
-          record(f, 'auto').catch(() => {});
+          record(f, 'auto', wasAuto).catch(() => {});
         }
       } while (again);
     } finally {
@@ -613,8 +660,9 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
      */
     async record(slug, { waitMs = 1500 } = {}) {
       const f = await jobOf(slug);
+      const wasAuto = await isAuto(f);
       let job;
-      try { job = record(f, 'page'); } catch (err) { throw httpError(err); }
+      try { job = record(f, 'page', wasAuto); } catch (err) { throw httpError(err); }
       const quick = await Promise.race([job.then((ev) => ({ ev }), (err) => ({ err })), new Promise((r) => { setTimeout(() => r(null), waitMs).unref?.(); })]);
       if (!quick) { job.catch(() => {}); return { ok: true, started: true }; }
       if (quick.err) throw httpError(quick.err);

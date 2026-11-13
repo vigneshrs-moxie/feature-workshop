@@ -27,7 +27,7 @@ describe('AutoSwitch', () => {
     show(job('alpha', 'needs-you', { level: 1 }));
     expect(AUTO_LABEL).toBe('Auto: run to PR #1 without asking me.');
     expect(screen.getByRole('checkbox', { name: new RegExp(AUTO_LABEL.replace(/[#.]/g, '\\$&')) })).not.toBeChecked();
-    expect(AUTO_HINT).toBe('A Fable agent approves each step for you and takes the recommended answers. It stops and asks you when something is risky. It never merges.');
+    expect(AUTO_HINT).toBe('A Fable agent approves each step for you and takes the recommended answers, up to PR #1. When something is risky it takes the safer option and lists it under What Auto decided. It never merges.');
   });
 
   it('turning it on in the header posts once and spins', async () => {

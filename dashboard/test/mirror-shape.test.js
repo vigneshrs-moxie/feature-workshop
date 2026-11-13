@@ -449,3 +449,61 @@ test('a recording\'s notes never go to the website', async () => {
   const other = { file: 'notes.md', name: 'Notes', type: 'md', html: '<p>notes</p>', text: 'notes', updatedAt: 'x', size: 5, vscode: null, summary: null };
   assert.deepEqual(docRecord(other), other);
 });
+
+// Final review, finding 7: the card's own copy of why Auto stopped and why the job is too big for Auto
+// (the site's Auto tab draws it) is hidden as the queue's copy is.
+test('a card’s Auto reasons go up scrubbed: why Auto stopped and why it is too big lose a home-folder path and a database address', async () => {
+  const { boardRecord } = await import('../runner/mirror.js');
+  const { homedir } = await import('node:os');
+  const home = homedir();
+  const stop = `The migration failed in ${home}/Projects/orbit-wt/orbit-16: could not reach postgres://olive@localhost/moxie_snapshot.`;
+  const big = 'It touches /Users/olive/notes/plan.md and jdbc:postgresql://db.local:5432/orbit.';
+  const stopped = { slug: 'count-rows', title: 'Count the rows', auto: { ...AUTO_CARD.auto, group: 'needs-you', stopped: { reason: stop, rule: 'migration', at: '2026-11-12T09:00:00Z' } } };
+  const tooBig = { slug: 'split-report', title: 'Split the report', auto: { ...AUTO_CARD.auto, on: false, group: 'needs-you', tooBig: { at: '2026-11-12T09:00:00Z', reason: big } } };
+  const old = { slug: 'old-laptop', title: 'Old laptop job', auto: { on: true, stopped: `It stopped in ${home}/Projects/x.` } }; // a record that kept the sentence alone
+  const rec = boardRecord({ jobs: [stopped, tooBig, old, AUTO_CARD] });
+  assert.deepEqual(rec.jobs[0], { ...stopped, auto: { ...stopped.auto, stopped: { reason: 'The migration failed in [path hidden]: could not reach [database address hidden].', rule: 'migration', at: '2026-11-12T09:00:00Z' } } });
+  assert.deepEqual(rec.jobs[1], { ...tooBig, auto: { ...tooBig.auto, tooBig: { at: '2026-11-12T09:00:00Z', reason: 'It touches [path hidden] and [database address hidden].' } } });
+  assert.deepEqual(rec.jobs[2], { ...old, auto: { on: true, stopped: 'It stopped in [path hidden].' } });
+  const json = JSON.stringify(rec);
+  assert.ok(!json.includes(home), 'no home folder');
+  assert.doesNotMatch(json, /\/Users\/|postgres(?:ql)?:\/\/|moxie_snapshot|db\.local/);
+  // A reason with nothing to hide is unchanged, and so is a card with none, or with no Auto record.
+  const plain = { slug: 'customer-notes', auto: { ...AUTO_CARD.auto, stopped: { reason: 'the Foreman says it is blocked', rule: null, at: '2026-11-12T09:00:00Z' }, tooBig: { at: '2026-11-12T09:00:00Z', reason: 'The Foreman suggested a stack.' } } };
+  const noReason = { slug: 'no-reason', auto: { on: true, stopped: { rule: null, at: '2026-11-12T09:00:00Z' }, tooBig: { at: '2026-11-12T09:00:00Z' } } };
+  const his = { slug: 'mine-by-hand', title: 'Mine by hand' };
+  assert.deepEqual(boardRecord({ jobs: [plain, noReason, his, AUTO_CARD] }).jobs, [plain, noReason, his, AUTO_CARD]);
+  assert.equal(makeEvent('record', { kind: 'board', key: '', value: rec }).ok, true);
+});
+
+// The card's lane sentence repeats why Auto stopped ("Auto stopped: <reason>", lib/snapshot.js laneFor). It is hidden where it
+// goes up, in the board's cards and in the site's job rows (runner/site-link.js jobRow); the laptop's own pages keep it as it is.
+test('a lane sentence goes up scrubbed: in the board’s card and in the job row it loses a home-folder path and a database address', async () => {
+  const { boardRecord } = await import('../runner/mirror.js');
+  const { jobRow } = await import('../runner/site-link.js');
+  const { homedir } = await import('node:os');
+  const home = homedir();
+  const sentence = `Auto stopped: The migration failed in ${home}/Projects/orbit-wt/orbit-16: could not reach postgres://olive@localhost/moxie_snapshot.`;
+  const hidden = 'Auto stopped: The migration failed in [path hidden]: could not reach [database address hidden].';
+  assert.ok(sentence.length > 120 && hidden.length < 120, 'longer than a job row keeps before it is hidden, shorter after');
+  const card = { slug: 'count-rows', title: 'Count the rows', stage: 'test', lane: 'needs-you', laneReason: sentence, updatedAt: '2026-11-12T09:00:00Z' };
+  const rec = boardRecord({ jobs: [card, { ...card, slug: 'auto-rows', auto: AUTO_CARD.auto }] });
+  assert.deepEqual(rec.jobs, [{ ...card, laneReason: hidden }, { ...card, slug: 'auto-rows', auto: AUTO_CARD.auto, laneReason: hidden }], 'a card with an Auto record and one without');
+  const row = jobRow(card);
+  assert.deepEqual(row, { slug: 'count-rows', title: 'Count the rows', ticket: null, stage: 'test', state: 'needs-you', stateWords: hidden, now: hidden, updatedAt: '2026-11-12T09:00:00Z' });
+  // While a crew member is at work the row's `now` is their line, as before; the lane sentence beside it is still hidden.
+  const busy = jobRow({ ...card, nowDoing: [{ name: 'Builder', doing: 'Editing files' }] });
+  assert.equal(busy.now, 'Builder: Editing files');
+  assert.equal(busy.stateWords, hidden);
+  for (const json of [JSON.stringify(rec), JSON.stringify(row), JSON.stringify(busy)]) {
+    assert.ok(!json.includes(home), 'no home folder');
+    assert.doesNotMatch(json, /\/Users\/|postgres(?:ql)?:\/\/|moxie_snapshot/);
+  }
+  assert.equal(card.laneReason, sentence, 'the laptop’s own card keeps the sentence as it is');
+  // A plain sentence is unchanged, and so is a card with none.
+  const plain = { ...card, slug: 'customer-notes', laneReason: 'Auto stopped: the Foreman says it is blocked' };
+  const none = { slug: 'old-laptop', title: 'Old laptop job' };
+  assert.deepEqual(boardRecord({ jobs: [plain, none] }).jobs, [plain, none]);
+  assert.deepEqual(jobRow(plain), { slug: 'customer-notes', title: 'Count the rows', ticket: null, stage: 'test', state: 'needs-you', stateWords: plain.laneReason, now: plain.laneReason, updatedAt: '2026-11-12T09:00:00Z' });
+  assert.deepEqual(jobRow({ ...none, headline: 'Spec ready' }), { slug: 'old-laptop', title: 'Old laptop job', ticket: null, stage: null, state: null, stateWords: null, now: 'Spec ready', updatedAt: null });
+});

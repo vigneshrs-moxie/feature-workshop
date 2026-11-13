@@ -998,6 +998,402 @@ test('with no saved original the recording waits and tries again', { timeout: 60
   } finally { await w.done(); }
 });
 
+// ---------- Task 9, follow-up 2: a recording that was put off is still made after the job leaves Test ----------
+// Auto's pass does not wait for a recording, so a job can move on to Review while its recording waits for
+// Auto's database. The recording is still owed then; a job that never had one put off records only in Test.
+
+/**
+ * Another switch of the local database is under way (Try it's dbBusy), so Auto's copy can't be made: the
+ * recording is put off (busy), not failed. Auto gives up its wait after 50 ms, not 2 minutes.
+ * Returns release(): the other switch has ended.
+ */
+function holdSwitch(w) {
+  const made = w.local.autoDatabase;
+  w.local.autoDatabase = (f, o) => made(f, { ...o, waitMs: 50 });
+  w.local.dbBusy = true;
+  return () => { w.local.dbBusy = false; };
+}
+const BUSY_WORDS = 'Another switch of the local database didn’t end in time, so Auto’s database wasn’t made.';
+/** The job's recording has been put off, and no try is under way. */
+async function putOff(w, slug = 'auto-job') {
+  await untilTrue(async () => { const v = await w.door.view(slug); return v.problem?.waiting === true && !v.recording; }, 'the recording was never put off');
+  assert.equal((await w.door.view(slug)).problem.message, BUSY_WORDS);
+}
+const NOTHING_RECORDED = ['recording', 'recorded', 'not-recorded'];
+
+test('a recording put off while Auto\'s copy was busy is made after the job has left Test', { timeout: 90_000, skip: NEEDS_SANDBOX }, async () => {
+  const w = await autoWorld();
+  try {
+    const release = holdSwitch(w);
+    w.handlers.change(); // the change watcher starts the recording by itself
+    await putOff(w);
+    assert.equal(await w.runs(), 0);
+    // Auto answered the Test brief meanwhile and the job moved on. Only then does the other switch end, and
+    // only once no try that began while the job was in Test is still under way.
+    w.list[0].stage = 'review';
+    await settle(300); // a look that read the job before it moved on has begun its try by now
+    await untilTrue(async () => !(await w.door.view('auto-job')).recording, 'a try never ended');
+    release();
+    // The timer's look makes it.
+    await untilTrue(async () => { const v = await w.door.view('auto-job'); return v.evidence && !v.recording; }, 'never recorded after the job left Test', 20_000);
+    const view = await w.door.view('auto-job');
+    assert.equal(view.evidence.commit, 'abc1234def5');
+    assert.equal(view.problem, null, 'the waiting line is gone');
+    assert.equal(JSON.parse(await fs.readFile(path.join(w.list[0].dir, 'evidence', 'evidence.json'), 'utf8')).commit, 'abc1234def5');
+    assert.equal(w.emitted.filter((e) => e.outcome === 'recorded' && e.commit === 'abc1234def5').length, 1, 'one recorded event');
+    assert.deepEqual(w.audits.filter((a) => a.outcome === 'recorded').map((a) => a.via), ['auto'], 'made by the look, not by a press of Record');
+    assert.equal(await w.runs(), 1);
+    assert.equal(w.list[0].stage, 'review', 'the job is where it moved to');
+    assert.deepEqual((await w.pg()).app__auto.ledger, ['0001_a', '0002_b'], 'and its migration ran on Auto\'s copy');
+    onAutoOnly(await w.log());
+  } finally { await w.done(); }
+});
+
+test('a job that left Test with no put-off recording is not recorded', { timeout: 60_000 }, async () => {
+  const w = await autoWorld({ slugs: ['auto-job', 'his-job'] });
+  try {
+    w.list[1].auto = null; // one of Auto's and one that is not
+    for (const job of w.list) job.stage = 'review'; // a ready report each, and nothing was ever put off
+    w.handlers.change();
+    await settle(3600); // past the watcher's second look
+    assert.deepEqual(w.steps, [], 'nothing copied, nothing started');
+    assert.equal(await w.runs(), 0);
+    assert.deepEqual(w.emitted, [], 'no event');
+    assert.deepEqual(w.audits, []);
+    for (const job of w.list) {
+      const view = await w.door.view(job.slug);
+      assert.equal(view.evidence, null, job.slug);
+      assert.equal(view.problem, null, job.slug);
+      assert.equal(w.local.jobs.get(job.slug)?.server ?? null, null, `${job.slug}: no app was started`);
+    }
+  } finally { await w.done(); }
+});
+
+test('a put-off recording is dropped when Auto is switched off on the job', { timeout: 60_000 }, async () => {
+  const w = await autoWorld({ times: { lookAgainMs: 600_000 } }); // no timer: each look is one this test asks for
+  try {
+    const release = holdSwitch(w);
+    w.handlers.change();
+    await putOff(w);
+    w.list[0].stage = 'review';
+    w.list[0].auto = { ...w.list[0].auto, on: false };
+    release();
+    const tries = w.steps.length;
+    w.handlers.change(); // the next look
+    await untilTrue(async () => (await w.door.view('auto-job')).problem === null, 'the waiting line stayed', 15_000);
+    await settle(1000);
+    assert.equal(w.steps.length, tries, 'no further try');
+    assert.equal(await w.runs(), 0, 'nothing starts');
+    assert.ok(!w.emitted.some((e) => NOTHING_RECORDED.includes(e.outcome)), 'no recording, made or failed');
+    assert.equal(w.local.jobs.get('auto-job')?.server ?? null, null, 'no app was started');
+    const view = await w.door.view('auto-job');
+    assert.equal(view.evidence, null);
+    assert.equal(view.recording, false);
+    assert.deepEqual(await w.log(), [], 'no Postgres tool ran');
+  } finally { await w.done(); }
+});
+
+/**
+ * The job's recording was put off, then the job went to a stage that is not after Test, the other switch
+ * ended and the next look came: the wait is dropped and nothing is started.
+ */
+async function wentBack(w, stage) {
+  const release = holdSwitch(w);
+  w.handlers.change();
+  await putOff(w);
+  w.list[0].stage = stage;
+  release();
+  const tries = w.steps.length;
+  w.handlers.change(); // the next look
+  await untilTrue(async () => (await w.door.view('auto-job')).problem === null, 'the waiting line stayed', 15_000);
+  await settle(1000);
+  assert.equal(w.steps.length, tries, 'no further try');
+  assert.equal(await w.runs(), 0, 'nothing starts');
+  assert.ok(!w.emitted.some((e) => NOTHING_RECORDED.includes(e.outcome)), 'no recording, made or failed');
+  assert.equal(w.local.jobs.get('auto-job')?.server ?? null, null, 'no app was started');
+  const view = await w.door.view('auto-job');
+  assert.equal(view.evidence, null);
+  assert.equal(view.recording, false);
+}
+
+test('a put-off recording is not made for a job sent back to Build, and its waiting line goes', { timeout: 60_000 }, async () => {
+  const w = await autoWorld({ times: { lookAgainMs: 600_000 } }); // no timer: each look is one this test asks for
+  try {
+    await wentBack(w, 'implement'); // Build: before Test in the product's stage order
+    assert.equal(w.list[0].stage, 'implement', 'the job is where it was sent');
+    assert.deepEqual(await w.log(), [], 'no Postgres tool ran');
+  } finally { await w.done(); }
+});
+
+test('the job sent back to Build is recorded when it reaches Test again', { timeout: 120_000, skip: NEEDS_SANDBOX }, async () => {
+  // The commit its put-off recording was for (the look had started that one once), then one built since.
+  for (const commit of ['abc1234def5', 'fff9999aaa1']) {
+    const w = await autoWorld({ times: { lookAgainMs: 600_000 } });
+    try {
+      await wentBack(w, 'implement');
+      if (commit !== 'abc1234def5') {
+        const report = path.join(w.list[0].dir, 'test-report.md');
+        await fs.writeFile(report, REPORT(commit));
+        const then = new Date(Date.now() - 60_000);
+        await fs.utimes(report, then, then); // written a while ago: ready to record
+      }
+      w.list[0].stage = 'test';
+      w.handlers.change(); // the ordinary look
+      await untilTrue(async () => { const v = await w.door.view('auto-job'); return v.evidence && !v.recording; }, `${commit}: never recorded in Test again`, 20_000);
+      const view = await w.door.view('auto-job');
+      assert.equal(view.evidence.commit, commit);
+      assert.equal(view.problem, null, commit);
+      assert.deepEqual(w.emitted.filter((e) => e.outcome === 'recorded').map((e) => e.commit), [commit], 'recorded once, in Test');
+      assert.deepEqual(w.audits.filter((a) => a.outcome === 'recorded').map((a) => a.via), ['auto'], 'made by the look, not by a press of Record');
+      assert.equal(await w.runs(), 1, commit);
+      onAutoOnly(await w.log());
+    } finally { await w.done(); }
+  }
+});
+
+test('a put-off recording is not made for a job in a stage Starbase does not know, and its waiting line goes', { timeout: 60_000 }, async () => {
+  const w = await autoWorld({ times: { lookAgainMs: 600_000 } });
+  try {
+    await wentBack(w, null); // no stage read from the job's files: not a stage after Test
+    assert.deepEqual(await w.log(), [], 'no Postgres tool ran');
+  } finally { await w.done(); }
+});
+
+test('a put-off recording is not made for a closed job', { timeout: 60_000 }, async () => {
+  const w = await autoWorld({ times: { lookAgainMs: 600_000 } });
+  try {
+    const release = holdSwitch(w);
+    w.handlers.change();
+    await putOff(w);
+    w.list[0].stage = 'review';
+    w.list[0].closed = true;
+    release();
+    const tries = w.steps.length;
+    w.handlers.change();
+    await settle(1000);
+    assert.equal(w.steps.length, tries, 'no further try');
+    assert.equal(await w.runs(), 0);
+    assert.ok(!w.emitted.some((e) => NOTHING_RECORDED.includes(e.outcome)));
+    assert.equal(w.local.jobs.get('auto-job')?.server ?? null, null, 'no app was started');
+    assert.equal((await w.door.view('auto-job')).evidence, null);
+  } finally { await w.done(); }
+});
+
+test('a put-off recording is not made after the job has left Test once the test report names another commit', { timeout: 60_000 }, async () => {
+  const w = await autoWorld({ times: { lookAgainMs: 600_000 } });
+  try {
+    const release = holdSwitch(w);
+    w.handlers.change();
+    await putOff(w);
+    w.list[0].stage = 'review';
+    const report = path.join(w.list[0].dir, 'test-report.md');
+    await fs.writeFile(report, REPORT('fff9999aaa1'));
+    const then = new Date(Date.now() - 60_000);
+    await fs.utimes(report, then, then); // written a while ago: ready to record, were it owed
+    release();
+    const tries = w.steps.length;
+    w.handlers.change();
+    await settle(1000);
+    assert.equal(w.steps.length, tries, 'no further try: what was put off was for the commit before');
+    assert.equal(await w.runs(), 0);
+    assert.ok(!w.emitted.some((e) => NOTHING_RECORDED.includes(e.outcome)));
+    assert.equal((await w.door.view('auto-job')).evidence, null);
+  } finally { await w.done(); }
+});
+
+test('a recording that failed, not one that was put off, is not tried again by itself after the job has left Test', { timeout: 60_000 }, async () => {
+  const w = await autoWorld({ settings: 'OTHER=1\n' }); // no database Starbase can copy: a failure, not a wait
+  try {
+    w.list[0].stage = 'review';
+    await assert.rejects(w.door.record('auto-job', { waitMs: 50_000 }), (err) => err.status === 409); // he presses Record
+    const view = await w.door.view('auto-job');
+    assert.equal(view.problem.message, 'Your main folder’s .env.local has no DATABASE_URL.');
+    assert.notEqual(view.problem.waiting, true, 'a problem, not a wait');
+    const tries = w.steps.length;
+    w.handlers.change();
+    await settle(1000);
+    assert.equal(w.steps.length, tries, 'no try by itself');
+    assert.equal(w.audits.length, 1, 'the one line of his own press');
+  } finally { await w.done(); }
+});
+
+// ---------- Final review, finding 1: a recording keeps what it was queued as, in the safe direction only ----------
+// One recording runs at a time, so one can wait its turn for minutes. Queued while the job was Auto's and not
+// Auto's when its turn comes (PR #1 opened and Auto finished on it, or he switched Auto off): nothing is
+// recorded, so nothing of that job starts on his database, with no fence and nobody's click.
+
+/**
+ * The first job's recording is held as its copy of the database begins, so whatever is asked for the
+ * second job meanwhile waits its turn behind it. asked: every app Try it was asked to start ('his':
+ * with no address of Auto's and no fence). held(): the first is held now. release(): it goes on.
+ */
+function holdFirst(w) {
+  const made = w.local.autoDatabase;
+  let held = false;
+  let release;
+  const wait = new Promise((r) => { release = r; });
+  w.local.autoDatabase = async (f, o) => { if (f.slug === w.list[0].slug && !held) { held = true; await wait; } return made(f, o); };
+  const asked = [];
+  const start = w.local.startServer.bind(w.local);
+  w.local.startServer = (f, opts) => { asked.push({ slug: f.slug, opts: opts ?? 'his' }); return start(f, opts); };
+  return { asked, release, held: () => held };
+}
+/** The look has queued both jobs' recordings: the first's is held, the second's waits behind it. quiet: and the watcher's second look has passed. */
+async function bothQueued(w, hold, { quiet = false } = {}) {
+  w.handlers.change();
+  await untilTrue(() => hold.held(), 'the first recording never began');
+  await untilTrue(async () => (await w.door.view(w.list[1].slug)).recording, 'the second was never queued');
+  if (quiet) await settle(3300); // from here every look is one the test asks for
+}
+/** The second job's turn has come and gone. */
+const turnOver = (w) => untilTrue(async () => !(await w.door.view(w.list[1].slug)).recording, 'the second never had its turn', 60_000);
+const copiesOf = (w, slug) => w.steps.filter((s) => s === `copy ${slug}`).length;
+/** Nothing was started, copied or recorded for the job (copies: how many copies it had begun before), nothing was said of it and no line is left. */
+async function nothingOf(w, slug, asked, copies = 0) {
+  assert.deepEqual(asked.filter((a) => a.slug === slug), [], `${slug}: no app was asked for`);
+  assert.equal(w.local.jobs.get(slug)?.server ?? null, null, `${slug}: no app was started`);
+  assert.equal(copiesOf(w, slug), copies, `${slug}: no copy was made`);
+  assert.deepEqual(w.emitted.filter((e) => e.slug === slug && NOTHING_RECORDED.includes(e.outcome)), [], `${slug}: no recording, made or failed`);
+  assert.deepEqual(w.audits.filter((a) => a.slug === slug), [], `${slug}: no audit line`);
+  const view = await w.door.view(slug);
+  assert.equal(view.evidence, null, `${slug}: nothing was recorded`);
+  assert.equal(view.problem, null, `${slug}: no line is left`);
+  assert.equal(view.recording, false);
+}
+const recordedNow = (w, slug) => untilTrue(async () => { const v = await w.door.view(slug); return v.evidence && !v.recording; }, `${slug} was never recorded`, 60_000);
+
+test('a recording queued for an Auto job starts no app when Auto has finished on the job before its turn', { timeout: 120_000 }, async () => {
+  const w = await autoWorld({ slugs: ['first-job', 'next-job'], times: { lookAgainMs: 600_000 } }); // no timer: each look is one this test asks for
+  try {
+    // Both recordings were put off, and Auto carried on with the second: it is at Review, its recording still owed.
+    const free = holdSwitch(w);
+    w.handlers.change();
+    await putOff(w, 'first-job');
+    await putOff(w, 'next-job');
+    w.list[1].stage = 'review';
+    free();
+    const copies = copiesOf(w, 'next-job');
+    const hold = holdFirst(w);
+    await bothQueued(w, hold, { quiet: true });
+    // PR #1 opens on the second while the first records: Auto's pass finishes it (runner/auto.js finish).
+    w.list[1].stage = 'pr1';
+    w.list[1].auto = { ...w.list[1].auto, on: false, stopped: null, finished: new Date().toISOString() };
+    hold.release();
+    await turnOver(w);
+    await nothingOf(w, 'next-job', hold.asked, copies); // and its waiting line is gone
+    w.handlers.change(); // no later look records it either: past Test, and not Auto's
+    await settle(1000);
+    await nothingOf(w, 'next-job', hold.asked, copies);
+  } finally { await w.done(); }
+});
+
+test('a recording that is not made for a job Auto finished leaves an earlier problem line as it is', { timeout: 60_000 }, async () => {
+  const why = 'Your main folder’s .env.local has no DATABASE_URL.';
+  const w = await autoWorld({ slugs: ['first-job', 'next-job'], settings: 'OTHER=1\n', times: { lookAgainMs: 600_000 } }); // no database Starbase can copy: a failure, not a wait
+  try {
+    await assert.rejects(w.door.record('next-job', { waitMs: 50_000 }), (err) => err.status === 409 && err.message === why); // his own press, refused
+    const copies = copiesOf(w, 'next-job');
+    const hold = holdFirst(w);
+    await bothQueued(w, hold); // the look tries the second by itself: still in Test
+    w.list[1].stage = 'pr1';
+    w.list[1].auto = { ...w.list[1].auto, on: false, stopped: null, finished: new Date().toISOString() };
+    hold.release();
+    await turnOver(w);
+    const view = await w.door.view('next-job');
+    assert.equal(view.problem.message, why, 'the line of his press stays');
+    assert.notEqual(view.problem.waiting, true);
+    assert.deepEqual(hold.asked.filter((a) => a.slug === 'next-job'), [], 'no app was asked for');
+    assert.equal(copiesOf(w, 'next-job'), copies, 'no further copy was begun');
+    assert.deepEqual(w.audits.filter((a) => a.slug === 'next-job').map((a) => [a.outcome, a.via]), [['not-recorded', 'page']], 'the one line of his own press');
+    assert.deepEqual(w.emitted.filter((e) => e.slug === 'next-job').map((e) => e.outcome), ['not-recorded'], 'and its one event');
+  } finally { await w.done(); }
+});
+
+test('a recording queued for an Auto job starts no app when he switched Auto off before its turn; still in Test, the next look records it as his', { timeout: 120_000, skip: NEEDS_PG_TOOLS }, async () => {
+  const w = await autoWorld({ slugs: ['first-job', 'next-job'], times: { lookAgainMs: 600_000 } });
+  try {
+    const hold = holdFirst(w);
+    await bothQueued(w, hold, { quiet: true });
+    w.list[1].auto = { ...w.list[1].auto, on: false, ran: true }; // switched off by hand (lib/auto.js autoRecord); the job stays in Test
+    hold.release();
+    await turnOver(w);
+    await nothingOf(w, 'next-job', hold.asked);
+    // His job now, and still in Test: the next look records it as any job of his.
+    w.handlers.change();
+    await recordedNow(w, 'next-job');
+    assert.deepEqual(hold.asked.filter((a) => a.slug === 'next-job'), [{ slug: 'next-job', opts: 'his' }], 'started once, as any job of his');
+    assert.equal(copiesOf(w, 'next-job'), 0, 'no copy of Auto\'s');
+    assert.deepEqual(w.audits.filter((a) => a.slug === 'next-job').map((a) => [a.outcome, a.via]), [['recorded', 'auto']]);
+    assert.equal((await w.door.view('next-job')).evidence.commit, 'abc1234def5');
+  } finally { await w.done(); }
+});
+
+test('a recording queued for a job that is not Auto\'s is made as before', { timeout: 120_000, skip: NEEDS_PG_TOOLS }, async () => {
+  const w = await autoWorld({ slugs: ['first-job', 'his-job'] });
+  try {
+    w.list[1].auto = null; // the second is not Auto's
+    const hold = holdFirst(w);
+    await bothQueued(w, hold);
+    hold.release();
+    await recordedNow(w, 'his-job');
+    assert.deepEqual(hold.asked.filter((a) => a.slug === 'his-job'), [{ slug: 'his-job', opts: 'his' }], 'started as any job of his');
+    assert.equal(copiesOf(w, 'his-job'), 0, 'no autoDatabase call');
+    assert.equal(w.local.jobs.get('his-job').server.db, null);
+    assert.deepEqual(w.audits.filter((a) => a.slug === 'his-job').map((a) => [a.outcome, a.via]), [['recorded', 'auto']]);
+    assert.equal((await w.door.view('his-job')).evidence.commit, 'abc1234def5');
+  } finally { await w.done(); }
+});
+
+test('a recording queued for a job of his that is Auto\'s by its turn is made on Auto\'s database, as before', { timeout: 120_000, skip: NEEDS_SANDBOX }, async () => {
+  const w = await autoWorld({ slugs: ['first-job', 'next-job'] });
+  try {
+    w.list[1].auto = null; // the second is not Auto's when the look queues it
+    const hold = holdFirst(w);
+    await bothQueued(w, hold);
+    w.list[1].auto = { on: true }; // Auto is switched on for it while its recording waits
+    hold.release();
+    await recordedNow(w, 'next-job');
+    const asks = hold.asked.filter((a) => a.slug === 'next-job');
+    assert.equal(asks.length, 1);
+    assert.equal(dbNameOf(asks[0].opts.databaseUrl), 'app__auto', 'started on Auto\'s database');
+    assert.equal(copiesOf(w, 'next-job'), 1, 'Auto\'s copy was made');
+    assert.equal(w.local.jobs.get('next-job').server.db, 'auto');
+    onAutoOnly(await w.log());
+  } finally { await w.done(); }
+});
+
+test('his Record on an Auto job records nothing when Auto has finished on the job before its turn, and says so', { timeout: 120_000, skip: NEEDS_PG_TOOLS }, async () => {
+  const { AUTO_ENDED } = await import('../runner/evidence.js');
+  const w = await autoWorld({ slugs: ['first-job', 'next-job'] });
+  try {
+    assert.equal(AUTO_ENDED, 'Auto was no longer on for this job when its recording\'s turn came, so nothing was recorded. Press Record to record it as your own job.');
+    const hold = holdFirst(w);
+    assert.equal((await w.door.record('first-job', { waitMs: 100 })).started, true);
+    await untilTrue(() => hold.held(), 'the first recording never began');
+    const pressed = w.door.record('next-job', { waitMs: 50_000 }); // he presses Record on the second: it waits its turn
+    pressed.catch(() => {});
+    await untilTrue(async () => (await w.door.view('next-job')).recording, 'the second was never queued');
+    w.list[1].stage = 'pr1';
+    w.list[1].auto = { ...w.list[1].auto, on: false, stopped: null, finished: new Date().toISOString() };
+    hold.release();
+    await assert.rejects(pressed, (err) => err.status === 409 && err.message === AUTO_ENDED);
+    assert.deepEqual(hold.asked.filter((a) => a.slug === 'next-job'), [], 'no app was asked for');
+    assert.equal(w.local.jobs.get('next-job')?.server ?? null, null, 'no app was started');
+    assert.equal(copiesOf(w, 'next-job'), 0, 'no copy was made');
+    const view = await w.door.view('next-job');
+    assert.equal(view.evidence, null, 'nothing was recorded');
+    assert.equal(view.problem.message, AUTO_ENDED, 'the Test step says why');
+    assert.notEqual(view.problem.waiting, true, 'a refusal, not a wait');
+    assert.deepEqual(w.emitted.filter((e) => e.slug === 'next-job').map((e) => [e.outcome, e.reason]), [['not-recorded', AUTO_ENDED]]);
+    assert.deepEqual(w.audits.filter((a) => a.slug === 'next-job').map((a) => [a.outcome, a.via, a.reason]), [['not-recorded', 'page', AUTO_ENDED]]);
+    // His next press is for the job as it is now: his.
+    const r = await w.door.record('next-job', { waitMs: 50_000 });
+    assert.equal(r.evidence.commit, 'abc1234def5');
+    assert.deepEqual(hold.asked.filter((a) => a.slug === 'next-job'), [{ slug: 'next-job', opts: 'his' }], 'started as any job of his');
+    assert.equal((await w.door.view('next-job')).problem, null, 'the line is gone');
+  } finally { await w.done(); }
+});
+
 test('a job not in Auto records as today', { timeout: 60_000, skip: NEEDS_PG_TOOLS }, async () => {
   const w = await autoWorld({ auto: null });
   try {

@@ -145,7 +145,7 @@ const SENTENCE_END = /[.,;:!?)\]}]+$/;
 const hiddenAs = (words) => (m) => `${words}${m.match(SENTENCE_END)?.[0] ?? ''}`;
 
 /** Text with its secrets (lib/orbit.js scrub), database addresses and this laptop's folders hidden. */
-function hideLocal(text) {
+export function hideLocal(text) {
   if (typeof text !== 'string' || !text) return text;
   return scrub(text).replace(DB_ADDRESS, hiddenAs('[database address hidden]')).replace(LOCAL_PATH, hiddenAs('[path hidden]'));
 }
@@ -158,12 +158,27 @@ function autoQueueUp(q) {
 }
 
 /**
- * The board: the snapshot's cards (their `auto` fields as they are), the waiting permissions, the meters, the page's settings,
- * the Auto queue, and the protocol this laptop speaks (the site sends Auto start's max only from 7 on).
+ * A card as it goes up: why Auto stopped on it and why it is too big for Auto (auto.stopped.reason, auto.tooBig.reason:
+ * an error's words, the Foreman's own sentence) hidden as the queue's copy is. An older record kept the stop's sentence alone.
+ * Its lane sentence (laneReason) is hidden the same way: "Auto stopped: …" repeats the stop's reason (lib/snapshot.js laneFor).
+ * The snapshot's own card is not changed: the laptop's pages keep the sentence as it is.
+ */
+function cardUp(job) {
+  if (!isPlain(job)) return job;
+  const up = typeof job.laneReason === 'string' ? { ...job, laneReason: hideLocal(job.laneReason) } : job;
+  const a = job.auto;
+  if (!isPlain(a)) return up;
+  const hidden = (v) => (!isPlain(v) ? hideLocal(v) : typeof v.reason === 'string' ? { ...v, reason: hideLocal(v.reason) } : v);
+  return { ...up, auto: { ...a, ...(a.stopped ? { stopped: hidden(a.stopped) } : {}), ...(a.tooBig ? { tooBig: hidden(a.tooBig) } : {}) } };
+}
+
+/**
+ * The board: the snapshot's cards (as they are, but for the two Auto reasons and the lane sentence: cardUp), the waiting permissions,
+ * the meters, the page's settings, the Auto queue, and the protocol this laptop speaks (the site sends Auto start's max only from 7 on).
  */
 export function boardRecord(snap) {
   return wireSafe({
-    meta: metaOf(snap.meta), jobs: snap.jobs ?? [], needsYou: snap.needsYou ?? 0,
+    meta: metaOf(snap.meta), jobs: Array.isArray(snap.jobs) ? snap.jobs.map(cardUp) : snap.jobs ?? [], needsYou: snap.needsYou ?? 0,
     permissions: (snap.permissions ?? []).map(permissionCard).filter(Boolean),
     usage: snap.usage ?? null, planUsage: snap.planUsage ?? null, runTypical: snap.runTypical ?? null, generatedAt: snap.generatedAt ?? null,
     autoQueue: autoQueueUp(snap.autoQueue), protocol: PROTOCOL_VERSION,
