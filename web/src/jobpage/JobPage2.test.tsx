@@ -159,7 +159,11 @@ describe('addresses', () => {
     open(`#/job/${SLUG}/stage/plan`);
     await settle();
     expect(stepRow('Plan')).toHaveAttribute('aria-expanded', 'true');
-    expect(stepRow('Review')).toHaveAttribute('aria-expanded', 'false');
+    // The current step stays open too (Task 10: opening a step moves nothing above it), and the
+    // reader shows the named step's main output.
+    expect(stepRow('Review')).toHaveAttribute('aria-expanded', 'true');
+    expect(stepRow('Build')).toHaveAttribute('aria-expanded', 'false');
+    expect(readerTitle()).toBe('Implementation plan');
     act(() => { window.location.hash = `#/job/${SLUG}/conversation`; window.dispatchEvent(new HashChangeEvent('hashchange')); });
     expect(readerTitle()).toBe('Conversation');
     act(() => { window.location.hash = `#/job/${SLUG}/overview`; window.dispatchEvent(new HashChangeEvent('hashchange')); });
@@ -189,8 +193,8 @@ describe('addresses', () => {
     fireEvent.click(stepRow('Plan'));
     expect(window.location.hash).toBe(`#/job/${SLUG}/stage/plan`);
     expect(stepRow('Plan')).toHaveAttribute('aria-expanded', 'true');
-    // The reader keeps what it showed: the step pick only opened the step.
-    expect(readerTitle()).toBe('Conversation');
+    // The step pick shows the step's main output in the reader (Task 10).
+    expect(readerTitle()).toBe('Implementation plan');
     // An output of the open step opens in the reader.
     fireEvent.click(screen.getByRole('button', { name: /^Implementation plan/ }));
     expect(window.location.hash).toBe(`#/job/${SLUG}/read/doc/implementation-plan.md`);
@@ -486,5 +490,40 @@ describe('Task 7 fix round 1', () => {
     fireEvent.click(screen.getByRole('button', { name: 'More for this job' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Back to the old job page' }));
     expect(await screen.findByRole('main', { name: 'Job' })).not.toHaveClass('jp2');
+  });
+});
+
+describe('Task 10: the steps and the job rows on the page', () => {
+  it('a step click shows its main output in the reader, over the left pane under 1100 px; [ ] move the step and show its output without covering', async () => {
+    windowWidth(900);
+    open(`#/job/${SLUG}`);
+    await settle();
+    fireEvent.click(stepRow('Build'));
+    expect(readerTitle()).toBe('Changes');
+    expect(page()).toHaveAttribute('data-covered');
+    expect(document.activeElement).toBe(document.querySelector('.jp2-reader'));
+    fireEvent.click(within(document.querySelector<HTMLElement>('.jp2-reader')!).getByRole('button', { name: 'Back to the job' }));
+    key(']');
+    // The reader is behind the left pane now (no region to a screen reader): its title, read directly.
+    expect(document.querySelector('.jp2-rv-title')!.textContent).toBe('Checks and recording');
+    expect(page()).not.toHaveAttribute('data-covered');
+    expect(window.location.hash).toBe(`#/job/${SLUG}/stage/test`);
+  });
+
+  it('a reload of a step’s address shows that step’s main output again', async () => {
+    const { unmount } = open(`#/job/${SLUG}/stage/review`);
+    await settle();
+    expect(readerTitle()).toBe('Findings');
+    unmount();
+    open(`#/job/${SLUG}/stage/build`);
+    await settle();
+    expect(readerTitle()).toBe('Changes');
+  });
+
+  it('Conversation says what is new since his last look', async () => {
+    localStorage.setItem(`sb.convo.seen.${SLUG}`, '2026-11-04T14:30:00.000Z');
+    open(`#/job/${SLUG}`);
+    await settle();
+    expect(screen.getByRole('button', { name: 'Conversation · 52 · 1 new' })).toBeInTheDocument();
   });
 });

@@ -34,13 +34,14 @@ import { readHref, replaceHash, stageHref, type JobView } from '../app/router';
 import { Button } from '../components/Button';
 import { Icon } from '../components/Icon';
 import { useMinWidth, useNarrow } from '../components/page/Page';
-import { STOPS } from '../components/stops/stops';
-import { statesOf } from '../job/page/stepWords';
 import { useWorkshop } from '../state/store';
 import { createJobStore, type JobPageState, type JobStore } from './jobStore';
 import { recentPage, rememberPage } from './recent';
-import type { JobPagePayload, Output, ReaderKind, ReaderTarget, StepRow, StopId } from './types';
+import { CONVERSATION, DECISIONS, DETAILS, readerOf, sameTarget, TICKET } from './targets';
+import type { JobPagePayload, ReaderKind, ReaderTarget, StopId } from './types';
 import { Header } from './left/Header';
+import { JobRows } from './left/JobRows';
+import { Steps, stepsFromRow } from './left/Steps';
 import { sinceWords, YourMove } from './left/YourMove';
 import { JobStoreContext, useJob, useJobStore } from './useJob';
 import './jobpage.css';
@@ -70,11 +71,6 @@ export interface JobPage2Props {
   /** A store made elsewhere (tests); otherwise the page makes one for the job and ends it when it goes. */
   store?: JobStore;
 }
-
-const CONVERSATION: ReaderTarget = { kind: 'conversation', id: 'conversation' };
-const TICKET: ReaderTarget = { kind: 'ticket', id: 'ticket' };
-const DECISIONS: ReaderTarget = { kind: 'decisions', id: 'decisions' };
-const DETAILS: ReaderTarget = { kind: 'details', id: 'details' };
 
 /** What the address asks the reader to show, or null. */
 function addressTarget(view: JobView | undefined, read: ReaderTarget | undefined): ReaderTarget | null {
@@ -146,25 +142,39 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
 
   // A later change of the address (a link, Back) is a pick of what it names; the page's own picks
   // write the address first, so this finds them already done.
-  useEffect(() => { if (step) store.setStep(step); }, [store, step]);
+  useEffect(() => { if (step) { store.setStep(step); store.setReader(null); } }, [store, step]);
   const named = addressTarget(view, read);
   useEffect(() => { if (named) store.setReader(named); }, [store, named?.kind, named?.id]);
 
+  // A step pick opens the step and shows its main output (targets.ts readerOf): his own reader pick
+  // goes, so the address /stage/<stop> brings the same view back on a reload.
   const pickStep = useCallback((id: StopId) => {
     store.setStep(id);
+    store.setReader(null);
     replaceHash(stageHref(slug, id));
   }, [store, slug]);
 
-  const pickReader = useCallback((t: ReaderTarget, from?: HTMLElement | null) => {
-    store.setReader(t);
-    replaceHash(readHref(slug, t));
+  /** The reader takes what was picked: under 1100 px it comes over the left pane with the focus. */
+  const showReader = useCallback((from?: HTMLElement | null) => {
     const was = from ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     // The reader itself (g c, g t or / pressed inside it) is never where Back returns to.
     if (!was || !reader.current?.contains(was)) opener.current = was;
     // Under 1100 px the reader comes over the left pane and takes the focus.
     flushSync(() => setCovered(true));
     if (layout !== 'wide') reader.current?.focus();
-  }, [store, slug, layout]);
+  }, [layout]);
+
+  const pickReader = useCallback((t: ReaderTarget, from?: HTMLElement | null) => {
+    store.setReader(t);
+    replaceHash(readHref(slug, t));
+    showReader(from);
+  }, [store, slug, showReader]);
+
+  /** A click (or Enter) on a step: it opens, and its main output shows in the reader. */
+  const openStep = useCallback((id: StopId, from?: HTMLElement | null) => {
+    pickStep(id);
+    showReader(from);
+  }, [pickStep, showReader]);
 
   const back = useCallback(() => {
     flushSync(() => setCovered(false));
@@ -176,9 +186,9 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
   const openLine = useCallback((i: number) => {
     const line = lines[i];
     if (!line) return;
-    if (line.step) pickStep(line.step);
+    if (line.step) openStep(line.step, null);
     else if (line.target) pickReader(line.target, null);
-  }, [lines, pickStep, pickReader]);
+  }, [lines, openStep, pickReader]);
 
   const leftHidden = single && covered;
   // Crossing from two panes to one while the reader is open: the focus goes into it, not to the page.
@@ -249,7 +259,7 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
         <div className="jp2-left" aria-hidden={leftHidden || undefined} inert={leftHidden || undefined}>
           <div className="jp2-lscroll">
             <YourMove job={job} onOpen={pickReader} />
-            <Steps job={job} cursor={cursor} onStep={pickStep} onOpen={pickReader} />
+            <Steps job={job} cursor={cursor} onStep={openStep} onOpen={pickReader} />
             <JobRows cursor={cursor} first={lines.findIndex((l) => l.target)} onOpen={pickReader} />
           </div>
           <MessageBox boxRef={box} />
@@ -277,19 +287,6 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
 
 // ---------- What the parts read ----------
 
-const readerOf = (s: JobPageState): ReaderTarget | null => s.ui.reader ?? s.payload?.open ?? null;
-
-type StepMark = StepRow['state'];
-/** The seven steps before the payload, from the snapshot row. */
-function stepsFromRow(job: Job | null): { id: StopId; label: string; state: StepMark }[] {
-  const states = job ? statesOf(job) : null;
-  return STOPS.map((s) => {
-    const st = states?.[s.id];
-    const state: StepMark = st === 'done' ? 'done' : st === 'now' || st === 'waiting' ? 'current' : st === 'skipped' ? 'skipped' : 'todo';
-    return { id: s.id, label: s.label, state };
-  });
-}
-
 const stepIds = (payload: JobPagePayload | null, job: Job | null): StopId[] => (payload ? payload.steps.map((s) => s.id) : stepsFromRow(job).map((s) => s.id));
 
 /** The step shown open: his pick, else the job's current step. */
@@ -305,79 +302,7 @@ function leftLines(payload: JobPagePayload | null, job: Job | null): Line[] {
   return [...stepIds(payload, job).map((step) => ({ step })), ...[TICKET, CONVERSATION, DECISIONS, DETAILS].map((target) => ({ target }))];
 }
 
-const OUTPUT_READER: Record<Output['kind'], ReaderKind> = {
-  doc: 'doc', screens: 'doc', changes: 'changes', checks: 'checks', recording: 'checks', 'hand-test': 'checks', findings: 'findings', walkthrough: 'walkthrough', pr: 'pr',
-};
-
-// ---------- The left pane (Tasks 9, 10, 11 fill it) ----------
-
-const Steps = memo(function Steps({ job, cursor, onStep, onOpen }: { job: Job | null; cursor: number | null; onStep(id: StopId): void; onOpen(t: ReaderTarget, el: HTMLElement): void }) {
-  const steps = useJob((s) => s.payload?.steps ?? null);
-  const open = useJob((s) => openStepOf(s, job));
-  const rows = steps ?? stepsFromRow(job).map((s) => ({ ...s, word: null, durationMs: null, startedAt: null, outputs: [] as Output[] }));
-  return (
-    <nav className="jp2-st" aria-label="Steps">
-      {rows.map((s, i) => {
-        const isOpen = s.id === open;
-        return (
-          <div key={s.id} className="jp2-step">
-            <button
-              type="button"
-              className={`jp2-row jp2-st-row is-${s.state}${isOpen ? ' is-open' : ''}${cursor === i ? ' is-cursor' : ''}`}
-              data-jp-line={i}
-              aria-expanded={isOpen}
-              onClick={() => onStep(s.id)}
-            >
-              <span className="jp2-st-mark" aria-hidden="true">{s.state === 'done' ? <Icon name="check" size={14} /> : s.state === 'current' ? <i className="jp2-dot" /> : s.state === 'skipped' ? <Icon name="minus" size={14} /> : <i className="jp2-ring" />}</span>
-              <span className="jp2-st-name">{s.label}</span>
-              {s.word && <span className="jp2-st-word">{s.word}</span>}
-            </button>
-            {isOpen && s.outputs.length > 0 && (
-              <ul className="jp2-st-outs">
-                {s.outputs.map((o) => (
-                  <li key={`${o.kind}:${o.id}`}>
-                    <button type="button" className="jp2-row jp2-st-out" onClick={(e) => onOpen({ kind: OUTPUT_READER[o.kind], id: o.id }, e.currentTarget)}>
-                      <span className="jp2-out-label">{o.label}</span>
-                      {(o.meta || o.version) && <span className="jp2-out-meta">{o.meta ?? `v${o.version}`}</span>}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        );
-      })}
-    </nav>
-  );
-});
-
-const JobRows = memo(function JobRows({ cursor, first, onOpen }: { cursor: number | null; first: number; onOpen(t: ReaderTarget, el: HTMLElement): void }) {
-  const target = useJob(readerOf);
-  const convo = useJob((s) => s.payload?.rows.conversation.count ?? null);
-  const decided = useJob((s) => s.payload?.rows.decisions.count ?? null);
-  const rows: { t: ReaderTarget; name: string; more: string | null }[] = [
-    { t: TICKET, name: 'Ticket and goal', more: null },
-    { t: CONVERSATION, name: 'Conversation', more: convo !== null ? `· ${convo}` : null },
-    { t: DECISIONS, name: 'Decisions', more: decided !== null ? `· ${decided} made for you` : null },
-    { t: DETAILS, name: 'Details', more: null },
-  ];
-  return (
-    <div className="jp2-jrs" role="group" aria-label="The job">
-      {rows.map((r, i) => (
-        <button
-          key={r.t.kind}
-          type="button"
-          className={`jp2-row jp2-jr${target?.kind === r.t.kind ? ' is-sel' : ''}${cursor === first + i ? ' is-cursor' : ''}`}
-          data-jp-line={first + i}
-          aria-label={r.more ? `${r.name} ${r.more}` : undefined}
-          onClick={(e) => onOpen(r.t, e.currentTarget)}
-        >
-          {r.name}{r.more && <span className="jp2-dim">{r.more}</span>}
-        </button>
-      ))}
-    </div>
-  );
-});
+// ---------- The left pane's message box (Task 11 fills it) ----------
 
 const MessageBox = memo(function MessageBox({ boxRef }: { boxRef: React.RefObject<HTMLTextAreaElement | null> }) {
   const store = useJobStore();
@@ -429,7 +354,7 @@ function titleOf(t: ReaderTarget, payload: JobPagePayload | null): { title: stri
 }
 
 const Reader = memo(function Reader({ job, searchRef }: { job: Job | null; searchRef: React.RefObject<HTMLInputElement | null> }) {
-  const target = useJob(readerOf);
+  const target = useJob(readerOf, sameTarget);
   // Only the title row's words: a new thread line elsewhere does not redraw the reader.
   const head = useJob((s) => (target ? titleOf(target, s.payload) : null), (a, b) => a?.title === b?.title && a?.meta === b?.meta);
   if (!target || !head) {
