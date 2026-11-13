@@ -1366,7 +1366,7 @@ test('his Record on an Auto job records nothing when Auto has finished on the jo
   const { AUTO_ENDED } = await import('../runner/evidence.js');
   const w = await autoWorld({ slugs: ['first-job', 'next-job'] });
   try {
-    assert.equal(AUTO_ENDED, 'Auto was no longer on for this job when its recording\'s turn came, so nothing was recorded.');
+    assert.equal(AUTO_ENDED, 'Auto was no longer on for this job when its recording\'s turn came, so nothing was recorded. Press Record to record it as your own job.');
     const hold = holdFirst(w);
     assert.equal((await w.door.record('first-job', { waitMs: 100 })).started, true);
     await untilTrue(() => hold.held(), 'the first recording never began');

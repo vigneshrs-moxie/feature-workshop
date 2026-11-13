@@ -85,8 +85,8 @@ export const AUTO_DB_HIS_NEW_STOP = "Something new connected to your database ea
 export const AUTO_DB_TAKEN_STOP = "Something stayed connected to Auto's copy of the database through 3 tries, so no recording was made. Stop whatever is using it, then switch Auto on again.";
 /** A migration that exited well but isn't in Auto's copy: Auto stops on the job with this reason (lead's words). */
 export const AUTO_NOT_LANDED_STOP = 'A migration from this job did not land on Auto\'s copy of the database. It may have run on yours. Check your database before this job goes on.';
-/** A recording asked for while the job was Auto's, whose turn came once it no longer was: nothing is recorded (implementer's words). */
-export const AUTO_ENDED = "Auto was no longer on for this job when its recording's turn came, so nothing was recorded.";
+/** A recording asked for while the job was Auto's, whose turn came once it no longer was: nothing is recorded (lead's words). */
+export const AUTO_ENDED = "Auto was no longer on for this job when its recording's turn came, so nothing was recorded. Press Record to record it as your own job.";
 /**
  * The note on a recording during which the door refused a session (lib/db-door.js): Auto's app asked
  * for another database than its own copy. The recording is kept. refusal: lib/local.js autoRefusal's

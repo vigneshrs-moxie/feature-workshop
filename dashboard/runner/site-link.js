@@ -68,7 +68,7 @@ import { enrichView, partPage, stackCard, usageByJob } from '../lib/stack-parts.
 import { USAGE_FILE, UsageLog, parseLine, usageDir } from '../lib/usage-log.js';
 import { cleanRecord } from '../lib/insights.js';
 import { STAGE_IDS } from '../lib/stages.js';
-import { autoLogRecord, boardRecord, decisionsRecord, docRecord, docsRecord, evidenceRecord, fit, jobRecord, partRecord, stackRecord, stacksRecord } from './mirror.js';
+import { autoLogRecord, boardRecord, decisionsRecord, docRecord, docsRecord, evidenceRecord, fit, hideLocal, jobRecord, partRecord, stackRecord, stacksRecord } from './mirror.js';
 import { uploadEvidence } from './evidence.js';
 
 /** Where the runner token is kept: its own names in the same stores as the Orbit token. */
@@ -402,17 +402,21 @@ export function usageUploader({ stateDir, url, dir, read, call, now = () => Date
 const REAL_TIMERS = { now: () => Date.now(), sleep: (ms) => new Promise((r) => { setTimeout(r, ms).unref?.(); }) };
 const cut = (v, n = 300) => (typeof v === 'string' ? (v.length > n ? `${v.slice(0, n - 1)}…` : v) : null);
 
-/** One open job as the site keeps it (nothing else of the job leaves the laptop here). */
+/**
+ * One open job as the site keeps it (nothing else of the job leaves the laptop here). Its lane sentence can repeat why
+ * Auto stopped (an error's words): it goes up hidden as the board's copy does (runner/mirror.js hideLocal), then cut.
+ */
 export function jobRow(card) {
   const now = card.nowDoing?.[0];
-  const nowLine = now?.doing ? `${now.name ?? 'Foreman'}: ${now.doing}` : card.laneReason ?? card.headline ?? null;
+  const lane = hideLocal(card.laneReason);
+  const nowLine = now?.doing ? `${now.name ?? 'Foreman'}: ${now.doing}` : lane ?? card.headline ?? null;
   return {
     slug: card.slug,
     title: cut(card.title || card.slug, 200),
     ticket: slugTicketKey(card.slug) ?? null,
     stage: cut(card.stage ?? null, 40),
     state: cut(card.lane ?? card.stageState ?? null, 40),
-    stateWords: cut(card.laneReason ?? null, 120),
+    stateWords: cut(lane ?? null, 120),
     now: cut(nowLine),
     updatedAt: typeof card.updatedAt === 'string' ? card.updatedAt : null,
   };
