@@ -414,6 +414,7 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2[data-layout="phone"] .jp2-fd-x { grid-column: 2; }
 .jp2[data-layout="phone"] .jp2-fd-t { white-space: normal; }
 .jp2[data-layout="phone"] .jp2-fd-more { padding-left: 8px; }
+.jp2[data-layout="phone"] .jp2-fd-more > p:first-child { display: none; }
 
 /* Checks, the recording and Your hand test (Task 14): the picture large, the checks a short list beside it */
 .jp2-ck-big { font-size: 18px; line-height: 28px; }
