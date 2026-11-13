@@ -3,3 +3,6 @@
 * text=auto eol=lf
 # Kept byte for byte as the font came.
 web/public/fonts/OFL-PixelifySans.txt -text
+# The long job fixture as the web sees it: written by dashboard/test/fixtures/write-long-job.js.
+web/src/jobpage/fixtures/longJob.ts linguist-generated
+web/src/jobpage/fixtures/longJob200.ts linguist-generated

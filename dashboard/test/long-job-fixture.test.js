@@ -167,3 +167,18 @@ test('the web’s long job says nothing the web source checks refuse (the produc
     assert.doesNotMatch(text, /sk_live|sk_test|ghp_|BEGIN [A-Z ]*PRIVATE KEY/);
   }
 });
+
+test('the counts are the brief’s numbers, written out (editing the constant fails here)', () => {
+  assert.deepEqual({ ...LONG_JOB_COUNTS[52] }, {
+    items: 52, replies: 16, you: 16, briefs: 15, small: 5, steps: 7,
+    reviewFiles: 22, reviewShown: 12, findings: 2, findingsOpen: 1, commits: 9, commitFiles: 14,
+    recordings: 1, prs: 3, replyMedianWords: 450, replyMaxWords: 800, longestReplies: 1,
+    checks: 14, decisions: 13, planSteps: 5,
+  });
+  assert.deepEqual({ ...LONG_JOB_COUNTS[200] }, {
+    items: 200, replies: 60, you: 60, briefs: 60, small: 20, steps: 7,
+    reviewFiles: 88, reviewShown: 18, findings: 8, findingsOpen: 4, commits: 36, commitFiles: 56,
+    recordings: 1, prs: 3, replyMedianWords: 450, replyMaxWords: 800, longestReplies: 4,
+    checks: 56, decisions: 52, planSteps: 20,
+  });
+});

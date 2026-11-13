@@ -42,7 +42,8 @@ describe('the long job fixture', () => {
   it('is imported by tests only', () => {
     const importers = files(SRC)
       .filter((f) => !/\.test\.tsx?$/.test(f) && !f.includes(join('jobpage', 'fixtures')))
-      .filter((f) => /from ['"][^'"]*fixtures\/longJob/.test(readFileSync(f, 'utf8')))
+      // import … from, export … from, and import('…').
+      .filter((f) => /(from|import)\s*\(?\s*['"][^'"]*fixtures\/longJob/.test(readFileSync(f, 'utf8')))
       .map((f) => relative(SRC, f));
     expect(importers).toEqual([]);
   });
