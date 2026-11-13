@@ -998,6 +998,159 @@ test('with no saved original the recording waits and tries again', { timeout: 60
   } finally { await w.done(); }
 });
 
+// ---------- Task 9, follow-up 2: a recording that was put off is still made after the job leaves Test ----------
+// Auto's pass does not wait for a recording, so a job can move on to Review while its recording waits for
+// Auto's database. The recording is still owed then; a job that never had one put off records only in Test.
+
+/**
+ * Another switch of the local database is under way (Try it's dbBusy), so Auto's copy can't be made: the
+ * recording is put off (busy), not failed. Auto gives up its wait after 50 ms, not 2 minutes.
+ * Returns release(): the other switch has ended.
+ */
+function holdSwitch(w) {
+  const made = w.local.autoDatabase;
+  w.local.autoDatabase = (f, o) => made(f, { ...o, waitMs: 50 });
+  w.local.dbBusy = true;
+  return () => { w.local.dbBusy = false; };
+}
+const BUSY_WORDS = 'Another switch of the local database didn’t end in time, so Auto’s database wasn’t made.';
+/** The job's recording has been put off, and no try is under way. */
+async function putOff(w, slug = 'auto-job') {
+  await untilTrue(async () => { const v = await w.door.view(slug); return v.problem?.waiting === true && !v.recording; }, 'the recording was never put off');
+  assert.equal((await w.door.view(slug)).problem.message, BUSY_WORDS);
+}
+const NOTHING_RECORDED = ['recording', 'recorded', 'not-recorded'];
+
+test('a recording put off while Auto\'s copy was busy is made after the job has left Test', { timeout: 90_000, skip: NEEDS_SANDBOX }, async () => {
+  const w = await autoWorld();
+  try {
+    const release = holdSwitch(w);
+    w.handlers.change(); // the change watcher starts the recording by itself
+    await putOff(w);
+    assert.equal(await w.runs(), 0);
+    // Auto answered the Test brief meanwhile and the job moved on. Only then does the other switch end, and
+    // only once no try that began while the job was in Test is still under way.
+    w.list[0].stage = 'review';
+    await settle(300); // a look that read the job before it moved on has begun its try by now
+    await untilTrue(async () => !(await w.door.view('auto-job')).recording, 'a try never ended');
+    release();
+    // The timer's look makes it.
+    await untilTrue(async () => { const v = await w.door.view('auto-job'); return v.evidence && !v.recording; }, 'never recorded after the job left Test', 20_000);
+    const view = await w.door.view('auto-job');
+    assert.equal(view.evidence.commit, 'abc1234def5');
+    assert.equal(view.problem, null, 'the waiting line is gone');
+    assert.equal(JSON.parse(await fs.readFile(path.join(w.list[0].dir, 'evidence', 'evidence.json'), 'utf8')).commit, 'abc1234def5');
+    assert.equal(w.emitted.filter((e) => e.outcome === 'recorded' && e.commit === 'abc1234def5').length, 1, 'one recorded event');
+    assert.deepEqual(w.audits.filter((a) => a.outcome === 'recorded').map((a) => a.via), ['auto'], 'made by the look, not by a press of Record');
+    assert.equal(await w.runs(), 1);
+    assert.equal(w.list[0].stage, 'review', 'the job is where it moved to');
+    assert.deepEqual((await w.pg()).app__auto.ledger, ['0001_a', '0002_b'], 'and its migration ran on Auto\'s copy');
+    onAutoOnly(await w.log());
+  } finally { await w.done(); }
+});
+
+test('a job that left Test with no put-off recording is not recorded', { timeout: 60_000 }, async () => {
+  const w = await autoWorld({ slugs: ['auto-job', 'his-job'] });
+  try {
+    w.list[1].auto = null; // one of Auto's and one that is not
+    for (const job of w.list) job.stage = 'review'; // a ready report each, and nothing was ever put off
+    w.handlers.change();
+    await settle(3600); // past the watcher's second look
+    assert.deepEqual(w.steps, [], 'nothing copied, nothing started');
+    assert.equal(await w.runs(), 0);
+    assert.deepEqual(w.emitted, [], 'no event');
+    assert.deepEqual(w.audits, []);
+    for (const job of w.list) {
+      const view = await w.door.view(job.slug);
+      assert.equal(view.evidence, null, job.slug);
+      assert.equal(view.problem, null, job.slug);
+      assert.equal(w.local.jobs.get(job.slug)?.server ?? null, null, `${job.slug}: no app was started`);
+    }
+  } finally { await w.done(); }
+});
+
+test('a put-off recording is dropped when Auto is switched off on the job', { timeout: 60_000 }, async () => {
+  const w = await autoWorld({ times: { lookAgainMs: 600_000 } }); // no timer: each look is one this test asks for
+  try {
+    const release = holdSwitch(w);
+    w.handlers.change();
+    await putOff(w);
+    w.list[0].stage = 'review';
+    w.list[0].auto = { ...w.list[0].auto, on: false };
+    release();
+    const tries = w.steps.length;
+    w.handlers.change(); // the next look
+    await untilTrue(async () => (await w.door.view('auto-job')).problem === null, 'the waiting line stayed', 15_000);
+    await settle(1000);
+    assert.equal(w.steps.length, tries, 'no further try');
+    assert.equal(await w.runs(), 0, 'nothing starts');
+    assert.ok(!w.emitted.some((e) => NOTHING_RECORDED.includes(e.outcome)), 'no recording, made or failed');
+    assert.equal(w.local.jobs.get('auto-job')?.server ?? null, null, 'no app was started');
+    const view = await w.door.view('auto-job');
+    assert.equal(view.evidence, null);
+    assert.equal(view.recording, false);
+    assert.deepEqual(await w.log(), [], 'no Postgres tool ran');
+  } finally { await w.done(); }
+});
+
+test('a put-off recording is not made for a closed job', { timeout: 60_000 }, async () => {
+  const w = await autoWorld({ times: { lookAgainMs: 600_000 } });
+  try {
+    const release = holdSwitch(w);
+    w.handlers.change();
+    await putOff(w);
+    w.list[0].stage = 'review';
+    w.list[0].closed = true;
+    release();
+    const tries = w.steps.length;
+    w.handlers.change();
+    await settle(1000);
+    assert.equal(w.steps.length, tries, 'no further try');
+    assert.equal(await w.runs(), 0);
+    assert.ok(!w.emitted.some((e) => NOTHING_RECORDED.includes(e.outcome)));
+    assert.equal(w.local.jobs.get('auto-job')?.server ?? null, null, 'no app was started');
+    assert.equal((await w.door.view('auto-job')).evidence, null);
+  } finally { await w.done(); }
+});
+
+test('a put-off recording is not made after the job has left Test once the test report names another commit', { timeout: 60_000 }, async () => {
+  const w = await autoWorld({ times: { lookAgainMs: 600_000 } });
+  try {
+    const release = holdSwitch(w);
+    w.handlers.change();
+    await putOff(w);
+    w.list[0].stage = 'review';
+    const report = path.join(w.list[0].dir, 'test-report.md');
+    await fs.writeFile(report, REPORT('fff9999aaa1'));
+    const then = new Date(Date.now() - 60_000);
+    await fs.utimes(report, then, then); // written a while ago: ready to record, were it owed
+    release();
+    const tries = w.steps.length;
+    w.handlers.change();
+    await settle(1000);
+    assert.equal(w.steps.length, tries, 'no further try: what was put off was for the commit before');
+    assert.equal(await w.runs(), 0);
+    assert.ok(!w.emitted.some((e) => NOTHING_RECORDED.includes(e.outcome)));
+    assert.equal((await w.door.view('auto-job')).evidence, null);
+  } finally { await w.done(); }
+});
+
+test('a recording that failed, not one that was put off, is not tried again by itself after the job has left Test', { timeout: 60_000 }, async () => {
+  const w = await autoWorld({ settings: 'OTHER=1\n' }); // no database Starbase can copy: a failure, not a wait
+  try {
+    w.list[0].stage = 'review';
+    await assert.rejects(w.door.record('auto-job', { waitMs: 50_000 }), (err) => err.status === 409); // he presses Record
+    const view = await w.door.view('auto-job');
+    assert.equal(view.problem.message, 'Your main folder’s .env.local has no DATABASE_URL.');
+    assert.notEqual(view.problem.waiting, true, 'a problem, not a wait');
+    const tries = w.steps.length;
+    w.handlers.change();
+    await settle(1000);
+    assert.equal(w.steps.length, tries, 'no try by itself');
+    assert.equal(w.audits.length, 1, 'the one line of his own press');
+  } finally { await w.done(); }
+});
+
 test('a job not in Auto records as today', { timeout: 60_000, skip: NEEDS_PG_TOOLS }, async () => {
   const w = await autoWorld({ auto: null });
   try {

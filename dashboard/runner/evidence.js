@@ -16,7 +16,8 @@
 // his: the app starts with Auto's address (startServer's databaseUrl), is asked once, and must
 // connect to Auto's database within 30 s (AUTO_DB_NOT_USED). His Try it server for the job is never
 // stopped for it (AUTO_TRY_IT_RUNNING). No saved original yet: the Test step says it waits
-// (AUTO_DB_WAITING) and it looks again. A migration that fails goes to the Foreman (onAutoDbProblem).
+// (AUTO_DB_WAITING) and it looks again. A recording put off like that is still made after the job
+// has left Test (stillOwed). A migration that fails goes to the Foreman (onAutoDbProblem).
 // Its Playwright run starts inside the sandbox its app runs in (lib/db-door.js): a spec is the job's
 // own code, and could open a database connection. An Auto job whose app names no database where
 // Starbase looks has no copy and no door, but its app and its Playwright run start inside the sandbox
@@ -394,6 +395,13 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
     };
   }
 
+  /** Whether the job would be recorded as an Auto job now: its Auto record says on. Never in demo mode (nothing real runs there). */
+  async function isAuto(f) {
+    if (demo) return false;
+    const now = (await jobs().catch(() => [])).find((x) => x.slug === f.slug) ?? f;
+    return now.auto?.on === true;
+  }
+
   /**
    * Whether this recording is an Auto job's (auto: the job's Auto record says on now, as the
    * recording starts; switched off later, it finishes as it began), and whether it is on Auto's
@@ -402,9 +410,7 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
    * and a door. Never in demo mode (nothing real runs there).
    */
   async function autoFor(f) {
-    if (demo) return { auto: false, onAutoDb: false };
-    const now = (await jobs().catch(() => [])).find((x) => x.slug === f.slug) ?? f;
-    if (now.auto?.on !== true) return { auto: false, onAutoDb: false };
+    if (!(await isAuto(f))) return { auto: false, onAutoDb: false };
     // Decided by the address, not the profile: an app that names any database records on Auto's or not at all.
     return { auto: true, onAutoDb: await local.namesADatabase(f, env) }; // Starbase's own environment (the runner's)
   }
@@ -519,6 +525,21 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
   }
 
   // ---------- After the tester: a job folder changed ----------
+
+  /**
+   * Whether a job that has left Test is still owed a recording: one that was put off (it waits for
+   * Auto's database: its problem says waiting) for the commit the test report names now. Auto's pass
+   * does not wait for a recording, so the job may have moved on while its recording waited. Only
+   * while it would still be recorded as an Auto job: with Auto switched off on it since, the put-off
+   * recording is dropped, so the Test step stops saying it waits.
+   */
+  async function stillOwed(f) {
+    const p = problems.get(f.slug);
+    if (!p?.waiting) return false; // never put off: recorded only in Test
+    if (!(await isAuto(f))) { problems.delete(f.slug); return false; }
+    return p.commit === await reportCommit(f.dir);
+  }
+
   let looking = false;
   let again = false;
   async function lookForReady() {
@@ -528,7 +549,8 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
       do {
         again = false;
         for (const f of await jobs()) {
-          if (f.closed || f.stage !== 'test' || recording.has(f.slug)) continue;
+          if (f.closed || recording.has(f.slug)) continue;
+          if (f.stage !== 'test' && !(await stillOwed(f))) continue;
           const ready = await readyToRecord(f).catch(() => null);
           if (!ready || tried.has(`${f.slug}@${ready.commit}`)) continue;
           tried.add(`${f.slug}@${ready.commit}`);
