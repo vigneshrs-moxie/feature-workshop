@@ -8,7 +8,6 @@ import { installKeyListener, resetChord } from '../app/keyRegistry';
 import { useRoute } from '../app/router';
 import { createStore, WorkshopContext } from '../state/store';
 import { job as jobRow, snapshot } from '../state/test-fixtures';
-import { formatCost } from '../panes/Foreman/thread';
 import { HostedWorkshop } from '../views/Hosted/HostedWorkshop';
 import { longJob } from './fixtures/longJob';
 import { createJobStore, type JobStore } from './jobStore';
@@ -32,10 +31,18 @@ vi.mock('./jobStore', async (importOriginal) => {
   };
 });
 
-// The header's one call per render that the test can count (Task 7 fix round 1: the row is frozen once the payload is in).
-vi.mock('../panes/Foreman/thread', async (importOriginal) => {
-  const real = await importOriginal<typeof import('../panes/Foreman/thread')>();
-  return { ...real, formatCost: vi.fn(real.formatCost) };
+// Render counts for the header and Your move: each is wrapped in a memo boundary like its own, which
+// counts every time it draws (Task 7 fix round 2: the row is frozen once the payload is in).
+const drawn = vi.hoisted(() => ({ header: 0, move: 0 }));
+vi.mock('./left/Header', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./left/Header')>();
+  const { createElement, memo } = await import('react');
+  return { ...real, Header: memo((p: Parameters<typeof real.Header>[0]) => { drawn.header++; return createElement(real.Header, p); }) };
+});
+vi.mock('./left/YourMove', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./left/YourMove')>();
+  const { createElement, memo } = await import('react');
+  return { ...real, YourMove: memo((p: Parameters<typeof real.YourMove>[0]) => { drawn.move++; return createElement(real.YourMove, p); }) };
 });
 
 const SLUG = longJob.payload.slug;
@@ -368,15 +375,19 @@ describe('the snapshot row is for the first paint only', () => {
     const workshop = { api: c.api, store: createStore() };
     const tree = (row: Job) => <WorkshopContext.Provider value={workshop}><Routed row={row} /></WorkshopContext.Provider>;
     const { rerender } = render(tree(ROW));
-    rerender(tree({ ...ROW, title: 'Renamed on Jobs' }));
+    // Before the payload a newer row draws both again: the counts do count.
+    const before = { ...drawn };
+    rerender(tree({ ...ROW, title: 'Renamed on Jobs', headline: 'Renamed ask' }));
     expect(screen.getByRole('heading', { level: 1, name: 'Renamed on Jobs' })).toBeInTheDocument();
+    expect(drawn.header).toBeGreaterThan(before.header);
+    expect(drawn.move).toBeGreaterThan(before.move);
     c.release();
     await settle();
     const steps = screen.getByRole('navigation', { name: 'Steps' });
-    // The header draws once per render; a newer row after the payload must not draw it again.
-    const drawn = vi.mocked(formatCost).mock.calls.length;
-    rerender(tree({ ...ROW, title: 'Renamed again', stage: 'ship', cost: { totalUsd: 12 } }));
-    expect(vi.mocked(formatCost).mock.calls.length).toBe(drawn);
+    // After it, a newer row draws neither.
+    const after = { ...drawn };
+    rerender(tree({ ...ROW, title: 'Renamed again', headline: 'Another ask', stage: 'ship', cost: { totalUsd: 12 } }));
+    expect(drawn).toEqual(after);
     expect(screen.getByRole('heading', { level: 1, name: 'Crew schedule export' })).toBeInTheDocument();
     expect(screen.getByRole('navigation', { name: 'Steps' })).toBe(steps);
     expect(stepRow('Review')).toHaveAttribute('aria-expanded', 'true');

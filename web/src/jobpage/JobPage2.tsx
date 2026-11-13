@@ -40,7 +40,8 @@ import { useWorkshop } from '../state/store';
 import { createJobStore, type JobPageState, type JobStore } from './jobStore';
 import { recentPage, rememberPage } from './recent';
 import type { JobPagePayload, Output, ReaderKind, ReaderTarget, StepRow, StopId } from './types';
-import { Header, STATE_WORDS, stateFromRow } from './left/Header';
+import { Header } from './left/Header';
+import { sinceWords, YourMove } from './left/YourMove';
 import { JobStoreContext, useJob, useJobStore } from './useJob';
 import './jobpage.css';
 
@@ -309,46 +310,6 @@ const OUTPUT_READER: Record<Output['kind'], ReaderKind> = {
 };
 
 // ---------- The left pane (Tasks 9, 10, 11 fill it) ----------
-
-function sinceWords(at: string | null | undefined): string | null {
-  if (!at) return null;
-  const d = new Date(at);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' });
-}
-
-const YourMove = memo(function YourMove({ job }: { job: Job | null }) {
-  const move = useJob((s) => s.payload?.move);
-  const state = useJob((s) => s.payload?.state);
-  const line = useJob((s) => s.payload?.stateLine);
-  if (move === undefined) {
-    // Before the payload: the snapshot row's words.
-    if (!job) return <div className="jp2-ym" />;
-    const st = stateFromRow(job);
-    if (st === 'needs-you') return <div className="jp2-ym"><Card label={moveLabel(job.waitingFor === 'permission', job.waitingSince)} ask={job.headline || job.laneReason || 'This job waits for you.'} /></div>;
-    return <div className="jp2-ym"><p className="jp2-ym-one">{STATE_WORDS[st]}{job.laneReason ? ` · ${job.laneReason}` : ''}</p></div>;
-  }
-  if (move) {
-    const ask = move.kind === 'permission' ? move.what : move.ask;
-    return <div className="jp2-ym"><Card label={moveLabel(move.kind === 'permission', move.since)} ask={ask} /></div>;
-  }
-  return <div className="jp2-ym"><p className="jp2-ym-one">{state ? STATE_WORDS[state] : ''}{line ? ` · ${line}` : ''}</p></div>;
-});
-
-/** Your move's label, the same from the snapshot row (waitingFor, waitingSince) and from the payload, so it does not change when the payload lands. */
-function moveLabel(permission: boolean, at: string | null | undefined): string {
-  const since = sinceWords(at);
-  return `Needs you${permission ? ' · permission' : ''}${since ? ` · since ${since}` : ''}`;
-}
-
-function Card({ label, ask }: { label: string; ask: string }) {
-  return (
-    <div className="jp2-card">
-      <p className="jp2-card-label">{label}</p>
-      <p className="jp2-card-ask">{ask}</p>
-    </div>
-  );
-}
 
 const Steps = memo(function Steps({ job, cursor, onStep, onOpen }: { job: Job | null; cursor: number | null; onStep(id: StopId): void; onOpen(t: ReaderTarget, el: HTMLElement): void }) {
   const steps = useJob((s) => s.payload?.steps ?? null);
