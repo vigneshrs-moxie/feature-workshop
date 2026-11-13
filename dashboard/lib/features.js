@@ -132,7 +132,8 @@ export class SessionIndex {
       if (!owner && log.isWorkflow) {
         let best = 0;
         for (const dir of featureDirs) {
-          const n = log.text.split(dir).length - 1;
+          // The log is JSON lines: the folder is in it as JSON writes it (on Windows every \ is \\).
+          const n = log.text.split(JSON.stringify(dir).slice(1, -1)).length - 1;
           if (n > best) { best = n; owner = dir; }
         }
       }
