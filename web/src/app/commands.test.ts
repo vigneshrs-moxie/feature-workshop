@@ -157,3 +157,13 @@ describe('jobsInOrder', () => {
     expect(jobsInOrder(state).map((j) => j.slug)).toEqual(['n', 'r', 'i', 'd']);
   });
 });
+
+// The new job page (job page rebuild, Task 8, Task 7 review M5): n does not open Notes and options there.
+describe('⌘K on the new job page', () => {
+  it('Job notes and options shows no n while the new job page is open, and shows it on the old page', () => {
+    const state = stateWith([job('alpha', 'idle')]);
+    const ctx = { state, slug: 'alpha', current: { slug: 'alpha', run: null }, onSettings: false };
+    expect(commandsFor(ctx, handlers()).find((c) => c.id === 'job-drawer')!.keys).toBe('notes');
+    expect(commandsFor({ ...ctx, newJobPage: true }, handlers()).find((c) => c.id === 'job-drawer')!.keys).toBeUndefined();
+  });
+});

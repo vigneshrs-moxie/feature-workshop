@@ -6,6 +6,8 @@
 // header passes the Decisions tab's list, drawn without its own Copy decisions button), a fold
 // "Everything decided on this job" under the text holds it, mounted the first time the fold opens.
 // Without it there is no fold (the Decisions tab's own sheet would only repeat the list behind it).
+// With `onClose` the panel is opened from elsewhere (the new job page's ⋯ menu): no button of its own,
+// open while mounted.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Button } from '../components/Button';
 import { Icon } from '../components/Icon';
@@ -16,9 +18,11 @@ import { useWorkshop } from '../state/store';
 
 interface OrbitList { text: string; count: number }
 
-export function CopyDecisions({ slug, all }: { slug: string; /** The fold's content: the job's full list of decisions. */ all?: ReactNode }) {
+export function CopyDecisions({ slug, all, onClose }: { slug: string; /** The fold's content: the job's full list of decisions. */ all?: ReactNode; /** Opened from elsewhere: no button, and Close calls this. */ onClose?(): void }) {
   const { api } = useWorkshop();
-  const [open, setOpen] = useState(false);
+  const [opened, setOpen] = useState(false);
+  const open = onClose ? true : opened;
+  const close = () => { if (onClose) onClose(); else setOpen(false); };
   const [list, setList] = useState<OrbitList | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
@@ -61,9 +65,9 @@ export function CopyDecisions({ slug, all }: { slug: string; /** The fold's cont
 
   return (
     <>
-      <Button kind="quiet" size="sm" icon="copy" onClick={() => setOpen(true)} title="Copy the product decisions as a plain list, to paste into the Orbit ticket.">Copy decisions</Button>
+      {!onClose && <Button kind="quiet" size="sm" icon="copy" onClick={() => setOpen(true)} title="Copy the product decisions as a plain list, to paste into the Orbit ticket.">Copy decisions</Button>}
       {open && (
-        <Sheet title="Copy decisions" onClose={() => setOpen(false)}>
+        <Sheet title="Copy decisions" onClose={close}>
           <p className="muted">This is exactly what will be copied. {BRAND.name} does not send it anywhere.</p>
           {list && <pre className="copy-decisions-text" aria-label="The text that will be copied">{list.text}</pre>}
           {!list && !error && <p className="muted">Reading the decisions…</p>}
@@ -80,7 +84,7 @@ export function CopyDecisions({ slug, all }: { slug: string; /** The fold's cont
             </details>
           )}
           <div className="sheet-actions">
-            <Button kind="quiet" onClick={() => setOpen(false)}>Close</Button>
+            <Button kind="quiet" onClick={close}>Close</Button>
             <Button kind="primary" disabled={!list} onClick={() => void copy()}>{state === 'copied' ? 'Copied' : 'Copy'}</Button>
           </div>
         </Sheet>

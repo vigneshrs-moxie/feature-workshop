@@ -30,20 +30,17 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import type { Job } from '../api/types';
 import { useKeyScope } from '../app/keyRegistry';
-import { MenuButton, type MenuEntry } from '../app/Menu';
 import { readHref, replaceHash, stageHref, type JobView } from '../app/router';
 import { Button } from '../components/Button';
 import { Icon } from '../components/Icon';
 import { useMinWidth, useNarrow } from '../components/page/Page';
 import { STOPS } from '../components/stops/stops';
-import { laneOf } from '../home/JobsPage';
 import { statesOf } from '../job/page/stepWords';
-import { formatCost } from '../panes/Foreman/thread';
 import { useWorkshop } from '../state/store';
 import { createJobStore, type JobPageState, type JobStore } from './jobStore';
 import { recentPage, rememberPage } from './recent';
-import { backToOldJobPage } from './switch';
-import type { JobPagePayload, JobState, Output, ReaderKind, ReaderTarget, StepRow, StopId } from './types';
+import type { JobPagePayload, Output, ReaderKind, ReaderTarget, StepRow, StopId } from './types';
+import { Header, STATE_WORDS, stateFromRow } from './left/Header';
 import { JobStoreContext, useJob, useJobStore } from './useJob';
 import './jobpage.css';
 
@@ -281,20 +278,6 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
 
 const readerOf = (s: JobPageState): ReaderTarget | null => s.ui.reader ?? s.payload?.open ?? null;
 
-const STATE_WORDS: Record<JobState, string> = {
-  'needs-you': 'Needs you', working: 'Working', 'waiting-github': 'Waiting on GitHub', paused: 'Paused', done: 'Done',
-};
-
-/** The snapshot row's state in the payload's five words (interfaces §0.2). */
-function stateFromRow(job: Job): JobState {
-  const lane = laneOf(job);
-  if (lane === 'needs-you') return 'needs-you';
-  if (lane === 'working') return job.limitPaused ? 'paused' : 'working';
-  if (lane === 'in-review' || lane === 'ready') return 'waiting-github';
-  if (lane === 'done') return 'done';
-  return 'paused';
-}
-
 type StepMark = StepRow['state'];
 /** The seven steps before the payload, from the snapshot row. */
 function stepsFromRow(job: Job | null): { id: StopId; label: string; state: StepMark }[] {
@@ -324,49 +307,6 @@ function leftLines(payload: JobPagePayload | null, job: Job | null): Line[] {
 const OUTPUT_READER: Record<Output['kind'], ReaderKind> = {
   doc: 'doc', screens: 'doc', changes: 'changes', checks: 'checks', recording: 'checks', 'hand-test': 'checks', findings: 'findings', walkthrough: 'walkthrough', pr: 'pr',
 };
-
-// ---------- The header (Task 8 fills it) ----------
-
-/** The ticket key a slug names, as the server reads it (dashboard/lib/orbit.js slugTicketKey), so the
- *  first paint has the key the payload will bring and the title does not move when it lands. */
-export function slugKey(slug: string): string | null {
-  const m = /^orbit-(\d{1,9})(?:-|$)/i.exec(slug);
-  return m ? `ORBIT-${Number(m[1])}` : null;
-}
-
-const Header = memo(function Header({ job }: { job: Job | null }) {
-  const title = useJob((s) => s.payload?.title) ?? (job?.title || job?.slug || '');
-  const key = useJob((s) => s.payload?.key) ?? (job ? slugKey(job.slug) : null);
-  const keyUrl = useJob((s) => s.payload?.keyUrl ?? null);
-  const state = useJob((s) => s.payload?.state) ?? (job ? stateFromRow(job) : null);
-  const facts = useJob((s) => s.payload?.facts ?? null);
-  const level = facts ? facts.level : job?.level ?? null;
-  const repo = facts ? facts.repo : job?.repo?.name ?? null;
-  const cost = formatCost(facts ? facts.cost : job?.cost?.totalUsd);
-  const dim = [level !== null && level !== undefined ? `L${level}` : null, repo, cost || null].filter(Boolean).join(' · ');
-  return (
-    <header className="jp2-head">
-      <a className="jp2-jobs" href="#/"><Icon name="chevron-left" size={16} />Jobs</a>
-      <div className="jp2-head-main">
-        {key && (keyUrl ? <a className="jp2-key" href={keyUrl} target="_blank" rel="noreferrer" title="Open the ticket in Orbit.">{key}</a> : <span className="jp2-key">{key}</span>)}
-        <h1 className="jp2-title">{title}</h1>
-        {state && <span className="jp2-state">{STATE_WORDS[state]}</span>}
-      </div>
-      <span className="jp2-spacer" />
-      {dim && <span className="jp2-facts">{dim}</span>}
-      <MenuButton
-        label="More for this job"
-        hint="Rare things for this job."
-        icon="dots"
-        className="jp2-menu"
-        entries={MENU}
-      />
-    </header>
-  );
-});
-
-/** The ⋯ menu until Task 8 gives it everything rare. */
-const MENU: MenuEntry[] = [{ kind: 'action', id: 'old-page', label: 'Back to the old job page', hint: 'Show this job on the job page you had before. You can switch again from its job menu.', run: backToOldJobPage }];
 
 // ---------- The left pane (Tasks 9, 10, 11 fill it) ----------
 

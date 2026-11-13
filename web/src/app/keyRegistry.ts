@@ -56,6 +56,8 @@ export interface KeyDef {
   listOnly?: boolean;
   /** A held key repeats (the arrows in the Table). */
   repeats?: boolean;
+  /** Bound but not listed in the ? sheet: a key kept for later that does nothing yet. */
+  hidden?: boolean;
 }
 
 export const KEYS = {
@@ -96,7 +98,7 @@ export const KEYS = {
   'jp-convo': { keys: ['g c'], label: 'Open the conversation', scope: 'jobpage' },
   'jp-ticket': { keys: ['g t'], label: 'Open the ticket and goal', scope: 'jobpage' },
   'jp-write': { keys: ['c', 'i'], label: 'Put the cursor in the message box', scope: 'jobpage' },
-  'jp-note': { keys: ['n'], label: 'Kept for a note on the part under the pointer (not built yet)', scope: 'jobpage', where: 'Notes and options are in ⌘K for now.' },
+  'jp-note': { keys: ['n'], label: 'Kept for a note on the part under the pointer (not built yet)', scope: 'jobpage', where: 'Notes and options are in the ⋯ menu.', hidden: true },
   // The job page's steps: [ and ] move the open step
   'stage-prev': { keys: ['['], label: 'The step before this one', scope: 'stage' },
   'stage-next': { keys: [']'], label: 'The step after this one', scope: 'stage' },

@@ -67,6 +67,7 @@ function Sheets({ route }: { route: Route }) {
   const ui = useUi();
   const play = usePlay();
   const eggs = usePaletteEggs();
+  const newPage = useNewJobPage();
   const [problem, setProblem] = useState<string | null>(null);
   const slug = route.name === 'job' || route.name === 'stage' ? route.slug : null;
 
@@ -147,7 +148,7 @@ function Sheets({ route }: { route: Route }) {
       )}
       {sheet?.kind === 'palette' && (
         <CommandPalette
-          commands={commandsFor({ state, slug, current: ui.current, onSettings: route.name === 'settings', onCrew: route.name === 'crew', onAchievements: route.name === 'achievements', play: play.on }, handlers)}
+          commands={commandsFor({ state, slug, current: ui.current, onSettings: route.name === 'settings', onCrew: route.name === 'crew', onAchievements: route.name === 'achievements', play: play.on, newJobPage: newPage && slug !== null }, handlers)}
           onClose={ui.closeSheet}
           onEgg={eggs}
           onOldPages={() => oldPages.open(slug ? classicHref.job(slug) : classicHref.home())}

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { installKeyListener, KEY_IDS, KEYS, registerKeys, SCOPES, type KeyScope } from '../../app/keyRegistry';
+import { installKeyListener, KEY_IDS, KEYS, keyDef, registerKeys, SCOPES, type KeyScope } from '../../app/keyRegistry';
 import { writeKeysSetting } from '../../app/keysSetting';
 import { GROUP_ORDER, KeysSheet } from './KeysSheet';
 
@@ -45,6 +45,7 @@ describe('the ? sheet', () => {
     render(<KeysSheet onClose={() => {}} />);
     expect([...new Set(KEY_IDS.map((id) => KEYS[id].scope))].filter((s) => !GROUP_ORDER.includes(s))).toEqual([]);
     for (const id of KEY_IDS) {
+      if (keyDef(id).hidden) continue;
       const group = screen.getByRole('region', { name: SCOPES[KEYS[id].scope as KeyScope].title });
       expect(within(group).getAllByText(KEYS[id].label).length, id).toBeGreaterThan(0);
     }
@@ -54,5 +55,15 @@ describe('the ? sheet', () => {
     expect(within(stage).getByText('The step after this one').closest('.key-row')).toHaveTextContent(']');
     expect(within(screen.getByRole('region', { name: 'The permission alert' })).getByText('Allow once')).toBeInTheDocument();
     expect(within(screen.getByRole('region', { name: 'The Jobs page' })).getByText(/Open the job the next-step bar names/)).toBeInTheDocument();
+  });
+});
+
+// Task 7 review M5: a key kept for later (the new job page's n, Task 17) is bound but not listed.
+describe('the ? sheet and a key kept for later', () => {
+  it('does not list the new job page’s n until it does something', () => {
+    expect(KEYS['jp-note'].hidden).toBe(true);
+    render(<KeysSheet onClose={() => {}} />);
+    expect(screen.queryByText(KEYS['jp-note'].label)).toBeNull();
+    expect(within(screen.getByRole('region', { name: SCOPES.jobpage.title })).getByText('Search the conversation')).toBeInTheDocument();
   });
 });

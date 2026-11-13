@@ -247,3 +247,64 @@ describe('AutoSwitch', () => {
     }
   });
 });
+
+// The new job page's header (job page rebuild, Task 8): optimistic and short. Other screens keep the spinner.
+describe('AutoSwitch on the new job page (optimistic, short)', () => {
+  function showFast(j: Job, post: ReturnType<typeof vi.fn>, hosted = false) {
+    const store: Store = createStore();
+    const api = { get: vi.fn(), post, ...(hosted ? { hosted: () => true } : {}) } as unknown as ApiClient;
+    return render(<WorkshopContext.Provider value={{ store, api }}><AutoSwitch job={j} word tagLine={false} optimistic short /></WorkshopContext.Provider>);
+  }
+
+  it('flips at once, with no spinner and nothing greyed, and stays flipped when the server takes it', async () => {
+    let finish: (v: unknown) => void = () => {};
+    const post = vi.fn(() => new Promise((r) => { finish = r; }));
+    showFast(job('alpha', 'needs-you', { level: 1 }), post);
+    const box = screen.getByRole('checkbox', { name: AUTO_LABEL });
+    fireEvent.click(box);
+    expect(post).toHaveBeenCalledWith('/api/job/alpha/auto', { on: true });
+    expect(box).toBeChecked();
+    expect(box).toBeEnabled();
+    expect(screen.queryByRole('status', { name: 'Turning Auto on…' })).toBeNull();
+    await act(async () => { finish({ ok: true }); });
+    expect(box).toBeChecked();
+  });
+
+  it('flips back with one plain line when the server refuses', async () => {
+    let refuse: (e: unknown) => void = () => {};
+    const post = vi.fn(() => new Promise((_, no) => { refuse = no; }));
+    const { container } = showFast(job('alpha', 'needs-you', { level: 1 }), post);
+    const box = screen.getByRole('checkbox', { name: AUTO_LABEL });
+    fireEvent.click(box);
+    expect(box).toBeChecked();
+    await act(async () => { refuse(new ApiError(409, 'The job is marked done.', { code: 'closed' })); });
+    expect(box).not.toBeChecked();
+    expect(container.querySelector('.auto-line .is-refused')).toHaveTextContent(/^Auto stayed off: The job is marked done\.$/);
+  });
+
+  it('turning it off flips back on when refused, and says so', async () => {
+    const post = vi.fn(async () => { throw new ApiError(500, 'Starbase could not save it.', { code: 'x' }); });
+    const { container } = showFast(job('alpha', 'running', { level: 1, auto: { on: true, by: 'you' } }), post);
+    const box = screen.getByRole('checkbox', { name: AUTO_LABEL });
+    await act(async () => { fireEvent.click(box); });
+    expect(box).toBeChecked();
+    expect(container.querySelector('.auto-line .is-refused')).toHaveTextContent('Auto stayed on: Starbase could not save it.');
+  });
+
+  it('shows the short word Auto, while its name stays the full sentence', () => {
+    const { container } = showFast(job('alpha', 'needs-you', { level: 1 }), vi.fn());
+    expect(screen.getByRole('checkbox', { name: AUTO_LABEL })).toBeInTheDocument();
+    expect(container.querySelector('.auto-switch-row')).toHaveTextContent(/^Auto: run to PR #1 without asking me\.AutoOff$/);
+    expect(container.querySelector('.auto-switch-short')).toHaveTextContent('Auto');
+    expect(container.querySelector('.auto-switch-short')).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('on the website it waits for the laptop as today: no flip before the laptop does it', async () => {
+    const queued = { id: 'd_abcdefgh1234', kind: 'auto', state: 'waiting', words: 'Auto on or off: waiting for your laptop. It runs when the laptop is back.', at: '2026-11-12T09:00:00Z', expiresAt: null, waiting: true, canCancel: true, permissionId: null };
+    const post = vi.fn(async () => ({ ok: true, sent: false, held: true, queued, text: '', message: queued.words }));
+    showFast(job('alpha', 'needs-you', { level: 1 }), post, true);
+    await act(async () => { fireEvent.click(screen.getByRole('checkbox', { name: AUTO_LABEL })); });
+    expect(screen.getByRole('checkbox', { name: AUTO_LABEL })).not.toBeChecked();
+    expect(screen.getByText(queued.words)).toBeInTheDocument();
+  });
+});

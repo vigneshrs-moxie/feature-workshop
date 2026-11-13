@@ -33,7 +33,7 @@ export function KeysSheet({ onClose }: { onClose: () => void }) {
 /** Every key in the registry, grouped by where it works; groups not on this page are marked. Also in Settings → Keys. */
 export function KeyGroups() {
   const { active } = useKeyRegistry();
-  const groups = GROUP_ORDER.map((scope) => ({ scope, ids: KEY_IDS.filter((id) => KEYS[id].scope === scope) })).filter((g) => g.ids.length);
+  const groups = GROUP_ORDER.map((scope) => ({ scope, ids: KEY_IDS.filter((id) => KEYS[id].scope === scope && !keyDef(id).hidden) })).filter((g) => g.ids.length);
   return (
     <>
       {groups.map(({ scope, ids }) => (

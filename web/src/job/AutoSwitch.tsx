@@ -7,6 +7,9 @@
 // when the line appears. On the hosted website the same POST is queued for the laptop: the job's
 // `autoQueued` (a decision from the site, views/Hosted/QueuedDecision) says it waits, is on its way or was
 // refused (with the laptop's own sentence), beside the switch, and the switch rests meanwhile.
+// The new job page's header (optimistic, short): the switch flips at once, without the spinner, and
+// flips back with one plain line if the server refuses; on the website it queues as above. Short shows
+// the word Auto, its name still the full sentence. Other screens keep the spinner and the sentence.
 // Self-contained: props in, no reach into the page.
 import { useEffect, useId, useRef, useState } from 'react';
 import type { Job } from '../api/types';
@@ -28,16 +31,20 @@ interface ViewProps {
   quiet?: boolean;
   /** The new job page's header: On or Off beside the switch (the checkbox's state already says it to a screen reader). */
   word?: boolean;
+  /** The new job page's header: the word Auto shows; the sentence stays the checkbox's name. */
+  short?: boolean;
   onToggle(next: boolean): void;
 }
 
-function SwitchView({ checked, disabled, busy, quiet, word = false, onToggle }: ViewProps) {
+function SwitchView({ checked, disabled, busy, quiet, word = false, short = false, onToggle }: ViewProps) {
   const hintId = useId();
   return (
     <>
     <OptionRow type="checkbox" className={`auto-switch-row${disabled ? ' is-off' : ''}`} checked={checked} disabled={disabled} aria-busy={busy || undefined} aria-describedby={quiet ? hintId : undefined} title={quiet ? AUTO_HINT : undefined} onChange={(e) => onToggle(e.target.checked)}>
       <span className="option-body">
-        <span className="auto-switch-label">{AUTO_LABEL}</span>
+        {short
+          ? <span className="auto-switch-label"><span className="sr-only">{AUTO_LABEL}</span><span className="auto-switch-short" aria-hidden="true">Auto</span></span>
+          : <span className="auto-switch-label">{AUTO_LABEL}</span>}
         {!quiet && <span className="auto-switch-hint">{AUTO_HINT}</span>}
       </span>
       {word && <b className={`sb-auto-switch-word${checked ? ' is-on' : ''}`} aria-hidden="true">{checked ? 'On' : 'Off'}</b>}
@@ -50,8 +57,10 @@ function SwitchView({ checked, disabled, busy, quiet, word = false, onToggle }: 
   );
 }
 
-function HeaderSwitch({ job, onChange, word = false, tagLine = true }: { job: Pick<Job, 'slug' | 'auto'> & { autoQueued?: unknown }; onChange?(on: boolean): void; word?: boolean; tagLine?: boolean }) {
+function HeaderSwitch({ job, onChange, word = false, tagLine = true, optimistic = false, short = false }: { job: Pick<Job, 'slug' | 'auto'> & { autoQueued?: unknown }; onChange?(on: boolean): void; word?: boolean; tagLine?: boolean; optimistic?: boolean; short?: boolean }) {
   const { api } = useWorkshop();
+  // The website queues the change for the laptop: nothing flips there before the laptop does it.
+  const fast = optimistic && !api.hosted?.();
   const sent = useSent(`auto:${job.slug}`);
   const inflight = useRef(false);
   // What the server last answered, until the job's own record catches up.
@@ -72,17 +81,18 @@ function HeaderSwitch({ job, onChange, word = false, tagLine = true }: { job: Pi
     if (inflight.current) return;
     inflight.current = true;
     setError(null);
-    sent.start();
+    const was = on;
+    if (fast) setShown(next); else sent.start();
     try {
       const answer = await api.post<{ held?: boolean; queued?: unknown } | undefined>(`/api/job/${encodeURIComponent(job.slug)}/auto`, { on: next });
       if (answer?.held) { setHeld(queuedOf(answer.queued)); return; } // the website queued it: the laptop does it, and the line says so
       setShown(next);
       onChange?.(next);
     } catch (err) {
-      setError(messageOf(err));
+      if (fast) { setShown(was); setError(`Auto stayed ${was ? 'on' : 'off'}: ${messageOf(err)}`); } else setError(messageOf(err));
     } finally {
       inflight.current = false;
-      sent.clear();
+      if (!fast) sent.clear();
     }
   }
 
@@ -93,7 +103,7 @@ function HeaderSwitch({ job, onChange, word = false, tagLine = true }: { job: Pi
   const tag = tagLine && on && job.auto?.by === 'tag' && job.auto.tag ? job.auto.tag : null;
   return (
     <div className="auto-switch is-inline">
-      <SwitchView quiet word={word} checked={on} disabled={sent.state === 'sending' || waiting} busy={sent.state === 'sending'} onToggle={(next) => { void toggle(next); }} />
+      <SwitchView quiet word={word} short={short} checked={on} disabled={sent.state === 'sending' || waiting} busy={sent.state === 'sending'} onToggle={(next) => { void toggle(next); }} />
       {/* A polite live region: a refusal, a stop or "Auto is on" is heard once, without taking the focus. */}
       <p className="auto-line" role="status" aria-live="polite">
         {error ? <span className="is-refused">{error}</span> : (
@@ -121,10 +131,14 @@ export interface AutoSwitchProps {
   word?: boolean;
   /** The job's switch: false leaves out "Started by Auto (tag: x)" under it, for a header whose own chip says it. */
   tagLine?: boolean;
+  /** The job's switch on the new job page: flips at once and flips back with a line if the server refuses. */
+  optimistic?: boolean;
+  /** The job's switch on the new job page: the word Auto instead of the sentence (which stays its name). */
+  short?: boolean;
 }
 
-export function AutoSwitch({ job = null, checked = false, disabled, onChange, word = false, tagLine = true }: AutoSwitchProps) {
-  if (job) return <HeaderSwitch job={job} onChange={onChange} word={word} tagLine={tagLine} />;
+export function AutoSwitch({ job = null, checked = false, disabled, onChange, word = false, tagLine = true, optimistic = false, short = false }: AutoSwitchProps) {
+  if (job) return <HeaderSwitch job={job} onChange={onChange} word={word} tagLine={tagLine} optimistic={optimistic} short={short} />;
   return (
     <div className="auto-switch">
       <SwitchView checked={checked} disabled={disabled} onToggle={(next) => onChange?.(next)} />
