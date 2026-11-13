@@ -589,4 +589,43 @@ describe('NewJobSheet: the Branch row', () => {
     await waitFor(() => expect(within(dialog).getByText('feature/orbit-471-')).toBeInTheDocument());
     expect(field.closest('.branch-box')?.querySelectorAll('.text-input')).toHaveLength(1);
   });
+
+  // Follow-up after re-review 2 (m6).
+  it('a new ticket key forgets the last ticket’s "-2" endings', async () => {
+    const { wrap, nameCalls } = setup(async (body) => (body.ticket.key === 'ORBIT-124'
+      ? { name: 'comment-save', by: 'model', slug: 'orbit-124-comment-save-2', branch: 'feature/orbit-124-comment-save-2' }
+      : byModel('other-name', 'feature/orbit-125-')));
+    wrap(<NewJobSheet onClose={vi.fn()} />);
+    const dialog = sheet();
+    const desc = within(dialog).getByRole('textbox', { name: /What should the crew build/ });
+    fireEvent.change(desc, { target: { value: 'Fix the comment save' } });
+    fireEvent.blur(desc);
+    const ticket = within(dialog).getByRole('textbox', { name: 'Orbit ticket (optional)' });
+    fireEvent.change(ticket, { target: { value: 'orbit-124' } });
+    await waitFor(() => expect(within(dialog).getByText('feature/orbit-124-comment-save-2')).toBeInTheDocument());
+    // He keeps the name as his own, then moves to another ticket: its answer names another job.
+    fireEvent.change(branchField(dialog), { target: { value: 'comment-sav' } });
+    fireEvent.change(branchField(dialog), { target: { value: 'comment-save' } });
+    fireEvent.change(ticket, { target: { value: 'orbit-125' } });
+    await waitFor(() => expect(nameCalls()).toHaveLength(2));
+    await waitFor(() => expect(within(dialog).getByText('feature/orbit-125-')).toBeInTheDocument());
+    expect(branchField(dialog)).toHaveValue('comment-save');
+    expect(within(dialog).queryByText('feature/orbit-125-comment-save-2')).toBeNull();
+  });
+
+  it('a Start tried from the keyboard with a hyphen at the end keeps the sentence up in the field', async () => {
+    const { wrap, jobBody } = setup(async () => byModel('employee-status-filter'));
+    wrap(<NewJobSheet onClose={vi.fn()} ticket={TICKET} />);
+    const dialog = sheet();
+    const field = branchField(dialog);
+    await waitFor(() => expect(field).toHaveValue('employee-status-filter'));
+    fireEvent.change(field, { target: { value: 'status-' } });
+    await waitFor(() => expect(within(dialog).getByRole('combobox', { name: 'Repository' })).toHaveAttribute('data-value', '/tmp/fw-test/sample-one'));
+    await act(async () => { fireEvent.keyDown(within(dialog).getByRole('textbox', { name: /What should the crew build/ }), { key: 'Enter', metaKey: true }); });
+    expect(jobBody()).toBeUndefined();
+    // Back in the field without typing: the sentence stays, as Start was tried.
+    fireEvent.focus(field);
+    expect(within(dialog).getByText(RULE)).toBeInTheDocument();
+    expect(field).toHaveAttribute('aria-invalid', 'true');
+  });
 });

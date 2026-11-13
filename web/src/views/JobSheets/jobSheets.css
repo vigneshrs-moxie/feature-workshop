@@ -29,6 +29,11 @@
 .branch-box { position: relative; display: flex; flex: 1; min-width: 0; }
 /* The field's text starts after the prefix: its own 10 px padding plus the prefix's measured width. */
 .branch-box > .branch-input { flex: 1; min-width: 0; padding-left: calc(10px + var(--branch-prefix-w, 0px)); }
+/* A broken name: the error look of controls.css, raised above the themes' field rules (up to 0,3,1:
+   Blueprint's `.sheet .text-input` and every theme's `:focus-visible`), so the border is the error
+   colour in every theme, focused or not. */
+.branch-line > .branch-box > .branch-input[aria-invalid='true'] { border-color: var(--status-error); }
+.branch-line > .branch-box > .branch-input[aria-invalid='true']:focus { border-color: var(--status-error); box-shadow: 0 0 0 3px var(--status-error-bg); }
 /* A long prefix is cut at its left (the ticket's end stays readable) and takes at most half the box.
    Clicks go through it to the field. */
 .branch-prefix {
