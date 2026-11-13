@@ -405,7 +405,7 @@ const SQL_MORE_ROWS = [
   'git status x.sql', 'git log --oneline -- x.sql', 'git show HEAD:x.sql', 'git blame x.sql', 'git mv a.sql b.sql', 'git rm x.sql', 'git restore x.sql', 'git ls-files "*.sql"', 'git grep -n "create table" -- x.sql',
   'git --no-pager diff x.sql', `git -C ${W} --no-pager log -3 -- x.sql`, 'git commit -m "add x.sql"', 'git add -A && git commit -m \'it adds `visits.audit` in 0157_x/migration.sql\'',
   'git add x.sql && git commit -m "$(cat <<\'EOF\'\nadd the migration\n\nIt adds `visits.audit`.\nEOF\n)"',
-  'head -20 x.sql', 'tail -5 x.sql', 'grep -n "create table" x.sql', 'egrep -c users x.sql', 'fgrep users x.sql', 'rg -n users x.sql', 'ls x.sql', 'ls *.sql', 'diff a.sql b.sql', 'cmp a.sql b.sql', 'file x.sql', 'stat x.sql', 'less x.sql', 'more x.sql',
+  'head -20 x.sql', 'tail -5 x.sql', 'grep -n "create table" x.sql', 'egrep -c users x.sql', 'fgrep users x.sql', 'rg -n users x.sql', 'ls x.sql', 'ls *.sql', 'diff a.sql b.sql', 'cmp a.sql b.sql', 'file x.sql', 'stat x.sql',
   'uniq x.sql | cut -c1-80 | nl', 'shasum x.sql', 'md5 x.sql', 'md5sum x.sql', 'sha1sum x.sql', 'sha256sum x.sql', 'echo x.sql', 'printf "%s\\n" x.sql', 'test -f x.sql && echo yes', '[ -f x.sql ] && echo yes || false', 'pwd; true; ls x.sql',
   'cp a.sql b.sql', 'rm x.sql', 'touch x.sql', 'mkdir -p prisma/migrations/0157_x && mv a.sql prisma/migrations/0157_x/migration.sql',
   'if test -f x.sql; then cat x.sql; else echo none; fi', 'if ! grep -q users x.sql; then echo no; fi', '{ cat a.sql; cat b.sql; } | wc -l', '( cat x.sql )', 'cat x.sql 2>/dev/null | head -5', 'cat x.sql > out.txt',
@@ -425,6 +425,8 @@ const SQL_RUN_ROWS = [
   'cat <<EOF\n$(psql -f x.sql)\nEOF', 'echo "$(cat x.sql)"', 'cat x.sql; eval "$X"', 'bundle exec cat x.sql', 'stdbuf -o0 cat x.sql', 'if psql -f x.sql; then echo ok; fi', 'git add x.sql && git commit -m "$(date) x.sql"',
   // what a reader of words can misread keeps the refusal: a comment (a quote mark in one opens nothing), $'…' and a quote left open
   'cat x.sql # don\'t\npsql -f y.txt', 'cat x.sql # don\'t\nnode run.js', 'cat x.sql # it\'s fine', 'git add x.sql # stage it', 'cat x.sql $\'a\\\'b\'; node run.js \\\'', 'cat "x.sql', 'cat x.sql |& psql',
+  // less and more are off the list (fix round 2, G2): less takes a key file that names a program, in several spellings
+  'less x.sql', 'more x.sql',
 ];
 
 test('F8: a .sql file that nothing on the line can run is judged as a file of any other name', async () => {
@@ -594,8 +596,8 @@ test('F11: with a .sql file named, an option that names a program to run is caug
     'rg --pre ./run.sh CREATE x.sql', 'rg --pre=./run.sh CREATE x.sql', 'rg --hostname-bin ./h.sh CREATE x.sql', 'rg --hostname-bin=./h.sh CREATE x.sql',
     // sort is off the list: it takes --compress-program in any shortening
     'sort x.sql', 'sort x.sql | uniq', 'sort -o y.txt x.sql', 'sort --compress-program=psql x.sql', 'sort --comp=psql x.sql', 'cat x.sql | sort',
-    // less and more start a command given after +
-    'less \'+!psql -f x.sql\' x.sql', 'more +5 x.sql',
+    // less and more start a command given after + (and are off the list since fix round 2, G2)
+    'less \'+!psql -f x.sql\' x.sql', 'more +5 x.sql', 'less x.sql', 'more x.sql',
   ];
   const wrong = runs.filter((c) => verdictOf(c) !== 'database').map((c) => ({ command: show(c), got: verdictOf(c) }));
   assert.deepEqual(wrong, []);
@@ -604,7 +606,7 @@ test('F11: with a .sql file named, an option that names a program to run is caug
   const twin = (c) => c.replace(/\.sql\b/g, '.txt');
   const reads = [
     'git grep -n CREATE -- x.sql', 'rg CREATE x.sql', 'git diff -- x.sql', 'git log --oneline -- x.sql', 'git log --pretty=oneline -- x.sql', 'git diff --exit-code x.sql', 'git grep --only-matching CREATE -- x.sql', 'git grep --or -e CREATE -e ALTER -- x.sql',
-    'grep --extended-regexp "CREATE|ALTER" x.sql', 'rg --pretty CREATE x.sql', 'uniq x.sql', 'less x.sql', 'more x.sql', 'git commit -m "Order the columns in x.sql"',
+    'grep --extended-regexp "CREATE|ALTER" x.sql', 'rg --pretty CREATE x.sql', 'uniq x.sql', 'git commit -m "Order the columns in x.sql"',
   ];
   for (const c of reads) {
     assert.notEqual(verdictOf(c), 'database', c);
@@ -650,5 +652,28 @@ test('G1: a database or deploy tool behind uv run, bundle exec, poetry run or pi
   for (const c of keep) {
     assert.equal(verdictOf(c), 'ask', c);
     for (const stage of ['implement', 'pr1']) assert.deepEqual(await outcome(c, stage), { hook: 'ask', end: 'asked' }, `${stage}: ${c}`);
+  }
+});
+
+// ---------- Fix round 2, G2 (re-review N2): two more spellings past the .sql guard ----------
+
+test('G2: a number inside a git option group, and less, do not get a .sql file past the guard', async () => {
+  // git reads a number inside a group of short options and carries on with the letters after it; less takes a key file
+  // that names a program in several spellings, so less and more are off the list.
+  const runs = [
+    'git grep -1O\'psql -f\' CREATE -- x.sql', 'less --lesskey-content=\'#env;LESSOPEN=|node run.js %s\' x.sql', 'less --lesskey-src=keys x.sql', 'git log -10O -- x.sql',
+    'git grep -n1O CREATE -- x.sql', 'git grep -2nOpsql CREATE -- x.sql', `git -C ${W} --no-pager grep -3O'psql -f' CREATE -- x.sql`, 'less -k keys x.sql', 'less --lesskey-file=keys x.sql', 'more --lesskey-src=keys x.sql',
+    'less x.sql', 'more x.sql', 'cat x.sql | less', 'git diff x.sql | more',
+  ];
+  const wrong = runs.filter((c) => verdictOf(c) !== 'database').map((c) => ({ command: show(c), got: verdictOf(c) }));
+  assert.deepEqual(wrong, []);
+  for (const c of runs.slice(0, 4)) assert.deepEqual(await outcome(c), { hook: 'ask', end: 'refused (database)', note: L.refuseNote('database', L.REFUSE_REASONS.database) }, c);
+  // A number in an option with no O after it is no such option: these are judged as a file of any other name, as F8 says.
+  const twin = (c) => c.replace(/\.sql\b/g, '.txt');
+  const reads = ['git grep -n5 CREATE -- x.sql', 'git log -5 -- x.sql', 'git log -n5 -- x.sql', 'git diff -U5 -- x.sql', 'git log -3 -p -- x.sql', 'git blame -L10,20 x.sql', 'git show -1 --stat -- x.sql', 'git grep -C2 -n CREATE -- x.sql'];
+  for (const c of reads) {
+    assert.notEqual(verdictOf(c), 'database', c);
+    assert.equal(verdictOf(c), verdictOf(twin(c)), c);
+    for (const stage of ['implement', 'pr1']) assert.deepEqual(await outcome(c, stage), await outcome(twin(c), stage), `${stage}: ${c}`);
   }
 });

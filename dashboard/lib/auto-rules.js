@@ -540,22 +540,22 @@ function plainForm(text) {
 // ---------- a .sql file that nothing on the line can run ----------
 // Programs that only read and print, the moves of files (the outside rule still judges where they write), and the git
 // subcommands that read, stage, commit or move files. A line made only of these runs no .sql file.
-const SQL_READS = new Set(['cat', 'head', 'tail', 'wc', 'grep', 'egrep', 'fgrep', 'rg', 'ls', 'diff', 'cmp', 'file', 'stat', 'less', 'more', 'uniq', 'cut', 'nl', 'md5', 'md5sum', 'shasum', 'sha1sum', 'sha256sum', 'echo', 'printf', 'test', '[', 'true', 'false', 'pwd', 'cd']);
+const SQL_READS = new Set(['cat', 'head', 'tail', 'wc', 'grep', 'egrep', 'fgrep', 'rg', 'ls', 'diff', 'cmp', 'file', 'stat', 'uniq', 'cut', 'nl', 'md5', 'md5sum', 'shasum', 'sha1sum', 'sha256sum', 'echo', 'printf', 'test', '[', 'true', 'false', 'pwd', 'cd']);
 const SQL_MOVES = new Set(['cp', 'mv', 'rm', 'touch', 'mkdir']);
 const SQL_GIT = new Set(['add', 'commit', 'diff', 'status', 'log', 'show', 'blame', 'mv', 'rm', 'restore', 'ls-files', 'grep']);
 // The shell's own words around a command, which start nothing themselves: in front of one, and alone at the end of a block.
 const SQL_FRONT = new Set(['if', 'elif', 'while', 'until', 'then', 'else', 'do', '!', '{']);
 const SQL_CLOSERS = new Set(['fi', 'done', '}']);
 // An option of one of those programs that names a program to run: rg --pre and --hostname-bin, git grep -O and
-// --open-files-in-pager, git diff --ext-diff, git grep --textconv (and sort --compress-program, though sort is not on the
-// list: it takes that option in any shortening, so it is left off).
+// --open-files-in-pager, git diff --ext-diff, git grep --textconv. A program that takes such an option in spellings that
+// are not sure is left off the list: sort (--compress-program in any shortening), less and more (a command after +, and a
+// key file that names a program: -k, --lesskey-file, --lesskey-src, --lesskey-content).
 const SQL_RUNS_OPTION = /^--(pre|compress-program|hostname-bin|open-files-in-pager|ext-diff|textconv)(=|$)|^-O/;
-// git takes its options in every spelling: -O inside a group of short options (git grep -nO'psql -f'), and a long option
-// cut short (--op… is --open-files-in-pager, --ext… is --ext-diff, --textc… is --textconv; no other option of the
-// subcommands above begins so).
-const SQL_GIT_RUNS = /^-[A-Za-z]*O|^--(op|ext|textc)/;
-// less and more run a command given after + (+!<command>).
-const SQL_PAGER_RUNS = /^\+/;
+// git takes its options in every spelling: -O inside a group of short options, letters or a number before it (git grep
+// -nO'psql -f', git grep -1O'psql -f': git reads the number and carries on with the letters), and a long option cut short
+// (--op… is --open-files-in-pager, --ext… is --ext-diff, --textc… is --textconv; no other option of the subcommands
+// above begins so).
+const SQL_GIT_RUNS = /^-[A-Za-z0-9]*O|^--(op|ext|textc)/;
 
 // Is this one command (unwrap's rest, assigns and wrappers) one that cannot run a file it is given? Written plainly only:
 // no variable in front, no wrapper but the shell's own words, the program by its bare name. For git, only -C <folder>
@@ -569,7 +569,6 @@ function sqlHarmless(rest, assigns, wrappers) {
   if (!a.length && SQL_CLOSERS.has(cmd)) return true;
   if (a.some((x) => SQL_RUNS_OPTION.test(x))) return false;
   if (cmd === 'git' && a.some((x) => SQL_GIT_RUNS.test(x))) return false;
-  if ((cmd === 'less' || cmd === 'more') && a.some((x) => SQL_PAGER_RUNS.test(x))) return false;
   if (SQL_READS.has(cmd) || SQL_MOVES.has(cmd)) return true;
   if (cmd !== 'git') return false;
   let i = 0;
