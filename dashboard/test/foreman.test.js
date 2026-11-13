@@ -12,6 +12,7 @@ import { parseBrief, overviewFromRecord, buildOverview } from '../lib/overview.j
 import { parseEvents, summariseSessions } from '../lib/hook-events.js';
 import { parsePs } from '../lib/live.js';
 import { startDashboard } from './helpers/dashboard.js';
+import { rowWorking, jobWorking, cardPaused, STALE_WORKER_MS } from '../lib/working.js';
 
 // ---------- routine steps ----------
 
@@ -397,4 +398,129 @@ test('jobTerminals: a terminal open in a guessed worktree is not the job\'s; one
   const open = [{ pid: 1, cwd: '/w/other-thing' }, { pid: 2, cwd: '/w/repo/app' }, { pid: 3, cwd: '/elsewhere' }, { pid: 4, cwd: null }];
   assert.deepEqual(jobTerminals(ownOf(true), open).map((t) => t.pid), [2]);
   assert.deepEqual(jobTerminals(ownOf(false), open).map((t) => t.pid), [1, 2]);
+});
+
+// ---------- Work that has ended reads as ended (lib/working.js): no live process, no working row ----------
+
+test('rowWorking: a crew row works only with something live behind it; a paused job has none', () => {
+  const now = Date.parse('2026-11-13T12:00:00Z');
+  const ago = (m) => new Date(now - m * 60_000).toISOString();
+  const started = ago(20); // this Starbase started 20 minutes ago
+  const row = (lastAt, state = 'running') => ({ state, lastAt });
+  // An active run of this Starbase: its rows work, whatever their age.
+  assert.equal(rowWorking(row(ago(90)), { active: true, startedAt: started }, now), true);
+  assert.equal(rowWorking(row(ago(5), 'finished'), { active: true, startedAt: started }, now), false, 'a finished row never works');
+  // Paused by a restart or the usage limit: nothing of the job runs, however fresh its rows.
+  assert.equal(rowWorking(row(ago(1)), { paused: true, startedAt: started }, now), false);
+  assert.equal(rowWorking(row(ago(1)), { paused: true, locked: true, startedAt: started }, now), false);
+  // A job Starbase ran (a run end on record): a row from before this Starbase started, with no live run and no lock,
+  // had its run end when Starbase stopped (a crash records no end), even though it is after the last recorded end.
+  assert.equal(rowWorking(row(ago(25)), { startedAt: started, endedAt: ago(40) }, now), false);
+  // A live process holding the job's lock (a terminal) keeps it working.
+  assert.equal(rowWorking(row(ago(25)), { startedAt: started, endedAt: ago(40), locked: () => true }, now), true);
+  // No Starbase run on record: a terminal's row, counted while it is recent, from before the start or not.
+  assert.equal(rowWorking(row(ago(25)), { startedAt: started }, now), true);
+  // Since the start: after the job's last run ended, or recent with no end on record.
+  assert.equal(rowWorking(row(ago(10)), { startedAt: started, endedAt: ago(15) }, now), true);
+  assert.equal(rowWorking(row(ago(10)), { startedAt: started, endedAt: ago(5) }, now), false, 'stopped before the run ended');
+  assert.equal(rowWorking(row(ago(10)), { startedAt: ago(60) }, now), true);
+  assert.equal(rowWorking(row(ago(31)), { startedAt: ago(60) }, now), false, `silent for ${STALE_WORKER_MS / 60_000} minutes`);
+  // After the last run ended and since the start, but silent for 30 minutes with no lock: nothing runs it any more.
+  assert.equal(rowWorking(row(ago(40)), { startedAt: ago(60), endedAt: ago(50) }, now), false, 'not working forever');
+  assert.equal(rowWorking(row(ago(40)), { startedAt: ago(60), endedAt: ago(50), locked: true }, now), true);
+  // The lock is asked only when it decides.
+  let asked = 0;
+  rowWorking(row(ago(10)), { startedAt: started, active: true, locked: () => { asked += 1; return true; } }, now);
+  rowWorking(row(ago(10)), { startedAt: started, paused: true, locked: () => { asked += 1; return true; } }, now);
+  assert.equal(asked, 0);
+});
+
+test('jobWorking and cardPaused: a paused job is never working; an active run always is', () => {
+  assert.equal(jobWorking({ active: true, paused: false, working: false }), true);
+  assert.equal(jobWorking({ active: false, paused: false, working: true }), true);
+  assert.equal(jobWorking({ active: false, paused: true, working: true }), false);
+  assert.equal(jobWorking({}), false);
+  assert.equal(cardPaused({ paused: true }), true);
+  assert.equal(cardPaused({ limitPaused: '2026-11-13T14:00:00Z' }), true);
+  assert.equal(cardPaused({ restartPaused: { how: 'crash', at: '2026-11-13T10:00:00Z' } }), true);
+  assert.equal(cardPaused({ working: true }), false);
+  assert.equal(cardPaused(null), false);
+});
+
+test('a job whose crew stopped before Starbase started is not working: after a crash, after an earlier run, and while paused', async () => {
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'fw-ended-')));
+  const dirs = { features: path.join(root, 'feature-work'), projects: path.join(root, 'projects'), agents: path.join(root, 'agents'), skills: path.join(root, 'skills'), state: path.join(root, 'state'), home: path.join(root, 'home'), repo: path.join(root, 'repo') };
+  for (const d of Object.values(dirs)) await fs.mkdir(d, { recursive: true });
+  // Minutes before now, all before the dashboard below starts, and none silent for 30 minutes.
+  const R = (m) => new Date(Date.now() - m * 60_000).toISOString();
+  const jsonl = (rows) => `${rows.map((r) => JSON.stringify(r)).join('\n')}\n`;
+  const audit = [];
+  // Three jobs whose Builder's log stops mid-edit 6 minutes ago:
+  //   cut-job     a reply sent from Starbase 9 minutes ago that never ended: Starbase stopped under it (a crash), so it shows paused
+  //   ended-job   an earlier reply ended 12 minutes ago; nothing has run from Starbase since
+  //   held-job    a terminal holds its lock: a live process, so its Builder still counts
+  for (const [slug, sessionId] of [['cut-job', 'sess-cut'], ['ended-job', 'sess-ended'], ['held-job', 'sess-held']]) {
+    const jobDir = path.join(dirs.features, slug);
+    await fs.mkdir(jobDir, { recursive: true });
+    await fs.writeFile(path.join(jobDir, 'status.json'), JSON.stringify({
+      schema_version: 1, slug, title: slug, route: 'small', stage: 'implement', stage_state: 'working', session_id: sessionId, repo: { path: dirs.repo, base_branch: 'main' }, updated_at: R(10),
+    }));
+    const proj = path.join(dirs.projects, `-tmp-ended-${slug}`);
+    const subs = path.join(proj, sessionId, 'subagents');
+    await fs.mkdir(subs, { recursive: true });
+    const line = (d) => ({ sessionId, cwd: dirs.repo, ...d });
+    await fs.writeFile(path.join(proj, `${sessionId}.jsonl`), jsonl([
+      line({ type: 'user', timestamp: R(8), message: { role: 'user', content: `/feature ${slug}. Private folder: ${jobDir}` } }),
+      line({ type: 'assistant', timestamp: R(8), message: { id: `${slug}-1`, model: 'claude-fable-5-2', stop_reason: 'tool_use', content: [{ type: 'tool_use', id: `${slug}-t1`, name: 'Agent', input: { subagent_type: 'feature-implementer', description: 'Build it', prompt: `Private folder: ${jobDir}` } }], usage: { input_tokens: 10, output_tokens: 100 } } }),
+    ]));
+    await fs.writeFile(path.join(subs, 'agent-w1.meta.json'), JSON.stringify({ agentType: 'feature-implementer', description: 'Build it', toolUseId: `${slug}-t1` }));
+    await fs.writeFile(path.join(subs, 'agent-w1.jsonl'), jsonl([
+      line({ agentId: 'w1', isSidechain: true, type: 'user', timestamp: R(7), message: { role: 'user', content: 'Build it' } }),
+      line({ agentId: 'w1', isSidechain: true, type: 'assistant', timestamp: R(6), message: { id: `${slug}-w`, model: 'claude-opus-5-5', stop_reason: 'tool_use', content: [{ type: 'tool_use', id: `${slug}-tw`, name: 'Edit', input: { file_path: `${dirs.repo}/app.js` } }], usage: { input_tokens: 5, output_tokens: 50 } } }),
+    ]));
+    if (slug === 'cut-job') {
+      audit.push({ at: R(15), action: 'service-start', pid: 1, resumes: [], paused: [] });
+      audit.push({ at: R(9), action: 'send', featureDir: jobDir, slug, runId: 'run-cut', sessionId, kind: 'message' });
+    }
+    if (slug === 'ended-job') {
+      audit.push({ at: R(14), action: 'send', featureDir: jobDir, slug, runId: 'run-ended', sessionId, kind: 'message' });
+      audit.push({ at: R(12), action: 'run-ended', featureDir: jobDir, runId: 'run-ended', sessionId, status: 'done' });
+    }
+    // The test's own process stands for the terminal: alive, and not the dashboard.
+    if (slug === 'held-job') await fs.writeFile(path.join(jobDir, 'lock.json'), JSON.stringify({ owner: 'terminal', pid: process.pid, branch: 'feature/held', acquiredAt: R(10) }));
+  }
+  audit.sort((a, b) => a.at.localeCompare(b.at));
+  await fs.writeFile(path.join(dirs.state, 'audit.jsonl'), jsonl(audit));
+  const dashboard = await startDashboard({
+    env: {
+      HOME: dirs.home, STARBASE_DEMO: '1', STARBASE_FEATURES_DIR: dirs.features, STARBASE_PROJECTS_DIR: dirs.projects,
+      STARBASE_AGENTS_DIR: dirs.agents, STARBASE_SKILLS_DIR: dirs.skills, STARBASE_STATE_DIR: dirs.state,
+    },
+  });
+  try {
+    const snap = await (await fetch(`${dashboard.base}/api/snapshot`)).json();
+    const card = (slug) => snap.jobs.find((j) => j.slug === slug);
+    const doing = (slug) => card(slug).nowDoing.map((d) => d.who);
+    // The crash: paused, and so not working, with no crew shown at work.
+    assert.equal(card('cut-job').restartPaused?.how, 'crash');
+    assert.equal(card('cut-job').paused, true);
+    assert.equal(card('cut-job').working, false);
+    assert.deepEqual(doing('cut-job'), []);
+    assert.equal(card('cut-job').lane, 'working');
+    assert.equal(card('cut-job').laneReason, 'Paused by a restart; waits for Resume');
+    // The earlier reply: its Builder's log moved after that reply ended, but before this Starbase started.
+    assert.equal(card('ended-job').working, false);
+    assert.deepEqual(doing('ended-job'), []);
+    // The terminal's Builder still counts.
+    assert.equal(card('held-job').working, true);
+    assert.deepEqual(doing('held-job'), ['feature-implementer']);
+    // The job's own page agrees: the stopped Builder reads stopped there too.
+    for (const [slug, state] of [['cut-job', 'stopped'], ['ended-job', 'stopped'], ['held-job', 'running']]) {
+      const detail = await (await fetch(`${dashboard.base}/api/job/${slug}`)).json();
+      assert.deepEqual(detail.activity.filter((a) => a.who === 'feature-implementer').map((a) => a.state), [state], slug);
+    }
+  } finally {
+    await dashboard.stop();
+    await fs.rm(root, { recursive: true, force: true });
+  }
 });

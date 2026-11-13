@@ -61,6 +61,7 @@ import { STAGES, detectStage } from './stages.js';
 import { modelLabel } from './cost.js';
 import { slugTicketKey } from './orbit.js';
 import { EVIDENCE_JSON, WIREFRAMES_FILE, WIREFRAMES_JSON } from './docs.js';
+import { cardPaused, jobWorking } from './working.js';
 
 /**
  * What buildJobPage takes: what the runner already computed for the job (runner/index.js).
@@ -96,8 +97,9 @@ const liveRun = (run) => Boolean(run && ACTIVE_RUN.has(run.status));
  * The job's one state word. Done (closed or the done lane) first, then needs-you (the snapshot's
  * lane; without a lane, a card, a gate or the record saying so), then a live reply is working; a
  * pause (usage limit, restart, a stopped reply) on a working lane that is not a recording, or with
- * no lane, is paused even while old crew rows still read as running; then the working lane; in-review and ready wait on GitHub; resting (and anything else)
- * is paused.
+ * no lane, is paused even while old crew rows still read as running; then the working lane, or with no lane the
+ * card's working by the one rule (lib/working.js jobWorking: a paused job never works); in-review and ready wait on
+ * GitHub; resting (and anything else) is paused.
  * @param {JobFacts} facts
  */
 export function stateOf(facts) {
@@ -109,8 +111,8 @@ export function stateOf(facts) {
   // A pause wins only over a working lane that is not a recording, or when there is no lane: card.paused
   // stays true after a stopped reply, while a PR waits on GitHub or the evidence is recorded.
   const pausable = lane === 'working' ? !card.testing : !lane;
-  if (pausable && (facts?.lanePaused || card.paused || card.limitPaused || card.restartPaused)) return 'paused';
-  if (lane === 'working' || (!lane && card.working)) return 'working';
+  if (pausable && (facts?.lanePaused || cardPaused(card))) return 'paused';
+  if (lane === 'working' || (!lane && jobWorking({ paused: cardPaused(card), working: card.working }))) return 'working';
   if (lane === 'in-review' || lane === 'ready') return 'waiting-github';
   return 'paused';
 }

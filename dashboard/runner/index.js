@@ -96,6 +96,7 @@ import { writeFileAtomic } from '../lib/atomic-write.js';
 import { UsageLog, TurnMeter, turnLines, usageDir, starbaseUser, claudeAccountId } from '../lib/usage-log.js';
 import { statusTicketKey, slugTicketKey } from '../lib/orbit.js';
 import { AUTO_MAX, AUTO_START_FILE, AutoStarter, countAuto, normalizeAutoStart, pausedFor } from '../lib/auto-start.js';
+import { jobWorking, rowWorking } from '../lib/working.js';
 import { autoQueueView } from '../lib/auto-queue.js';
 import { activeWarnings } from '../lib/usage-warnings.js';
 import { telemetry as telemetryOf } from '../lib/telemetry.js';
@@ -889,20 +890,18 @@ export async function createRunner(config) {
   }
 
   // When a reply sent from the dashboard ends, the process that ran it (and any workers inside it)
-  // has ended too. Agents whose logs stopped before that moment are not working, even if their log
-  // stops mid-task (for example after a pause). Anything with newer activity still counts.
-  // With no run on record (a job run only in a terminal, or since a restart), a log that stops
-  // mid-task never shows its end: after this much silence it counts as stopped.
-  const STALE_WORKER_MS = 30 * 60_000;
+  // has ended too, and so has every run of this Starbase when it stops. Whether a crew row still has
+  // a live process behind it is one rule (lib/working.js rowWorking): an active run; never while the
+  // job is paused; on a job Starbase ran, not from before its last run ended, nor from before this
+  // Starbase started unless another live process holds the job's lock; else while recent or locked.
   function stillRunning(f, a, active) {
-    if (a.state !== 'running') return false;
-    if (active) return true;
-    const ended = runEnds[f.dir];
-    if (ended) return !a.lastAt || a.lastAt > ended.at;
-    // Recent work counts, and so does a live process holding the job's lock.
-    if (a.lastAt && Date.now() - Date.parse(a.lastAt) < STALE_WORKER_MS) return true;
-    return lockView(f.dir) !== null;
+    return rowWorking(a, {
+      active, paused: Boolean(restartPaused.get(f.dir) || limits.pausedJob(f.dir)), endedAt: runEnds[f.dir]?.at ?? null,
+      startedAt: RUNNER_STARTED_AT, locked: () => lockView(f.dir) !== null,
+    });
   }
+  // When this Starbase started: no run of its own is older.
+  const RUNNER_STARTED_AT = new Date().toISOString();
   let runEnds = {};
   // Each job's flow lane (lib/flow.js laneOf) by slug, from the last map refresh: where its PRs are.
   let flowLanes = new Map();
@@ -953,7 +952,7 @@ export async function createRunner(config) {
       slug: f.slug, title: f.title, kind: f.kind, kindGuessed: f.kindGuessed, project: f.project, route: f.route, skipped: f.skipped,
       stage: f.stage, stageState: active ? 'working' : pausedHere ? 'paused' : notRunning ? 'idle' : f.stageState, paused: pausedHere, waitingFor: pendingList.length ? 'permission' : f.waitingFor,
       waitingSince: pendingList.length ? pendingList[0].createdAt : f.waitingSince,
-      needsYou: pendingList.length > 0 || (!active && f.needsYou), working: Boolean(active) || running.length > 0, quiet: f.quiet && running.length > 0,
+      needsYou: pendingList.length > 0 || (!active && f.needsYou), working: jobWorking({ active, paused: pausedHere, working: running.length > 0 }), quiet: f.quiet && running.length > 0,
       nowDoing, firstQuestion: f.questions[0]?.text ?? null, questions: f.questions.length,
       unconfirmed: f.decidedOnYourBehalf.filter((d) => !d.confirmed).length,
       headline: f.latestBrief?.headline ?? (f.sources.statusJson ? null : f.currentText) ?? null, nextProposed: f.nextProposed,

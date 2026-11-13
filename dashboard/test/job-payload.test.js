@@ -451,3 +451,23 @@ test('a bold line with no sentence in it stands as a heading; a word that ends r
   assert.equal(cutHere.length, 140);
   assert.ok(cutHere.endsWith('abcdef…'));
 });
+
+test('stateOf: the one working rule (lib/working.js) — a paused job is never working, a job with no lane works only as jobWorking says', async () => {
+  const { jobWorking, cardPaused } = await import('../lib/working.js');
+  // The card the runner now gives a job a crash cut off (Task 3): paused, nothing working, no crew at work.
+  const cut = facts({ lane: 'working', lanePaused: true, laneReason: 'Paused by a restart; waits for Resume', card: { stageState: 'paused', paused: true, working: false, nowDoing: [], restartPaused: { how: 'crash', at: T(8) } } });
+  assert.equal(stateOf(cut), 'paused');
+  assert.equal(buildJobPage(cut).stateLine, 'Paused by a restart; waits for Resume');
+  // With no lane, the page's word follows the same rule as the card's working.
+  const cards = [
+    { working: true },
+    { working: true, paused: true },
+    { working: true, limitPaused: T(14) },
+    { working: true, restartPaused: { how: 'clean', at: T(8) } },
+    { working: false },
+  ];
+  for (const card of cards) {
+    const working = jobWorking({ active: false, paused: cardPaused(card), working: card.working });
+    assert.equal(stateOf(facts({ lane: undefined, card })) === 'working', working, JSON.stringify(card));
+  }
+});
