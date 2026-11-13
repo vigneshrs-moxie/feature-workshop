@@ -210,6 +210,7 @@ const CREW = {
   'outside-deploy': 'this would deploy or publish something.',
   'outside-read': 'this reads in a way Auto cannot judge (another folder, a setting or a place it cannot work out).',
   tool: 'this tool is not one Auto can judge.',
+  'tool-hidden': 'this starts a program through a git setting, a git command or an environment variable, where Auto cannot check what runs.',
   'gh-pr-create': 'gh pr create is a hard line, and Auto does not allow it here.',
   'git-push': 'a push together with a gh call is a hard line, and Auto does not allow it.',
   'rm-rf': 'deleting with rm -rf here is a hard line, and Auto does not allow it.',
@@ -224,6 +225,9 @@ test('every refusal reason is one of the frozen sentences', async () => {
   assert.deepEqual({ ...REFUSE_REASONS }, CREW);
   // Each refusal looks its reason up: by the rule, by which outside reason hit, by the hard line's id.
   for (const rule of ['database', 'merge', 'push', 'tool']) assert.equal(refuseReason({ rule }), CREW[rule], rule);
+  // A program started where Auto cannot read it (a git setting, git bisect run, an environment variable) has its own row, on the tool rule only.
+  assert.equal(refuseReason({ rule: 'tool', hidden: true }), CREW['tool-hidden']);
+  assert.equal(refuseReason({ rule: 'merge', hidden: true }), CREW.merge);
   assert.equal(refuseReason({ rule: 'outside' }), CREW.outside);
   assert.ok(Object.keys(AUTO_STOP_REASONS).every((r) => !Object.values(CREW).includes(AUTO_STOP_REASONS[r]) || ['outside', 'tool'].includes(r)), 'no owner sentence is reused but the two kept rows');
   // Every one of the outside rule's sentences has its own row (the runner names which hit by its key).

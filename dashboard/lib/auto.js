@@ -52,7 +52,8 @@ export const REFUSED_RULES = Object.freeze(['merge', 'database', 'push', 'outsid
 /**
  * Why Auto refused a call, in words for the crew (it reads them; the owner's stop sentences, AUTO_STOP_REASONS,
  * OUTSIDE_REASONS and a hard line's reason, stay his). Keyed by the rule; `outside-<key>` by which OUTSIDE_REASONS
- * sentence hit; a hard line by its id, and `hard-line` for one with no row. Fixed sentences only: no path, address or
+ * sentence hit; `tool-hidden` for a program started where Auto cannot read it (a git setting, git bisect run, an
+ * environment variable); a hard line by its id, and `hard-line` for one with no row. Fixed sentences only: no path, address or
  * command's arguments can reach a note. The database row is the first sentence of its own note (refuseNote).
  */
 export const REFUSE_REASONS = Object.freeze({
@@ -65,6 +66,7 @@ export const REFUSE_REASONS = Object.freeze({
   'outside-deploy': 'this would deploy or publish something.',
   'outside-read': 'this reads in a way Auto cannot judge (another folder, a setting or a place it cannot work out).',
   tool: 'this tool is not one Auto can judge.',
+  'tool-hidden': 'this starts a program through a git setting, a git command or an environment variable, where Auto cannot check what runs.',
   'gh-pr-create': 'gh pr create is a hard line, and Auto does not allow it here.',
   'git-push': 'a push together with a gh call is a hard line, and Auto does not allow it.',
   'rm-rf': 'deleting with rm -rf here is a hard line, and Auto does not allow it.',
@@ -80,9 +82,10 @@ const OUTSIDE_ROWS = new Set(['secret', 'unknown', 'deploy', 'read']);
  * (its key, worked out by the runner: this file imports nothing that reaches the machine). Anything with no row of its
  * own gets the general hard line's.
  */
-export function refuseReason({ rule, outside = null, hardLine = null } = {}) {
+export function refuseReason({ rule, outside = null, hardLine = null, hidden = false } = {}) {
   if (hardLine !== null && hardLine !== undefined) return REFUSE_REASONS[HARD_LINE_ROWS.has(hardLine) ? hardLine : 'hard-line'];
   if (rule === 'outside') return OUTSIDE_ROWS.has(outside) ? REFUSE_REASONS[`outside-${outside}`] : REFUSE_REASONS.outside;
+  if (rule === 'tool' && hidden === true) return REFUSE_REASONS['tool-hidden'];
   return ['database', 'merge', 'push', 'tool'].includes(rule) ? REFUSE_REASONS[rule] : REFUSE_REASONS['hard-line'];
 }
 

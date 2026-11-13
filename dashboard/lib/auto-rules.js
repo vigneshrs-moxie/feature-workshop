@@ -32,8 +32,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { classify, commandParts, isInside, TEMP_DIRS } from './policy.js';
-import { hardLine, namesStarbaseAddress, namesThisComputer, ORG_REMOTES, ORG_URL, physicalPath, rmInsideJob, withPathMemo, WRAPPERS } from './hard-lines.js';
+import { classify, commandParts, githubOwner, isInside, prCreateProblem, TEMP_DIRS } from './policy.js';
+import { databaseLine, databaseText, handedOnStarts, hardLine, namesStarbaseAddress, namesThisComputer, ORG_REMOTES, ORG_URL, physicalPath, rmInsideJob, withPathMemo, WRAPPERS } from './hard-lines.js';
 import { envCopy, gitReadForm, localPlain, plainWhy, psRead, starbaseDecisions } from './auto-plain.js';
 import { STAGES, STAGE_IDS } from './stages.js';
 
@@ -69,6 +69,44 @@ export const OUTSIDE_REASONS = Object.freeze({
   deploy: 'this would deploy or publish something, so it needs you.',
   read: 'this only reads, but in a way Auto cannot judge (another folder, a setting or a place it cannot work out), so it needs you.',
 });
+/** The tool rule's sentence for a Bash call that starts a program where no reader can see it: git bisect run, a git setting or a variable that names a program. */
+export const HIDDEN_PROGRAM_REASON = 'this starts a program through a git setting, a git command or an environment variable, where Auto cannot check what runs, so it needs you.';
+
+// The hard lines' own reading of a call, under a name of this module's so that a test can make it see nothing: Auto's
+// own steps must then still refuse each family (they do not rest on the hard lines alone). Nothing else turns it off.
+let hardLineOf = hardLine;
+/** For the tests: runs fn (not async) with the hard lines seeing nothing inside Auto's rules, and gives back what it returns. */
+export function withoutHardLines(fn) {
+  const before = hardLineOf;
+  hardLineOf = () => null;
+  try { return fn(); } finally { hardLineOf = before; }
+}
+
+/**
+ * The command with each of the job's own branch names (the card context's `branches`) taken out, for the plain-push test's
+ * look for a gh call (n3). Fail closed: a name is taken out only where it stands whole (no branch-name character on either
+ * side), only a name of letters, digits and . _ / - , and never a name whose last part is gh itself (gh, gh.exe, x/gh),
+ * which could be the gh program. With no names, the command comes back as it is.
+ */
+const BRANCH_CHAR = 'A-Za-z0-9._/-';
+const withoutOwnBranches = (command, branches) => {
+  const names = (Array.isArray(branches) ? branches : [])
+    .filter((b) => typeof b === 'string' && new RegExp(`^[${BRANCH_CHAR}]+$`).test(b) && !/(^|\/)gh(\.[^/]*)?$/i.test(b))
+    .sort((a, b) => b.length - a.length);
+  let out = command;
+  for (const b of names) {
+    const exact = b.replace(/[.*+?^${}()|[\]\\/-]/g, '\\$&');
+    out = out.replace(new RegExp(`(?<![${BRANCH_CHAR}])${exact}(?![${BRANCH_CHAR}])`, 'g'), ' ');
+  }
+  return out;
+};
+/**
+ * Is this card the plain push: the push hard line on a command with no gh call written in it? It is the one hard line
+ * the Approver may judge (runner/auto.js); a card with any other hard line is refused as that line.
+ */
+export function plainPushCard(hardLine, command, branches) {
+  return hardLine?.line === 'git-push' && !/\bgh\b/.test(withoutOwnBranches(String(command ?? ''), branches));
+}
 
 /** The job's own branch and its stack's part branches: the ones a push of Auto's may go to. */
 export function branchesOf(branch, stack) {
@@ -146,7 +184,7 @@ function jobStop(j) {
 
 // ---------- card ----------
 
-const PRIORITY = ['merge', 'database', 'push', 'outside'];
+const PRIORITY = ['merge', 'database', 'push', 'outside', 'tool'];
 
 // { stop } | { ask: why } | null
 function judgeCard(inp, ctx) {
@@ -158,7 +196,7 @@ function judgeCardOf(inp, ctx) {
   const input = inp.input ?? {};
   // A command too long to read, or made of too many commands, stops without being read (I9).
   if (toolName === 'Bash' && tooBig(String(input.command ?? ''))) return { stop: stop('outside') };
-  const own = hardLine(toolName, input, { cwd: ctx.cwd ?? null, stateDir: ctx.stateDir });
+  const own = hardLineOf(toolName, input, { cwd: ctx.cwd ?? null, stateDir: ctx.stateDir });
   const hard = inp.hardLine ?? own;
   if (own?.decision === 'deny' || hard?.decision === 'deny') return null; // refused outright, never asked
   if (typeof inp.blockedPath === 'string' && inp.blockedPath) return { stop: stop('outside') };
@@ -346,6 +384,7 @@ function bashVerdict(whole, hard, ctx) {
   const st = { ctx, asks: [], cdTargets: [], hits: new Set(), unknown: false, ranRunner: false, ranMake: false, pkgEdit: false, runs: [], written: [], touched: [], cloneDirs: [], branchChange: false, pushed: false, funcs: functionNames(command), roots: jobRoots(ctx), codeRoots: codeRoots(ctx), gitRoots: gitRoots(ctx), readRoots: readRoots(ctx), work: [...(ctx.worktrees ?? []), ctx.cwd].filter(Boolean).map((d) => physicalPath(d, null)).filter(Boolean) };
   if (hard?.line === 'gh-pr-merge') st.hits.add('merge');
   if (hard?.line === 'database') st.hits.add('database');
+  if (hard && !plainPushCard(hard, whole, ctx.branches)) st.prLine = true; // the card is refused as its hard line (runner/auto.js): see ghStep
   if (DB_ADDRESS.test(command)) st.hits.add('database'); // a database address anywhere in the call
   analyze(quotedBodies(command), ctx.cwd ?? null, st, 0, null);
   // A branch changed and a push in one call: where the push goes can't be told from here (C3).
@@ -360,7 +399,7 @@ function bashVerdict(whole, hard, ctx) {
   if ((st.ranRunner && wroteBase(['package.json'])) || (st.ranMake && wroteBase(['Makefile', 'makefile', 'GNUmakefile']))) st.hits.add('outside');
   const rule = PRIORITY.find((r) => st.hits.has(r));
   if (rule) {
-    const why = rule !== 'outside' ? null : st.deploy ? OUTSIDE_REASONS.deploy : st.secret ? OUTSIDE_REASONS.secret : st.unknown ? OUTSIDE_REASONS.unknown : !st.nonRead ? OUTSIDE_REASONS.read : null;
+    const why = rule === 'tool' ? HIDDEN_PROGRAM_REASON : rule !== 'outside' ? null : st.deploy ? OUTSIDE_REASONS.deploy : st.secret ? OUTSIDE_REASONS.secret : st.unknown ? OUTSIDE_REASONS.unknown : !st.nonRead ? OUTSIDE_REASONS.read : null;
     return { stop: stop(rule, { ...(rule === 'outside' && st.unknown ? { unknownProgram: true } : {}), ...(why ? { reason: why } : {}) }) };
   }
   const why = st.asks[0] ?? plainWhy(command, plainEnv(st, ctx.cwd ?? null));
@@ -529,7 +568,7 @@ function rawWords(piece) {
 function analyze(command, cwd, st, depth, viaXargs) {
   if (depth > 4) { st.hits.add('outside'); return; }
   // The hard lines' own reading of the same text (it also looks inside bash -c and eval).
-  const h = hardLine('Bash', { command }, { cwd });
+  const h = hardLineOf('Bash', { command }, { cwd });
   if (h?.line === 'gh-pr-merge') st.hits.add('merge');
   if (h?.line === 'database') st.hits.add('database');
   const parts = commandParts(command, cwd);
@@ -588,6 +627,8 @@ function unwrap(ws, st, cwd, depth) {
     const x = ws[i];
     if (!x) break;
     if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(x.t)) { assigns.push(x.t); i++; continue; }
+    // function <name> { <command> …: the body's first command follows the name, as the hard lines read it.
+    if (x.t === 'function' && !x.dyn && ws[i + 1]) { wrappers.push('function'); i += 2; if (ws[i]?.t === '()') i++; continue; }
     const wrapper = name(x.t);
     const takes = WRAPPERS.get(wrapper) ?? EXTRA_WRAPPERS.get(wrapper);
     if (!takes) break;
@@ -731,7 +772,9 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
   if (ws.some((w) => SQL.test(w.t))) hit('database'); // a .sql file given to any program
   const { rest, assigns, wrappers } = unwrap(ws, st, cwd, depth);
   if (wrappers.some((w) => DANGEROUS.has(w))) hit('outside');
+  if (wrappers.includes('coproc')) { hit('outside'); st.unknown = true; } // coproc stays a program Auto does not know; what it runs is judged below as well
   if (assigns.some((x) => REDIRECT_VAR.test(x.split('=')[0]))) hit('outside'); // a variable that redirects a tool (T3d)
+  for (const x of assigns) programVariable(x, cwd, st); // a variable that names a program for the command to run
   if (!rest.length) return;
   const cmdWord = rest[0];
   if (cmdWord.dyn) { hit('outside'); st.nonRead = true; return; } // a command chosen while it runs
@@ -764,8 +807,11 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
   if ((cmd === 'curl' || cmd === 'wget') && a.some((x) => URL_CREDENTIALS.test(x))) hit('outside'); // a name and password in an address (C5)
   // A read program's path words in the home folder (or on another disk) outside the job's folders ask (C5).
   if (READ_PATHS.has(cmd) && a.some((x) => (x.includes('/') || x.startsWith('~') || x === '..') && readElsewhere(physicalPath(x.includes('=') && x.startsWith('-') ? x.slice(x.indexOf('=') + 1) : /^-[A-Za-z][/~.]/.test(x) ? x.slice(2) : x, cwd ?? st.hint ?? null), st.readRoots))) st.asks.push('a read outside the job\'s folders');
-  if (dbCommand(cmd, args)) hit('database');
-  else if (!TEXTY.has(cmd) && args.some((x) => DB_CLIENTS.has(name(x.t)))) hit('database'); // a client named under a wrapper we don't know
+  // Behind if, elif, while, until, coproc or a function's name the command was once read as that word's arguments, and a
+  // client's name among them stopped it: it still does, so nothing that stopped is let through by reading further.
+  const shellWord = wrappers.some((w) => SHELL_FRONT.has(w));
+  if (dbCommand(cmd, args) || databaseLine(cmd, a)) hit('database'); // a client or tool; a package script or tool of the hard lines' database line
+  else if ((!TEXTY.has(cmd) || shellWord) && args.some((x) => DB_CLIENTS.has(name(x.t)))) hit('database'); // a client named under a wrapper we don't know
   if (EXEC_LIKE.has(cmd)) for (const x of args) if (/\s/.test(x.t)) analyze(x.t, cwd, st, depth + 1, null);
 
   // A deploy or a publish stops, by whatever road it is started (I3).
@@ -816,7 +862,7 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
     for (let k = 0; k < a.length - 1; k++) if (/^-[fde]$/.test(a[k]) && (args[k + 1].dyn || readElsewhere(physicalPath(a[k + 1], cwd ?? st.hint ?? null), st.readRoots))) st.asks.push('a read outside the job\'s folders');
   }
   if (secretPlace(cwd ?? st.hint ? physicalPath(cwd ?? st.hint, null) : null, st.roots, ctx)) { hit('outside'); st.secret = true; } // running inside one
-  if (/^(export|declare|typeset|readonly|local)$/.test(cmd)) for (const x of a) { if (!x.startsWith('-') && REDIRECT_VAR.test(x.split('=')[0])) hit('outside'); }
+  if (/^(export|declare|typeset|readonly|local)$/.test(cmd)) for (const x of a) { if (!x.startsWith('-') && REDIRECT_VAR.test(x.split('=')[0])) hit('outside'); if (!x.startsWith('-') && x.includes('=')) programVariable(x, cwd, st); }
   if (/^(npm|pnpm|yarn|bun|npx|pnpx|bunx)$/.test(cmd) && !/^(pkg|set-script)$/.test(a.find((x) => !x.startsWith('-')) ?? '')) st.ranRunner = true;
   if (cmd === 'make' || cmd === 'gmake') st.ranMake = true;
   if (cmd === 'npm' && (/^(pkg|set-script)$/.test(a.find((x) => !x.startsWith('-')) ?? ''))) st.pkgEdit = a.includes('set') || a.includes('delete') || a.includes('fix') || a.includes('set-script') || a[0] === 'set-script';
@@ -850,7 +896,7 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
     if (codeAt >= 0) {
       // Code given on the command line: it asks, and stops only if a plain text search of it finds something.
       const code = /^-[A-Za-z]*[ep]$|^-[A-Za-z]*[cEr]$/.test(a[codeAt]) || /^--(eval|print)$/.test(a[codeAt]) || a[codeAt] === 'eval' ? args[codeAt + 1] : { t: a[codeAt].replace(/^--[a-z]+=/, ''), dyn: args[codeAt].dyn };
-      if (!code || code.dyn) hit('outside'); else { scanOther(code.t, st); st.asks.push(`code written on the command line (${cmd} ${a[codeAt]})`); }
+      if (!code || code.dyn) hit('outside'); else { scanInline(code.t, cwd, st); st.asks.push(`code written on the command line (${cmd} ${a[codeAt]})`); }
     }
     else if (!pos().filter((x) => x.t !== '-').length && !a.some((x) => NO_STDIN.test(x))) hit('outside'); // code from stdin
     if (cmd === 'perl' || cmd === 'ruby') { if (a.some((x) => /^-[A-Za-z]*i/.test(x))) writes(pos()); }
@@ -865,11 +911,29 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
     return;
   }
 
+  // bun and elixir given code on the command line (-e, -p, --eval, --print): searched and asked as node's is.
+  if (cmd === 'bun' || cmd === 'elixir') {
+    const k = a.findIndex((x) => /^(-e|-p|--eval|--print)$/.test(x) || /^--(eval|print)=/.test(x));
+    if (k >= 0) {
+      const code = a[k].includes('=') ? { t: a[k].slice(a[k].indexOf('=') + 1), dyn: args[k].dyn } : args[k + 1];
+      if (!code || code.dyn) hit('outside'); else { scanInline(code.t, cwd, st); st.asks.push(`code written on the command line (${cmd} ${a[k].split('=')[0]})`); }
+    }
+  }
   // TypeScript runners and bun given a file: the same reading as node's (I4).
   if (cmd === 'tsx' || cmd === 'ts-node' || cmd === 'ts-node-esm') { const file = interpreterFile('node', args); if (file) runtimeFile(file, cwd, st, depth); return; }
   if (cmd === 'bun') { const list = a[0] === 'run' ? args.slice(1) : args; const first = list.find((x) => !x.t.startsWith('-')); if (first && (first.t.includes('/') || BUN_FILE.test(first.t))) { runtimeFile(first, cwd, st, depth); return; } }
   if (cmd === 'git') { gitStep(args, assigns, cwd, st, xargs); return; }
   if (cmd === 'gh' || cmd === 'hub') { ghStep(cmd, args, a, st); return; }
+  // bundle exec, poetry run, uv run and pipenv run only hand a command on: it is judged as it is when written plainly.
+  // A program Auto does not know behind them stays the question it was (bundle exec rspec).
+  if (HANDS_ON.has(cmd) && !cmdWord.t.includes('/')) {
+    const starts = handedOnStarts(cmd, a);
+    for (const k of starts) {
+      if (args[k].dyn) { if (starts.length === 1) hit('outside'); continue; } // a command chosen while it runs
+      const prog = name(args[k].t);
+      if (programGroup(prog) || SHELLS.has(prog) || prog === 'eval' || WRAPPERS.has(prog) || EXTRA_WRAPPERS.has(prog) || DB_CLIENTS.has(prog) || DANGEROUS.has(prog)) simple(args.slice(k), [], cwd, st, depth + 1, viaXargs);
+    }
+  }
 
   switch (cmd) {
     case 'rm': {
@@ -1009,6 +1073,30 @@ const DEPLOY_ANY = new Set(['vercel', 'netlify', 'surge', 'gh-pages', 'semantic-
 const DEPLOY_SUB = { firebase: /^(deploy|hosting:channel:deploy)$/, wrangler: /^(deploy|publish|pages)$/, changeset: /^publish$/, lerna: /^publish$/, expo: /^publish$/, twine: /^upload$/, serverless: /^deploy$/, sls: /^deploy$/, cdk: /^deploy$/, pulumi: /^up$/, terraform: /^apply$/, npm: /^publish$/, yarn: /^publish$/, pnpm: /^publish$/ };
 const deploys = (cmd, a) => DEPLOY_ANY.has(cmd) || Boolean(DEPLOY_SUB[cmd]?.test(a.find((x) => !x.startsWith('-')) ?? ''));
 const REDIRECT_VAR = /^(GIT_.*|PATH|CDPATH|HOME|NODE_OPTIONS|LD_.*|DYLD_.*|SHELL|EDITOR|VISUAL|.*_PAGER|BASH_ENV|ENV|npm_config_.*|PIP_.*)$/i;
+// Variables that name a program for a later command to run (a pager, a browser, a helper that asks for a password, an
+// editor), beyond the ones above (those stop whatever the value). A value that starts nothing is let be.
+const PROGRAM_VAR = /^(PAGER|MANPAGER|BROWSER|LESSOPEN|LESSCLOSE|[A-Z0-9_]+_ASKPASS|[A-Z0-9_]+_EDITOR)$/;
+const STARTS_NOTHING = /^(cat|less|more|true|false|)$/;
+// The shell's words that used to be read as the command itself, with the real command as their arguments.
+const SHELL_FRONT = new Set(['if', 'elif', 'while', 'until', 'coproc', 'function']);
+// Runners whose `exec` or `run` only hands a command on (hard-lines.js handedOnStarts); npm, pnpm, yarn and npx have runnerProgram.
+const HANDS_ON = new Set(['bundle', 'poetry', 'uv', 'pipenv']);
+
+// NAME=value in front of a command (or exported): when NAME names a program to run and the value is one, the form is refused.
+function programVariable(assign, cwd, st) {
+  const eq = assign.indexOf('=');
+  const key = assign.slice(0, eq);
+  if (PROGRAM_VAR.test(key) && !REDIRECT_VAR.test(key)) hiddenProgram(assign.slice(eq + 1), cwd, st);
+}
+
+// A program named by a git setting or a variable: no reader follows it, so the form is refused on an Auto job (the tool
+// rule, HIDDEN_PROGRAM_REASON). What a text search of the value finds is that family's refusal, which comes first.
+function hiddenProgram(value, cwd, st) {
+  if (STARTS_NOTHING.test(value.trim())) return;
+  st.hits.add('tool');
+  scanScript(value, st);
+  scanHidden(value, cwd, st);
+}
 const PUBLISH = [['cargo', 'publish'], ['poetry', 'publish'], ['uv', 'publish'], ['yarn', 'npm', 'publish'], ['pnpm', 'publish'], ['npm', 'publish'], ['twine', 'upload'], ['gem', 'push']];
 
 // The folder a git command acts in: its -C folders in turn from the one it runs in; null when one can't be placed.
@@ -1111,6 +1199,37 @@ const SCRIPT_ASKS = /child_process|execSync|execFile|\bspawn|subprocess|os\.syst
 function scanOther(text, st) {
   scanScript(text, st);
   if (SCRIPT_ASKS.test(text)) st.asks.push('a script that runs programs, reaches the network or names places outside the job');
+}
+
+// Code written on the command line (python -c, node -e, perl -e, ruby -e, bun -e …): the search a script file gets, and
+// the wider one below. A hit is that family's refusal; with none it asks, as a script's text does.
+function scanInline(text, cwd, st) {
+  scanOther(text, st);
+  scanHidden(text, cwd, st);
+}
+
+// A place written out in the text: under the home folder (~, $HOME) or one of the computer's own folders.
+const TEXT_PATH = /(?:~|\$HOME\b|\$\{HOME\})(?:\/[\w.@%+,-]*)+|(?<![\w.:~$}/-])\/(?:Users|home|etc|var|private|root|opt|usr|Library|System|Volumes|Applications|bin|sbin|dev|mnt|srv)(?:\/[\w.@%+,-]+)*/g;
+// Words that write, move or delete: a shell program, a redirection to a place, or a call of a language's own.
+const TEXT_WRITES = /(?:^|[^\w./-])(?:rm|rmdir|unlink|mv|cp|tee|touch|mkdir|chmod|chown|chgrp|ln|dd|truncate|shred|rsync|ditto)\s|(?:^|[^=<>-])>{1,2}\s*["']?(?:[~/]|\$HOME|\$\{HOME\})|\b(?:write|append|unlink|remove|delete|rename|rmtree|rm_rf|rm_r|rmdir|rmSync|copy|cp_r|move|mkdir|makedirs|symlink|truncate|chmod|chown|touch)\w*\s*\(|\bopen\s*\([^)]*,\s*["'][wax+]|\bFile(?:Utils)?\.(?:write|delete|rename|unlink|chmod|rm|rm_r|rm_rf|mv|cp|cp_r|mkdir|mkdir_p|touch|ln|ln_s)\b/i;
+
+// What the text of code on the command line, or of a program named by a setting or a variable, may not hold, beyond
+// scanScript's list: a package script or tool of the database line, gh pr create or gh pr edit, a place that holds
+// secrets, and a write or delete together with a place outside the job's folders. A plain text search: over-stopping
+// is accepted.
+function scanHidden(text, cwd, st) {
+  const hit = (rule) => st.hits.add(rule);
+  if (databaseText(text)) hit('database');
+  if (/\bgh\b[^\n;&|]*\bpr\s+(?:create|edit)\b/.test(text)) hit('outside');
+  if (/(?:^|[^\w-])\.(?:ssh|aws|gnupg)\b|\bid_(?:rsa|ed25519|ecdsa|dsa)\b/.test(text)) { hit('outside'); st.secret = true; }
+  let elsewhere = false;
+  for (const m of text.match(TEXT_PATH) ?? []) {
+    if (/^\/dev\/(null|stdout|stderr|tty)$/.test(m)) continue;
+    const p = physicalPath(m, cwd ?? st.hint ?? null);
+    if (secretPlace(p, st.roots, st.ctx)) { hit('outside'); st.secret = true; }
+    if (!p || !inRoots(p, st.roots)) elsewhere = true;
+  }
+  if (elsewhere && TEXT_WRITES.test(text)) hit('outside');
 }
 
 // Shell text (a .sh file, an npm script): every line goes through the same reading as a command, and the strictest
@@ -1362,6 +1481,18 @@ function ghStep(cmd, args, a, st) {
     return;
   }
   if (group === 'pr' && action === 'merge') { hit('merge'); return; }
+  // A pull request that is not PR #1's own (policy.js prCreateProblem: into a branch that is not the job's, from someone
+  // else's, with a reviewer or a label), or on a repository that is not the job's own, or with a word chosen while it
+  // runs. A card that carries a hard line other than the plain push (st.prLine: written plainly, gh pr create is one) is
+  // refused by Auto as that hard line (runner/auto.js), so the answer here stays the question it was; on any other card,
+  // where no hard line reports the call, this is the refusal.
+  if (group === 'pr' && action === 'create' && !st.prLine) {
+    const rest = a.slice(a.indexOf('create') + 1);
+    const forkOwner = (() => { try { return githubOwner(typeof st.ctx.remoteUrl === 'function' ? st.ctx.remoteUrl(st.ctx.forkRemote || 'origin') : null); } catch { return null; } })();
+    const own = typeof st.ctx.orgRepo === 'string' ? st.ctx.orgRepo.toLowerCase() : null;
+    const repos = a.map((x, k) => (['-R', '--repo'].includes(x) ? a[k + 1] ?? '' : /^--repo=/.test(x) ? x.slice(7) : /^-R./.test(x) ? x.slice(2) : null)).filter((x) => x !== null);
+    if (args.some((x) => x.dyn) || prCreateProblem(rest, { branches: st.ctx.branches ?? [], forkOwner }) || repos.some((r) => !(own && r.toLowerCase() === own))) hit('outside');
+  }
   if (group === 'auth' && action === 'token') { hit('outside'); st.secret = true; return; }
   // gh auth status printing the token is gh auth token by another name (m15).
   if (group === 'auth' && a.some((x) => x === '--show-token' || /^-[A-Za-z]*t/.test(x))) { hit('outside'); st.secret = true; return; }
@@ -1373,7 +1504,11 @@ function ghStep(cmd, args, a, st) {
     // The workflow's one write there, exactly: the job's branch made on its own org repository from a commit of the org's main (I2).
     const org = a[0] === 'api' && !args.some((x) => x.dyn) ? orgBranchCall(a.slice(1), st.ctx) : null;
     if (org) { st.asks.push(org); return; }
-    if (m.toUpperCase() !== 'GET' || a.some((x) => /^(-f|-F|--field|--raw-field|--input)$/.test(x) || /^-[fF]./.test(x))) hit('outside');
+    if (m.toUpperCase() !== 'GET' || a.some((x) => /^(-f|-F|--field|--raw-field|--input)$/.test(x) || /^-[fF]./.test(x))) {
+      hit('outside');
+      // A write that merges branches (…/merges) or moves or deletes a ref that exists (…/git/refs/<name>) is a merge by another road.
+      if (a.some((x) => /\/merges(\?.*)?$/.test(x) || /\/git\/refs\/[^?]/.test(x))) hit('merge');
+    }
     return;
   }
   if (a.some((x) => x === '--version' || x === '--help') && !group) return;
@@ -1420,6 +1555,8 @@ function orgBranchCall(rest, ctx) {
 const GIT_LOCAL = new Set(['add', 'commit', 'checkout', 'switch', 'restore', 'reset', 'stash', 'branch', 'tag', 'merge', 'rebase', 'cherry-pick', 'revert', 'fetch', 'pull', 'clean', 'mv', 'rm', 'notes', 'reflog', 'bisect', 'sparse-checkout', 'symbolic-ref', 'ls-remote', 'show-ref', 'show-branch', 'diff-tree', 'diff-index', 'diff-files', 'push', 'send-pack', 'remote', 'config', 'worktree', 'clone', 'init', 'gc']);
 const GIT_ENV = /^GIT_(DIR|WORK_TREE|COMMON_DIR|INDEX_FILE|OBJECT_DIRECTORY|NAMESPACE|CONFIG|SSH|EXEC_PATH|PROXY|ASKPASS)/;
 const GIT_CFG_RISKY = /^(remote\.|branch\.|url\.|core\.(sshcommand|gitproxy|hookspath|fsmonitor|pager|editor)|push\.|include|alias\.|credential|http\.|submodule\.|filter\.|diff\.[^.]*\.(command|textconv))/i;
+// Settings whose value git runs as a program, beyond the ones above (those stop whatever the value): the key, without its value.
+const GIT_CFG_RUNS = /^(diff\.external|sequence\.editor|pager\..+|.+\.textconv|core\.askpass|gpg\.program|gpg\.[^.]+\.program|interactive\.difffilter|merge\..+\.driver|mergetool\..+\.cmd|difftool\..+\.cmd|web\.browser|browser\..+\.cmd|man\..+\.cmd|trailer\..+\.(command|cmd)|sendemail\.(sendmailcmd|tocmd|cccmd|headercmd)|core\.alternaterefscommand|uploadpack\.packobjectshook)$/i;
 const normUrl = (u) => String(u ?? '').trim().replace(/\/+$/, '').replace(/\.git$/, '').toLowerCase();
 
 function gitStep(args, assigns, cwd, st, xargs) {
@@ -1433,7 +1570,15 @@ function gitStep(args, assigns, cwd, st, xargs) {
   while (args[i]?.t.startsWith('-')) {
     const t = args[i].t;
     if (t === '-C') { const d = args[i + 1]; eff = !d || d.dyn || !eff ? null : physicalPath(d.t, eff); i += 2; continue; }
-    if (t === '-c') { withC = true; if (GIT_CFG_RISKY.test(args[i + 1]?.t ?? '') || args[i + 1]?.dyn) risky = true; i += 2; continue; }
+    if (t === '-c') {
+      withC = true;
+      const setting = args[i + 1]?.t ?? '';
+      if (GIT_CFG_RISKY.test(setting) || args[i + 1]?.dyn) risky = true;
+      // A setting whose value git runs as a program (diff.external, pager.<cmd>, sequence.editor, any textconv …), unless the value starts nothing.
+      else if (GIT_CFG_RUNS.test(setting.split('=')[0])) hiddenProgram(setting.includes('=') ? setting.slice(setting.indexOf('=') + 1) : '', cwd, st);
+      i += 2;
+      continue;
+    }
     if (/^--(git-dir|work-tree|exec-path|config-env|super-prefix)(=|$)/.test(t)) { foreign = true; i += t.includes('=') ? 1 : 2; continue; }
     i++;
   }
@@ -1446,6 +1591,8 @@ function gitStep(args, assigns, cwd, st, xargs) {
   const inWork = eff && st.work.some((w) => isInside(eff, w));
   if (a.some((x) => /^--(git-dir|work-tree)(=|$)/.test(x))) { hit('outside'); return; } // acts on another folder
   if (changesBranch(sub, a)) st.branchChange = true;
+  // git bisect run <command> runs the command at every step: the form is refused, and the command is judged as written plainly.
+  if (sub === 'bisect' && a[0] === 'run') { hit('tool'); if (sargs.length > 1) simple(sargs.slice(1), [], cwd, st, 1, null); }
   if (sub === 'commit') { // a message read from a file: a literal file of the job's own, not a secret name (C2)
     for (let k = 0; k < sargs.length; k++) {
       const t = a[k];

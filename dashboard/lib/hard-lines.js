@@ -28,9 +28,12 @@
 //   that call when the branch exists, so it can't move or overwrite one (the user's ask, 2026-10-22).
 //
 // Matching reads the command word by word, through && ; | and $( … ), past VAR=value prefixes and
-// wrappers such as sudo, env, command, nohup, time and timeout (and their options' values). When
-// the command can't be read that way, or sits behind a wrapper, the raw text is searched too:
-// asking about something harmless is fine; missing one is not.
+// wrappers such as sudo, env, command, nohup, time and timeout (and their options' values), and past
+// the shell's own words in front of a command (if, elif, while, until, then, do, else, !, {, coproc,
+// function <name>). When the command can't be read that way, or sits behind a wrapper, the raw text is
+// searched too: asking about something harmless is fine; missing one is not. Behind a prefix that only
+// hands a command on (bundle exec, uv run, stdbuf, find -exec, a redirection in front: see handedOn
+// below) the NEVER lines are looked for and no ASK line is added.
 
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
@@ -78,7 +81,11 @@ export const WRAPPERS = new Map([
   ['xargs', ['-I', '-J', '-L', '-n', '-P', '-R', '-S', '-s', '-E', '-d', '-a', '--max-args', '--max-procs', '--max-lines', '--replace', '--delimiter', '--arg-file', '--eof']],
   ['caffeinate', ['-t', '-w']],
   ['command', []], ['builtin', []], ['exec', ['-a']], ['nohup', []], ['then', []], ['do', []], ['else', []], ['!', []], ['{', []],
+  // The shell's own words in front of a condition, and coproc: what follows is a command like any other (if git push …; then …).
+  ['if', []], ['elif', []], ['while', []], ['until', []], ['coproc', []],
 ]);
+// if, elif, while and until take no options, so they hide nothing: alone they do not make judgeSimple search the raw text.
+const CONDITION_WORDS = new Set(['if', 'elif', 'while', 'until']);
 const PKG = new Set(['npm', 'pnpm', 'yarn', 'bun']);
 const DB_SCRIPT = /^db:|migrat/i;
 const isDbScript = (word) => DB_SCRIPT.test(word) && !NOT_DB_SCRIPT.test(word);
@@ -96,13 +103,15 @@ function words(simple) {
 // GIT as git): /usr/bin/git, git.exe and C:\Program Files\Git\cmd\git.exe are all git.
 const commandName = (x) => x.replace(/^.*[\\/]/, '').replace(/\.exe$/i, '').toLowerCase();
 
-// The command word and its arguments, past assignments and wrappers.
-function strip(w) {
+// Where the command word is, past assignments and wrappers (w.length when there is none).
+function commandAt(w) {
   let i = 0;
   for (;;) {
-    if (i >= w.length) return [];
+    if (i >= w.length) return w.length;
     const x = w[i];
     if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(x)) { i++; continue; }
+    // function <name> { <command> … : the body's first command follows the name.
+    if (x === 'function' && i + 1 < w.length) { i += 2; if (w[i] === '()') i++; continue; }
     const takesValue = WRAPPERS.get(commandName(x));
     if (takesValue) {
       i++;
@@ -116,6 +125,12 @@ function strip(w) {
     }
     break;
   }
+  return Math.min(i, w.length);
+}
+
+// The command word and its arguments, past assignments and wrappers.
+function strip(w) {
+  const i = commandAt(w);
   if (i >= w.length) return [];
   const [cmd, ...rest] = w.slice(i);
   return [commandName(cmd), ...rest];
@@ -189,6 +204,8 @@ function dbVerdict(cmd, rest) {
   if ((t === 'knex' || t === 'sequelize' || t === 'sequelize-cli') && /migrat/.test(a ?? '')) return DB;
   return null;
 }
+/** Is this command (its name, then its words) on the database line? For Auto's rules, which read every command themselves. */
+export const databaseLine = (cmd, rest) => dbVerdict(cmd, rest) !== null;
 
 // ---------- Starbase's own state folder ----------
 // The Auto switch lives in the state folder (~/.starbase, or the configured one), so a job must not
@@ -486,9 +503,113 @@ function judgeSimple(simple) {
   const verdict = judgeWords(strip(all));
   // Behind a wrapper (sudo, env, timeout, …) an option we don't know could hide the command, so
   // the raw text is searched too and the stricter answer kept.
-  const first = all.find((x) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(x));
-  if (first && WRAPPERS.has(commandName(first))) return strictest([verdict, judgeRaw(simple)]);
-  return verdict;
+  const first = leadWord(all);
+  const found = first && WRAPPERS.has(commandName(first)) ? strictest([verdict, judgeRaw(simple)]) : verdict;
+  return found?.decision === 'deny' ? found : strictest([found, refusedBehind(all)]);
+}
+
+// The first word that could be a wrapper with options: past assignments, if, elif, while and until, and a function's header.
+function leadWord(all) {
+  let i = 0;
+  while (i < all.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(all[i]) || CONDITION_WORDS.has(all[i]))) i++;
+  if (all[i] === 'function' && i + 1 < all.length) { i += 2; if (all[i] === '()') i++; if (all[i] === '{') i++; }
+  return all[i];
+}
+
+// ---------- prefixes that only hand a command on ----------
+// The wrappers above are read through for every line. Behind these, which run the words after them as a command, only
+// the refusals are looked for (a force push, a push to the org, a write to an org branch): no line that asks is added, so
+// a job that is not on Auto keeps the answers it had, and a refusal is one in whatever form it is written.
+//   stdbuf, arch, ionice, setsid, unbuffer, chronic, watch, doas   a wrapper, with its options that take a value
+//   bundle exec, poetry run, uv run, pipenv run, pnpm exec|dlx, yarn exec|dlx, npm exec|x, bun x, npx, bunx, pnpx
+//   find … -exec|-execdir|-ok|-okdir <command> ; or +       git bisect run <command>       a redirection in front (>/dev/null git …)
+const PASS_ON = new Map([['stdbuf', ['-i', '-o', '-e', '--input', '--output', '--error']], ['arch', []], ['ionice', ['-c', '-n', '-p', '--class', '--classdata', '--pid']], ['setsid', []], ['unbuffer', []], ['chronic', []], ['watch', ['-n', '--interval']], ['doas', ['-u', '-C']]]);
+const HAND_ON = new Map([['bundle', ['exec']], ['poetry', ['run']], ['uv', ['run']], ['pipenv', ['run']], ['pnpm', ['exec', 'dlx']], ['yarn', ['exec', 'dlx']], ['npm', ['exec', 'x']], ['bun', ['x']], ['npx', null], ['bunx', null], ['pnpx', null]]);
+const REDIRECTION = /^(?:\d+|&)?(?:>>?|<)(.*)$/;
+
+/**
+ * Where the command a runner hands on may start, as indexes into the words after the runner's name (bundle exec <command>,
+ * uv run <command>, npx <command>); [] when the words are not that form. An option of the runner's may take a value, so
+ * with options in front there is one more place for each: after `--` there is only one.
+ */
+export function handedOnStarts(cmd, rest) {
+  if (!HAND_ON.has(cmd)) return [];
+  const own = HAND_ON.get(cmd);
+  let from = 0;
+  if (own) {
+    // the runner's own word (exec, run): the first word that is not an option or an option's value
+    let options = 0;
+    let plain = 0;
+    let at = -1;
+    for (let k = 0; k < rest.length && at < 0; k++) {
+      const x = rest[k];
+      if (x === '--') break;
+      if (x.startsWith('-')) { options++; continue; }
+      if (own.includes(x)) at = k;
+      else if (++plain > options) break;
+    }
+    if (at < 0) return [];
+    from = at + 1;
+  }
+  const starts = [];
+  let options = 0;
+  for (let k = from; k < rest.length; k++) {
+    const x = rest[k];
+    if (x === '--') return k + 1 < rest.length ? [k + 1] : [];
+    if (x.startsWith('-') && x !== '-') { options++; continue; }
+    starts.push(k);
+    if (starts.length > options) break;
+  }
+  return starts;
+}
+
+// The commands these words hand on, each as its own words.
+function handedOn(w) {
+  const i = commandAt(w);
+  if (i >= w.length) return [];
+  let j = i;
+  for (let m; j < w.length && (m = REDIRECTION.exec(w[j]));) j += m[1] === '' || /^<{1,2}$/.test(m[1]) ? 2 : 1; // > file, >file, 2>&1, <<< text
+  if (j > i) return j < w.length ? [w.slice(j)] : [];
+  const cmd = commandName(w[i]);
+  const rest = w.slice(i + 1);
+  const takesValue = PASS_ON.get(cmd);
+  if (takesValue) {
+    let k = 0;
+    while (rest[k]?.startsWith('-') && rest[k] !== '-') {
+      const opt = rest[k++];
+      if (opt === '--') break;
+      if (takesValue.includes(opt)) k++;
+    }
+    return k < rest.length ? [rest.slice(k)] : [];
+  }
+  if (HAND_ON.has(cmd)) return handedOnStarts(cmd, rest).map((k) => rest.slice(k));
+  if (cmd === 'find') {
+    const out = [];
+    for (let k = 0; k < rest.length; k++) {
+      if (!/^-(exec|execdir|ok|okdir)$/.test(rest[k])) continue;
+      const run = [];
+      for (k++; k < rest.length && rest[k] !== ';' && rest[k] !== '\\;' && rest[k] !== '+'; k++) run.push(rest[k]);
+      if (run.length) out.push(run);
+    }
+    return out;
+  }
+  if (cmd === 'git') {
+    const { sub, args } = gitSub(rest);
+    if (sub === 'bisect' && args[0] === 'run' && args.length > 1) return [args.slice(1)];
+  }
+  return [];
+}
+
+// A refusal among the commands handed on, however deep (sudo stdbuf -o0 bundle exec git push -f …); null when there is none.
+function refusedBehind(w, depth = 0) {
+  if (depth > 8) return null;
+  for (const inner of handedOn(w)) {
+    const verdict = judgeWords(strip(inner));
+    if (verdict?.decision === 'deny') return verdict;
+    const deeper = refusedBehind(inner, depth + 1);
+    if (deeper) return deeper;
+  }
+  return null;
 }
 
 function judgeWords(w) {
@@ -510,17 +631,29 @@ function judgeWords(w) {
 
 // When the command can't be split into simple commands: search the raw text.
 function judgeRaw(text) {
+  let push = null;
   if (/\bgit\b[^\n;&|]*\bpush\b/.test(text)) {
     const tail = text.slice(text.search(/\bpush\b/)).split(/[\n;&|)`]/)[0].replace(/["'\\]/g, ' ');
-    return pushVerdict(words(tail).slice(1));
+    push = pushVerdict(words(tail).slice(1));
+    if (push.decision === 'deny') return push;
+    // A later push in the same text that is a refusal is still one: ( git push origin feature/x; git push -f moxie main ).
+    for (const m of text.matchAll(/\bgit(?:\s+(?:-[Cc]\s+\S+|-[-\w]+(?:=\S+)?))*\s+push\b([^\n;&|)`]*)/g)) {
+      const later = pushVerdict(words(m[1].replace(/["'\\]/g, ' ')));
+      if (later.decision === 'deny') return later;
+    }
   }
   if (/\bgh\b[^\n;&|]*\bapi\b[^\n;&|]*repos\/moxie[^\n;&|]*\/git\/refs/i.test(text) && /\s(-X|--method|-f|-F|--field|--raw-field|--input)\b/.test(text)) return ORG_REF;
+  if (push) return push;
   const pr = text.match(/\bgh\b[^\n;&|]*\bpr\s+(create|merge)\b/);
   if (pr) return { decision: 'ask', line: `gh-pr-${pr[1]}`, reason: `gh pr ${pr[1]} is a hard line: it asks you before it runs.` };
   if (/\brm\b[^\n;&|]*\s-(?:[A-Za-z]*[rR][A-Za-z]*f|[A-Za-z]*f[A-Za-z]*[rR])/.test(text) || /\brm\b[^\n;&|]*--recursive[^\n;&|]*--force|\brm\b[^\n;&|]*--force[^\n;&|]*--recursive/.test(text)) return rmVerdict(['-rf']);
+  return databaseText(text) ? DB : null;
+}
+
+/** Does this text hold a package script or a tool of the database line (npm run db:migrate, prisma migrate …)? A plain text search. */
+export function databaseText(text) {
   const pkgRuns = text.match(/\b(npm|pnpm|yarn|bun)\b[^\n;&|]*/gi) ?? [];
-  if (pkgRuns.some((seg) => /\S*migrat/i.test(seg) || (seg.match(/\bdb:[\w:-]*/g) ?? []).some(isDbScript)) || /\b(prisma\s+(migrate|db\s+push)|drizzle-kit\s+(migrate|push)|supabase\s+(db\s+(push|reset)|migration))\b/.test(text)) return DB;
-  return null;
+  return pkgRuns.some((seg) => /\S*migrat/i.test(seg) || (seg.match(/\bdb:[\w:-]*/g) ?? []).some(isDbScript)) || /\b(prisma\s+(migrate|db\s+push)|drizzle-kit\s+(migrate|push)|supabase\s+(db\s+(push|reset)|migration))\b/.test(text);
 }
 
 const RANK = { deny: 2, ask: 1 };
