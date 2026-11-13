@@ -15,6 +15,8 @@
 //             made: never a real server's.
 // With --ask-his its first GET / also asks the server its environment names (PGHOST, PGPORT) for the
 // database its .env.local names, with a real startup message (ask.mjs): Auto's door refuses it.
+// With RUN_FOLDER set to a folder named sb-fence-… (a test's), it connects once at its start to the
+// socket .s.PGSQL.6543 in it, as an app whose own code names its database, and prints what it met.
 import fs from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
@@ -110,4 +112,10 @@ const stop = () => {
 };
 process.on('SIGTERM', stop);
 process.on('SIGINT', stop);
+// An app that names its database in its own code: the socket's name is written here, and only its
+// folder comes from a setting no database rule knows (RUN_FOLDER). Before it listens it connects once
+// and says what it met. Only in a folder named sb-fence-…, which a test made: never a real server's.
+const OWN_SOCKET = '.s.PGSQL.6543';
+const ownFolder = process.env.RUN_FOLDER ?? '';
+if (path.basename(ownFolder).startsWith('sb-fence-')) console.log(`own database: ${await meet(path.join(ownFolder, OWN_SOCKET))}`);
 server.listen(Number(process.env.PORT), process.env.HOSTNAME || '127.0.0.1');

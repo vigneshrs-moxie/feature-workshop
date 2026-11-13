@@ -18,7 +18,9 @@
 // stopped for it (AUTO_TRY_IT_RUNNING). No saved original yet: the Test step says it waits
 // (AUTO_DB_WAITING) and it looks again. A migration that fails goes to the Foreman (onAutoDbProblem).
 // Its Playwright run starts inside the sandbox its app runs in (lib/db-door.js): a spec is the job's
-// own code, and could open a database connection.
+// own code, and could open a database connection. An Auto job whose app names no database where
+// Starbase looks has no copy and no door, but its app and its Playwright run start inside the sandbox
+// all the same (startServer's fenced): its own code may name one. No sandbox, no recording.
 //   returns the door the site's routes use (site/routes-evidence.js, through runner.local.evidence):
 //     view(slug)          { evidence, commit, wanted, why, recording, problem, progress, watch, folder, folderUrl }
 //                         (progress: by line while Playwright runs, else null; each change is an
@@ -55,7 +57,7 @@ import { guessedWorktree, guessWords } from '../lib/locate.js';
 import { fillPattern } from '../lib/profile.js';
 import { killTree, shellFor } from '../lib/platform.js';
 import { PRODUCT } from '../lib/brand.js';
-import { AUTO_NO_FENCE, AUTO_RECORDING_APP, AUTO_TRY_IT_RUNNING, AutoDbError } from '../lib/local.js';
+import { AUTO_NO_FENCE, AUTO_RECORDING_APP, AUTO_RECORDING_NO_DB, AUTO_TRY_IT_RUNNING, AUTO_TRY_IT_RUNNING_NO_DB, AutoDbError } from '../lib/local.js';
 import { sandboxed } from '../lib/db-door.js';
 
 const require = createRequire(import.meta.url);
@@ -206,7 +208,7 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
   const told = new Set(); // `${slug}@${commit}` whose failed migration the Foreman was sent
   const lookingAgain = new Set(); // slugs waiting for Auto's database, with a look again set
   const refusals = new Map(); // `${slug}@${commit}` -> refusals in a row for something new on his database or something on Auto's
-  const autoHolding = new Set(); // slugs whose app an Auto recording holds (on Auto's database): his Try it Start is refused
+  const autoHolding = new Map(); // slug -> the words his Try it Start is refused with while an Auto recording holds the job's app (on Auto's database, or fenced with none)
   let queue = Promise.resolve(); // one recording at a time: one browser, one worker
 
   const jobOf = async (slug) => {
@@ -225,9 +227,10 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
 
   /**
    * onLine(text): each line of Playwright's own output (stdout, where the progress reporter writes) as it comes.
-   * profile: an Auto recording's sandbox profile (its app's, lib/db-door.js): the same command is
-   * started inside the sandbox, since a spec is the job's own code and could open a database
-   * connection. Its environment is as ever: the browser talks to the app, not to a database.
+   * profile: an Auto recording's sandbox profile (its app's, lib/db-door.js; an app that names no
+   * database has one too): the same command is started inside the sandbox, since a spec is the job's
+   * own code and could open a database connection. Its environment is as ever: the browser talks to
+   * the app, not to a database.
    */
   function runPlaywright(script, { configFile, cwd, specs, onLine = null, profile = null }) {
     return new Promise((resolve) => {
@@ -264,15 +267,21 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
    * connect to it while nothing new connects to his (usesAutoDb). His Try it server running for the
    * job is never stopped for it: the recording is refused (cannotStart, before it says it records).
    * An app on Auto's database is never handed over. copied(): called once Auto's copy is ready.
+   * auto: an Auto job's recording, whether its app names a database or not. One that names none
+   * where Starbase looks (auto and not onAutoDb) has no copy, no door and no check of what it
+   * connects to, but its app is started inside the sandbox all the same (local.startServer's
+   * fenced), since its own code may name a database: so it too is refused while his Try it server
+   * runs, its app is never handed over, and copied() is called once its app is started (a
+   * computer with no sandbox refuses the start, so nothing says it records).
    */
-  function serverFor(f, { onAutoDb = false, copied = () => {} } = {}) {
+  function serverFor(f, { auto = false, onAutoDb = false, copied = () => {} } = {}) {
     let startedHere = false;
     let releaseHis = () => {};
     let handed = false;
-    let profile = null; // on Auto's database: the sandbox profile its app was started under
+    let profile = null; // an Auto recording: the sandbox profile its app was started under
     const tryItRuns = () => { const r = local.jobs.get(f.slug)?.server; return Boolean(r && ['starting', 'running'].includes(r.status)); };
     return {
-      handOver() { if (!onAutoDb) handed = true; },
+      handOver() { if (!auto) handed = true; },
       async start() {
         const w = await local.where(f);
         if (!w.app) throw new EvidenceError(409, w.reason ?? 'This job’s worktree has no app to start (a package.json with a "dev" script), so there is nothing to record.');
@@ -299,10 +308,13 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
           his = { backends: new Set(await local.hisBackends(f)), sessions: await local.hisSessions(f) };
           copied();
         }
-        if (onAutoDb || !runs) {
-          try { await local.startServer(f, ...(onAutoDb ? [{ databaseUrl }] : [])); } catch (err) { throw new EvidenceError(409, err.message); }
+        if (auto || !runs) {
+          // An Auto job's app with no database: fenced, and refused while his own (unfenced) app runs. No sandbox here
+          // is refused as autoDatabase refuses it (AutoDbError).
+          try { await local.startServer(f, ...(onAutoDb ? [{ databaseUrl }] : auto ? [{ fenced: true }] : [])); } catch (err) { throw err instanceof AutoDbError ? err : new EvidenceError(409, err.message); }
           startedHere = true;
-          if (onAutoDb) profile = local.autoProfile(f.slug);
+          if (auto) profile = local.autoProfile(f.slug);
+          if (auto && !onAutoDb) copied();
         }
         try {
           const until = Date.now() + SERVER_WAIT_MS;
@@ -317,19 +329,19 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
           if (onAutoDb) await usesAutoDb(f, baseURL, his);
           return { baseURL, startedHere, cwd: w.root };
         } catch (err) {
-          // The app on Auto's database goes with the refusal (the recording's finally never runs for a start that failed).
-          if (onAutoDb && startedHere && !handed) await local.stopServerAndWait(f.slug).catch(() => {});
+          // An Auto recording's app goes with the refusal (the recording's finally never runs for a start that failed).
+          if (auto && startedHere && !handed) await local.stopServerAndWait(f.slug).catch(() => {});
           throw err;
         }
       },
       releaseHis: () => releaseHis(),
-      // On Auto's database: the fence its app runs in, for the browser run (null: none, or not Auto's).
+      // An Auto recording: the fence its app runs in, for the browser run (null: none, or not Auto's).
       profile: () => profile,
       // The record's notes: on Auto's database, what its app asked the door for and was refused.
       notes: () => { const refusal = onAutoDb && startedHere ? local.autoRefusal(f.slug) : null; return refusal ? [autoRefusedNote(refusal)] : []; },
       stop: async () => { if (startedHere && !handed) await local.stopServerAndWait(f.slug); },
       // A branch only guessed (lib/locate.js): Try it's where() refuses it with these words, so say them before the start.
-      cannotStart: () => (f.worktree && guessedWorktree(f) ? guessWords(f) : onAutoDb && tryItRuns() ? AUTO_TRY_IT_RUNNING : null),
+      cannotStart: () => (f.worktree && guessedWorktree(f) ? guessWords(f) : auto && tryItRuns() ? (onAutoDb ? AUTO_TRY_IT_RUNNING : AUTO_TRY_IT_RUNNING_NO_DB) : null),
     };
   }
 
@@ -383,24 +395,26 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
   }
 
   /**
-   * Whether this recording is an Auto job's on Auto's database: the job's Auto record says on now (as
-   * the recording starts; switched off later, it finishes as it began) and its app names a database
-   * anywhere (lib/local.js namesADatabase). Never in demo mode (nothing real runs there).
+   * Whether this recording is an Auto job's (auto: the job's Auto record says on now, as the
+   * recording starts; switched off later, it finishes as it began), and whether it is on Auto's
+   * database (onAutoDb: its app also names a database anywhere, lib/local.js namesADatabase). Every
+   * Auto recording's app and browser run go under the fence; only one on Auto's database has a copy
+   * and a door. Never in demo mode (nothing real runs there).
    */
-  async function onAutoDbFor(f) {
-    if (demo) return false;
+  async function autoFor(f) {
+    if (demo) return { auto: false, onAutoDb: false };
     const now = (await jobs().catch(() => [])).find((x) => x.slug === f.slug) ?? f;
-    if (now.auto?.on !== true) return false;
+    if (now.auto?.on !== true) return { auto: false, onAutoDb: false };
     // Decided by the address, not the profile: an app that names any database records on Auto's or not at all.
-    return local.namesADatabase(f, env); // Starbase's own environment (the runner's)
+    return { auto: true, onAutoDb: await local.namesADatabase(f, env) }; // Starbase's own environment (the runner's)
   }
 
   async function recordNow(f, via) {
     const pw = playwright();
-    const onAutoDb = await onAutoDbFor(f);
+    const { auto, onAutoDb } = await autoFor(f);
     const sayRecording = () => events.emit('evidence', f.slug, { slug: f.slug, outcome: 'recording', at: new Date().toISOString() });
-    // On Auto's database it says it records once Auto's copy is ready, not while it waits for one.
-    const server = serverFor(f, { onAutoDb, copied: sayRecording });
+    // An Auto recording says it records once Auto's copy is ready (with no database: once its fenced app is started), not while it waits for one.
+    const server = serverFor(f, { auto, onAutoDb, copied: sayRecording });
     let cwd = f.worktree ?? f.repoPath;
     const at = new Date().toISOString();
     try {
@@ -409,18 +423,18 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
       }
       const result = await recordEvidence({
         job: f, playwrightUrl: pw?.url, cwd,
-        onStart: () => { if (!onAutoDb) sayRecording(); },
+        onStart: () => { if (!auto) sayRecording(); },
         onProgress: (p) => {
           progress.set(f.slug, p);
           events.emit('evidence', f.slug, { slug: f.slug, outcome: 'progress', at: new Date().toISOString(), progress: p });
         },
         // From here to the end (lib/evidence.js stops the app in its finally), the recording holds the app.
-        server: { start: async () => { holding.set(f.slug, server); if (onAutoDb) autoHolding.add(f.slug); const s = await server.start(); cwd = s.cwd ?? cwd; return s; }, stop: server.stop, cannotStart: server.cannotStart },
+        server: { start: async () => { holding.set(f.slug, server); if (auto) autoHolding.set(f.slug, onAutoDb ? AUTO_RECORDING_APP : AUTO_RECORDING_NO_DB); const s = await server.start(); cwd = s.cwd ?? cwd; return s; }, stop: server.stop, cannotStart: server.cannotStart },
         // On Auto's database his is never looked at: making Auto's copy says whether the server is there.
         dbCheck: onAutoDb ? null : await dbCheckFor(f),
-        // An Auto recording's browser run goes under the fence its app runs in (the specs are the job's code); with no fence, no run.
+        // An Auto recording's browser run goes under the fence its app runs in (the specs are the job's code), database named or not; with no fence, no run.
         run: (opts) => {
-          if (!onAutoDb) return runPlaywright(pw.script, { ...opts, cwd });
+          if (!auto) return runPlaywright(pw.script, { ...opts, cwd });
           const profile = server.profile();
           if (!profile) throw new EvidenceError(409, AUTO_NO_FENCE);
           return runPlaywright(pw.script, { ...opts, cwd, profile });
@@ -550,9 +564,9 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
     holdsApp(slug) {
       return holding.has(slug);
     },
-    /** Why his Try it Start is refused now (an Auto recording runs the job's app on Auto's database), else null. */
+    /** Why his Try it Start is refused now (an Auto recording runs the job's app on Auto's database, or fenced with no database), else null. */
     startRefusal(slug) {
-      return autoHolding.has(slug) ? AUTO_RECORDING_APP : null;
+      return autoHolding.get(slug) ?? null;
     },
     /** Try it's Start while a recording holds the app: the app is the owner's now, and the recording leaves it running at its end. */
     handAppOver(slug) {

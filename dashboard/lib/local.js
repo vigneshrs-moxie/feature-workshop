@@ -214,6 +214,10 @@ export const AUTO_TRY_IT_RUNNING = 'Try it is running for this job, so Auto can\
 /** His Try it Start while an Auto recording runs the job's app on Auto's database (lead's words). */
 export const AUTO_RECORDING_APP = 'Auto is recording this job on its own copy of the database. Start Try it when the recording ends.';
 
+/** The same two for an Auto job whose app names no database where Starbase looks: its recording has no copy to speak of. */
+export const AUTO_TRY_IT_RUNNING_NO_DB = 'Try it is running for this job, so Auto can\'t record it. Stop Try it, then press Record.';
+export const AUTO_RECORDING_NO_DB = 'Auto is recording this job. Start Try it when the recording ends.';
+
 /** This computer can't fence a program off from his database (lib/db-door.js sandboxWorks), so nothing of Auto's is copied, started or run (lead's words). */
 export const AUTO_NO_FENCE = 'Auto could not fence its app off from your database on this computer, so it made no recording.';
 
@@ -447,7 +451,11 @@ export class LocalRunner extends EventEmitter {
    * from his database (#autoFence: it runs inside the sandbox, and its settings name a door that
    * passes on only sessions for Auto's copy; the door closes when the app stops, exits or fails to
    * start), and the server's view says db: 'auto'. His Try it server already running for the job is
-   * never stopped for it: that is refused (AUTO_TRY_IT_RUNNING). His own Try it app (no databaseUrl)
+   * never stopped for it: that is refused (AUTO_TRY_IT_RUNNING). fenced: an Auto recording's app
+   * that names no database where Starbase looks (its own code may name one): it runs inside the
+   * sandbox all the same, with the profile for port 5432, and nothing else is different (no door,
+   * its environment as ever, db: null). The same gate (AutoDbError 'no-database' where this computer
+   * has no sandbox) and the same two refusals, in their own words. His own Try it app (neither)
    * starts as ever: no sandbox, no door.
    */
   startServer(f, opts = {}) {
@@ -460,7 +468,7 @@ export class LocalRunner extends EventEmitter {
     return mine;
   }
 
-  async #startServer(f, { databaseUrl = null } = {}) {
+  async #startServer(f, { databaseUrl = null, fenced = false } = {}) {
     const w = await this.where(f);
     if (!w.app) throw new Error(w.reason ?? 'No app folder (a package.json with a "dev" script) in this job’s worktree.');
     const slot = this.#slot(f.slug);
@@ -468,6 +476,9 @@ export class LocalRunner extends EventEmitter {
       if (databaseUrl && slot.server.db !== 'auto') throw new Error(AUTO_TRY_IT_RUNNING);
       // His Try it Start while the app runs on Auto's database (a recording): never his to take over.
       if (!databaseUrl && slot.server.db === 'auto') throw new Error(AUTO_RECORDING_APP);
+      // The same two for a fenced app with no database: never his running (unfenced) app, and never his to take over.
+      if (fenced && !slot.server.profile) throw new Error(AUTO_TRY_IT_RUNNING_NO_DB);
+      if (!databaseUrl && !fenced && slot.server.profile) throw new Error(AUTO_RECORDING_NO_DB);
       return this.#serverView(slot.server);
     }
     let autoEnv = null;
@@ -489,7 +500,13 @@ export class LocalRunner extends EventEmitter {
     const command = devCommand(w.tryIt, w.app.scripts.dev, port);
     const base = childEnv({ PORT: String(port), HOSTNAME: '127.0.0.1', HOST: '127.0.0.1' });
     // On Auto's database: refused (nothing starts) where this computer has no sandbox or a settings file can't be read.
-    const fence = autoEnv ? await this.#autoFence(autoEnv, await this.#autoGate(w, (m) => new Error(m)), base) : null;
+    let fence = autoEnv ? await this.#autoFence(autoEnv, await this.#autoGate(w, (m) => new Error(m)), base) : null;
+    // An Auto recording's app that names no database: the same gate, then the sandbox alone, with port 5432
+    // (where a database named in its own code would be). No door, and its environment as ever.
+    if (fenced && !autoEnv && !this.demo) {
+      await this.#autoGate(w, (m) => new AutoDbError('no-database', m));
+      fence = { profile: sandboxProfile({ port: 5432 }), env: base, close: () => {} };
+    }
     // door, hint: the fence's, kept for the recording's note (autoRefusal). profile: the fence's, kept for the recording's browser run (autoProfile).
     const server = { status: 'starting', port, url: fillPattern(w.tryIt.url, { port }), command, startedAt: new Date().toISOString(), output: '', child: null, exitCode: null, db: databaseUrl ? 'auto' : null, door: fence?.door ?? null, hint: fence?.hint ?? null, profile: fence?.profile ?? null };
     slot.server = server;
@@ -704,7 +721,8 @@ export class LocalRunner extends EventEmitter {
    * R1: whether the job's app may use a database, so an Auto job takes Auto's copy or nothing. True
    * when the profile names a database key, any settings file has a line that looks like a database
    * setting (lib/db-settings.js looksLikeDb) or can't be read, or env (Starbase's own, by default)
-   * has one. Only a repository with none records as Try it does today.
+   * has one. An Auto job in a repository with none has no copy and no door, but its app and its
+   * browser run still go inside the sandbox (startServer's fenced): its own code may name a database.
    */
   async namesADatabase(f, env = process.env) {
     const w = await this.where(f);
@@ -759,13 +777,13 @@ export class LocalRunner extends EventEmitter {
   }
 
   /**
-   * The sandbox profile the job's app on Auto's database was started under (lib/db-door.js), or null
-   * (no app, or his own Try it app, which has none). For what else an Auto recording starts that
-   * runs the job's code: its browser run goes under the same fence.
+   * The sandbox profile an Auto recording's app for the job was started under (lib/db-door.js: on
+   * Auto's database his server's port, with no database port 5432), or null (no app, or his own Try
+   * it app, which has none). For what else an Auto recording starts that runs the job's code: its
+   * browser run goes under the same fence.
    */
   autoProfile(slug) {
-    const server = this.jobs.get(slug)?.server;
-    return server?.db === 'auto' ? server.profile ?? null : null;
+    return this.jobs.get(slug)?.server?.profile ?? null;
   }
 
   /**
