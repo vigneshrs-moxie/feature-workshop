@@ -787,3 +787,20 @@ test('the new job page on the site: the same payload, built from the mirrored re
     assert.equal((await sam.json('/api/job/add-export/page')).status, 404, 'nothing of Olive’s for anyone else');
   } finally { l.link.stop(); await s.close(); }
 });
+
+test('the new job page’s Details on the site: the mirror’s crew rows with the Foreman’s task lines, no terminal; never an error for a job that is there', async () => {
+  const { s, olive, l } = await setUp();
+  try {
+    const work = await olive.person.json('/api/job/add-export/work');
+    assert.equal(work.status, 200, JSON.stringify(work.body));
+    assert.equal(work.body.rows.length, 1);
+    assert.equal(work.body.rows[0].role, 'Helper');
+    assert.equal(work.body.rows[0].ended, 'Done');
+    assert.equal(work.body.rows[0].ref, null, 'no terminal on the website');
+    assert.equal(work.body.note, 'The full task each one was given shows on your laptop.');
+    assert.equal((await olive.person.json('/api/job/nope/work')).status, 404);
+    const sam = browser(s.fetch);
+    await signIn(sam, { email: 'sam.sample@example.test' });
+    assert.equal((await sam.json('/api/job/add-export/work')).status, 404, 'nothing of Olive’s for anyone else');
+  } finally { l.link.stop(); await s.close(); }
+});

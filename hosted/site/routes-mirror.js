@@ -35,6 +35,7 @@ import dashboardStageRoutes from '../../dashboard/site/routes-stage.js';
 import dashboardJobPageRoutes from '../../dashboard/site/routes-job-page.js';
 import { createHash } from 'node:crypto';
 import { mirrorJobPage } from '../../dashboard/lib/job-payload.js';
+import { mirrorWork } from '../../dashboard/lib/work-rows.js';
 import { renderMarkdown } from '../../dashboard/lib/markdown.js';
 import { decisionKind, madeOnFor } from '../../dashboard/lib/made-on.js';
 import { LOCAL_COMMANDS, parseCommand } from '../../dashboard/lib/protocol.js';
@@ -227,6 +228,16 @@ export default function mirrorRoutes(ctx) {
       const { text: _t, html: _h, reply: _r, ...meta } = it;
       const kind = line?.kind ?? (['reply', 'you', 'brief', 'problem'].includes(it.kind) ? it.kind : 'small');
       return { id, kind, version: line?.hash ?? hash(text), html: renderMarkdown(text), text, meta };
+    },
+    /**
+     * The new job page's Details from the mirrored record: the crew's rows with the Foreman's task lines (the logs
+     * stay on the laptop), or no rows and a reason. A record too big to mirror says so in its own words.
+     */
+    async jobWork(slug) {
+      const rec = await records.get(who().id, 'job', slug);
+      if (!rec) throw new HttpError(404, 'No job by that name.');
+      if (rec.value?.tooBig) return { rows: [], costs: { steps: [], totalUsd: null }, note: rec.value.words ?? 'This job is too big to show here. It shows on your laptop.' };
+      return mirrorWork(rec.value);
     },
     async threadBefore() { throw new HttpError(404, 'Older messages show on your laptop.'); },
     async notes() { throw new HttpError(409, 'A job’s notes are on your laptop for now.'); },

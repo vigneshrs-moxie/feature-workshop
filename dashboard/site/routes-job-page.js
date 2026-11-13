@@ -5,6 +5,9 @@
 //                                     { same: true, v } when n is the current v
 //   GET /api/job/:slug/item?id=<id>&viewer=<id>   one body: { id, kind, version, html, text, meta }
 //                                     (a reply, a brief, a document, the decisions list)
+//   GET /api/job/:slug/work?viewer=<id>           Details: { rows, costs, note } (lib/work-rows.js); reads
+//                                     each crew member's log only here, once while it is unchanged.
+//                                     On the website: what the mirror has, or no rows and a reason
 // viewer: the id of the page's event stream (its first event, `viewer` { id }, from /api/events?v=2).
 // It tells the runner this job is open, so changes rebuild it at once; without it the job is rebuilt
 // only behind its next request. Anything that is not such an id is ignored.
@@ -38,6 +41,10 @@ export default function jobPageRoutes({ read, sendJson }) {
         if (!id) throw new HttpError(400, NO_ID);
         return sendJson(res, 200, await read.jobItem(m[1], id, { viewer: viewerOf(url) }));
       },
+    },
+    {
+      method: 'GET', path: /^\/api\/job\/([^/]+)\/work$/,
+      run: async ({ res, url, m }) => sendJson(res, 200, await read.jobWork(m[1], { viewer: viewerOf(url) })),
     },
   ];
 }

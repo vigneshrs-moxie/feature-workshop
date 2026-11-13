@@ -94,6 +94,7 @@ import { stopOf } from '../lib/stage-view.js';
 import { checkCounts } from '../lib/job-page.js';
 import { buildJobPage } from '../lib/job-payload.js';
 import { bodyHash, itemSources, jobPageCache } from '../lib/job-payload-cache.js';
+import { crewLogs, jobWork, workFacts } from '../lib/work-rows.js';
 import { writeFileAtomic } from '../lib/atomic-write.js';
 import { UsageLog, TurnMeter, turnLines, usageDir, starbaseUser, claudeAccountId } from '../lib/usage-log.js';
 import { statusTicketKey, slugTicketKey } from '../lib/orbit.js';
@@ -2247,8 +2248,11 @@ export async function createRunner(config) {
       decided: detail.decidedOnYourBehalf, autoDecided: Array.isArray(detail.auto?.decided) ? detail.auto.decided : [],
       render: (text, { json = false } = {}) => (json ? jsonHtml(text) : renderMarkdown(text, { idHref: idHref(f) })),
     });
-    return { payload, sources };
+    // Details (lib/work-rows.js): the corrected activity, the cost rows and the replies' ends; the crew's logs are read only when Details asks.
+    return { payload, sources, work: workFacts(detail) };
   }
+  // Each crew member's first instruction and how its log ends, for Details: kept by each log's size and time.
+  const crewLogReader = crewLogs({ projectsDir: PROJECTS_DIR });
   const jobPages = jobPageCache({ build: jobPageSource, onVersion: (slug, v) => events.emit('job-page', slug, { slug, v }) });
   if (testHooks && typeof testHooks === 'object') testHooks.jobPages = jobPages;
   // The change points (interfaces note §4): a job's own events rebuild that job; a change that names no
@@ -3567,6 +3571,8 @@ export async function createRunner(config) {
     jobPage: (slug, v = null, o = {}) => jobPages.page(slug, v, o),
     /** One body of the new job page, from the warm cache: { id, kind, version, html, text, meta }. */
     jobItem: (slug, id, o = {}) => jobPages.item(slug, id, o),
+    /** The new job page's Details: the cached facts, with each crew member's log read only now (lib/work-rows.js). */
+    jobWork: async (slug, o = {}) => jobWork(await jobPages.work(slug, o), { logs: crewLogReader }),
     /** The job a name means: its slug, or a ticket key (ORBIT-479) an open job is for. Null: none. */
     async jobForName(name) {
       if (await featureBySlug(name)) return name;

@@ -6,12 +6,14 @@
 // psql, no git, no read of an agent's log, and no rebuild.
 //
 //   jobPageCache({ build, onVersion, log })
-//     build(slug)          → null (no such job) | { payload, sources }: the payload (lib/job-payload.js
-//                            buildJobPage) and one source per body the page may fetch (itemSources)
+//     build(slug)          → null (no such job) | { payload, sources, work? }: the payload (lib/job-payload.js
+//                            buildJobPage), one source per body the page may fetch (itemSources) and
+//                            the facts of the job page's Details (lib/work-rows.js workFacts)
 //     onVersion(slug, v)   called when a job's v goes up (the runner sends SSE `job-page` { slug, v })
 //   .page(slug, v?, { viewer }?)   the payload, or { same: true, v } when v is the current one
 //   .item(slug, id, { viewer }?)   one body: { id, kind, version, html, text, meta }; its html is rendered
 //                          on the first ask and kept until its version changes
+//   .work(slug, { viewer }?)   the facts the build kept for Details (build's optional `work`), or null
 //   .viewerOpen(id), .viewerGone(id)   a page's event stream opened or closed (site/index.js)
 //   .touch(slug)           the job changed: rebuild it if a page has it open, else mark it stale
 //   .touchAll()            something changed that names no job: the same for every cached job
@@ -52,7 +54,7 @@ const hashOf = (text) => createHash('sha1').update(String(text ?? '')).digest('h
 /** A body's content hash (12 hex of sha1): the version of a document's body, and its output's `hash`. */
 export const bodyHash = hashOf;
 
-/** @param {{ build: (slug: string) => Promise<null | { payload: object, sources: Map<string, object> }>, onVersion?: Function, log?: Function, delayMs?: number, maxWaitMs?: number, maxJobs?: number, missingMs?: number }} o */
+/** @param {{ build: (slug: string) => Promise<null | { payload: object, sources: Map<string, object>, work?: object }>, onVersion?: Function, log?: Function, delayMs?: number, maxWaitMs?: number, maxJobs?: number, missingMs?: number }} o */
 export function jobPageCache({ build, onVersion = () => {}, log = console.error, delayMs = REBUILD_DELAY_MS, maxWaitMs = REBUILD_MAX_WAIT_MS, maxJobs = MAX_JOBS, missingMs = MISSING_MS }) {
   const entries = new Map(); // slug -> entry
   const versions = new Map(); // slug -> the last v given (kept when the entry goes)
@@ -73,7 +75,7 @@ export function jobPageCache({ build, onVersion = () => {}, log = console.error,
     return e;
   }
 
-  function apply(e, { payload, sources }) {
+  function apply(e, { payload, sources, work = null }) {
     const { v: _own, ...rest } = payload ?? {};
     const json = JSON.stringify(rest);
     let moved = false;
@@ -93,6 +95,7 @@ export function jobPageCache({ build, onVersion = () => {}, log = console.error,
     }
     e.sources = next;
     e.html = html;
+    e.work = work ?? null;
     e.resolve();
     if (moved) {
       try { onVersion(e.slug, e.v); } catch (err) { log(`job page: ${err.message}`); }
@@ -201,6 +204,11 @@ export function jobPageCache({ build, onVersion = () => {}, log = console.error,
         e.html.set(key, html);
       }
       return { id, kind: s.kind, version: s.version, html, text: s.text, meta: s.meta };
+    },
+    /** The facts the build kept for the job page's Details (lib/work-rows.js workFacts), or null. */
+    async work(slug, { viewer = null } = {}) {
+      const e = await warm(slug, viewer);
+      return e.work ?? null;
     },
     touch(slug) {
       if (!slug) return;
