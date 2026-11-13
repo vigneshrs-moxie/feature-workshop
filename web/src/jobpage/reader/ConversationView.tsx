@@ -11,9 +11,10 @@
 //   `n small events` in dim text, which opens them.
 // - A click on a line opens the item in place, under its line; a second click folds it. `Open all in
 //   this step` opens (then folds) every item of that step.
-// - On arrival the last exchange (his last message and what came after it) is open, a `New` line
-//   marks where the lines newer than his last look start, and the view is scrolled to them, unless
-//   it has a scroll place of its own from an earlier visit (ReaderBody keeps it).
+// - On arrival the last exchange (his last message and what came after it) is open and scrolled into
+//   view (with a little of what came before above it), unless the view has a scroll place of its own
+//   from an earlier visit (ReaderBody keeps it); a `New` line marks where the lines newer than his
+//   last look start.
 // - A filter box narrows the lines as he types (by their headlines: most bodies are not fetched, so a
 //   search in them would find only some); `Jump to latest` goes to the end.
 //
@@ -309,7 +310,7 @@ export function ConversationView({ searchRef, onOpen }: ConversationViewProps) {
     });
   }, []);
 
-  // On arrival: to the New line or the last exchange, with a little before it; afterwards, after every
+  // On arrival: to the last exchange, with a little before it; afterwards, after every
   // change, the anchor goes back where it was.
   const arrived = useRef(false);
   useLayoutEffect(() => {
@@ -318,7 +319,7 @@ export function ConversationView({ searchRef, onOpen }: ConversationViewProps) {
     if (!arrived.current) {
       arrived.current = true;
       if (!hasPlace(store, PLACE)) {
-        const to = root.current?.querySelector<HTMLElement>('.jp2-cv-new, .jp2-cv-line[aria-expanded="true"]');
+        const to = root.current?.querySelector<HTMLElement>('.jp2-cv-line[aria-expanded="true"]');
         if (to) a.scrollTo(sc, to.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop - CONTEXT_PX);
       }
       a.remember();
@@ -327,11 +328,13 @@ export function ConversationView({ searchRef, onOpen }: ConversationViewProps) {
     a.restore();
   });
 
-  // A new filter starts at the top of what it found (a re-run of the effect with the same words does nothing).
+  // New words start at the top of what they found; cleared, the line that was first in view keeps its
+  // place among all the lines (the anchor). A re-run of the effect with the same words does nothing.
   const filtered = useRef(q);
   useLayoutEffect(() => {
     if (filtered.current === q) return;
     filtered.current = q;
+    if (!q) return;
     const sc = a.scroller();
     if (sc) a.scrollTo(sc, 0);
     a.remember();

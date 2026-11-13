@@ -410,6 +410,39 @@ describe('nothing he reads moves', () => {
   });
 });
 
+describe('look fix: arrival and clearing the filter', () => {
+  it('when most lines are new, it still opens at the last exchange (the New line stays where the new ones start)', async () => {
+    localStorage.setItem(seenKey(SLUG), '2026-11-01T00:00:00.000Z');
+    const o = open({ reader: null });
+    await settle();
+    fakeLayout();
+    act(() => { o.store.setReader(CONVERSATION); });
+    await settle();
+    const sc = convo();
+    const mark = convo().querySelector<HTMLElement>('.jp2-cv-new')!;
+    expect(mark.nextElementSibling).toBe(items()[1]);
+    const top = lineOf(LAST_YOU).getBoundingClientRect().top - sc.getBoundingClientRect().top;
+    expect(top).toBeGreaterThan(0);
+    expect(top).toBeLessThanOrEqual(200);
+  });
+
+  it('clearing the filter keeps the line he found where it was on screen', async () => {
+    open();
+    await settle();
+    const sc = fakeLayout();
+    const box = screen.getByRole('searchbox', { name: 'Search the conversation' });
+    fireEvent.change(box, { target: { value: 'week picker' } });
+    expect(sc.scrollTop).toBe(0);
+    const found = items()[1].dataset.id!;
+    fireEvent.mouseOver(lineOf(found));
+    const top = lineOf(found).getBoundingClientRect().top;
+    fireEvent.change(box, { target: { value: '' } });
+    expect(items()).toHaveLength(mainLines(longJob.payload).length);
+    expect(lineOf(found).getBoundingClientRect().top).toBe(top);
+    expect(sc.scrollTop).toBeGreaterThan(0);
+  });
+});
+
 describe('fast on a long job', () => {
   it('200 items: opening the conversation commits in under 100 ms and draws lines, not 200 bodies', async () => {
     const o = open({ job: longJob200 as Fixture, reader: { kind: 'ticket', id: 'ticket' } as never });
