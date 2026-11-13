@@ -50,7 +50,8 @@
 //                  stamped by the cache (runner jobPageSource) }
 //   ThreadLine   { id, kind: 'reply' | 'you' | 'brief' | 'problem' | 'small', at: string | null,
 //                  step: StopId | null, headline, mine: boolean, hash (12 hex of the body),
-//                  answered?: 'Go' | 'Send back' | 'Stop' | true | false (briefs), by?: 'auto' }
+//                  answered?: 'Go' | 'Send back' | 'Stop' | true | false (briefs), by?: 'auto' (a message
+//                  Auto sent; on a brief: Auto gave the answer, and the headline says `answered by Auto: Go`) }
 //   GateMove     { kind: 'gate', brief, ask, since, stage, nextStage, goSays,
 //                  questions: [{ id, text, options: [{ id, label, consequence, recommended }] }],
 //                  decided: number, openDecisions: string[] (id ?? decision of the unconfirmed ones,
@@ -230,10 +231,11 @@ function stageLabel(stage) {
 /**
  * One line's headline. A reply: its first bold sentence, else its first sentence. His message: its
  * first sentence. A brief: `Brief #15 · Review`, then `· answered: Go`, `· answered` or `· waiting`
- * by `answered` ('Go' | 'Send back' | 'Stop', true, false; left out: no answer part). A fold of
- * routine steps: what was allowed. Anything else: its first sentence. Cut at 140 characters on a word.
+ * by `answered` ('Go' | 'Send back' | 'Stop', true, false; left out: no answer part), `answered by
+ * Auto: Go` when `by` is 'auto'. A fold of routine steps: what was allowed. Anything else: its first
+ * sentence. Cut at 140 characters on a word.
  */
-export function headlineOf(item, { answered } = {}) {
+export function headlineOf(item, { answered, by } = {}) {
   const it = item ?? {};
   switch (it.kind) {
     case 'reply':
@@ -246,7 +248,8 @@ export function headlineOf(item, { answered } = {}) {
       const base = `Brief #${it.number ?? '?'} · ${stageLabel(it.stage)}`;
       if (answered === undefined) return base;
       if (answered === false) return `${base} · waiting`;
-      return typeof answered === 'string' ? `${base} · answered: ${answered}` : `${base} · answered`;
+      const who = by === 'auto' ? ' by Auto' : '';
+      return typeof answered === 'string' ? `${base} · answered${who}: ${answered}` : `${base} · answered${who}`;
     }
     case 'auto': {
       const items = Array.isArray(it.items) ? it.items : [];
@@ -289,16 +292,18 @@ function youAnswers(x, n, openBrief) {
 }
 
 /**
- * A brief's answer: the word of the gate reply sent for it (Go, Send back, Stop), else true when it
- * is answered another way (answeredBriefs, a newer brief, a later message of his), else false.
+ * A brief's answer: the word of the gate reply sent for it (Go, Send back, Stop) and whether Auto sent
+ * it, else true when it is answered another way (answeredBriefs, a newer brief, a later message of
+ * his), else false.
  */
 function briefAnswer(items, i, answeredBriefs, openBrief) {
   const n = items[i].number;
   let word = null;
-  for (const x of items) if (x.kind === 'you' && x.gateBrief === n && DECIDING.has(x.sendKind)) word = ANSWER_WORDS[x.sendKind];
-  if (word) return word;
+  let auto = false;
+  for (const x of items) if (x.kind === 'you' && x.gateBrief === n && DECIDING.has(x.sendKind)) { word = ANSWER_WORDS[x.sendKind]; auto = x.by === 'auto'; }
+  if (word) return { answered: word, auto };
   const later = items.slice(i + 1);
-  return answeredBriefs.has(n) || later.some((x) => (x.kind === 'brief' && !isDetail(x)) || (x.kind === 'you' && youAnswers(x, n, openBrief)));
+  return { answered: answeredBriefs.has(n) || later.some((x) => (x.kind === 'brief' && !isDetail(x)) || (x.kind === 'you' && youAnswers(x, n, openBrief))), auto: false };
 }
 
 const SMALL = new Set(['note', 'auto', 'decision', 'blocked']);
@@ -322,8 +327,10 @@ function threadLines(thread, { answeredBriefs = [], openBrief = null } = {}) {
     const kind = lineKind(SMALL.has(it.kind) ? 'small' : it.kind);
     const line = { id: String(it.id), kind, at: it.at ?? null, step: it.kind === 'brief' ? briefStop(it.stage) : stepAt(it.at), headline: '', mine: isMine(it), hash: hashOf(bodyOf(it)) };
     if (it.kind === 'brief') {
-      line.answered = briefAnswer(items, i, answered, openBrief);
-      line.headline = headlineOf(it, { answered: line.answered });
+      const a = briefAnswer(items, i, answered, openBrief);
+      line.answered = a.answered;
+      if (a.auto) line.by = 'auto';
+      line.headline = headlineOf(it, { answered: line.answered, by: line.by });
     } else {
       line.headline = headlineOf(it);
     }

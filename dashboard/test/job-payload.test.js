@@ -185,7 +185,7 @@ test('thread lines: one per item, no body and no version; step from the latest b
   // Briefs: answered by a gate reply (its word), by Auto, or still waiting.
   assert.equal(line('brief:briefs/012-plan.md').headline, 'Brief #12 · Plan · answered: Go');
   assert.equal(line('brief:briefs/012-plan.md').answered, 'Go');
-  assert.equal(line('brief:briefs/013-implement.md').headline, 'Brief #13 · Build · answered: Go');
+  assert.equal(line('brief:briefs/013-implement.md').headline, 'Brief #13 · Build · answered by Auto: Go');
   assert.equal(line('brief:briefs/015-review.md').headline, 'Brief #15 · Review · waiting');
   // The same body gives the same hash; another body another.
   const again = buildJobPage(atGate({ thread: thread() }));
@@ -534,4 +534,15 @@ test('Task 10 fix round 1: each step sends its main output; a step not started (
   const q = buildJobPage(working);
   assert.deepEqual(q.steps.find((s) => s.id === 'build').main, { kind: 'changes', id: 'changes' });
   assert.deepEqual(q.steps.find((s) => s.id === 'test').main, { kind: 'not-yet', id: 'test' });
+});
+
+test('Task 13: a brief Auto said Go to reads `answered by Auto: Go` and its line carries by: auto; his own Go stays plain', () => {
+  const p = buildJobPage(atGate({ thread: thread() }));
+  const line = (id) => p.thread.find((l) => l.id === id);
+  assert.equal(line('brief:briefs/013-implement.md').headline, 'Brief #13 · Build · answered by Auto: Go');
+  assert.equal(line('brief:briefs/013-implement.md').answered, 'Go');
+  assert.equal(line('brief:briefs/013-implement.md').by, 'auto');
+  assert.equal(line('brief:briefs/012-plan.md').headline, 'Brief #12 · Plan · answered: Go');
+  assert.equal('by' in line('brief:briefs/012-plan.md'), false);
+  assert.equal(headlineOf({ kind: 'brief', number: 4, stage: 'plan' }, { answered: 'Send back', by: 'auto' }), 'Brief #4 · Plan · answered by Auto: Send back');
 });
