@@ -21,6 +21,11 @@ function placesOf(store: JobStore): Map<string, number> {
   return m;
 }
 
+/** Whether this thing read has a scroll place kept from an earlier visit (the conversation's arrival scroll waits for none). */
+export function hasPlace(store: JobStore, place: string): boolean {
+  return placesOf(store).has(place);
+}
+
 export interface ReaderBodyProps {
   /** The view's kind (data-view): one view shows at a time. */
   view: string;

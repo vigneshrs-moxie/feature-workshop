@@ -80,7 +80,7 @@ describe('one set of controls', () => {
       'views/Inbox.tsx', 'components/Peek.tsx',
       'views/JobSheets/NewJobSheet.tsx', 'views/JobSheets/CloseJobSheet.tsx', 'views/JobSheets/KeysSheet.tsx', 'views/JobSheets/LevelPicker.tsx', 'components/CommandPalette.tsx', 'components/Sheet.tsx', 'home/FlowMap.tsx', 'home/TableView.tsx', 'views/CrewDex/CrewDexView.tsx', 'views/Achievements/AchievementsView.tsx',
       'jobpage/JobPage2.tsx', 'jobpage/left/Header.tsx', 'jobpage/left/YourMove.tsx', 'jobpage/left/Steps.tsx', 'jobpage/left/JobRows.tsx', 'jobpage/left/MessageBox.tsx',
-      'jobpage/reader/Reader.tsx', 'jobpage/reader/ReaderBody.tsx', 'jobpage/reader/TitleRow.tsx', 'jobpage/reader/Prose.tsx', 'jobpage/reader/MessageView.tsx', 'jobpage/reader/DocView.tsx', 'jobpage/reader/TicketView.tsx', 'jobpage/reader/DecisionsView.tsx',
+      'jobpage/reader/Reader.tsx', 'jobpage/reader/ReaderBody.tsx', 'jobpage/reader/TitleRow.tsx', 'jobpage/reader/Prose.tsx', 'jobpage/reader/MessageView.tsx', 'jobpage/reader/DocView.tsx', 'jobpage/reader/TicketView.tsx', 'jobpage/reader/DecisionsView.tsx', 'jobpage/reader/ConversationView.tsx',
       'views/Review/ReviewPanel.tsx', 'views/Review/ReviewBar.tsx', 'views/Review/ReviewDeskCard.tsx', 'components/permissions/PermissionAlert.tsx', 'components/permissions/PermissionCard.tsx', 'views/Gallery/GalleryReview.tsx'];
     const handMade = CODE.filter((f) => MOVED.includes(f.name)).filter((f) => /className=["'{`][^>]*?(?<![\w-])btn(?![\w-])/.test(f.text)).map((f) => f.name);
     expect(handMade).toEqual([]);
