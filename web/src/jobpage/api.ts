@@ -7,17 +7,24 @@ import type { JobBody, JobPagePayload, SamePage } from './types';
 
 export interface JobApi {
   /** The payload, or { same: true, v } when v is the current one. v null: the first ask. */
-  page(slug: string, v: number | null): Promise<JobPagePayload | SamePage>;
+  page(slug: string, v: number | null, viewer?: string | null): Promise<JobPagePayload | SamePage>;
   /** One body by its id. */
-  item(slug: string, id: string): Promise<JobBody>;
+  item(slug: string, id: string, viewer?: string | null): Promise<JobBody>;
 }
 
 const jobPath = (slug: string) => `/api/job/${encodeURIComponent(slug)}`;
+/** The query, without the empty parts. viewer: the id of the laptop stream the page listens on
+ *  (state/live.ts liveViewer), so the runner knows this job is open and rebuilds it at once. */
+const query = (parts: Record<string, string | number | null | undefined>) => {
+  const q = Object.entries(parts).filter(([, x]) => x !== null && x !== undefined && x !== '')
+    .map(([k, x]) => `${k}=${encodeURIComponent(String(x))}`).join('&');
+  return q ? `?${q}` : '';
+};
 
 export function jobApi(client: ApiClient): JobApi {
   return {
-    page: (slug, v) => client.get(`${jobPath(slug)}/page${v === null ? '' : `?v=${v}`}`),
-    item: (slug, id) => client.get(`${jobPath(slug)}/item?id=${encodeURIComponent(id)}`),
+    page: (slug, v, viewer) => client.get(`${jobPath(slug)}/page${query({ v, viewer })}`),
+    item: (slug, id, viewer) => client.get(`${jobPath(slug)}/item${query({ id, viewer })}`),
   };
 }
 

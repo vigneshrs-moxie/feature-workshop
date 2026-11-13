@@ -3,6 +3,7 @@
 // keeps every unchanged part's identity, fetches each body once, and keeps the last good data on a
 // failed fetch. Built against the made-up long job.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ApiClient } from '../api/client';
 import type { LiveEvent } from '../api/types';
 import { longJob } from './fixtures/longJob';
 import type { JobApi } from './api';
@@ -13,6 +14,7 @@ const SLUG = longJob.payload.slug;
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
 const base = () => clone(longJob.payload) as unknown as JobPagePayload;
 const bodyOf = (id: string): JobBody => {
+  if (id === 'decisions') return { id, kind: 'decisions', version: 'd', html: '<ul><li>Keep the commits</li></ul>', text: '- Keep the commits', meta: {} };
   const b = longJob.bodies[id];
   return { ...b, version: String(b.meta.hash ?? b.id) };
 };
@@ -23,21 +25,26 @@ function server(start: JobPagePayload = base()) {
   let failNext: Error | null = null;
   const pages: Array<number | null> = [];
   const items: string[] = [];
+  const viewers: Array<string | null | undefined> = [];
   const api: JobApi = {
-    async page(slug, v): Promise<JobPagePayload | SamePage> {
+    async page(slug, v, viewer): Promise<JobPagePayload | SamePage> {
       pages.push(v);
+      viewers.push(viewer);
       expect(slug).toBe(SLUG);
       if (failNext) { const e = failNext; failNext = null; throw e; }
       return v === current.v ? { same: true, v } : clone(current);
     },
-    async item(_slug, id) {
+    async item(_slug, id, viewer) {
       items.push(id);
+      viewers.push(viewer);
       if (failNext) { const e = failNext; failNext = null; throw e; }
-      return bodyOf(id);
+      // A line's body is versioned by its current hash, as the server does.
+      const line = current.thread.find((l) => l.id === id);
+      return line ? { ...bodyOf(id), version: line.hash } : bodyOf(id);
     },
   };
   return {
-    api, pages, items,
+    api, pages, items, viewers,
     set(next: JobPagePayload) { current = next; },
     fail(e: Error) { failNext = e; },
   };
@@ -180,14 +187,30 @@ describe('job store: the payload', () => {
     expect(s.pages).toEqual([null, 1]);
   });
 
-  it('an older payload arriving late never replaces a newer one', async () => {
-    const s = server({ ...base(), v: 7 });
-    const store = createJobStore(SLUG, { api: s.api, events: stream().events });
+  it('after a Starbase restart (resync) it forgets its v: the full payload replaces it even with a lower v', async () => {
+    const s = server({ ...base(), v: 57 });
+    const live = stream();
+    const store = createJobStore(SLUG, { api: s.api, events: live.events });
     await store.loadPage();
-    s.set({ ...base(), v: 6, title: 'Old title' });
-    await store.loadPage();
-    expect(store.getState().payload?.v).toBe(7);
-    expect(store.getState().payload?.title).toBe('Crew schedule export');
+    const before = store.getState().payload!;
+    // The restarted server counts from 1 again.
+    s.set({ ...base(), v: 1, title: 'Crew schedule export, after the restart' });
+    live.send('job-page', SLUG, { slug: SLUG, v: 1 });
+    await settle();
+    expect(s.pages).toEqual([null]);
+    live.send('resync', null, { epoch: 'new' });
+    await settle();
+    expect(s.pages).toEqual([null, null]);
+    const after = store.getState().payload!;
+    expect(after.v).toBe(1);
+    expect(after.title).toBe('Crew schedule export, after the restart');
+    expect(after.steps).toBe(before.steps);
+    // The next change is fetched as usual, with the new v.
+    s.set({ ...base(), v: 2, title: 'Crew schedule export, after the restart' });
+    live.send('job-page', SLUG, { slug: SLUG, v: 2 });
+    await settle();
+    expect(s.pages).toEqual([null, null, 1]);
+    expect(store.getState().payload?.v).toBe(2);
   });
 
   it('a failed fetch keeps the last good payload and sets one error line; the next good one clears it', async () => {
@@ -298,7 +321,7 @@ describe('job store: bodies', () => {
 });
 
 describe('job store: prefetch', () => {
-  it('orders bodies: the reader’s view, the last exchange, the current step’s outputs, then the rest newest first', () => {
+  it('orders bodies: the reader’s view, the last exchange, the current step’s outputs, then the newest 30 other lines', () => {
     const p = base();
     const order = prefetchOrder(p);
     const lines = p.thread.map((l) => l.id);
@@ -307,13 +330,13 @@ describe('job store: prefetch', () => {
     // Then the current step's (Review's) documents, in the step's order.
     const review = p.steps.find((s) => s.state === 'current')!.outputs.filter((o) => o.kind === 'doc').map((o) => o.id);
     expect(order.slice(3, 3 + review.length)).toEqual(review);
-    // Then the other lines, newest first, then the other steps' documents from the latest step back.
+    // Then the newest 30 other lines, newest first; nothing else (other steps' documents and the
+    // decisions list load when he picks them).
     const rest = order.slice(3 + review.length);
     expect(rest[0]).toBe('note:77b7399419d4');
-    const restLines = rest.filter((id) => lines.includes(id));
     const shown = new Set(order.slice(0, 3));
-    expect(restLines).toEqual([...lines].reverse().filter((id) => !shown.has(id)));
-    expect(rest.slice(restLines.length)).toEqual(['test-report.md', 'implementation-plan.md', 'implementation-log.md', 'test-plan.md', 'acceptance.md', 'findings.md', 'spec', 'decisions']);
+    expect(rest).toEqual([...lines].reverse().filter((id) => !shown.has(id)).slice(0, 30));
+    expect(order).toHaveLength(3 + review.length + 30);
     // Each id once.
     expect(new Set(order).size).toBe(order.length);
   });
@@ -385,5 +408,126 @@ describe('job store: the page’s own state', () => {
     expect(store.getState().ui.picks).toBe(ui.picks);
     expect(store.getState().ui.notes).toBe(ui.notes);
     expect(notified).toBe(1);
+  });
+});
+
+describe('job store: fix round 1', () => {
+  it('the decisions body is dropped when the decisions count changes, and kept while it does not', async () => {
+    const s = server();
+    const live = stream();
+    const store = createJobStore(SLUG, { api: s.api, events: live.events });
+    await store.loadPage();
+    await store.loadBody('decisions');
+    s.set({ ...base(), v: 2, title: 'Renamed' });
+    live.send('job-page', SLUG, { slug: SLUG, v: 2 });
+    await settle();
+    expect(store.getState().bodies.decisions).toBeDefined();
+    const next = base();
+    next.v = 3;
+    next.rows.decisions.count = 14;
+    s.set(next);
+    live.send('job-page', SLUG, { slug: SLUG, v: 3 });
+    await settle();
+    expect(store.getState().bodies.decisions).toBeUndefined();
+    await store.loadBody('decisions');
+    expect(s.items).toEqual(['decisions', 'decisions']);
+  });
+
+  it('every page and item request names the stream it came from (the viewer id, read when it is sent)', async () => {
+    const s = server();
+    let viewer: string | null = null;
+    const store = createJobStore(SLUG, { api: s.api, events: stream().events, viewer: () => viewer });
+    await store.loadPage();
+    viewer = 'a1b2c3d4e5f60718';
+    await store.loadPage();
+    await store.loadBody('spec');
+    expect(s.viewers).toEqual([undefined, 'a1b2c3d4e5f60718', 'a1b2c3d4e5f60718']);
+  });
+
+  it('a new viewer id (the stream reconnected) refetches the page once; the same id again does nothing', async () => {
+    const s = server();
+    const live = stream();
+    let viewer: string | null = 'a1b2c3d4e5f60718';
+    const store = createJobStore(SLUG, { api: s.api, events: live.events, viewer: () => viewer });
+    live.send('viewer', null, { id: viewer });
+    await settle();
+    expect(s.pages).toEqual([]); // nothing held yet: the first load names it
+    await store.loadPage();
+    live.send('viewer', null, { id: viewer });
+    await settle();
+    expect(s.pages).toEqual([null]);
+    viewer = '0f1e2d3c4b5a6978';
+    live.send('viewer', null, { id: viewer });
+    await settle();
+    live.send('viewer', null, { id: viewer });
+    await settle();
+    expect(s.pages).toEqual([null, 1]);
+    expect(s.viewers).toEqual(['a1b2c3d4e5f60718', '0f1e2d3c4b5a6978']);
+  });
+
+  it('on the website no viewer id is sent and viewer events do nothing', async () => {
+    const paths: string[] = [];
+    const site = {
+      hosted: () => true,
+      get: async (path: string) => {
+        paths.push(path);
+        if (path.includes('/item?')) return bodyOf('spec');
+        return path.includes('?v=1') ? { same: true, v: 1 } : { ...base(), hosted: true };
+      },
+    } as unknown as ApiClient;
+    const live = stream();
+    const store = createJobStore(SLUG, { api: site, events: live.events, viewer: () => 'a1b2c3d4e5f60718' });
+    await store.loadPage();
+    await store.loadPage();
+    live.send('viewer', null, { id: '0f1e2d3c4b5a6978' });
+    await settle();
+    await store.loadBody('spec');
+    expect(paths).toEqual([`/api/job/${SLUG}/page`, `/api/job/${SLUG}/page?v=1`, `/api/job/${SLUG}/item?id=spec`]);
+  });
+
+  it('a body that lands keeps a page error on the line; only a page that loads clears it', async () => {
+    const s = server();
+    const store = createJobStore(SLUG, { api: s.api, events: stream().events });
+    await store.loadPage();
+    s.fail(new Error('Starbase answered 500.'));
+    await store.loadPage();
+    await store.loadBody('spec');
+    expect(store.getState().error).toBe('Couldn’t load this job: Starbase answered 500.');
+    await store.loadPage();
+    expect(store.getState().error).toBeNull();
+  });
+
+  it('a body already out of date when it lands is asked for again once, and the fresh one handed over', async () => {
+    let current = base();
+    const ID = 'reply:bb51ba3f5815';
+    const asked: string[] = [];
+    let release: (() => void) | null = null;
+    const api: JobApi = {
+      page: async (_slug, v) => (v === current.v ? { same: true, v } : clone(current)),
+      item: async (_slug, id) => {
+        asked.push(id);
+        // The body as it is when asked for; the first answer is held back until released.
+        const version = current.thread.find((l) => l.id === id)!.hash;
+        if (asked.length === 1) await new Promise<void>((r) => { release = r; });
+        return { ...bodyOf(id), version };
+      },
+    };
+    const store = createJobStore(SLUG, { api, events: stream().events });
+    await store.loadPage();
+    const first = store.loadBody(ID);
+    await settle();
+    // While the body is out, a newer payload moves its hash on.
+    const oldHash = current.thread.find((l) => l.id === ID)!.hash;
+    const next = base();
+    next.v = 2;
+    next.thread.find((l) => l.id === ID)!.hash = 'bbbbbbbbbbbb';
+    current = next;
+    await store.loadPage();
+    release!();
+    const body = await first;
+    expect(asked).toEqual([ID, ID]);
+    expect(oldHash).not.toBe('bbbbbbbbbbbb');
+    expect(body?.version).toBe('bbbbbbbbbbbb');
+    expect(store.getState().bodies[ID]?.version).toBe('bbbbbbbbbbbb');
   });
 });

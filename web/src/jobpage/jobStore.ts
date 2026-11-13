@@ -6,17 +6,24 @@
 // - The payload is fetched again only when the server says it changed: the laptop's `job-page`
 //   event ({ slug, v }) with a v newer than the one held. The website sends no `job-page` event
 //   (interfaces §5), so there the store asks again on `thread` and `change` for its job, with the v
-//   it holds (the answer is { same: true } when nothing changed). A `resync` (events were lost)
-//   asks too. Nothing else makes it do work, and it starts no timer.
+//   it holds (the answer is { same: true } when nothing changed). A `resync` (events were lost, or
+//   Starbase restarted and counts v from 1 again) forgets the held v and asks for the whole payload.
+//   On the laptop every read names the stream (?viewer=, state/live.ts liveViewer) so the runner
+//   knows the job is open; a new viewer id (the stream reconnected) asks once more to say so.
+//   Nothing else makes it do work, and it starts no timer.
 // - A newer payload keeps the identity of every part whose data is equal (per top-level key, per
 //   step and per thread line, matched by id), so their readers do not redraw.
-// - A body is fetched once; a newer payload drops a kept body whose line hash moved on.
-// - A failed fetch keeps the last good data and sets the one error line; the next good one clears it.
+// - A body is fetched once; a newer payload drops a kept body whose line hash (a doc's hash) moved
+//   on, and the decisions list when the decisions count changes.
+// - Fetching ahead (prefetch) stops at the default view, the last exchange, the current step's
+//   outputs and the newest 30 other lines; the rest load when he picks them.
+// - A failed fetch keeps the last good data and sets the one error line; the next good fetch of the
+//   same kind clears it (a body that lands never hides that the job itself failed to load).
 
 import type { ApiClient } from '../api/client';
 import { createApi } from '../api/client';
 import type { LiveEvent } from '../api/types';
-import { onLiveEvent } from '../state/live';
+import { liveViewer, onLiveEvent } from '../state/live';
 import { isSame, jobApi, type JobApi } from './api';
 import type { JobBody, JobPagePayload, ReaderTarget, StopId } from './types';
 
@@ -78,6 +85,8 @@ export interface JobStoreOptions {
   api?: ApiClient | JobApi;
   /** The app's one event stream; state/live.ts onLiveEvent when left out. */
   events?: (listener: (e: LiveEvent) => void) => () => void;
+  /** The stream's viewer id, read when each request is sent; state/live.ts liveViewer when left out. */
+  viewer?: () => string | null;
 }
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
@@ -122,14 +131,20 @@ export function keepSame<T>(prev: T, next: T): T {
   return next;
 }
 
-/** The kept bodies still current for this payload: a thread item's body by its line's hash, a doc's by its hash when it has one. */
-function currentBodies(bodies: Record<string, JobBody>, payload: JobPagePayload): Record<string, JobBody> {
+/**
+ * The kept bodies still current for this payload: a thread item's body by its line's hash, a doc's
+ * by its hash when it has one; the decisions list (no hash in the payload) goes when the decisions
+ * count moved since `prev`.
+ */
+function currentBodies(bodies: Record<string, JobBody>, payload: JobPagePayload, prev: JobPagePayload | null = null): Record<string, JobBody> {
   const hashes = new Map<string, string>(payload.thread.map((l) => [l.id, l.hash]));
   for (const s of payload.steps) for (const o of s.outputs) if (o.kind === 'doc' && typeof o.hash === 'string') hashes.set(o.id, o.hash);
+  const decisionsMoved = prev !== null && prev.rows.decisions.count !== payload.rows.decisions.count;
   let out = bodies;
   for (const [id, b] of Object.entries(bodies)) {
     const hash = hashes.get(id);
-    if (hash === undefined || b.version === undefined || b.version === hash) continue;
+    const stale = id === DECISIONS ? decisionsMoved : hash !== undefined && b.version !== undefined && b.version !== hash;
+    if (!stale) continue;
     if (out === bodies) out = { ...bodies };
     delete out[id];
   }
@@ -138,13 +153,15 @@ function currentBodies(bodies: Record<string, JobBody>, payload: JobPagePayload)
 
 // ---------- Fetching ahead ----------
 
+/** How many other lines fetching ahead takes, newest first; older ones load when picked. */
+export const PREFETCH_LINES = 30;
 const BODY_KINDS = new Set(['message', 'brief', 'doc', 'decisions']);
 
 /**
  * The bodies to fetch ahead, in the plan's order (Architecture → Web → Bodies): the reader's view on
  * arrival, the last exchange of the conversation (from his last message to the end, newest first),
- * the current step's documents, then the rest newest first (the other lines from the newest back,
- * then the other steps' documents from the latest step back, then the decisions list). Each id once.
+ * the current step's documents, then the newest 30 other lines, newest first. Each id once. Other
+ * steps' documents, older lines and the decisions list load when he picks them.
  */
 export function prefetchOrder(payload: JobPagePayload): string[] {
   const out: string[] = [];
@@ -163,18 +180,22 @@ export function prefetchOrder(payload: JobPagePayload): string[] {
   const docs = (s: JobPagePayload['steps'][number]) => s.outputs.filter((o) => o.kind === 'doc').map((o) => o.id);
   const current = payload.steps.find((s) => s.state === 'current');
   if (current) docs(current).forEach(add);
-  for (let i = from - 1; i >= 0; i--) add(thread[i].id);
-  for (let i = payload.steps.length - 1; i >= 0; i--) if (payload.steps[i] !== current) docs(payload.steps[i]).forEach(add);
-  if (payload.rows.decisions.count > 0) add('decisions');
+  let others = 0;
+  for (let i = from - 1; i >= 0 && others < PREFETCH_LINES; i--) {
+    if (seen.has(thread[i].id)) continue;
+    add(thread[i].id);
+    others++;
+  }
   return out;
 }
 
 // ---------- The store ----------
 
+const DECISIONS = 'decisions';
 const EMPTY_UI: JobUi = { step: null, reader: null, picks: {}, notes: [], draft: '' };
 const sameTarget = (a: ReaderTarget | null, b: ReaderTarget | null) => a === b || (!!a && !!b && a.kind === b.kind && a.id === b.id);
 
-export function createJobStore(slug: string, { api = createApi(), events = onLiveEvent }: JobStoreOptions = {}): JobStore {
+export function createJobStore(slug: string, { api = createApi(), events = onLiveEvent, viewer = liveViewer }: JobStoreOptions = {}): JobStore {
   const reads: JobApi = 'page' in api ? api : jobApi(api);
   const client = 'page' in api ? null : api;
   let state: JobPageState = { slug, payload: null, bodies: {}, error: null, ui: EMPTY_UI };
@@ -184,6 +205,12 @@ export function createJobStore(slug: string, { api = createApi(), events = onLiv
   let again = false;
   let prefetching: Promise<void> | null = null;
   let destroyed = false;
+  /** Ask for the whole payload next (after a resync: the held v may mean nothing to the server now). */
+  let forget = false;
+  /** The viewer id the last page request named. */
+  let named: string | null = null;
+  /** Which fetch set the error line, so only a good fetch of that kind clears it. */
+  let errorFrom: 'page' | 'body' | null = null;
 
   function set(next: JobPageState) {
     if (next === state) return;
@@ -194,25 +221,38 @@ export function createJobStore(slug: string, { api = createApi(), events = onLiv
     const ui = { ...state.ui, ...patch };
     set({ ...state, ui });
   };
+  const fail = (from: 'page' | 'body', line: string) => { errorFrom = from; set({ ...state, error: line }); };
+  /** The error line without what a good fetch of this kind answered; a page that loads clears either. */
+  const cleared = (from: 'page' | 'body') => (state.error !== null && (from === 'page' || errorFrom === 'body') ? null : state.error);
+
+  function hosted(): boolean {
+    return Boolean(state.payload?.hosted || client?.hosted?.());
+  }
+  /** The viewer id to name, on the laptop only. */
+  const viewerNow = () => (hosted() ? null : viewer());
 
   async function fetchPageOnce() {
-    const held = state.payload;
+    const held = forget ? null : state.payload;
+    forget = false;
+    const id = viewerNow();
     let answer;
     try {
-      answer = await reads.page(slug, held ? held.v : null);
+      answer = await (id ? reads.page(slug, held ? held.v : null, id) : reads.page(slug, held ? held.v : null));
     } catch (err) {
-      if (!destroyed) set({ ...state, error: PAGE_ERROR + message(err) });
+      if (!destroyed) fail('page', PAGE_ERROR + message(err));
       return;
     }
     if (destroyed) return;
+    named = id;
     if (isSame(answer) || answer.slug !== slug) {
-      if (state.error !== null) set({ ...state, error: null });
+      if (state.error !== null) set({ ...state, error: cleared('page') });
       return;
     }
+    // Fetches run one at a time, so an answer is never older than what is held; after a restart its
+    // v can be lower, and it is still the truth.
     const now = state.payload;
-    if (now && answer.v < now.v) return; // a late answer older than what is held
     const payload = now ? keepSame(now, answer) : answer;
-    set({ ...state, payload, bodies: currentBodies(state.bodies, payload), error: null });
+    set({ ...state, payload, bodies: currentBodies(state.bodies, payload, now), error: cleared('page') });
   }
 
   function loadPage(): Promise<void> {
@@ -237,7 +277,8 @@ export function createJobStore(slug: string, { api = createApi(), events = onLiv
     if (held) return Promise.resolve(held);
     const out = bodyFetches.get(id);
     if (out) return out;
-    const p = reads.item(slug, id).then((body) => {
+    const who = viewerNow();
+    const p = (who ? reads.item(slug, id, who) : reads.item(slug, id)).then((body) => {
       if (!destroyed && !state.bodies[id]) {
         // A body that a newer payload already moved past while it was out is not kept.
         const bodies = { ...state.bodies, [id]: body };
@@ -251,11 +292,13 @@ export function createJobStore(slug: string, { api = createApi(), events = onLiv
 
   async function loadBody(id: string): Promise<JobBody | null> {
     try {
-      const body = await fetchBody(id);
-      if (state.error !== null && !destroyed) set({ ...state, error: null });
-      return body;
+      await fetchBody(id);
+      // Out of date when it landed (a newer payload moved its hash on): ask once more.
+      if (!state.bodies[id] && !destroyed) await fetchBody(id);
+      if (state.error !== null && !destroyed) set({ ...state, error: cleared('body') });
+      return state.bodies[id] ?? null;
     } catch (err) {
-      if (!destroyed) set({ ...state, error: BODY_ERROR + message(err) });
+      if (!destroyed) fail('body', BODY_ERROR + message(err));
       return null;
     }
   }
@@ -280,14 +323,15 @@ export function createJobStore(slug: string, { api = createApi(), events = onLiv
     return prefetching;
   }
 
-  function hosted(): boolean {
-    return Boolean(state.payload?.hosted || client?.hosted?.());
-  }
-
   function onEvent(e: LiveEvent) {
     if (destroyed || !e || typeof e.type !== 'string') return;
-    if (e.type === 'resync') { void loadPage(); return; }
+    if (e.type === 'resync') { forget = true; void loadPage(); return; }
     const d = isObject(e.data) ? e.data : {};
+    if (e.type === 'viewer') {
+      // The stream reconnected: tell the runner this new stream watches the job (one page ask).
+      if (state.payload && !hosted() && typeof d.id === 'string' && d.id !== named) void loadPage();
+      return;
+    }
     if (e.type === 'job-page') {
       if ((e.job ?? d.slug) !== slug) return;
       const v = typeof d.v === 'number' ? d.v : null;

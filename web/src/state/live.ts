@@ -51,11 +51,17 @@ const message = (err: unknown) => (err instanceof Error ? err.message : String(e
 
 // Every event as it arrives, after the store has it, for a part of the page that keeps its own
 // store (the new job page: web/src/jobpage/jobStore.ts), so the app still opens one stream.
+// A tap hears an event the store applied (its seq moved), plus `resync` and `viewer`, not a replay
+// the store already had after a reconnect.
 const taps = new Set<(e: LiveEvent) => void>();
 export function onLiveEvent(fn: (e: LiveEvent) => void): () => void {
   taps.add(fn);
   return () => { taps.delete(fn); };
 }
+// The id the laptop gave this stream (its `viewer` event, seq 0, once per connection; a reconnect
+// gets a new one). The job page names it on its reads (?viewer=). null until one arrives.
+let viewer: string | null = null;
+export const liveViewer = (): string | null => viewer;
 
 export function createLiveSync({
   api,
@@ -154,8 +160,15 @@ export function createLiveSync({
       if (es !== stream) return;
       let event: LiveEvent;
       try { event = JSON.parse(String(ev.data)); } catch { return; }
+      const seq = store.getState().seq;
       store.dispatch({ type: 'event', event });
-      for (const tap of [...taps]) { try { tap(event); } catch { /* a tap never breaks the stream */ } }
+      if (event?.type === 'viewer') {
+        const id = (event.data as { id?: unknown } | null)?.id;
+        if (typeof id === 'string') viewer = id;
+      }
+      if (event?.type === 'viewer' || event?.type === 'resync' || store.getState().seq !== seq) {
+        for (const tap of [...taps]) { try { tap(event); } catch { /* a tap never breaks the stream */ } }
+      }
       afterEvent();
     };
     stream.onerror = () => {

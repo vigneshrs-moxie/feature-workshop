@@ -213,3 +213,27 @@ describe('live sync: the event tap', () => {
     t.sync.stop();
   });
 });
+
+describe('live sync: the viewer id and replays', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('keeps the newest viewer id, and taps hear viewer and resync but not an event the store already had', async () => {
+    const { onLiveEvent, liveViewer } = await import('./live');
+    const t = setup([snapshot()]);
+    await t.sync.start();
+    t.streams[0].open();
+    const heard: string[] = [];
+    const off = onLiveEvent((e) => { heard.push(`${e.type}:${e.seq}`); });
+    t.streams[0].send(ev(0, 'viewer', null, { id: 'a1b2c3d4e5f60718' }));
+    expect(liveViewer()).toBe('a1b2c3d4e5f60718');
+    t.streams[0].send(ev(11, 'job-page', 'alpha', { slug: 'alpha', v: 2 }));
+    t.streams[0].send(ev(11, 'job-page', 'alpha', { slug: 'alpha', v: 2 })); // a replay after a reconnect
+    t.streams[0].send(ev(0, 'viewer', null, { id: '0f1e2d3c4b5a6978' }));
+    t.streams[0].send(ev(5, 'resync', null, { epoch: 'bbbb' }));
+    off();
+    expect(liveViewer()).toBe('0f1e2d3c4b5a6978');
+    expect(heard).toEqual(['viewer:0', 'job-page:11', 'viewer:0', 'resync:5']);
+    t.sync.stop();
+  });
+});

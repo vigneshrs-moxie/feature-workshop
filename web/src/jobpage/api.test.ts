@@ -31,3 +31,20 @@ describe('job page api', () => {
     expect(isSame({ v: 4, slug: 'x' } as never)).toBe(false);
   });
 });
+
+describe('job page api: the viewer id', () => {
+  it('names the stream on both reads when given one', async () => {
+    const { client, get } = fakeClient({});
+    const api = jobApi(client);
+    await api.page('orbit-905', null, 'a1b2c3d4e5f60718');
+    await api.page('orbit-905', 3, 'a1b2c3d4e5f60718');
+    await api.item('orbit-905', 'spec', 'a1b2c3d4e5f60718');
+    await api.item('orbit-905', 'spec', null);
+    expect(get.mock.calls.map((c) => (c as unknown[])[0])).toEqual([
+      '/api/job/orbit-905/page?viewer=a1b2c3d4e5f60718',
+      '/api/job/orbit-905/page?v=3&viewer=a1b2c3d4e5f60718',
+      '/api/job/orbit-905/item?id=spec&viewer=a1b2c3d4e5f60718',
+      '/api/job/orbit-905/item?id=spec',
+    ]);
+  });
+});
