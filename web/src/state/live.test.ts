@@ -190,3 +190,26 @@ describe('live sync', () => {
     expect(t.calls.snapshot).toBe(1);
   });
 });
+
+describe('live sync: the event tap', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('hands every event to each tap after the store has it, and a tap that throws breaks nothing', async () => {
+    const { onLiveEvent } = await import('./live');
+    const t = setup([snapshot()]);
+    await t.sync.start();
+    t.streams[0].open();
+    const heard: Array<[string, number]> = [];
+    const off = onLiveEvent((e) => { heard.push([e.type, t.store.getState().seq]); });
+    const offBad = onLiveEvent(() => { throw new Error('a broken tap'); });
+    t.streams[0].send(ev(11, 'job-page', 'alpha', { slug: 'alpha', v: 3 }));
+    t.streams[0].sendRaw('not json');
+    off();
+    offBad();
+    t.streams[0].send(ev(12, 'change'));
+    expect(heard).toEqual([['job-page', 11]]);
+    expect(t.store.getState().seq).toBe(12);
+    t.sync.stop();
+  });
+});

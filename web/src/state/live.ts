@@ -49,6 +49,14 @@ export interface LiveSync {
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
+// Every event as it arrives, after the store has it, for a part of the page that keeps its own
+// store (the new job page: web/src/jobpage/jobStore.ts), so the app still opens one stream.
+const taps = new Set<(e: LiveEvent) => void>();
+export function onLiveEvent(fn: (e: LiveEvent) => void): () => void {
+  taps.add(fn);
+  return () => { taps.delete(fn); };
+}
+
 export function createLiveSync({
   api,
   store,
@@ -147,6 +155,7 @@ export function createLiveSync({
       let event: LiveEvent;
       try { event = JSON.parse(String(ev.data)); } catch { return; }
       store.dispatch({ type: 'event', event });
+      for (const tap of [...taps]) { try { tap(event); } catch { /* a tap never breaks the stream */ } }
       afterEvent();
     };
     stream.onerror = () => {
