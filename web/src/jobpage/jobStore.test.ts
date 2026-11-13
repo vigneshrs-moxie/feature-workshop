@@ -676,3 +676,35 @@ describe('job store: Task 11, the message box’s draft', () => {
     expect(again.getState().ui.draft).toBe('');
   });
 });
+
+describe('job store: Task 11 fix round 2, words that went with something the website queued', () => {
+  const q = (id: string, state: string, words = 'Waiting for your laptop.') => ({ id, kind: 'approve', state, words, at: '2026-11-13T12:00:00Z', expiresAt: null, waiting: false, canCancel: false, permissionId: null });
+  const listed = (v: number, list: unknown[]) => { const p = base(); p.v = v; p.queuedDecisions = list; p.queuedDecision = list[0] ?? null; return p; };
+
+  it('follows each decision by id in the list: kept while it waits (even under a newer one), forgotten when done, given back when it ends otherwise or is put away after it showed', async () => {
+    const s = server(listed(1, []));
+    const store = createJobStore(SLUG, { api: s.api, events: stream().events });
+    await store.loadPage();
+    store.watchQueued('a', 'Words for a');
+    store.watchQueued('b', 'Words for b');
+    store.watchQueued('c', 'Words for c');
+    s.set(listed(2, [q('c', 'waiting'), q('b', 'waiting'), q('a', 'waiting')]));
+    await store.loadPage();
+    // Only the newest is the old single field; the older ones still wait in the list.
+    s.set(listed(3, [q('c', 'sent'), q('b', 'done'), q('a', 'waiting')]));
+    await store.loadPage();
+    expect(store.getState().ui.draft).toBe('');
+    expect(store.getState().gaveBack).toBeNull();
+    s.set(listed(4, [q('c', 'expired', 'It ran out before your laptop was back.'), q('a', 'waiting')]));
+    await store.loadPage();
+    expect(store.getState().ui.draft).toBe('Words for c');
+    expect(store.getState().gaveBack?.line).toBe('Not sent: It ran out before your laptop was back. Your words are back in the box.');
+    store.setDraft('Typed since');
+    s.set(listed(5, []));
+    await store.loadPage();
+    expect(store.getState().ui.draft).toBe('Typed since\nWords for a');
+    expect(store.getState().gaveBack?.line).toBe('Not sent: the website put it away before your laptop ran it. Your words are back in the box.');
+    store.clearGaveBack();
+    expect(store.getState().gaveBack).toBeNull();
+  });
+});

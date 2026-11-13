@@ -158,6 +158,8 @@ export interface JobPagePayload {
   hosted: boolean;
   /** Website only: the decision made there for this job's gate (the old page's `queued`), until it is put away. */
   queuedDecision?: unknown;
+  /** Website only: every decision made there and still shown for the job, newest first (each followed by its id). */
+  queuedDecisions?: unknown[];
 }
 
 /** The page route's answer when the caller's v is current. */

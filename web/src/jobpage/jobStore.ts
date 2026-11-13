@@ -23,12 +23,19 @@
 //   (panes/Foreman/Composer.tsx draftKey), when the store is given `drafts` (the page gives it
 //   browserDrafts): a reload, and the old page, find the same words. Emptying it also forgets the
 //   old page's note that the draft answers a brief (fw.draftGate.<slug>), as the old page does.
+// - Words that went with something the website queued for the laptop (a Go's note, Send back's
+//   change, a message) are followed by the decision's id (watchQueued) for as long as the page is
+//   open, whatever the card does meanwhile: when it ends on the website without running (failed,
+//   changed, ran out, cancelled, or put away after it showed) the words come back to the draft, after
+//   anything typed since, and `gaveBack` says why. The website's payload lists every decision still
+//   shown for the job (queuedDecisions), so a newer one never hides an older one still waiting.
 
 import type { ApiClient } from '../api/client';
 import { createApi } from '../api/client';
 import type { LiveEvent } from '../api/types';
 import { gateDraftKey } from '../lib/gateCard';
 import { readStored, writeStored } from '../lib/stored';
+import { isOpen, queuedOf, type QueuedView } from '../views/Hosted/QueuedDecision';
 import { liveViewer, onLiveEvent } from '../state/live';
 import { isSame, jobApi, type JobApi } from './api';
 import type { JobBody, JobPagePayload, ReaderTarget, StopId } from './types';
@@ -67,6 +74,8 @@ export interface JobPageState {
   /** The one error line (the last fetch that failed), or null. */
   error: string | null;
   ui: JobUi;
+  /** Words given back to the draft from something the website queued that never ran: why, in plain words. */
+  gaveBack: { n: number; line: string } | null;
 }
 
 export interface JobStore {
@@ -90,6 +99,10 @@ export interface JobStore {
   setOwn(questionId: string, words: string): void;
   setNotes(notes: PageNote[]): void;
   setDraft(draft: string): void;
+  /** Follow a decision the website queued, by its id, and give `words` back to the draft if it never runs. */
+  watchQueued(id: string, words: string): void;
+  /** The gaveBack line has been read (he sent again, or typed it away). */
+  clearGaveBack(): void;
   /** Stop listening to the stream; fetches still out are dropped when they land. */
   destroy(): void;
 }
@@ -220,6 +233,26 @@ export function prefetchOrder(payload: JobPagePayload): string[] {
   return out;
 }
 
+// ---------- Decisions the website queued ----------
+
+/** The website's decision with this id, from the payload's list (or its one newest decision, from an older site). */
+export function queuedById(payload: JobPagePayload | null | undefined, id: string | null | undefined): QueuedView | null {
+  if (!payload || !id) return null;
+  for (const d of payload.queuedDecisions ?? []) { const q = queuedOf(d); if (q && q.id === id) return q; }
+  const one = queuedOf(payload.queuedDecision);
+  return one && one.id === id ? one : null;
+}
+
+/** Still waiting on the website or on its way (a plain boolean: isOpen's guard narrows too far). */
+const stillOpen = (q: QueuedView): boolean => isOpen(q);
+
+/** Words added back to a draft: in an empty box as they are, else after what is there on a new line. */
+export function withWordsBack(draft: string, words: string): string {
+  if (!draft.trim()) return words;
+  if (draft.includes(words)) return draft;
+  return `${draft.replace(/\s+$/, '')}\n${words}`;
+}
+
 // ---------- The store ----------
 
 const DECISIONS = 'decisions';
@@ -230,7 +263,10 @@ export function createJobStore(slug: string, { api = createApi(), events = onLiv
   const reads: JobApi = 'page' in api ? api : jobApi(api);
   const client = 'page' in api ? null : api;
   const keptDraft = drafts?.read(draftKey(slug)) ?? '';
-  let state: JobPageState = { slug, payload: initial && initial.slug === slug ? initial : null, bodies: {}, error: null, ui: keptDraft ? { ...EMPTY_UI, draft: keptDraft } : EMPTY_UI };
+  let state: JobPageState = { slug, payload: initial && initial.slug === slug ? initial : null, bodies: {}, error: null, ui: keptDraft ? { ...EMPTY_UI, draft: keptDraft } : EMPTY_UI, gaveBack: null };
+  /** Decisions the website queued with his words, by id: the words, and whether the payload has shown it. */
+  const watched = new Map<string, { words: string; seen: boolean }>();
+  let gaveBackN = 0;
   const listeners = new Set<() => void>();
   const bodyFetches = new Map<string, Promise<JobBody>>();
   let pageFetch: Promise<void> | null = null;
@@ -248,8 +284,33 @@ export function createJobStore(slug: string, { api = createApi(), events = onLiv
 
   function set(next: JobPageState) {
     if (next === state) return;
-    state = next;
+    const payloadMoved = next.payload !== state.payload;
+    state = payloadMoved && watched.size ? settleQueued(next) : next;
     for (const l of [...listeners]) l();
+  }
+
+  /** The watched decisions as this state shows them: words back for each that ended without running. */
+  function settleQueued(next: JobPageState): JobPageState {
+    let out = next;
+    for (const [id, w] of [...watched]) {
+      const q = queuedById(next.payload, id);
+      if (q && stillOpen(q)) { w.seen = true; continue; }
+      if (q && q.state === 'done') { watched.delete(id); continue; }
+      if (!q && !w.seen) continue; // not shown yet
+      watched.delete(id);
+      const draft = withWordsBack(out.ui.draft, w.words);
+      if (draft !== out.ui.draft) writeDraft(draft);
+      const why = q ? q.words.replace(/\s*$/, '') : 'the website put it away before your laptop ran it.';
+      out = { ...out, ui: { ...out.ui, draft }, gaveBack: { n: ++gaveBackN, line: `Not sent: ${/[.!?]$/.test(why) ? why : `${why}.`} Your words are back in the box.` } };
+    }
+    return out;
+  }
+
+  /** Keep the draft in this browser (the old page's key). */
+  function writeDraft(draft: string) {
+    if (!drafts) return;
+    drafts.write(draftKey(slug), draft === '' ? null : draft);
+    if (draft === '' && drafts.read(gateDraftKey(slug)) !== null) drafts.write(gateDraftKey(slug), null);
   }
   const setUi = (patch: Partial<JobUi>) => {
     const ui = { ...state.ui, ...patch };
@@ -409,12 +470,16 @@ export function createJobStore(slug: string, { api = createApi(), events = onLiv
     setNotes(notes) { if (state.ui.notes !== notes) setUi({ notes }); },
     setDraft(draft) {
       if (state.ui.draft === draft) return;
-      if (drafts) {
-        drafts.write(draftKey(slug), draft === '' ? null : draft);
-        if (draft === '' && drafts.read(gateDraftKey(slug)) !== null) drafts.write(gateDraftKey(slug), null);
-      }
+      writeDraft(draft);
       setUi({ draft });
     },
+    watchQueued(id, words) {
+      if (!words.trim()) return;
+      watched.set(id, { words, seen: false });
+      const now = settleQueued(state);
+      if (now !== state) set(now);
+    },
+    clearGaveBack() { if (state.gaveBack) set({ ...state, gaveBack: null }); },
     destroy() {
       destroyed = true;
       unsubscribe?.();

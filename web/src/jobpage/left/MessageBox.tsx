@@ -31,7 +31,7 @@ import { Button } from '../../components/Button';
 import { Choice } from '../../components/Choice';
 import { useNarrow } from '../../components/page/Page';
 import { useWorkshop } from '../../state/store';
-import { isOpen, queuedOf, type QueuedView } from '../../views/Hosted/QueuedDecision';
+import { withWordsBack } from '../jobStore';
 import { useJob, useJobStore } from '../useJob';
 
 /** The run statuses that mean the Foreman is replying right now (panes/Foreman/thread.ts ACTIVE). */
@@ -77,9 +77,6 @@ export function sendRefusal(err: unknown): string {
 
 /** The server's "the Foreman is still working" (a 409 with no code). */
 const isBusy = (err: unknown) => err instanceof ApiError && err.status === 409 && !err.body.code && /still working/i.test(err.message);
-/** Still waiting on the website or on its way (a plain boolean: isOpen's guard narrows too far here). */
-const stillOpen = (q: QueuedView): boolean => isOpen(q);
-const wait = (ms: number) => new Promise<void>((r) => { setTimeout(r, ms); });
 
 type RunFacts = { id: string | null; status: string | null } | null;
 
@@ -117,7 +114,6 @@ export const MessageBox = memo(function MessageBox({ boxRef }: MessageBoxProps) 
   const draft = useJob((s) => s.ui.draft);
   const gateWaits = useJob((s) => s.payload?.move?.kind === 'gate');
   const asked = useJob((s) => s.payload?.move?.kind === 'gate' || s.payload?.move?.kind === 'question');
-  const queued = useJob((s) => queuedOf(s.payload?.queuedDecision));
   const locked = useJob((s) => Boolean(s.payload?.lock));
   const payloadRunId = useJob((s) => s.payload?.run?.id ?? null);
   const payloadRunStatus = useJob((s) => s.payload?.run?.status ?? null);
@@ -135,8 +131,18 @@ export const MessageBox = memo(function MessageBox({ boxRef }: MessageBoxProps) 
   const [askTerminal, setAskTerminal] = useState(false);
   const [noTerminal, setNoTerminal] = useState(false);
   const out = useRef(false);
-  /** A message the website queued for the laptop: its decision's id, its words, and whether the payload has shown it. */
-  const [waitingOn, setWaitingOn] = useState<{ id: string; words: string; seen: boolean } | null>(null);
+  /** Words the store gave back from something the website queued that never ran (jobStore watchQueued). */
+  const gaveBack = useJob((s) => s.gaveBack);
+  /** The retry after a stop that is waiting, so leaving the page ends it and keeps the words. */
+  const retry = useRef<{ timer: ReturnType<typeof setTimeout>; words: string } | null>(null);
+  useEffect(() => () => {
+    const r = retry.current;
+    if (!r) return;
+    clearTimeout(r.timer);
+    retry.current = null;
+    // Not sent: the words go back to the kept draft, so the page finds them next time.
+    store.setDraft(withWordsBack(store.getState().ui.draft, r.words));
+  }, [store]);
   const runningNow = useRef(running);
   runningNow.current = running;
   const phaseNow = useRef(phase);
@@ -155,6 +161,7 @@ export const MessageBox = memo(function MessageBox({ boxRef }: MessageBoxProps) 
     out.current = true;
     setPhase('sending');
     setLine(null);
+    store.clearGaveBack();
     store.setDraft('');
     let r: { queued?: unknown } | null;
     const post = () => api.post<{ queued?: unknown }>(`/api/job/${encodeURIComponent(slug)}/send`, { kind: 'message', text, confirmNoTerminal: noTerminal });
@@ -164,7 +171,10 @@ export const MessageBox = memo(function MessageBox({ boxRef }: MessageBoxProps) 
       } catch (err) {
         // The reply has just been stopped and the server has not caught up yet: once more.
         if (!afterStop || !isBusy(err)) throw err;
-        await wait(RETRY_AFTER_MS);
+        // Left before it is due: the timer is cleared and nothing more is sent (the words stay kept).
+        await new Promise<void>((due) => {
+          retry.current = { timer: setTimeout(() => { retry.current = null; due(); }, RETRY_AFTER_MS), words };
+        });
         r = await post();
       }
     } catch (err) {
@@ -186,24 +196,10 @@ export const MessageBox = memo(function MessageBox({ boxRef }: MessageBoxProps) 
     const q = r && typeof r === 'object' ? (r.queued as { id?: unknown } | undefined) : undefined;
     if (q) {
       setLine({ words: 'Queued for your laptop: it goes to the Foreman when the laptop picks it up.', problem: false });
-      if (typeof q === 'object' && typeof q.id === 'string') setWaitingOn({ id: q.id, words: text, seen: false });
+      if (typeof q === 'object' && typeof q.id === 'string') store.watchQueued(q.id, text);
     }
   }, [api, store, slug, noTerminal, focusBox]);
 
-  // The website's queued message: sent there, or given back when it ends without being sent.
-  useEffect(() => {
-    if (!waitingOn) return;
-    const q = queued && queued.id === waitingOn.id ? queued : null;
-    if (q && stillOpen(q)) { if (!waitingOn.seen) setWaitingOn({ ...waitingOn, seen: true }); return; }
-    if (q && q.state === 'done') { setWaitingOn(null); setLine((l) => (l && !l.problem ? null : l)); return; }
-    if (!q && !waitingOn.seen) return;
-    setWaitingOn(null);
-    const now = store.getState().ui.draft;
-    if (!now.trim()) store.setDraft(waitingOn.words);
-    else if (!now.includes(waitingOn.words)) store.setDraft(`${now.replace(/\s+$/, '')}\n${waitingOn.words}`);
-    setPhase('idle');
-    setLine({ words: `Not sent: ${q ? q.words : 'the website put your message away before your laptop sent it.'} Your words are back in the box.`, problem: true });
-  }, [waitingOn, queued, store]);
 
   const pressSend = useCallback(() => {
     if (!store.getState().ui.draft.trim()) { focusBox(); return; }
@@ -228,6 +224,9 @@ export const MessageBox = memo(function MessageBox({ boxRef }: MessageBoxProps) 
       setLine({ words: `Not stopped: ${err instanceof TypeError ? UNREACHABLE : err instanceof Error ? err.message : String(err)}`, problem: true });
     }
   }, [api, store, run?.id, phase, focusBox]);
+
+  // Words given back from the website: the box's own line about that send is over.
+  useEffect(() => { if (gaveBack) { setLine(null); setPhase('idle'); } }, [gaveBack]);
 
   // Stopped: the words go now.
   useEffect(() => {
@@ -272,6 +271,7 @@ export const MessageBox = memo(function MessageBox({ boxRef }: MessageBoxProps) 
         </label>
       )}
       {line && <p className={`jp2-mb-line${line.problem ? ' is-problem' : ''}`} role={line.problem ? 'alert' : 'status'}>{line.words}</p>}
+      {!line && gaveBack && <p className="jp2-mb-line is-problem" role="alert">{gaveBack.line}</p>}
       <div className="jp2-mb">
         <textarea
           ref={boxRef}

@@ -151,10 +151,15 @@ export default function mirrorRoutes(ctx) {
     return rec;
   }
 
-  /** The decisions shown on a job (newest first), and on each permission by its id. */
+  /**
+   * The decisions shown on a job (newest first), and on each permission by its id. allByJob: every
+   * one shown on the job, newest first (the new job page follows each of its own by id, so a newer
+   * one never hides an older one still waiting).
+   */
   async function shownFor(personId) {
     const all = await queue.shown(personId);
     const byJob = new Map();
+    const allByJob = new Map();
     const byPermission = new Map();
     const byAuto = new Map();
     for (const d of all) {
@@ -163,8 +168,10 @@ export default function mirrorRoutes(ctx) {
       if (d.kind === 'auto') { if (!byAuto.has(d.job)) byAuto.set(d.job, d); continue; }
       if (d.kind === 'auto-start') continue; // a setting of the laptop, not of a job
       if (!byJob.has(d.job)) byJob.set(d.job, d);
+      if (!allByJob.has(d.job)) allByJob.set(d.job, []);
+      allByJob.get(d.job).push(d);
     }
-    return { byJob, byPermission, byAuto };
+    return { byJob, allByJob, byPermission, byAuto };
   }
 
   const read = {
@@ -198,8 +205,10 @@ export default function mirrorRoutes(ctx) {
       const row = boards.filter((b) => b.runnerId === rec.runnerId).flatMap((b) => b.value.jobs ?? []).find((j) => j.slug === slug) ?? null;
       // The decision made here for this job's gate (the old page's `queued`), so Your move's Queued ends
       // when it runs, is refused or is put away. Named apart from the payload's `waiting` (R8).
-      const { byJob } = await shownFor(person.id);
-      return { ...mirrorJobPage(rec.value, { row, v: Date.parse(rec.updatedAt) || 0 }), queuedDecision: byJob.get(slug) ?? null };
+      // queuedDecisions: every decision made here and still shown for the job, newest first (a Go and a
+      // message made one after the other are both followed, each by its id).
+      const { byJob, allByJob } = await shownFor(person.id);
+      return { ...mirrorJobPage(rec.value, { row, v: Date.parse(rec.updatedAt) || 0 }), queuedDecision: byJob.get(slug) ?? null, queuedDecisions: allByJob.get(slug) ?? [] };
     },
     /**
      * One body of the new job page: a brief or document from its mirrored doc, the decisions list, the ticket and

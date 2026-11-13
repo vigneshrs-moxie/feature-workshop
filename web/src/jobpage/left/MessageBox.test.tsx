@@ -530,3 +530,104 @@ describe('Task 11 fix round 1: the phone', () => {
     expect(document.querySelector('.jp2-mb-line')).toHaveTextContent(/^Kept here, not sent. Press Send when the Foreman finishes.$/);
   });
 });
+
+describe('Task 11 fix round 2', () => {
+  const q = (id: string, state: string, words = 'Waiting for your laptop.', kind = 'approve') => ({ id, kind, state, words, at: '2026-11-13T12:00:00Z', expiresAt: null, waiting: state === 'waiting', canCancel: state === 'waiting', permissionId: null });
+  /** The website's payload: every decision still shown for the job, newest first. */
+  const withList = (v: number, list: unknown[], patch: Partial<JobPagePayload> = {}) => { const p = { ...payload(), ...patch }; p.v = v; p.queuedDecisions = list; p.queuedDecision = list[0] ?? null; return p; };
+
+  it('a queued Send back put away because the Foreman moved to the next brief gives the change back (the card is for another gate by then)', async () => {
+    const o = open({ post: vi.fn(async () => ({ queued: q('b1', 'waiting') })) });
+    type('Split the export into two files.');
+    fireEvent.click(within(card()).getByRole('button', { name: /^Send back/ }));
+    await settle();
+    await refresh(o, withList(2, [q('b1', 'waiting')]));
+    expect(box()).toHaveValue('');
+    await refresh(o, withList(3, [q('b1', 'changed', 'The Foreman has moved on to a newer brief.')], { move: { ...GATE(), brief: 16, ask: 'Brief 16 waits' } }));
+    expect(card()).toHaveTextContent('Brief 16 waits');
+    expect(box()).toHaveValue('Split the export into two files.');
+    expect(foot().getByRole('alert')).toHaveTextContent('Not sent: The Foreman has moved on to a newer brief. Your words are back in the box.');
+  });
+
+  it('a queued Send back that fails after the job stops waiting at a gate gives the change back (no card is left)', async () => {
+    const o = open({ post: vi.fn(async () => ({ queued: q('b2', 'waiting') })) });
+    type('Split the export into two files.');
+    fireEvent.click(within(card()).getByRole('button', { name: /^Send back/ }));
+    await settle();
+    await refresh(o, withList(2, [q('b2', 'waiting')]));
+    await refresh(o, withList(3, [q('b2', 'failed', 'Your laptop couldn’t run it.')], { move: null }));
+    expect(document.querySelector('.jp2-ym .jp2-card')).toBeNull();
+    expect(box()).toHaveValue('Split the export into two files.');
+  });
+
+  it('a message, then a Go: the newer Go never hides the message still waiting, so nothing comes back and nothing wakes', async () => {
+    const post = vi.fn()
+      .mockResolvedValueOnce({ queued: q('m1', 'waiting', 'Waiting for your laptop.', 'message') })
+      .mockResolvedValueOnce({ queued: q('g1', 'waiting') });
+    const o = open({ post });
+    type('Please also check the totals row.');
+    fireEvent.click(send());
+    await settle();
+    await refresh(o, withList(2, [q('m1', 'waiting', 'Waiting for your laptop.', 'message')]));
+    fireEvent.click(within(card()).getByRole('button', { name: /^Go/ }));
+    await settle();
+    await refresh(o, withList(3, [q('g1', 'waiting'), q('m1', 'waiting', 'Waiting for your laptop.', 'message')]));
+    await refresh(o, withList(4, [q('g1', 'sent'), q('m1', 'sent', 'On its way.', 'message')]));
+    expect(box()).toHaveValue('');
+    expect(foot().queryByRole('alert')).toBeNull();
+    expect(card()).toHaveTextContent('Queued for your laptop');
+    // The message ran on the laptop: still nothing back.
+    await refresh(o, withList(5, [q('g1', 'sent'), q('m1', 'done', 'Sent on your laptop.', 'message')]));
+    expect(box()).toHaveValue('');
+  });
+
+  it('a Go with a note, then a message: the newer message never hides the Go still waiting, so its note stays gone and Go stays queued', async () => {
+    const post = vi.fn()
+      .mockResolvedValueOnce({ queued: q('g2', 'waiting') })
+      .mockResolvedValueOnce({ queued: q('m2', 'waiting', 'Waiting for your laptop.', 'message') });
+    const o = open({ post });
+    type('Mind the totals row.');
+    fireEvent.click(within(card()).getByRole('button', { name: /^Go/ }));
+    await settle();
+    await refresh(o, withList(2, [q('g2', 'waiting')]));
+    type('And the header.');
+    fireEvent.click(send());
+    await settle();
+    await refresh(o, withList(3, [q('m2', 'waiting', 'Waiting for your laptop.', 'message'), q('g2', 'waiting')]));
+    expect(box()).toHaveValue('');
+    expect(card()).toHaveTextContent('Queued for your laptop');
+    expect(within(card()).queryByRole('button', { name: /^Go/ })).toBeNull();
+    // Now the Go fails there: its note comes back, and the card wakes.
+    await refresh(o, withList(4, [q('m2', 'waiting', 'Waiting for your laptop.', 'message'), q('g2', 'failed', 'Your laptop couldn’t run it.')]));
+    expect(box()).toHaveValue('Mind the totals row.');
+    expect(within(card()).getByRole('button', { name: /^Go/ })).toBeEnabled();
+  });
+
+  it('leaving the page while the retry after a stop waits ends it: nothing more is sent, and the words stay kept', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const post = vi.fn()
+        .mockResolvedValueOnce({})
+        .mockRejectedValueOnce(new ApiError(409, 'The Foreman is still working on your last message. Wait for it, or pause it first.'))
+        .mockResolvedValueOnce({ run: { id: 'r2' } });
+      const o = open({ move: null, patch: { run: RUNNING }, post });
+      type('Use the old header.');
+      fireEvent.click(screen.getByRole('button', { name: 'Stop it and send now' }));
+      const stopped = payload();
+      stopped.v = 2;
+      stopped.move = null;
+      stopped.run = { ...RUNNING, status: 'stopped' };
+      await refresh(o, stopped);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(callsTo(post, '/send')).toHaveLength(1);
+      expect(vi.getTimerCount()).toBeGreaterThan(0);
+      o.unmount();
+      expect(vi.getTimerCount()).toBe(0);
+      await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+      expect(callsTo(post, '/send')).toHaveLength(1);
+      expect(localStorage.getItem(`fw.draft.${SLUG}`)).toBe('Use the old header.');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

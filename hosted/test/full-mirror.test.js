@@ -825,3 +825,23 @@ test('the new job page on the site carries the decision made here for the job’
     assert.ok(after === null || after.state === 'cancelled', JSON.stringify(after));
   } finally { l.link.stop(); await s.close(); }
 });
+
+test('the new job page on the site carries every decision made here for the job (queuedDecisions), so a newer one never hides one still waiting', async () => {
+  const { s, olive, l } = await setUp();
+  try {
+    assert.deepEqual((await olive.person.json('/api/job/add-export/page')).body.queuedDecisions, [], 'none yet');
+    closeLaptop(s, l);
+    // A message, then a Go: both wait, and both are listed (made in the same instant here, so in either order).
+    const states = (p) => Object.fromEntries(p.queuedDecisions.map((d) => [d.id, d.state]));
+    const msg = await olive.person.send('POST', '/api/job/add-export/send', { text: 'From the message box.' });
+    const go = await olive.person.send('POST', '/api/job/add-export/gate', { kind: 'approve', briefNumber: 2, note: 'Mind the totals.' });
+    let page = (await olive.person.json('/api/job/add-export/page')).body;
+    assert.deepEqual(states(page), { [go.body.queued.id]: 'waiting', [msg.body.queued.id]: 'waiting' });
+    assert.equal(page.queuedDecisions.length, 2);
+    assert.ok([go.body.queued.id, msg.body.queued.id].includes(page.queuedDecision.id), 'the old field is still one decision');
+    // Cancel the newer one: the older one still shows as waiting.
+    assert.equal((await olive.person.send('POST', `/api/decisions/${go.body.queued.id}/cancel`, {})).status, 200);
+    page = (await olive.person.json('/api/job/add-export/page')).body;
+    assert.deepEqual(states(page), { [go.body.queued.id]: 'cancelled', [msg.body.queued.id]: 'waiting' });
+  } finally { l.link.stop(); await s.close(); }
+});
