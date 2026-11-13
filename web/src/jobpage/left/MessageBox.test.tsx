@@ -349,7 +349,7 @@ describe('while a reply runs', () => {
     await settle();
     expect(o.post).not.toHaveBeenCalled();
     expect(box()).toHaveValue('Also the header.');
-    expect(document.querySelector('.jp2-mb-line')).toHaveTextContent(/Press Send again when the Foreman finishes/);
+    expect(document.querySelector('.jp2-mb-line')).toHaveTextContent(/^Kept here, not sent. Press Send when the Foreman finishes, or Stop it and send now.$/);
   });
 
   it('Stop it and send now stops the reply, then sends the words once it has stopped', async () => {

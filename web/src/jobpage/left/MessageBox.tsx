@@ -34,13 +34,12 @@ const ACTIVE = new Set(['starting', 'running', 'waiting_permission', 'stopping']
 
 export const PLACEHOLDER = 'Write to the Foreman…';
 export const WHILE_RUNNING = 'Sends when the Foreman finishes';
-/** The phone's box is narrow: the same words, shorter. */
-const WHILE_RUNNING_SHORT = 'Sends when it finishes';
 const AFTER_SENT = 'Sent. Write more to the Foreman…';
 
 const UNREACHABLE = `Couldn’t reach ${BRAND.name}. Try again.`;
 const BUSY = 'Not sent: the Foreman is still working on a reply. Your words are back in the box; send them when it finishes, or Stop it and send now.';
-const KEPT = 'Kept in the box: sending while the Foreman works comes in a later build. Press Send again when the Foreman finishes, or Stop it and send now.';
+// Waiting messages come with Task 16; until then this says what to do.
+const KEPT = 'Kept here, not sent. Press Send when the Foreman finishes, or Stop it and send now.';
 const LOCKED = `Another place is working on this job (a terminal, or another ${BRAND.name}). Only one place can work on a job at a time.`;
 
 /** The server's no, in plain words. */
@@ -184,7 +183,7 @@ export const MessageBox = memo(function MessageBox({ boxRef }: MessageBoxProps) 
     pressSend();
   }
 
-  const placeholder = running ? (narrow ? WHILE_RUNNING_SHORT : WHILE_RUNNING) : phase === 'sent' && !draft ? AFTER_SENT : PLACEHOLDER;
+  const placeholder = running ? WHILE_RUNNING : phase === 'sent' && !draft ? AFTER_SENT : PLACEHOLDER;
   const sentShown = phase === 'sending' || (phase === 'sent' && !draft);
   return (
     <div className="jp2-mbw">
@@ -195,6 +194,23 @@ export const MessageBox = memo(function MessageBox({ boxRef }: MessageBoxProps) 
         </label>
       )}
       {line && <p className={`jp2-mb-line${line.problem ? ' is-problem' : ''}`} role={line.problem ? 'alert' : 'status'}>{line.words}</p>}
+      {running && (
+        // Its own row above the box, so the box keeps its width and says its words on one line.
+        <div className="jp2-mb-run">
+          <Button
+            kind="quiet"
+            size={narrow ? 'md' : 'sm'}
+            className="jp2-mb-stop"
+            busy={phase === 'stopping'}
+            busyLabel="Stopping…"
+            disabled={locked}
+            onClick={() => void stopAndSend()}
+            title="End the Foreman’s reply now, then send your words as soon as it has stopped. Anything waiting for your answer is declined."
+          >
+            Stop it and send now
+          </Button>
+        </div>
+      )}
       <div className="jp2-mb">
         <textarea
           ref={boxRef}
@@ -209,20 +225,6 @@ export const MessageBox = memo(function MessageBox({ boxRef }: MessageBoxProps) 
             ? 'Your words go with Go as a note, with Send back as the change, or alone with Send as a message. Kept for this job until they go.'
             : 'Your message to this job’s Foreman. Kept for this job until it goes. ⌘↵ sends it.'}
         />
-        {running && (
-          <Button
-            kind="quiet"
-            size={narrow ? 'md' : 'sm'}
-            className="jp2-mb-stop"
-            busy={phase === 'stopping'}
-            busyLabel="Stopping…"
-            disabled={locked}
-            onClick={() => void stopAndSend()}
-            title="End the Foreman’s reply now, then send your words as soon as it has stopped. Anything waiting for your answer is declined."
-          >
-            Stop it and send now
-          </Button>
-        )}
         <Button
           kind="primary"
           size={narrow ? 'md' : 'sm'}
