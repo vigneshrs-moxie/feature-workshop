@@ -12,11 +12,18 @@
 // description the Inbox filled in as "ORBIT-<n>: <title>"), the field is filled in and read-only;
 // otherwise you may type a key yourself, or leave it empty.
 //
+// The branch (Auto queue, Task 20): with a ticket and a repository, the form asks the laptop for a
+// short name (POST /api/jobs/name) and shows it after the branch's prefix (feature/orbit-471-), with
+// Suggest again. Typing makes the name his: an answer that comes by itself never replaces it. Start
+// sends `name` only for the model's name or his own that keeps the rule; otherwise the laptop names
+// the job when it starts. Start never waits for the answer.
+//
 // On the hosted website (the `hosted` prop) the same form starts a job on one of your laptops: the
-// repositories are the chosen laptop's (names only), there is no past conversation, and Start job
-// hands the choices to `hosted.onStart` instead of POSTing /api/jobs.
-import { useEffect, useId, useMemo, useState } from 'react';
-import type { HistoryList, HistoryRow, LevelNumber, ModelChoice, Repo } from '../../api/types';
+// repositories are the chosen laptop's (names only), there is no past conversation, the branch is
+// named when the job starts (the site can't ask for a name), and Start job hands the choices to
+// `hosted.onStart` instead of POSTing /api/jobs.
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import type { HistoryList, HistoryRow, JobNameAnswer, LevelNumber, ModelChoice, Repo } from '../../api/types';
 import { BRAND } from '../../app/brand';
 import { navigate } from '../../app/router';
 import { HowThisWorks } from '../../components/HowThisWorks';
@@ -72,6 +79,25 @@ export function ticketFromDescription(text: string): TicketRef | null {
   const m = /^(ORBIT-[1-9]\d{0,8}):\s*(.*)$/s.exec(text.trim());
   return m ? { key: m[1], title: m[2].trim() || null, url: null } : null;
 }
+
+/** The ticket that goes with the job: the Inbox's title and link; for a key you typed, the description (the dashboard drops a leading "ORBIT-<n>:"). */
+function ticketOf(key: string, fromInbox: TicketRef | null, text: string): { key: string; title: string | null; url: string | null } {
+  return { key, title: fromInbox?.key === key ? fromInbox.title ?? null : text, url: fromInbox?.key === key ? fromInbox.url ?? null : null };
+}
+
+export const BRANCH_RULE = 'Use short words joined by hyphens, like employee-status-filter (up to five words, 40 characters).';
+const BRANCH_LATER = 'named when the job starts';
+const NAME_DELAY_MS = 300;
+const AVOID_MAX = 5;
+/** A branch name of his own as the laptop's ownName reads it (trimmed, lowercased; one to five words of letters and digits joined by hyphens; at most 40 characters), else null. */
+export function ownBranchName(raw: string): string | null {
+  const name = raw.trim().toLowerCase();
+  return name.length <= 40 && /^[a-z0-9]+(-[a-z0-9]+){0,4}$/.test(name) ? name : null;
+}
+const isNameAnswer = (a: unknown): a is JobNameAnswer => {
+  const x = a as Partial<JobNameAnswer> | null;
+  return !!x && typeof x.name === 'string' && (x.by === 'model' || x.by === 'title') && typeof x.branch === 'string';
+};
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 const tilde = (p: string) => p.replace(/^\/Users\/[^/]+/, '~');
@@ -251,6 +277,85 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
   const list = repos.state === 'ready' ? repos.list : [];
   const options = from?.repo && !list.some((r) => r.path === from.repo) ? [{ path: from.repo, name: from.repo.split('/').pop() ?? from.repo }, ...list] : list;
 
+  // The branch (Task 20): asked for once per ticket (with its title), kind and repository, a moment
+  // after they settle. For an Inbox ticket, editing the description doesn't ask again; Suggest again does.
+  const ticketKey = ticketText.trim() ? ticketKeyOf(ticketText) : null;
+  const chosenRepo = repo === OTHER ? otherPath.trim() : repo;
+  const nameBody = ticketKey && chosenRepo && !hosted
+    ? { ticket: ticketOf(ticketKey, fromInbox, description.trim()), description: description.trim(), kind, repoPath: chosenRepo }
+    : null;
+  const askKey = nameBody ? JSON.stringify([nameBody.ticket, kind, chosenRepo]) : null;
+  // The prefix (feature/orbit-471-) holds for a kind and a ticket, whatever the name.
+  const prefixKey = `${kind} ${ticketKey ?? ''}`;
+  // His own once he types; until then the model's name, or empty (the laptop names it at the start).
+  const [branchName, setBranchName] = useState<{ value: string; by: 'model' | 'own' }>({ value: '', by: 'model' });
+  const [nameAnswer, setNameAnswer] = useState<{ ask: string; answer: JobNameAnswer } | null>(null);
+  const [goodPrefix, setGoodPrefix] = useState<{ key: string; prefix: string } | null>(null);
+  const [shownNames, setShownNames] = useState<string[]>([]);
+  const [asking, setAsking] = useState(false);
+  const askSeq = useRef(0);
+  // The ask Suggest again started: its answer replaces even his own name, unless he types meanwhile.
+  const askedByHand = useRef(0);
+  const currentAsk = useRef<string | null>(null);
+  currentAsk.current = askKey;
+  const branchId = useId();
+  const prefixId = useId();
+  const ruleId = useId();
+
+  function askName(body: NonNullable<typeof nameBody>, ask: string, forPrefix: string, avoid?: string[]): number {
+    const seq = ++askSeq.current;
+    setAsking(true);
+    api.post<unknown>('/api/jobs/name', avoid?.length ? { ...body, avoid } : body).then(
+      (a) => {
+        if (seq !== askSeq.current) return;
+        setAsking(false);
+        if (isNameAnswer(a)) takeName(a, ask, forPrefix, seq);
+      },
+      // A failed or slow ask shows nothing: the form stays as it was.
+      () => { if (seq === askSeq.current) setAsking(false); },
+    );
+    return seq;
+  }
+
+  function takeName(a: JobNameAnswer, ask: string, forPrefix: string, seq: number) {
+    if (ask !== currentAsk.current) return;
+    setNameAnswer({ ask, answer: a });
+    // A title answer is only the placeholder; its name never goes in the field or back to the laptop.
+    if (a.by !== 'model' || !a.name) return;
+    if (a.branch.endsWith(a.name)) setGoodPrefix({ key: forPrefix, prefix: a.branch.slice(0, -a.name.length) });
+    setShownNames((s) => [...s.filter((x) => x !== a.name), a.name]);
+    const byHand = askedByHand.current === seq;
+    setBranchName((cur) => (cur.by === 'own' && !byHand ? cur : { value: a.name, by: 'model' }));
+  }
+
+  useEffect(() => {
+    if (!askKey || !nameBody) return;
+    const t = setTimeout(() => askName(nameBody, askKey, prefixKey), NAME_DELAY_MS);
+    return () => clearTimeout(t);
+    // One ask per askKey: nameBody and prefixKey follow from it.
+  }, [askKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Another ticket: the last one's suggestions don't fit it.
+  useEffect(() => {
+    setBranchName((cur) => (cur.by === 'model' && cur.value ? { value: '', by: 'model' } : cur));
+    setShownNames((s) => (s.length ? [] : s));
+  }, [ticketKey]);
+
+  function suggestAgain() {
+    if (!nameBody || !askKey) return;
+    askedByHand.current = askName(nameBody, askKey, prefixKey, shownNames.slice(-AVOID_MAX));
+  }
+
+  const answer = nameAnswer && nameAnswer.ask === askKey ? nameAnswer.answer : null;
+  const branchPlaceholder = answer?.by === 'title' && answer.name ? answer.name : BRANCH_LATER;
+  // The name shown is the model's, but the branch doesn't end with it (a "-2"): the whole branch, as plain text.
+  const wholeBranch = answer?.by === 'model' && branchName.by === 'model' && branchName.value === answer.name && !answer.branch.endsWith(answer.name) ? answer.branch : null;
+  const branchPrefix = !wholeBranch && goodPrefix?.key === prefixKey ? goodPrefix.prefix : null;
+  const ownName = branchName.by === 'own' ? ownBranchName(branchName.value) : null;
+  const branchProblem = branchName.by === 'own' && branchName.value.trim() !== '' && !ownName;
+  // What Start sends as `name`: the model's name, or his own that keeps the rule; else nothing.
+  const sentName = branchName.by === 'model' ? branchName.value || null : ownName;
+
   function pick(row: HistoryRow | null, cont: boolean) {
     setFrom(row);
     setFromMode('summary');
@@ -281,16 +386,15 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
     if (!repoPath) { setError('Pick the repository, or type the full path of its folder.'); return; }
     const key = ticketText.trim() ? ticketKeyOf(ticketText) : null;
     if (ticketText.trim() && !key) { setError(TICKET_KEY_PROBLEM); return; }
-    const ticket = key
-      // The Inbox's title and link; for a key you typed, the description (the dashboard drops a leading "ORBIT-<n>:").
-      ? { key, title: fromInbox?.key === key ? fromInbox.title ?? null : text, url: fromInbox?.key === key ? fromInbox.url ?? null : null }
-      : undefined;
+    const ticket = key ? ticketOf(key, fromInbox, text) : undefined;
+    // A name of his own that breaks the rule: its sentence is under the field and Start is off.
+    if (key && branchProblem) return;
     setBusy(true);
     setError(null);
     try {
       const fromSession = from ? { id: from.id, mode: fromMode } : undefined;
       const options = { ...(level !== null ? { level } : {}), ...(asStack ? { stack: true } : {}), ...(allFable ? { all_fable: true } : {}), ...(auto ? { auto: true } : {}) };
-      const r = await api.post<{ slug: string }>('/api/jobs', { description: text, kind, repoPath, model: (allFable ? FABLE : model) || undefined, options, fromSession, ticket });
+      const r = await api.post<{ slug: string }>('/api/jobs', { description: text, kind, repoPath, model: (allFable ? FABLE : model) || undefined, options, fromSession, ticket, ...(key && sentName ? { name: sentName } : {}) });
       writeStored(LAST_REPO_KEY, repoPath);
       onClose();
       if (r?.slug) navigate({ name: 'job', slug: r.slug });
@@ -409,6 +513,33 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
             ? <p className="field-hint">From the Inbox. The job, its branch and the ticket share this key, and the Foreman reads the ticket through Orbit (read only).</p>
             : ticketText.trim() && !ticketKeyOf(ticketText) ? <p className="field-problem">{TICKET_KEY_PROBLEM}</p> : null}
 
+          {ticketKey && (hosted ? (
+            <p className="field-hint">{`Branch · ${BRANCH_LATER}`}</p>
+          ) : (
+            <div className="field branch-field">
+              <div className="branch-head">
+                <label className="field-label" htmlFor={branchId}>Branch</label>
+                {wholeBranch && <span className="branch-whole">{wholeBranch}</span>}
+              </div>
+              <div className="branch-line">
+                {branchPrefix && <span className="branch-prefix" id={prefixId}>{branchPrefix}</span>}
+                <TextInput
+                  id={branchId}
+                  value={branchName.value}
+                  onChange={(e) => { askedByHand.current = 0; setBranchName({ value: e.target.value, by: 'own' }); }}
+                  placeholder={branchPlaceholder}
+                  spellCheck={false}
+                  autoComplete="off"
+                  aria-invalid={branchProblem || undefined}
+                  aria-describedby={[branchPrefix ? prefixId : '', branchProblem ? ruleId : ''].filter(Boolean).join(' ') || undefined}
+                  title={`The end of the job’s branch name. Type your own to keep it; leave it empty and ${BRAND.name} names it when the job starts.`}
+                />
+                <Button kind="quiet" size="sm" onClick={suggestAgain} disabled={asking || !nameBody} title="Ask for another name.">Suggest again</Button>
+              </div>
+              {branchProblem && <p className="field-problem" id={ruleId}>{BRANCH_RULE}</p>}
+            </div>
+          ))}
+
           <LevelPicker levels={meta?.levels} value={level} suggestion={suggestion} byHand={picked !== null} onPick={setPicked} disabled={busy} kind={kind} />
 
           {models.length > 0 && (
@@ -453,7 +584,7 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
         {error && <p className="field-problem" role="alert">{error}</p>}
         <div className="sheet-actions">
           <Button onClick={onClose} disabled={busy} title="Close without starting anything.">Cancel</Button>
-          <Button type="submit" kind="primary" busy={busy} busyLabel="Starting…" title="Start the job now. Its Foreman reads your request and replies in the conversation.">
+          <Button type="submit" kind="primary" busy={busy} busyLabel="Starting…" disabled={Boolean(ticketKey) && branchProblem} title="Start the job now. Its Foreman reads your request and replies in the conversation.">
             Start job
           </Button>
         </div>

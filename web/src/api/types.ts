@@ -348,6 +348,19 @@ export interface Repo {
   registered?: boolean;
 }
 
+/**
+ * POST /api/jobs/name (a local command; the hosted site can't call it): the short name a ticket's job
+ * would get now. `by: 'model'` is the small model's checked name; `by: 'title'` is the ticket's short
+ * title, which can break the name rule and is never sent back as Start's `name`. `slug` and `branch`
+ * are what a start would get right now, a `-2` included when a job with that name exists.
+ */
+export interface JobNameAnswer {
+  name: string;
+  by: 'model' | 'title';
+  slug: string;
+  branch: string;
+}
+
 /** Where a registered repository's profile comes from: its own starbase.md (or a profile file by its older name), or a file named in Settings → Repos. */
 export type ProfileSource = 'repo' | 'registry';
 
