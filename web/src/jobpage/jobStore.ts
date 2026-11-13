@@ -26,8 +26,8 @@
 //   old page's note that the draft answers a brief (fw.draftGate.<slug>), as the old page does.
 // - Words that went with something the website queued for the laptop (a Go's note, Send back's
 //   change, a message) are followed by the decision's id (watchQueued) for as long as the page is
-//   open, whatever the card does meanwhile: when it ends on the website without running (failed,
-//   changed, ran out, cancelled, or put away after it showed) the words come back to the draft, after
+//   open, whatever the card does meanwhile: when the website shows it ended without running (failed,
+//   changed, ran out, cancelled) the words come back to the draft, after
 //   anything typed since, and `gaveBack` says why. The website's payload lists every decision still
 //   shown for the job (queuedDecisions), so a newer one never hides an older one still waiting.
 
@@ -299,11 +299,14 @@ export function createJobStore(slug: string, { api = createApi(), events = onLiv
       const q = queuedById(next.payload, id);
       if (q && stillOpen(q)) { w.seen = true; continue; }
       if (q && q.state === 'done') { watched.delete(id); continue; }
-      if (!q && !w.seen) continue; // not shown yet
+      // Gone from the list: not shown yet, or put away, or settled so long ago the site no longer lists
+      // it (it may well have run). Words are given back only on an end the site shows; a decision that
+      // showed and then went is forgotten.
+      if (!q) { if (w.seen) watched.delete(id); continue; }
       watched.delete(id);
       const draft = withWordsBack(out.ui.draft, w.words);
       if (draft !== out.ui.draft) writeDraft(draft);
-      const why = q ? q.words.replace(/\s*$/, '') : 'the website put it away before your laptop ran it.';
+      const why = q.words.replace(/\s*$/, '');
       out = { ...out, ui: { ...out.ui, draft }, gaveBack: { n: ++gaveBackN, line: `Not sent: ${/[.!?]$/.test(why) ? why : `${why}.`} Your words are back in the box.` } };
     }
     return out;

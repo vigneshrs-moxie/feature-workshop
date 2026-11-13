@@ -17,8 +17,8 @@
 // then sends the words once the run has ended (once more if the server still says busy right
 // after; it gives up waiting after STOP_WAIT_MS with a plain line). At a go-ahead or a question the
 // box says `Your own answer, or a message to the Foreman…` (the prototype's words).
-// A message the website queues for the laptop that ends there without being sent (failed, changed,
-// ran out, cancelled, put away) gives its words back to the box.
+// A message the website queues for the laptop that the site shows ended without being sent (failed,
+// changed, ran out, cancelled) gives its words back to the box (jobStore watchQueued).
 //
 // Keys: c and i put the cursor here (the page's jp-write); ⌘↵ in the box is Go while a go-ahead
 // waits (Your move's jp-go), else Send.
@@ -226,7 +226,12 @@ export const MessageBox = memo(function MessageBox({ boxRef }: MessageBoxProps) 
   }, [api, store, run?.id, phase, focusBox]);
 
   // Words given back from the website: the box's own line about that send is over.
-  useEffect(() => { if (gaveBack) { setLine(null); setPhase('idle'); } }, [gaveBack]);
+  // (Not while a newer send or a stop is under way: that one keeps its own state.)
+  useEffect(() => {
+    if (!gaveBack || out.current || phaseNow.current === 'stopping') return;
+    setLine(null);
+    setPhase('idle');
+  }, [gaveBack]);
 
   // Stopped: the words go now.
   useEffect(() => {

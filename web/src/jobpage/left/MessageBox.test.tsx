@@ -414,7 +414,7 @@ describe('Task 11 fix round 1', () => {
     expect(card()).toHaveTextContent('This changed on your laptop. Look again.');
   });
 
-  it('a message the website queues comes back to the box when it is cancelled there, or put away after it showed', async () => {
+  it('a message the website queues comes back to the box when it is cancelled there; one that leaves the list after it showed does not (fix round 3)', async () => {
     const post = vi.fn().mockResolvedValueOnce({ queued: q('m1', 'waiting') }).mockResolvedValueOnce({ queued: q('m2', 'waiting') });
     const o = open({ move: null, post });
     type('Please also check the totals row.');
@@ -431,7 +431,7 @@ describe('Task 11 fix round 1', () => {
     await settle();
     await refresh(o, withQueued(4, q('m2', 'sent')));
     await refresh(o, withQueued(5, null));
-    expect(box()).toHaveValue('Please also check the totals row.');
+    expect(box()).toHaveValue('');
     // Sent on the laptop: the words stay gone.
     const done = vi.fn().mockResolvedValueOnce({ queued: q('m3', 'waiting') });
     o.unmount();
@@ -629,5 +629,30 @@ describe('Task 11 fix round 2', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('Task 11 fix round 3', () => {
+  const q = (id: string, state: string, words = 'Waiting for your laptop.') => ({ id, kind: 'message', state, words, at: '2026-11-13T12:00:00Z', expiresAt: null, waiting: state === 'waiting', canCancel: state === 'waiting', permissionId: null });
+  const withList = (v: number, list: unknown[]) => { const p = payload(); p.v = v; p.move = null; p.queuedDecisions = list; p.queuedDecision = list[0] ?? null; return p; };
+
+  it('words given back from an older send leave a newer send in flight as it is: still Sent', async () => {
+    let answer: (v: unknown) => void = () => {};
+    const post = vi.fn()
+      .mockResolvedValueOnce({ queued: q('m1', 'waiting') })
+      .mockImplementationOnce(() => new Promise((r) => { answer = r; }));
+    const o = open({ move: null, post });
+    type('First words.');
+    fireEvent.click(send());
+    await settle();
+    await refresh(o, withList(2, [q('m1', 'waiting')]));
+    type('Second words.');
+    fireEvent.click(send());
+    expect(send()).toHaveTextContent('Sent');
+    await refresh(o, withList(3, [q('m1', 'failed', 'Your laptop couldn’t run it.')]));
+    expect(box()).toHaveValue('First words.');
+    expect(send()).toHaveTextContent('Sent');
+    await act(async () => { answer({ run: { id: 'r2' } }); });
+    expect(callsTo(post, '/send')).toHaveLength(2);
   });
 });

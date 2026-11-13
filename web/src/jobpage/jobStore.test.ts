@@ -682,7 +682,7 @@ describe('job store: Task 11 fix round 2, words that went with something the web
   const q = (id: string, state: string, words = 'Waiting for your laptop.') => ({ id, kind: 'approve', state, words, at: '2026-11-13T12:00:00Z', expiresAt: null, waiting: false, canCancel: false, permissionId: null });
   const listed = (v: number, list: unknown[]) => { const p = base(); p.v = v; p.queuedDecisions = list; p.queuedDecision = list[0] ?? null; return p; };
 
-  it('follows each decision by id in the list: kept while it waits (even under a newer one), forgotten when done, given back when it ends otherwise or is put away after it showed', async () => {
+  it('follows each decision by id in the list: kept while it waits (even under a newer one), forgotten when done, given back when it ends otherwise; one gone from the list is forgotten (fix round 3)', async () => {
     const s = server(listed(1, []));
     const store = createJobStore(SLUG, { api: s.api, events: stream().events });
     await store.loadPage();
@@ -703,8 +703,8 @@ describe('job store: Task 11 fix round 2, words that went with something the web
     store.setDraft('Typed since');
     s.set(listed(5, []));
     await store.loadPage();
-    expect(store.getState().ui.draft).toBe('Typed since\nWords for a');
-    expect(store.getState().gaveBack?.line).toBe('Not sent: the website put it away before your laptop ran it. Your words are back in the box.');
+    expect(store.getState().ui.draft).toBe('Typed since');
+    expect(store.getState().gaveBack?.line).toBe('Not sent: It ran out before your laptop was back. Your words are back in the box.');
     store.clearGaveBack();
     expect(store.getState().gaveBack).toBeNull();
   });
@@ -744,5 +744,42 @@ describe('Task 12 fix round 1: the ticket and decisions bodies follow their hash
     live.send('job-page', SLUG, { slug: SLUG, v: 3 });
     await settle();
     expect(store.getState().bodies.decisions).toBeUndefined();
+  });
+});
+
+describe('job store: Task 11 fix round 3, a decision that leaves the list', () => {
+  const q = (id: string, state: string, words = 'Waiting for your laptop.') => ({ id, kind: 'approve', state, words, at: '2026-11-13T12:00:00Z', expiresAt: null, waiting: false, canCancel: false, permissionId: null });
+  const listed = (v: number, list: unknown[]) => { const p = base(); p.v = v; p.queuedDecisions = list; p.queuedDecision = list[0] ?? null; return p; };
+
+  it('seen open, then gone from the list (the site lists settled ones only for an hour, so it may have run): no words back, and it is forgotten', async () => {
+    const s = server(listed(1, []));
+    const store = createJobStore(SLUG, { api: s.api, events: stream().events });
+    await store.loadPage();
+    store.watchQueued('old', 'Already sent, maybe');
+    s.set(listed(2, [q('old', 'sent')]));
+    await store.loadPage();
+    s.set(listed(3, []));
+    await store.loadPage();
+    expect(store.getState().ui.draft).toBe('');
+    expect(store.getState().gaveBack).toBeNull();
+    // Forgotten: the same id showing up settled later gives nothing back either.
+    s.set(listed(4, [q('old', 'failed', 'Your laptop couldn’t run it.')]));
+    await store.loadPage();
+    expect(store.getState().ui.draft).toBe('');
+    expect(store.getState().gaveBack).toBeNull();
+  });
+
+  it('not shown yet and then shown settled: the words come back after what was typed since', async () => {
+    const s = server(listed(1, []));
+    const store = createJobStore(SLUG, { api: s.api, events: stream().events });
+    await store.loadPage();
+    store.watchQueued('new', 'Words for it');
+    s.set(listed(2, []));
+    await store.loadPage();
+    store.setDraft('Typed since');
+    s.set(listed(3, [q('new', 'cancelled', 'Cancelled on the website.')]));
+    await store.loadPage();
+    expect(store.getState().ui.draft).toBe('Typed since\nWords for it');
+    expect(store.getState().gaveBack?.line).toBe('Not sent: Cancelled on the website. Your words are back in the box.');
   });
 });
