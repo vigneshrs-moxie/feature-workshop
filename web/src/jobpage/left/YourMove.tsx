@@ -27,7 +27,7 @@
 // Keys (scope 'jobpage', only while the card waits): ⌘↵ Go from anywhere, the message box too;
 // a Go, or Allow once; r Send back; ↑ ↓ move through the options (outside the reader); Space picks the one moved to.
 
-import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { ApiError } from '../../api/client';
 import type { GateResult, Job, Permission, Run } from '../../api/types';
 import { BRAND } from '../../app/brand';
@@ -85,11 +85,37 @@ function moveLabel(permission: boolean, at: string | null | undefined): string {
   return `Needs you${permission ? ' · permission' : ''}${since ? ` · since ${since}` : ''}`;
 }
 
+/**
+ * The card: its label, the ask on one line (its headline, cut with an ellipsis, as the prototype's
+ * compact card: lead's ruling on Task 10, so the left pane fits a 900 px window with the card
+ * showing), then the rest. When the ask does not fit its line, `More` beside it opens the whole ask
+ * in place; only what is under the ask moves, never anything above it.
+ */
 function Card({ label, ask, children }: { label: string; ask: string; children?: ReactNode }) {
+  const askRef = useRef<HTMLParagraphElement>(null);
+  const [cut, setCut] = useState(false);
+  const [whole, setWhole] = useState(false);
+  useLayoutEffect(() => {
+    const el = askRef.current;
+    if (!el || whole) return undefined;
+    const measure = () => setCut(el.scrollWidth > el.clientWidth + 1);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const seen = new ResizeObserver(measure);
+    seen.observe(el);
+    return () => seen.disconnect();
+  }, [ask, whole]);
   return (
     <div className="jp2-card">
       <p className="jp2-card-label">{label}</p>
-      <p className="jp2-card-ask">{ask}</p>
+      <div className="jp2-card-askrow">
+        <p ref={askRef} className={`jp2-card-ask${whole ? ' is-whole' : ''}`}>{ask}</p>
+        {(cut || whole) && (
+          <button type="button" className="link-button jp2-card-more" aria-expanded={whole} onClick={() => setWhole((w) => !w)} title={whole ? 'Show the ask on one line again.' : 'Show the whole ask here.'}>
+            {whole ? 'Less' : 'More'}
+          </button>
+        )}
+      </div>
       {children}
     </div>
   );
@@ -451,7 +477,7 @@ function GateCard({ move, onOpen }: { move: GateMove; onOpen?: YourMoveProps['on
       {move.decided > 0 && (
         <p className="jp2-ym-dec">
           {move.decided} decided for you · confirmed by Go
-          <Button kind="quiet" size={size} className="jp2-ym-look" onClick={(e) => { if (onOpen) onOpen(DECISIONS, e.currentTarget); else { store.setReader(DECISIONS); replaceHash(readHref(slug, DECISIONS)); } }} title="Open what was decided for you in the reader.">Look</Button>
+          <button type="button" className="link-button jp2-ym-look" onClick={(e) => { if (onOpen) onOpen(DECISIONS, e.currentTarget); else { store.setReader(DECISIONS); replaceHash(readHref(slug, DECISIONS)); } }} title="Open what was decided for you in the reader.">Look</button>
         </p>
       )}
       {askTerminal && (

@@ -62,27 +62,33 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2-back { display: none; }
 
 /* Your move */
-.jp2-ym { padding: 10px 14px 8px; border-bottom: 1px solid var(--border-1); }
-.jp2-card { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px 10px 15px; border-radius: var(--card-radius); background: var(--lane-needs-you-bg); box-shadow: inset 3px 0 0 var(--needs-solid); }
+.jp2-ym { padding: 8px 14px 6px; border-bottom: 1px solid var(--border-1); }
+.jp2-card { display: flex; flex-direction: column; gap: 5px; padding: 8px 12px 8px 15px; border-radius: var(--card-radius); background: var(--lane-needs-you-bg); box-shadow: inset 3px 0 0 var(--needs-solid); }
 .jp2-card-label { margin: 0; font-size: 11px; line-height: 14px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--lane-needs-you-fg); }
-.jp2-card-ask { margin: 0; font-size: 16px; line-height: 22px; font-weight: 600; text-wrap: balance; }
+.jp2-card-askrow { display: flex; align-items: flex-start; gap: 6px; min-width: 0; }
+.jp2-card-ask { flex: 1; min-width: 0; margin: 0; overflow: hidden; contain: inline-size; font-size: 14px; line-height: 20px; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
+.jp2-card-ask.is-whole { white-space: normal; text-wrap: pretty; }
+.jp2-card-more { flex: none; font-size: 12px; line-height: 20px; color: var(--text-2); }
+.jp2-card-more:hover { color: var(--text-1); }
 .jp2-ym-one { margin: 0; padding: 4px 6px; font-size: 13px; line-height: 18px; }
 /* Your move's questions (left/YourMove.tsx): one option row each, the recommended one picked */
-.jp2-ym-qs { display: flex; flex-direction: column; gap: 6px; }
-.jp2-ym-q { display: flex; flex-direction: column; gap: 4px; min-width: 0; margin: 0; padding: 0; border: 0; }
-.jp2-ym-qt { margin-top: 2px; padding: 0; font-size: 13px; line-height: 18px; font-weight: 600; }
-.jp2-ym-opt.option-row { align-items: center; gap: 10px; min-height: 38px; padding: 3px 10px; border-color: var(--border-2); border-radius: 8px; }
+.jp2-ym-qs { display: flex; flex-direction: column; gap: 4px; }
+.jp2-ym-q { display: flex; flex-direction: column; gap: 3px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.jp2-ym-qt { display: -webkit-box; margin-top: 2px; padding: 0; overflow: hidden; font-size: 13px; line-height: 18px; font-weight: 600; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.jp2-ym-opt.option-row { align-items: center; gap: 10px; min-height: 34px; padding: 2px 10px; border-color: var(--border-2); border-radius: 8px; }
 .jp2-ym-opt.option-row .choice { margin-top: 0; }
 .jp2-ym-opt.option-row:has(.choice:checked) { background: var(--surface-1); box-shadow: inset 0 0 0 1px var(--accent); }
-.jp2-ym-ot { flex: 1; min-width: 0; font-size: 13px; line-height: 17px; }
+.jp2-ym-ot { flex: 1; min-width: 0; font-size: 13px; line-height: 16px; }
 .jp2-ym-ol b { font-weight: 600; }
 .jp2-ym-rec { margin-left: 6px; font-size: 12px; color: var(--text-2); }
-.jp2-ym-ot small { display: block; overflow: hidden; font-size: 12px; line-height: 16px; color: var(--text-2); white-space: nowrap; text-overflow: ellipsis; }
-.jp2-ym-opt.jp2-ym-ownrow { min-height: 30px; border-style: dashed; color: var(--text-2); }
-.jp2-ym-opt.jp2-ym-ownrow:has(.choice:checked) { border-style: solid; color: var(--text-1); }
+.jp2-ym-ot small { display: block; overflow: hidden; font-size: 12px; line-height: 14px; color: var(--text-2); white-space: nowrap; text-overflow: ellipsis; }
+.jp2-ym-opt.jp2-ym-ownrow { min-height: 20px; padding: 0 10px; border-color: transparent; background: none; color: var(--text-2); }
+.jp2-ym-opt.jp2-ym-ownrow .jp2-ym-ot { font-size: 12px; }
+.jp2-ym-opt.jp2-ym-ownrow:hover { border-color: transparent; color: var(--text-1); }
+.jp2-ym-opt.jp2-ym-ownrow:has(.choice:checked) { border-color: var(--border-2); background: var(--surface-1); box-shadow: none; color: var(--text-1); }
 .jp2-ym-ownin { height: 30px; font-size: 13px; }
 .jp2-ym-dec { display: flex; align-items: center; gap: 2px; margin: 0; font-size: 12px; line-height: 16px; color: var(--text-2); }
-.jp2-ym-look { margin-left: 2px; }
+.jp2-ym-look { margin-left: 6px; font-size: 12px; line-height: 16px; }
 .jp2-ym-calls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .jp2-ym-why { margin: 0; font-size: 12px; line-height: 16px; color: var(--text-2); }
 .jp2-ym-why.is-problem { font-size: 13px; line-height: 18px; color: var(--text-1); font-weight: 500; }

@@ -617,3 +617,33 @@ describe('Task 9 fix round 1: Sent always ends', () => {
     expect(card()).toHaveTextContent('Not sent: Starbase is being restarted. Try again in a moment.');
   });
 });
+
+describe('Task 10 fix round 1: the compact card', () => {
+  it('the ask is one line; when it does not fit, More opens the whole ask in place and Less folds it; nothing above it changes', () => {
+    // jsdom has no layout: the ask's line is narrower than its words.
+    const sw = vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockImplementation(function (this: HTMLElement) { return this.classList.contains('jp2-card-ask') ? 600 : 0; });
+    const cw = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function (this: HTMLElement) { return this.classList.contains('jp2-card-ask') ? 300 : 0; });
+    try {
+      open();
+      const ask = card().querySelector('.jp2-card-ask')!;
+      expect(ask).toHaveTextContent(GATE().ask);
+      expect(ask).not.toHaveClass('is-whole');
+      const label = card().querySelector('.jp2-card-label')!.outerHTML;
+      const more = within(card()).getByRole('button', { name: 'More' });
+      expect(more).toHaveAttribute('aria-expanded', 'false');
+      fireEvent.click(more);
+      expect(ask).toHaveClass('is-whole');
+      expect(within(card()).getByRole('button', { name: 'Less' })).toHaveAttribute('aria-expanded', 'true');
+      expect(card().querySelector('.jp2-card-label')!.outerHTML).toBe(label);
+      // The calls are still there and still work.
+      expect(go()).toBeEnabled();
+      fireEvent.click(within(card()).getByRole('button', { name: 'Less' }));
+      expect(ask).not.toHaveClass('is-whole');
+    } finally { sw.mockRestore(); cw.mockRestore(); }
+  });
+
+  it('an ask that fits its line has no More', () => {
+    open();
+    expect(within(card()).queryByRole('button', { name: 'More' })).toBeNull();
+  });
+});
