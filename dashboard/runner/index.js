@@ -580,7 +580,8 @@ export async function createRunner(config) {
   const parking = new GateParking({ thresholdMs: PARK_MS, file: path.join(state.dir, 'gate-parking.json') });
   const gateOf = (f, runActive) => ({ slug: f.slug, briefNumber: f.currentBrief?.number ?? null, briefAt: f.currentBrief?.at ?? null, waitingSince: f.gateWaitingSince, runActive: Boolean(runActive) });
   // A job whose Auto is on and not stopped: its decision is Auto's (Auto answers it, or stops and tells you), so it is never
-  // parked and never reminded, waiting for its turn to test or not. The same rule as the waiting check (checkWaitingNow).
+  // parked and never reminded, waiting for its turn to test or not. The one rule, on a job or its card: the waiting check
+  // (checkWaitingNow) and the board's "you wrote while waiting" (boardCards) use it too.
   const autoDecides = (f) => f?.auto?.on === true && !f.auto.stopped;
   const gateParked = (f, runActive) => isParkable(f) && !closedOff(f) && !autoDecides(f) && parking.isParked(gateOf(f, runActive));
   // Briefs answered from a gate card: read from the audit once at start, then kept up as replies are
@@ -1459,7 +1460,7 @@ export async function createRunner(config) {
     // another, so the shared audit file is parsed once (state.auditAll keeps the parse) however many such jobs there are.
     const yours = new Set();
     for (const f of list) {
-      if (f.auto?.on !== true || f.auto.stopped || !isGateWaiting(f) || closedOff(f)) continue;
+      if (!autoDecides(f) || !isGateWaiting(f) || closedOff(f)) continue;
       if (wroteWhileWaiting(await state.auditFor(f.dir, Infinity).catch(() => []), { briefAt: f.currentBrief?.at, since: f.auto.since })) yours.add(f.dir);
     }
     const withYours = (c, mine) => ({ ...c, auto: { ...c.auto, yours: mine } });
@@ -1768,7 +1769,7 @@ export async function createRunner(config) {
   async function checkWaitingNow() {
     const cards = await boardCards(await featuresShared());
     // A job Auto is handling (on, not stopped) is not waiting for you: Auto answers its gate.
-    const now = new Map(cards.filter((c) => c.needsYou && c.waitingFor !== 'permission' && !(c.auto?.on === true && !c.auto.stopped)).map((c) => [c.slug, c]));
+    const now = new Map(cards.filter((c) => c.needsYou && c.waitingFor !== 'permission' && !autoDecides(c)).map((c) => [c.slug, c]));
     if (waitingBefore) {
       for (const [slug, c] of now) {
         if (waitingBefore.has(slug) || autoStopping.has(slug)) continue;
