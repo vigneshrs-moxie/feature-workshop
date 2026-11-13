@@ -578,7 +578,14 @@ export async function createRunner(config) {
   // 200 ms). The demo looks every 30 seconds, so its gate seeded 5 hours ago is alerted soon after start.
   const PARK_CHECK_MS = Math.min(DEMO ? 30_000 : 5 * 60_000, Math.max(200, Math.floor(PARK_MS / 4)));
   const parking = new GateParking({ thresholdMs: PARK_MS, file: path.join(state.dir, 'gate-parking.json') });
-  const gateOf = (f, runActive) => ({ slug: f.slug, briefNumber: f.currentBrief?.number ?? null, briefAt: f.currentBrief?.at ?? null, waitingSince: f.gateWaitingSince, runActive: Boolean(runActive) });
+  // When the wait for you began: the gate's time, or for a job Auto stopped, the stop's time when it is later (the decision
+  // became his at the stop, and the stop's Needs you told him then). The parked mark and the four-hour reminder both count from it.
+  const waitStart = (f) => {
+    const stop = f.auto?.stopped?.at;
+    const later = Number.isFinite(Date.parse(stop ?? '')) && Number.isFinite(Date.parse(f.gateWaitingSince ?? '')) && Date.parse(stop) > Date.parse(f.gateWaitingSince);
+    return later ? stop : f.gateWaitingSince;
+  };
+  const gateOf = (f, runActive) => ({ slug: f.slug, briefNumber: f.currentBrief?.number ?? null, briefAt: f.currentBrief?.at ?? null, waitingSince: waitStart(f), runActive: Boolean(runActive) });
   // A job whose Auto is on and not stopped: its decision is Auto's (Auto answers it, or stops and tells you), so it is never
   // parked and never reminded, waiting for its turn to test or not. The one rule, on a job or its card: the waiting check
   // (checkWaitingNow) and the board's "you wrote while waiting" (boardCards) use it too.

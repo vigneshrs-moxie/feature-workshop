@@ -3939,7 +3939,7 @@ test('the level rules never read a guessed branch\'s changed files: the job page
     await w.runner.auto.checkLevels();
     assert.equal((await w.ownOptions()).level, 1, 'the level holds');
     await w.pass();
-    assert.notEqual((await w.record()).stopped?.rule, 'database', 'the other job\'s migration does not stop this one');
+    assert.equal((await w.record()).stopped, null, 'the other job\'s migration does not stop this one: nothing stops it');
     assert.equal((await w.record()).on, true);
   } finally { await w.stop(); }
 });
@@ -6320,6 +6320,7 @@ test('a migration that did not land on Auto\'s copy stops Auto on the job throug
 // ---------- Auto queue Task 11: a ticket with migrations runs; Starbase applies them on Auto's copy ----------
 
 test('a job with a migration reaches its go into Test like any job, and waits for the test place if another job holds it', { timeout: 60_000 }, async () => {
+  // A guard against the migrations stop coming back: no code at head reads an Auto job's migrations.
   // Another Auto job is in Test and holds the place.
   const w = await world({ jobStatus: intoTest(), also: { slug: 'zzz-other', status: inTest({ title: 'Other' }), options: { level: 1, flow: 'quick', title: 'Other' } } });
   const cardOf = async (slug) => (await w.runner.read.features()).features.find((c) => c.slug === slug);
@@ -6349,5 +6350,59 @@ test('a job with a migration reaches its go into Test like any job, and waits fo
     assert.equal((await w.runner.read.snapshot()).autoQueue.testing, w.slug);
     assert.equal((await w.record()).stopped, null);
     await w.idle();
+  } finally { await w.stop(); }
+});
+
+// ---------- Task 10 follow-up: a job Auto stopped is reminded four hours after the stop ----------
+
+/** The job's saved Auto record changed on disk, then Starbase started again on the same folders (it reads sessions.json at start). */
+async function savedRecord(w, fn) {
+  const file = path.join(w.dirs.state, 'sessions.json');
+  const sessions = JSON.parse(await fs.readFile(file, 'utf8'));
+  sessions[w.dir].auto = fn(sessions[w.dir].auto);
+  await fs.writeFile(file, JSON.stringify(sessions));
+  await w.restart();
+}
+const hoursAgo = (h) => new Date(Date.now() - h * 3_600_000).toISOString();
+
+test('a job Auto stopped on an old gate is reminded four hours after the stop, not at once', { timeout: 60_000 }, async () => {
+  // The gate was raised 42 days ago; the Approver fails twice, so Auto stops on it now and tells him Needs you.
+  const w = await world({ ask: () => failure() });
+  const cardOf = async () => (await w.runner.read.features()).features.find((c) => c.slug === w.slug);
+  try {
+    await w.pass();
+    await w.until(async () => (await w.record()).stopped, 'the stop');
+    await w.told(1);
+    assert.deepEqual(w.notes.map((n) => n.title), ['Needs you: Visit audit columns']);
+    await w.hooks.checkParked();
+    await sleepMs(300);
+    assert.deepEqual(w.notes.filter((n) => REMINDER.test(n.body)), [], 'not at once: the decision became his at the stop');
+    assert.equal((await cardOf()).parked, false);
+    // The stop is now five hours old.
+    await savedRecord(w, (rec) => ({ ...rec, stopped: { ...rec.stopped, at: hoursAgo(5) } }));
+    await w.hooks.checkParked();
+    await w.hooks.checkParked();
+    await sleepMs(300);
+    assert.deepEqual(w.notes.filter((n) => REMINDER.test(n.body)).map((n) => n.slug), [w.slug], 'reminded once');
+    assert.equal((await cardOf()).parked, true);
+  } finally { await w.stop(); }
+});
+
+test('a job Auto stopped on a fresh gate is reminded four hours after the gate', { timeout: 60_000 }, async () => {
+  // Auto stopped two days ago; the gate that waits now was raised an hour ago: the wait counts from the gate.
+  const w = await world({
+    auto: { ...autoRecord(null, { on: true, now: OLD }), stopped: { rule: 'blocked', reason: 'the Foreman says it is blocked.', at: hoursAgo(48) } },
+    jobStatus: status(1, { waiting_since: hoursAgo(1) }),
+  });
+  try {
+    await w.hooks.checkParked();
+    await sleepMs(300);
+    assert.deepEqual(w.notes.filter((n) => REMINDER.test(n.body)), [], 'not from the older stop');
+    // The gate is now five hours old.
+    await w.writeStatus(status(1, { waiting_since: hoursAgo(5) }));
+    await w.restart();
+    await w.hooks.checkParked();
+    await sleepMs(300);
+    assert.deepEqual(w.notes.filter((n) => REMINDER.test(n.body)).map((n) => n.slug), [w.slug]);
   } finally { await w.stop(); }
 });
