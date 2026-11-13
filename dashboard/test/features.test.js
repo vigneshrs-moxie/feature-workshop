@@ -255,7 +255,8 @@ test('C-M1: a worker resumed at 09:30:01 after handing back at 09:20 is running,
 test('a session log names its job folder the way JSON writes it: a folder with \\ or " in its path is still found', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'workshop-escaped-'));
   try {
-    const dir = path.join(root, 'feature-work', 'odd\\name "q"');
+    // Windows cannot name a folder with \ or ", but its temp path is full of \, so a plain name is the real case there.
+    const dir = path.join(root, 'feature-work', process.platform === 'win32' ? 'plain-job' : 'odd\\name "q"');
     await fs.mkdir(dir, { recursive: true });
     const session = path.join(root, 'projects', '-tmp-repo', 'sess-odd');
     await fs.mkdir(path.dirname(session), { recursive: true });

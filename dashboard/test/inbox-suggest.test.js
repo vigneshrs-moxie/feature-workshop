@@ -115,6 +115,7 @@ test('a slow answer is cut off at the timeout with the exact words', async () =>
   // A real hang is a live Claude Code process, which keeps Node running until the abort. A bare
   // pending promise does not: on Node 22 the event loop then ends before the (unref'd) timeout fires.
   const hang = () => new Promise(() => {
+    if (ctrl.signal.aborted) return; // already cut off: nothing to keep alive
     const alive = setInterval(() => {}, 1000);
     ctrl.signal.addEventListener('abort', () => clearInterval(alive), { once: true });
   });
