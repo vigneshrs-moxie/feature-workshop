@@ -32,6 +32,10 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import dashboardJobRoutes from '../../dashboard/site/routes-jobs.js';
 import dashboardStageRoutes from '../../dashboard/site/routes-stage.js';
+import dashboardJobPageRoutes from '../../dashboard/site/routes-job-page.js';
+import { createHash } from 'node:crypto';
+import { mirrorJobPage } from '../../dashboard/lib/job-payload.js';
+import { renderMarkdown } from '../../dashboard/lib/markdown.js';
 import { decisionKind, madeOnFor } from '../../dashboard/lib/made-on.js';
 import { LOCAL_COMMANDS, parseCommand } from '../../dashboard/lib/protocol.js';
 import { answerKeys, open } from '../../dashboard/lib/sealed.js';
@@ -180,6 +184,38 @@ export default function mirrorRoutes(ctx) {
         hosted: true,
       };
     },
+    /**
+     * The new job page's payload (dashboard/site/routes-job-page.js), built from the mirrored record with the same
+     * builder (lib/job-payload.js mirrorJobPage): hosted, no drive or lock. v is the record's time; the site has no
+     * cache, so it always answers the whole payload (never { same: true }).
+     */
+    async jobPage(slug) {
+      const person = who();
+      const rec = await jobOf(slug);
+      const boards = await records.all(person.id, 'board');
+      const row = boards.filter((b) => b.runnerId === rec.runnerId).flatMap((b) => b.value.jobs ?? []).find((j) => j.slug === slug) ?? null;
+      return mirrorJobPage(rec.value, { row, v: Date.parse(rec.updatedAt) || 0 });
+    },
+    /** One body of the new job page: a brief or document from its mirrored doc, a line's own words; a reply's words stay on the laptop. */
+    async jobItem(slug, id) {
+      const person = who();
+      const rec = await jobOf(slug);
+      const it = (rec.value.thread ?? []).find((t) => String(t.id) === id) ?? null;
+      const hash = (text) => createHash('sha1').update(text).digest('hex').slice(0, 12);
+      const file = it ? (it.kind === 'brief' ? it.file : null) : id;
+      if (file) {
+        const doc = await records.get(person.id, 'doc', `${slug}\n${file}`);
+        if (doc && !doc.value.tooBig && typeof doc.value.text === 'string') {
+          const { html, text, vscode: _v, ...meta } = doc.value;
+          return { id, kind: it ? 'brief' : 'doc', version: hash(text), html: html ?? renderMarkdown(text), text, meta: it ? { ...meta, number: it.number ?? null, stage: it.stage ?? null } : meta };
+        }
+        if (!it) throw new HttpError(404, 'That isn’t on the site yet. It shows here once your laptop sends it.');
+      }
+      const text = typeof it.text === 'string' ? it.text : '';
+      const { text: _t, html: _h, reply: _r, ...meta } = it;
+      const kind = ['reply', 'you', 'brief', 'problem'].includes(it.kind) ? it.kind : 'small';
+      return { id, kind, version: hash(text), html: renderMarkdown(text), text, meta };
+    },
     async threadBefore() { throw new HttpError(404, 'Older messages show on your laptop.'); },
     async notes() { throw new HttpError(409, 'A job’s notes are on your laptop for now.'); },
     async decisions(slug) {
@@ -292,7 +328,7 @@ export default function mirrorRoutes(ctx) {
     runner: mirrorRunner, read, local: null, send, sendJson, wireframesOrigin: null, LOCAL: { from: 'local' },
     async needJob(slug) { if (!(await read.hasJob(slug))) throw new HttpError(404, 'No job by that name.'); return slug; },
   };
-  const mounted = [...dashboardStageRoutes(dashCtx), ...dashboardJobRoutes(dashCtx)]
+  const mounted = [...dashboardStageRoutes(dashCtx), ...dashboardJobPageRoutes(dashCtx), ...dashboardJobRoutes(dashCtx)]
     .filter((r) => !(r.method === 'POST' && r.path === '/api/jobs'))
     .map((r) => ({
       method: r.method, path: r.path, auth: 'session',

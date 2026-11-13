@@ -746,3 +746,36 @@ test('What Auto decided on the site keeps refusals and risky calls', async () =>
   assert.equal(sent.entries[0].first.length, L.text);
   assert.deepEqual(cleanAutoLog(sent).entries, sent.entries);
 });
+
+test('the new job page on the site: the same payload, built from the mirrored record, hosted, without drive or lock; its items', async () => {
+  const { s, olive, l } = await setUp();
+  try {
+    const page = await olive.person.json('/api/job/add-export/page');
+    assert.equal(page.status, 200, JSON.stringify(page.body));
+    assert.equal(page.body.slug, 'add-export');
+    assert.equal(page.body.hosted, true);
+    assert.equal('drive' in page.body, false);
+    assert.equal('lock' in page.body, false);
+    assert.equal(page.body.lane, 'needs-you', 'the lane from the mirrored board');
+    assert.equal(page.body.move.kind, 'gate');
+    assert.ok(page.body.v > 0);
+    assert.deepEqual(page.body.thread.map((t) => t.kind), ['brief', 'small', 'you'], 'the reply is a line saying it shows on the laptop');
+    // Always the whole payload on the site: it has no cache to say "same".
+    assert.equal((await olive.person.json(`/api/job/add-export/page?v=${page.body.v}`)).body.slug, 'add-export');
+    const brief = await olive.person.json('/api/job/add-export/item?id=brief%3Abriefs%2F002-plan.md');
+    assert.equal(brief.status, 200, JSON.stringify(brief.body));
+    assert.equal(brief.body.kind, 'brief');
+    assert.match(brief.body.text, /The plan/);
+    const you = await olive.person.json('/api/job/add-export/item?id=you%3Adef');
+    assert.equal(you.body.text, 'Looks good');
+    assert.equal(you.body.kind, 'you');
+    const reply = await olive.person.json('/api/job/add-export/item?id=reply%3Aabc');
+    assert.match(reply.body.text, /Its words show on your laptop/);
+    assert.doesNotMatch(JSON.stringify(reply.body), /readSource/, 'none of the reply’s words');
+    assert.equal((await olive.person.json('/api/job/nope/page')).status, 404);
+    assert.equal((await olive.person.json('/api/job/add-export/item?id=nope')).status, 404);
+    const sam = browser(s.fetch);
+    await signIn(sam, { email: 'sam.sample@example.test' });
+    assert.equal((await sam.json('/api/job/add-export/page')).status, 404, 'nothing of Olive’s for anyone else');
+  } finally { l.link.stop(); await s.close(); }
+});
