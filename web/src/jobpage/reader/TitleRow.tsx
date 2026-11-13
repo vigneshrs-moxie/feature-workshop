@@ -25,7 +25,7 @@ import { memo, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Button } from '../../components/Button';
 import { Icon } from '../../components/Icon';
 import { sinceWords } from '../left/YourMove';
-import { CONVERSATION, DECISIONS, DETAILS, outputTarget, sameTarget, TICKET } from '../targets';
+import { CONVERSATION, DECISIONS, DETAILS, OUTPUT_READER, outputTarget, sameTarget, TICKET } from '../targets';
 import type { JobPagePayload, Output, ReaderKind, ReaderTarget, StepRow, ThreadLine } from '../types';
 import { useJob } from '../useJob';
 
@@ -97,6 +97,13 @@ export function titleOf(t: ReaderTarget, p: JobPagePayload | null, updatedAt: st
   if (t.kind === 'decisions') return { title: 'Decisions', meta: p ? `${p.rows.decisions.count} made for you` : null };
   if (t.kind === 'ticket') return { title: 'Ticket and goal', meta: p?.key ?? null };
   if (t.kind === 'details') return { title: 'Details', meta: 'every piece of work, newest first' };
+  if (t.kind === 'changes' || t.kind === 'checks' || t.kind === 'findings') {
+    // What the step made, named as the left pane names it (Checks, Recording, Your hand test).
+    for (const s of steps(p)) {
+      const out = s.outputs.find((o) => o.id === t.id && OUTPUT_READER[o.kind] === t.kind);
+      if (out) return { title: out.label, meta: out.meta };
+    }
+  }
   return { title: TITLES[t.kind] ?? 'Reader', meta: null };
 }
 

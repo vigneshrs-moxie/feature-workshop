@@ -4,8 +4,9 @@
 //
 // Views: a message or a brief (MessageView), a document (DocView), Ticket and goal (TicketView),
 // Decisions (DecisionsView), a step with nothing written yet (NotYet), the conversation
-// (ConversationView: one line per item, folded). Changes, findings, checks and recording, the
-// walkthrough, Ship, a PR and Details come with Tasks 14 and 20.
+// (ConversationView: one line per item, folded), Changes (ChangesView: commits, files, the diff),
+// Findings, Checks and recording with Your hand test, and Details (Task 14). The walkthrough, Ship and
+// a PR come with Task 20.
 //
 // Each view is drawn fresh for each thing read (keyed by it) inside ReaderBody, which keeps every
 // thing's own scroll place. A body held in the store paints in the same frame as the pick; one not held
@@ -15,6 +16,7 @@ import { memo } from 'react';
 import { readerOf, sameTarget } from '../targets';
 import type { ReaderTarget } from '../types';
 import { useJob } from '../useJob';
+import { ChangesView } from './ChangesView';
 import { ConversationView } from './ConversationView';
 import { DecisionsView } from './DecisionsView';
 import { DocView } from './DocView';
@@ -54,6 +56,8 @@ function View({ target, searchRef, onOpen }: { target: ReaderTarget } & Pick<Rea
       return <DecisionsView />;
     case 'conversation':
       return <ConversationView searchRef={searchRef} onOpen={onOpen} />;
+    case 'changes':
+      return <ChangesView />;
     case 'not-yet':
       return <ReaderBody view="not-yet" place={placeKey(target)}><NotYet id={target.id} /></ReaderBody>;
     default:

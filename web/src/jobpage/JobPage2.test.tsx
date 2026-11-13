@@ -505,7 +505,7 @@ describe('Task 10: the steps and the job rows on the page', () => {
     fireEvent.click(within(document.querySelector<HTMLElement>('.jp2-reader')!).getByRole('button', { name: 'Back to the job' }));
     key(']');
     // The reader is behind the left pane now (no region to a screen reader): its title, read directly.
-    expect(document.querySelector('.jp2-rv-title')!.textContent).toBe('Checks and recording');
+    expect(document.querySelector('.jp2-rv-title')!.textContent).toBe('Checks');
     expect(page()).not.toHaveAttribute('data-covered');
     expect(window.location.hash).toBe(`#/job/${SLUG}/stage/test`);
   });
@@ -544,7 +544,7 @@ describe('Task 10 fix round 1: the prototype’s step rule on the page', () => {
     expect(blocks()).toBe(before);
     stepRow('Test').focus();
     key('Enter', stepRow('Test'));
-    expect(readerTitle()).toBe('Checks and recording');
+    expect(readerTitle()).toBe('Checks');
     expect(blocks()).toBe(before);
     act(() => { window.location.hash = `#/job/${SLUG}/stage/spec`; window.dispatchEvent(new HashChangeEvent('hashchange')); });
     expect(stepRow('Spec')).toHaveClass('is-sel');
