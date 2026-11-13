@@ -239,7 +239,7 @@ describe('older versions and rounds, from the title row', () => {
     const o = open();
     await show(o, { kind: 'doc', id: 'review.md' });
     fireEvent.click(within(top()).getByRole('button', { name: 'Older' }));
-    const menu = within(top()).getByRole('menu', { name: 'Rounds and lenses' });
+    const menu = within(within(top()).getByRole('menu', { name: 'Older' })).getByRole('group', { name: 'Rounds and lenses' });
     const items = within(menu).getAllByRole('menuitemradio');
     expect(items.map((i) => i.querySelector('.menu-label')!.textContent)).toContain('Review: db r2');
     expect(items.map((i) => i.querySelector('.menu-label')!.textContent)).toContain('Fable second look #2 · review');
@@ -257,14 +257,15 @@ describe('older versions and rounds, from the title row', () => {
     expect(title()).toBe('Review: db');
   });
 
-  it('a brief’s Older lists the briefs of its step; Escape closes it; a reply has none', async () => {
+  it('a brief’s Older lists the earlier briefs of its step, newest first; Escape closes it; the first brief and a reply have none', async () => {
     const o = open();
     await show(o, { kind: 'brief', id: BRIEF15 });
     const older = within(top()).getByRole('button', { name: 'Older' });
     fireEvent.click(older);
-    const menu = within(top()).getByRole('menu', { name: 'Briefs for this step' });
+    const menu = within(top()).getByRole('menu', { name: 'Older' });
     const briefs = payload().thread.filter((l) => l.kind === 'brief' && l.step === 'review');
-    expect(within(menu).getAllByRole('menuitemradio')).toHaveLength(briefs.length);
+    const group = within(menu).getByRole('group', { name: 'Earlier briefs of this step' });
+    expect(within(group).getAllByRole('menuitemradio').map((i) => i.querySelector('.menu-label')!.textContent)).toEqual(briefs.slice(0, -1).reverse().map((l) => l.headline));
     fireEvent.keyDown(menu, { key: 'Escape' });
     expect(within(top()).queryByRole('menu')).toBeNull();
     expect(document.activeElement).toBe(older);
@@ -272,6 +273,7 @@ describe('older versions and rounds, from the title row', () => {
     fireEvent.click(within(top()).getByRole('menuitemradio', { name: new RegExp(`^${briefs[0].headline.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`) }));
     await settle();
     expect(title()).toBe(briefs[0].headline);
+    expect(within(top()).queryByRole('button', { name: 'Older' })).toBeNull();
     await show(o, { kind: 'message', id: REPLY });
     expect(within(top()).queryByRole('button', { name: 'Older' })).toBeNull();
   });
@@ -347,5 +349,82 @@ describe('Task 10 carry-forwards', () => {
     expect(title()).toBe('Review (combined)');
     expect(within(top()).queryByRole('button', { name: 'Older' })).toBeNull();
     expect(prose()).not.toBeNull();
+  });
+});
+
+describe('Task 12 fix round 1', () => {
+  const V1 = 'versions/implementation-plan.v1.md';
+  const V1_BODY: JobBody = { id: V1, kind: 'doc', version: 'v1', text: '# Implementation plan v1', html: '<h1 id="h-implementation-plan-v1">Implementation plan v1</h1><p>The first plan.</p>', meta: { name: 'Implementation plan v1', version: '1', of: 'implementation-plan.md', updatedAt: '2026-11-02T10:00:00.000Z' } };
+  const withVersions = (p: JobPagePayload) => {
+    const plan = p.steps.find((s) => s.id === 'plan')!;
+    plan.outputs.find((o) => o.id === 'implementation-plan.md')!.versions = [{ n: '1', id: V1 }];
+    plan.outputs.find((o) => o.id === 'acceptance.md')!.versions = [{ n: '2', id: 'versions/acceptance.v2.md' }, { n: '1', id: 'versions/acceptance.v1.md' }];
+    p.steps.find((s) => s.id === 'review')!.outputs.find((o) => o.id === 'review.md')!.versions = [{ n: '1', id: 'versions/review.v1.md' }];
+  };
+
+  it('Older lists a document’s older versions, newest first, with the one now ticked; an older version opens in place and its previous goes back', async () => {
+    const o = open({ patch: withVersions, bodies: { [V1]: V1_BODY } });
+    await show(o, { kind: 'doc', id: 'acceptance.md' });
+    fireEvent.click(within(top()).getByRole('button', { name: 'Older' }));
+    const accept = within(top()).getByRole('group', { name: 'Older versions' });
+    expect(within(accept).getAllByRole('menuitemradio').map((i) => i.querySelector('.menu-label')!.textContent)).toEqual(['v3', 'v2', 'v1']);
+    expect(within(accept).getByRole('menuitemradio', { name: /^v3/ })).toHaveAttribute('aria-checked', 'true');
+    fireEvent.keyDown(accept, { key: 'Escape' });
+    await show(o, { kind: 'doc', id: 'implementation-plan.md' });
+    fireEvent.click(within(top()).getByRole('button', { name: 'Older' }));
+    fireEvent.click(within(top()).getByRole('menuitemradio', { name: /^v1/ }));
+    await settle();
+    expect(window.location.hash).toBe(`#/job/${SLUG}/read/doc/${encodeURIComponent(V1)}`);
+    expect(title()).toBe('Implementation plan');
+    expect(meta()).toBe(`v1 · an older version · Plan · ${sinceWords(V1_BODY.meta.updatedAt as string)}`);
+    expect(prose()).toHaveTextContent('The first plan.');
+    // The Plan step stays marked on the left while one of its older versions is read.
+    expect(document.querySelector('.jp2-st-row.is-sel .jp2-st-name')?.textContent).toBe('Plan');
+    expect(navButton('Next')).toBeDisabled();
+    fireEvent.click(navButton('Previous'));
+    await settle();
+    expect(meta()).toMatch(/^v2 · Plan/);
+  });
+
+  it('the combined review keeps Rounds and lenses as its own list beside its older versions', async () => {
+    const o = open({ patch: withVersions });
+    await show(o, { kind: 'doc', id: 'review.md' });
+    fireEvent.click(within(top()).getByRole('button', { name: 'Older' }));
+    const menu = within(top()).getByRole('menu', { name: 'Older' });
+    expect(within(menu).getAllByRole('group').map((g) => g.getAttribute('aria-label'))).toEqual(['Older versions', 'Rounds and lenses']);
+  });
+
+  it('a website decision (question, choice, why) reads as its question and its choice', async () => {
+    const site: JobBody = { ...DECISIONS_BODY, meta: { rows: [{ id: 'q-1', question: 'Which week does the export start on?', options: ['Monday', 'Sunday'], choice: 'Monday', who: 'you', why: 'payroll weeks start on Monday' }] } };
+    const o = open({ bodies: { decisions: site } });
+    await show(o, { kind: 'decisions', id: 'decisions' });
+    const row = view().querySelector('.jp2-dec')!;
+    expect(row.querySelector('.jp2-dec-q')).toHaveTextContent('Which week does the export start on?');
+    expect(row.querySelector('.jp2-dec-what')).toHaveTextContent('q-1 · Monday');
+    expect(row).toHaveTextContent('payroll weeks start on Monday');
+    expect(row).not.toHaveTextContent('A decision');
+  });
+
+  it('only the part that asks him is ruled: not a heading that merely starts with Decisions, and not past a labelled line', async () => {
+    const doc: JobBody = { ...LATE_KEY_POINTS, html: '<h2 id="h-decisions-already-made">Decisions already made</h2><p>The week starts on Monday.</p><h2 id="h-decision-for-you">Decision for you</h2><p>Monday or Sunday?</p><p><strong>Next:</strong> the export.</p><hr><p>After the rule.</p>' };
+    const o = open({ bodies: { 'test-plan.md': doc } });
+    await show(o, { kind: 'doc', id: 'test-plan.md' });
+    const asks = prose()!.querySelectorAll('.jp2-ask');
+    expect(asks).toHaveLength(1);
+    expect(headings(asks[0])).toEqual(['Decision for you']);
+    expect(asks[0]).not.toHaveTextContent('Next:');
+    await show(o, { kind: 'brief', id: BRIEF15 });
+    expect(prose()!.querySelector('.jp2-ask')).not.toHaveTextContent('Next:');
+  });
+
+  it('a table’s first column keeps to one line only when it holds short ids', async () => {
+    const doc: JobBody = { ...LATE_KEY_POINTS, html: '<table><thead><tr><th>Question</th><th>Answer</th></tr></thead><tbody><tr><td>Which week does it start on?</td><td>Monday</td></tr></tbody></table>' };
+    const o = open({ bodies: { 'test-plan.md': doc } });
+    await show(o, { kind: 'doc', id: 'review.md' });
+    expect(prose()!.querySelector('table')).toHaveClass('jp2-idcol');
+    await show(o, { kind: 'doc', id: 'test-plan.md' });
+    expect(prose()!.querySelector('table')).not.toHaveClass('jp2-idcol');
+    expect(CSS).toMatch(/\.jp2-prose \.jp2-idcol td:first-child \{ white-space: nowrap; \}/);
+    expect(CSS).not.toMatch(/\.jp2-prose td:first-child/);
   });
 });

@@ -15,6 +15,7 @@ const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
 const base = () => clone(longJob.payload) as unknown as JobPagePayload;
 const bodyOf = (id: string): JobBody => {
   if (id === 'decisions') return { id, kind: 'decisions', version: 'd', html: '<ul><li>Keep the commits</li></ul>', text: '- Keep the commits', meta: {} };
+  if (id === 'ticket') return { id, kind: 'ticket', version: 't1', html: '<h2>The ticket</h2>', text: '## The ticket', meta: {} };
   const b = longJob.bodies[id];
   return { ...b, version: String(b.meta.hash ?? b.id) };
 };
@@ -706,5 +707,42 @@ describe('job store: Task 11 fix round 2, words that went with something the web
     expect(store.getState().gaveBack?.line).toBe('Not sent: the website put it away before your laptop ran it. Your words are back in the box.');
     store.clearGaveBack();
     expect(store.getState().gaveBack).toBeNull();
+  });
+});
+
+describe('Task 12 fix round 1: the ticket and decisions bodies follow their hashes on the payload', () => {
+  it('a kept ticket body goes when the payload’s ticket hash moves on, and stays while it does not', async () => {
+    const s = server({ ...base(), hashes: { ticket: 't1', decisions: 'd' } });
+    const live = stream();
+    const store = createJobStore(SLUG, { api: s.api, events: live.events });
+    await store.loadPage();
+    await store.loadBody('ticket');
+    s.set({ ...base(), v: 2, title: 'Renamed', hashes: { ticket: 't1', decisions: 'd' } });
+    live.send('job-page', SLUG, { slug: SLUG, v: 2 });
+    await settle();
+    expect(store.getState().bodies.ticket).toBeDefined();
+    s.set({ ...base(), v: 3, hashes: { ticket: 't2', decisions: 'd' } });
+    live.send('job-page', SLUG, { slug: SLUG, v: 3 });
+    await settle();
+    expect(store.getState().bodies.ticket).toBeUndefined();
+  });
+
+  it('with a decisions hash, the decisions body follows the hash, not the count', async () => {
+    const s = server({ ...base(), hashes: { ticket: 't1', decisions: 'd' } });
+    const live = stream();
+    const store = createJobStore(SLUG, { api: s.api, events: live.events });
+    await store.loadPage();
+    await store.loadBody('decisions');
+    const counted = base();
+    counted.v = 2;
+    counted.rows.decisions.count = 14;
+    s.set({ ...counted, hashes: { ticket: 't1', decisions: 'd' } });
+    live.send('job-page', SLUG, { slug: SLUG, v: 2 });
+    await settle();
+    expect(store.getState().bodies.decisions).toBeDefined();
+    s.set({ ...counted, v: 3, hashes: { ticket: 't1', decisions: 'd2' } });
+    live.send('job-page', SLUG, { slug: SLUG, v: 3 });
+    await settle();
+    expect(store.getState().bodies.decisions).toBeUndefined();
   });
 });

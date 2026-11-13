@@ -33,6 +33,9 @@ export interface Output {
   version: string | null;
   /** A doc's text hash, stamped by the cache (null on the website); says when a kept body is out of date. */
   hash?: string | null;
+  /** A doc's older versions, newest first (the job's versions/ folder, lib/doc-versions.js; laptop only).
+   *  n: its version ('0.3', or '2 (earlier 1)' for words rewritten under the same number); id: its body's id. */
+  versions?: { n: string; id: string }[];
 }
 
 export interface StepRow {
@@ -156,6 +159,9 @@ export interface JobPagePayload {
   waiting: null | { text: string; at: string; why: string | null };
   prs: PrLine[];
   hosted: boolean;
+  /** The hashes of the bodies no line or output names (the ticket and goal, the decisions list): a kept
+   *  copy whose hash moved on is dropped. Absent from an older Starbase. */
+  hashes?: { ticket: string | null; decisions: string | null };
   /** Website only: the decision made there for this job's gate (the old page's `queued`), until it is put away. */
   queuedDecision?: unknown;
   /** Website only: every decision made there and still shown for the job, newest first (each followed by its id). */

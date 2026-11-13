@@ -13,8 +13,9 @@
 //   It listens to the stream from its first load. Nothing else makes it do work, and it starts no timer.
 // - A newer payload keeps the identity of every part whose data is equal (per top-level key, per
 //   step and per thread line, matched by id), so their readers do not redraw.
-// - A body is fetched once; a newer payload drops a kept body whose line hash (a doc's hash) moved
-//   on, and the decisions list when the decisions count changes.
+// - A body is fetched once; a newer payload drops a kept body whose line hash (a doc's hash, the
+//   payload's `hashes` for the ticket and the decisions) moved on; without a decisions hash, the
+//   decisions list when the decisions count changes.
 // - Fetching ahead (prefetch) stops at the default view, the last exchange, the current step's
 //   outputs and the newest 30 other lines; the rest load when he picks them.
 // - A failed fetch keeps the last good data and sets the one error line; the next good fetch of the
@@ -183,11 +184,13 @@ export function keepSame<T>(prev: T, next: T): T {
 function currentBodies(bodies: Record<string, JobBody>, payload: JobPagePayload, prev: JobPagePayload | null = null): Record<string, JobBody> {
   const hashes = new Map<string, string>(payload.thread.map((l) => [l.id, l.hash]));
   for (const s of payload.steps) for (const o of [...s.outputs, ...(s.more ?? [])]) if (o.kind === 'doc' && typeof o.hash === 'string') hashes.set(o.id, o.hash);
+  // The ticket and the decisions list by the payload's hashes; without one (an older Starbase) the decisions by their count.
+  for (const [id, hash] of Object.entries(payload.hashes ?? {})) if (typeof hash === 'string') hashes.set(id, hash);
   const decisionsMoved = prev !== null && prev.rows.decisions.count !== payload.rows.decisions.count;
   let out = bodies;
   for (const [id, b] of Object.entries(bodies)) {
     const hash = hashes.get(id);
-    const stale = id === DECISIONS ? decisionsMoved : hash !== undefined && b.version !== undefined && b.version !== hash;
+    const stale = id === DECISIONS && hash === undefined ? decisionsMoved : hash !== undefined && b.version !== undefined && b.version !== hash;
     if (!stale) continue;
     if (out === bodies) out = { ...bodies };
     delete out[id];

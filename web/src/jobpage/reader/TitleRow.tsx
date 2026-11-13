@@ -10,11 +10,14 @@
 //     main output), then Ticket and goal, Conversation, Decisions, Details.
 // They stop at the ends (they do not wrap round).
 //
-// `Older` (a short menu, the one ticked is the one shown):
-//   - a brief: every brief of its step (each round of the step's ask), newest first;
+// `Older` (a short menu in groups, the one ticked is the one shown):
+//   - a document with older versions (the job's versions/ folder, lib/doc-versions.js): `Older
+//     versions`, the one now first, then its older ones newest first;
 //   - a document of a step that has reader-only documents: the step's documents and those, under
 //     `Rounds and lenses` on Review (the combined review's lens rounds, review facts and second looks),
-//     else `More from <step>`.
+//     else `More from <step>`;
+//   - a brief: `Earlier briefs of this step` (each earlier round of the step's ask), newest first.
+// An older version's previous and next walk its document's versions.
 // A pick from either goes through the page's own pick (the address follows, under 1100 px it stays
 // over the left pane).
 
@@ -28,7 +31,9 @@ import { useJob } from '../useJob';
 
 export interface Head { title: string; meta: string | null }
 export interface Place { target: ReaderTarget; label: string; meta?: string | null }
-export interface OlderList { label: string; items: Place[] }
+export interface OlderGroup { label: string; items: Place[] }
+/** What `Older` lists, in groups (older versions; rounds and lenses; earlier briefs). */
+export type OlderList = OlderGroup[];
 
 const TITLES: Partial<Record<ReaderKind, string>> = {
   conversation: 'Conversation', ticket: 'Ticket and goal', decisions: 'Decisions', details: 'Details', changes: 'Changes',
@@ -44,12 +49,26 @@ export const placeKey = (t: ReaderTarget) => `${t.kind}:${t.id}`;
 /** The reader target of a conversation line. */
 export const lineTarget = (l: ThreadLine): ReaderTarget => ({ kind: l.kind === 'brief' ? 'brief' : 'message', id: l.id });
 
-/** The step that lists this document (its outputs first, then any step's `more`), and the output. */
-function docStep(p: JobPagePayload | null, id: string): { step: StepRow; out: Output; more: boolean } | null {
-  for (const s of steps(p)) { const out = s.outputs.find((o) => o.kind === 'doc' && o.id === id); if (out) return { step: s, out, more: false }; }
-  for (const s of steps(p)) { const out = (s.more ?? []).find((o) => o.id === id); if (out) return { step: s, out, more: true }; }
+interface Found { step: StepRow; out: Output; more: boolean; version: { n: string; id: string } | null }
+/** The step that lists this document (its outputs first, then any step's `more`), and the output; for
+ *  an older version (versions/…), the document it is a version of. */
+function docStep(p: JobPagePayload | null, id: string): Found | null {
+  for (const s of steps(p)) { const out = s.outputs.find((o) => o.kind === 'doc' && o.id === id); if (out) return { step: s, out, more: false, version: null }; }
+  for (const s of steps(p)) { const out = (s.more ?? []).find((o) => o.id === id); if (out) return { step: s, out, more: true, version: null }; }
+  for (const s of steps(p)) {
+    for (const o of docsOf(s)) {
+      const version = (o.versions ?? []).find((v) => v.id === id);
+      if (version) return { step: s, out: o, more: !s.outputs.includes(o), version };
+    }
+  }
   return null;
 }
+
+/** A document's versions, the one shown now first, then its older ones (newest first). */
+const versionsOf = (o: Output): Place[] => [
+  { target: outputTarget(o), label: o.version ? `v${o.version}` : 'Now', meta: 'now' },
+  ...(o.versions ?? []).map((v) => ({ target: { kind: 'doc' as const, id: v.id }, label: `v${v.n}`, meta: null })),
+];
 
 /** The title row's words: what it is, and its dim line. `updatedAt`: a document body's time, once it is held. */
 export function titleOf(t: ReaderTarget, p: JobPagePayload | null, updatedAt: string | null = null): Head {
@@ -64,6 +83,7 @@ export function titleOf(t: ReaderTarget, p: JobPagePayload | null, updatedAt: st
   }
   if (t.kind === 'doc') {
     const found = docStep(p, t.id);
+    if (found?.version) return { title: found.out.label, meta: join([`v${found.version.n}`, 'an older version', found.step.label, sinceWords(updatedAt)]) };
     if (found) return { title: found.out.label, meta: join([vOf(found.out), found.step.label, sinceWords(updatedAt)]) };
     return { title: t.id.split('/').pop() ?? t.id, meta: sinceWords(updatedAt) };
   }
@@ -104,6 +124,8 @@ export function orderOf(t: ReaderTarget, p: JobPagePayload | null): Place[] {
   if (t.kind === 'message' || t.kind === 'brief') return (p?.thread ?? []).filter((l) => l.kind !== 'small').map((l) => ({ target: lineTarget(l), label: l.headline }));
   if (t.kind === 'doc') {
     const found = docStep(p, t.id);
+    // An older version walks its document's versions (previous: newer, next: older).
+    if (found?.version) return versionsOf(found.out);
     if (found?.more) return docsOf(found.step).filter((o) => o.kind === 'doc').map((o) => ({ target: outputTarget(o), label: o.label }));
   }
   return stepOrder(p);
@@ -116,22 +138,25 @@ export function neighbours(t: ReaderTarget, p: JobPagePayload | null): { prev: P
   return { prev: list[at - 1] ?? null, next: list[at + 1] ?? null };
 }
 
-/** The older rounds and other versions of this target, or null when it has none. */
+/** The older versions, rounds and earlier briefs of this target, or null when it has none. */
 export function olderOf(t: ReaderTarget, p: JobPagePayload | null): OlderList | null {
   if (t.kind === 'brief') {
-    const line = p?.thread.find((l) => l.id === t.id);
-    if (!line) return null;
-    const same = (p?.thread ?? []).filter((l) => l.kind === 'brief' && l.step === line.step);
-    if (same.length < 2) return null;
-    return { label: 'Briefs for this step', items: same.reverse().map((l) => ({ target: lineTarget(l), label: l.headline, meta: sinceWords(l.at) })) };
+    const thread = p?.thread ?? [];
+    const at = thread.findIndex((l) => l.id === t.id);
+    if (at < 0) return null;
+    // Only the earlier briefs of its step (each earlier round of the step's ask), newest first.
+    const earlier = thread.slice(0, at).filter((l) => l.kind === 'brief' && l.step === thread[at].step).reverse();
+    return earlier.length ? [{ label: 'Earlier briefs of this step', items: earlier.map((l) => ({ target: lineTarget(l), label: l.headline, meta: sinceWords(l.at) })) }] : null;
   }
   if (t.kind === 'doc') {
     const found = docStep(p, t.id);
-    const step = found && (found.more || (found.step.more ?? []).length > 0) ? found.step : null;
-    if (!step) return null;
-    const items = docsOf(step).filter((o) => o.kind === 'doc').map((o) => ({ target: outputTarget(o), label: o.label, meta: vOf(o) }));
-    if (items.length < 2) return null;
-    return { label: step.id === 'review' ? 'Rounds and lenses' : `More from ${step.label}`, items };
+    if (!found) return null;
+    const groups: OlderGroup[] = [];
+    if ((found.out.versions ?? []).length) groups.push({ label: 'Older versions', items: versionsOf(found.out) });
+    const step = found.more || (found.step.more ?? []).length > 0 ? found.step : null;
+    const items = step ? docsOf(step).filter((o) => o.kind === 'doc').map((o) => ({ target: outputTarget(o), label: o.label, meta: vOf(o) })) : [];
+    if (step && items.length >= 2) groups.push({ label: step.id === 'review' ? 'Rounds and lenses' : `More from ${step.label}`, items });
+    return groups.length ? groups : null;
   }
   return null;
 }
@@ -139,7 +164,8 @@ export function olderOf(t: ReaderTarget, p: JobPagePayload | null): OlderList | 
 const sameHead = (a: Head, b: Head) => a.title === b.title && a.meta === b.meta;
 const samePlace = (a: Place | null, b: Place | null) => a === b || (!!a && !!b && sameTarget(a.target, b.target) && a.label === b.label);
 const sameNeighbours = (a: ReturnType<typeof neighbours>, b: ReturnType<typeof neighbours>) => samePlace(a.prev, b.prev) && samePlace(a.next, b.next);
-const sameOlder = (a: OlderList | null, b: OlderList | null) => a === b || (!!a && !!b && a.label === b.label && a.items.length === b.items.length && a.items.every((x, i) => samePlace(x, b.items[i]) && x.meta === b.items[i].meta));
+const sameGroup = (a: OlderGroup, b: OlderGroup) => a.label === b.label && a.items.length === b.items.length && a.items.every((x, i) => samePlace(x, b.items[i]) && x.meta === b.items[i].meta);
+const sameOlder = (a: OlderList | null, b: OlderList | null) => a === b || (!!a && !!b && a.length === b.length && a.every((g, i) => sameGroup(g, b[i])));
 
 export interface TitleRowProps {
   /** What the reader shows; null before the payload names it. */
@@ -197,22 +223,27 @@ function Older({ list, current, onOpen }: { list: OlderList; current: ReaderTarg
   }
   return (
     <div ref={box} className="menu-box jp2-rv-older" onKeyDown={onKeyDown}>
-      <Button ref={button} kind="quiet" size="sm" aria-haspopup="menu" aria-expanded={open} title={`${list.label}: open another`} onClick={() => setOpen((o) => !o)}>
+      <Button ref={button} kind="quiet" size="sm" aria-haspopup="menu" aria-expanded={open} title={`${list.map((g) => g.label).join(', ')}: open one`} onClick={() => setOpen((o) => !o)}>
         Older<Icon name="chevron-down" size={14} />
       </Button>
       {open && (
-        <div className="menu jp2-rv-older-menu" role="menu" aria-label={list.label} data-keys-wait="">
-          <div className="menu-heading" aria-hidden="true">{list.label}</div>
-          {list.items.map((it) => {
-            const on = sameTarget(it.target, current);
-            return (
-              <button key={placeKey(it.target)} type="button" role="menuitemradio" aria-checked={on} className="menu-item" onClick={(e) => { setOpen(false); if (!on) onOpen(it.target, e.currentTarget); }}>
-                {on ? <Icon name="check" size={16} /> : <span className="menu-icon-gap" aria-hidden="true" />}
-                <span className="menu-label">{it.label}</span>
-                {it.meta && <span className="jp2-rv-older-meta">{it.meta}</span>}
-              </button>
-            );
-          })}
+        <div className="menu jp2-rv-older-menu" role="menu" aria-label="Older" data-keys-wait="">
+          {list.map((g, gi) => (
+            <div key={g.label} role="group" aria-label={g.label}>
+              {gi > 0 && <div className="menu-sep" role="separator" />}
+              <div className="menu-heading" aria-hidden="true">{g.label}</div>
+              {g.items.map((it) => {
+                const on = sameTarget(it.target, current);
+                return (
+                  <button key={placeKey(it.target)} type="button" role="menuitemradio" aria-checked={on} className="menu-item" onClick={(e) => { setOpen(false); if (!on) onOpen(it.target, e.currentTarget); }}>
+                    {on ? <Icon name="check" size={16} /> : <span className="menu-icon-gap" aria-hidden="true" />}
+                    <span className="menu-label">{it.label}</span>
+                    {it.meta && <span className="jp2-rv-older-meta">{it.meta}</span>}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
         </div>
       )}
     </div>

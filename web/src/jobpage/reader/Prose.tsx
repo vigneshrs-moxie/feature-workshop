@@ -18,12 +18,14 @@
 import { useState, type MouseEvent } from 'react';
 import { findAnchor, linkAction } from '../../lib/docLinks';
 import type { JobBody, ReaderTarget } from '../types';
-import { useJob } from '../useJob';
+import { useJobStore } from '../useJob';
 
 export interface OutlineItem { id: string; text: string; level: 2 | 3 }
 export interface Prepared { html: string; outline: OutlineItem[] }
 
-const ASK = /^(decisions?\b|questions? for you\b|what i need from you\b|your (call|decision)\b)/i;
+// The part that asks him: "Decision(s) for you", "Question(s) for you", "What I need from you", "Your
+// call" (never a heading that only starts with "Decisions", such as "Decisions already made").
+const ASK = /^(decisions? for you|questions? for you|what i need from you|your (call|decision))\b/i;
 const KEY_POINTS = /^key points$/i;
 const isHeading = (el: Element | null): el is HTMLElement => !!el && /^H[1-6]$/.test(el.tagName);
 const levelOf = (el: Element) => Number(el.tagName[1]);
@@ -81,11 +83,21 @@ function sectionOf(h: HTMLElement): Element[] {
   return out;
 }
 
+/** A paragraph that opens with a bold label ("**Next:** …"): a new part, so the ask ends before it. */
+const labelled = (el: Element) => {
+  if (el.tagName !== 'P') return false;
+  const first = [...el.childNodes].find((n) => !(n.nodeType === Node.TEXT_NODE && !n.textContent?.trim()));
+  return first instanceof HTMLElement && first.tagName === 'STRONG' && /:\s*$/.test(first.textContent ?? '');
+};
+
 /** The part that asks him, wrapped so it carries the left rule. */
 function ruleAsk(root: DocumentFragment) {
   for (const h of [...root.children]) {
     if (!isHeading(h) || !ASK.test(h.textContent?.trim() ?? '') || h.parentNode !== root) continue;
-    const part = sectionOf(h);
+    // The ask ends at its section's end, a rule, or a paragraph with a label of its own ("Next:").
+    const all = sectionOf(h);
+    const end = all.findIndex((el, i) => i > 0 && (el.tagName === 'HR' || labelled(el)));
+    const part = end < 0 ? all : all.slice(0, end);
     const box = document.createElement('div');
     box.className = 'jp2-ask';
     h.before(box);
@@ -134,6 +146,14 @@ function underTitle(root: DocumentFragment) {
   }
 }
 
+/** A table whose first column holds short ids (R-1, AC-12, FR-003): that column keeps to one line. */
+function idColumns(root: DocumentFragment) {
+  for (const table of root.querySelectorAll('table')) {
+    const cells = [...table.querySelectorAll('tbody tr > td:first-child')];
+    if (cells.length && cells.every((c) => { const t = c.textContent?.trim() ?? ''; return t.length > 0 && t.length <= 12 && !/\s/.test(t); })) table.classList.add('jp2-idcol');
+  }
+}
+
 const prepared = new WeakMap<JobBody, Map<string, Prepared>>();
 function kept(body: JobBody, key: string, make: () => Prepared): Prepared {
   let byKey = prepared.get(body);
@@ -150,6 +170,7 @@ export function prepareMessage(body: JobBody, title: string | null): Prepared {
     dropLead(root, title);
     boldHeadings(root);
     ruleAsk(root);
+    idColumns(root);
     underTitle(root);
     return { html: serialize(root), outline: [] };
   });
@@ -161,16 +182,13 @@ export function prepareDoc(body: JobBody): Prepared {
     const root = parse(body.html ?? '');
     keyPointsFirst(root);
     ruleAsk(root);
+    idColumns(root);
     const outline = outlineOf(root);
     underTitle(root);
     return { html: serialize(root), outline };
   });
 }
 
-/** Whether the job lists a document by this file (a step's outputs or its reader-only `more`). */
-function useListed() {
-  return useJob((s) => s.payload?.steps ?? null);
-}
 
 export interface ProseProps {
   prepared: Prepared;
@@ -181,7 +199,7 @@ export interface ProseProps {
 }
 
 export function Prose({ prepared: p, base = '', className = '', onOpen }: ProseProps) {
-  const steps = useListed();
+  const store = useJobStore();
   const [hint, setHint] = useState<string | null>(null);
 
   function onClick(e: MouseEvent<HTMLDivElement>) {
@@ -198,7 +216,8 @@ export function Prose({ prepared: p, base = '', className = '', onOpen }: ProseP
       return;
     }
     if (action.kind === 'doc') {
-      const listed = (steps ?? []).some((s) => [...s.outputs, ...(s.more ?? [])].some((o) => o.kind === 'doc' && o.id === action.file));
+      // Whether the job lists it (a step's outputs or its reader-only `more`), read at the click: no redraw when the steps change.
+      const listed = (store.getState().payload?.steps ?? []).some((s) => [...s.outputs, ...(s.more ?? [])].some((o) => o.kind === 'doc' && o.id === action.file));
       if (!listed || !onOpen) { setHint('That document isn’t listed for this job, so it doesn’t open here.'); return; }
       setHint(null);
       onOpen({ kind: 'doc', id: action.file }, a as HTMLElement);

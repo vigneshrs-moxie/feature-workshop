@@ -70,8 +70,8 @@ export interface StepsProps {
   onOpen(t: ReaderTarget, from: HTMLElement): void;
 }
 
-/** Whether the reader's target is something of this step: its main output, a listed output, or one in `more`. */
-const owns = (s: StepRow, t: ReaderTarget | null) => !!t && (sameTarget(s.main, t) || s.outputs.some((o) => sameTarget(outputTarget(o), t)) || (s.more ?? []).some((o) => sameTarget(outputTarget(o), t)));
+/** Whether the reader's target is something of this step: its main output, a listed output, one in `more`, or an older version of one. */
+const owns = (s: StepRow, t: ReaderTarget | null) => !!t && (sameTarget(s.main, t) || [...s.outputs, ...(s.more ?? [])].some((o) => sameTarget(outputTarget(o), t) || (t.kind === 'doc' && (o.versions ?? []).some((v) => v.id === t.id))));
 
 export const Steps = memo(function Steps({ job, cursor, onStep, onOpen }: StepsProps) {
   const steps = useJob((s) => s.payload?.steps ?? null);

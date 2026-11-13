@@ -175,7 +175,7 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2-prose table { border-collapse: collapse; font-size: 13px; line-height: 19px; }
 .jp2-prose :is(th, td) { padding: 6px 8px; border-bottom: 1px solid var(--border-1); text-align: left; vertical-align: top; }
 .jp2-prose th { color: var(--text-2); font-weight: 600; }
-.jp2-prose td:first-child { white-space: nowrap; }
+.jp2-prose .jp2-idcol td:first-child { white-space: nowrap; }
 /* The part that asks him: a quiet rule in the margin, so the eye lands on it */
 .jp2-ask { margin: 6px 0 14px -19px; padding: 0 0 2px 16px; border-left: 3px solid var(--border-3); }
 .jp2-prose-hint { max-width: 610px; margin: 4px 0 0; font-size: 13px; line-height: 18px; color: var(--text-2); }
@@ -198,6 +198,7 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2-dec { margin: 0; padding: 10px 0; border-bottom: 1px solid var(--border-1); }
 .jp2-dec:first-child { padding-top: 0; }
 .jp2-dec p { margin: 0; }
+.jp2-dec-q { font-size: 13px; line-height: 20px; color: var(--text-2); }
 .jp2-dec-what { font-weight: 600; }
 .jp2-dec-why { color: var(--text-2); }
 .jp2-dec-facts { font-size: 13px; line-height: 20px; color: var(--text-3); }
