@@ -2253,6 +2253,8 @@ export async function createRunner(config) {
       jobPages.touch(job);
     } else if (type === 'usage') {
       jobPages.touchAll();
+    } else if (type === 'evidence' && data?.outcome === 'progress') {
+      // A recording's line moving: its `change` for the job (below the evidence runner) counts, at most one each 150 ms.
     } else if (JOB_PAGE_EVENTS.has(type)) {
       if (job) jobPages.touch(job); else if (type === 'change') jobPages.touchAll();
     }
