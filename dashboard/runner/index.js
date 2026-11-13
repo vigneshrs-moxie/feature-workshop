@@ -92,6 +92,8 @@ import { keepLatest, planDone } from '../lib/job-page.js';
 import { reviewRows } from '../lib/play.js';
 import { stopOf } from '../lib/stage-view.js';
 import { checkCounts } from '../lib/job-page.js';
+import { buildJobPage } from '../lib/job-payload.js';
+import { itemSources, jobPageCache } from '../lib/job-payload-cache.js';
 import { writeFileAtomic } from '../lib/atomic-write.js';
 import { UsageLog, TurnMeter, turnLines, usageDir, starbaseUser, claudeAccountId } from '../lib/usage-log.js';
 import { statusTicketKey, slugTicketKey } from '../lib/orbit.js';
@@ -1044,6 +1046,32 @@ export async function createRunner(config) {
   // (status.json, which names it, is written by the AI; lib/docs.js servableSpec). Else null.
   const shownSpec = (f) => servableSpec(specFile(f), [f.repoPath, f.dir]);
 
+  // One document as its source text (read.doc renders it; the new job page's cache keeps it). Inside
+  // the job folder only: no way out, no symlinks, .md and .json only, at most DOC_MAX_BYTES (lib/docs.js).
+  // The spec ('spec') only when it is a .md inside the job's repository or folder (shownSpec).
+  async function docOf(f, file) {
+    let doc;
+    let name;
+    let specPath = null;
+    if (file === 'spec') {
+      const p = (specPath = await shownSpec(f));
+      name = 'Product spec';
+      const st = p ? await fsp.stat(p).catch(() => null) : null;
+      if (!st?.isFile()) throw new HttpError(404, 'That file isn’t there (yet).');
+      if (st.size > DOC_MAX_BYTES) throw new HttpError(413, `The spec is too big to show here (at most ${Math.round(DOC_MAX_BYTES / 1024)} KB). Open it in your editor instead.`);
+      const text = await fsp.readFile(p, 'utf8').catch(() => null);
+      if (text === null) throw new HttpError(404, 'That file isn’t there (yet).');
+      doc = { text, updatedAt: st.mtime.toISOString(), size: st.size };
+    } else {
+      try { doc = await readJobDoc(f.dir, file); } catch (err) { throw err instanceof DocError ? new HttpError(err.status, err.message) : err; }
+      name = f.artifacts.find((a) => a.file === file)?.name ?? describeDoc(file).name;
+    }
+    const type = /\.json$/i.test(file) ? 'json' : 'md';
+    // Its Key points, when the Foreman wrote them (summaries/, lib/docs.js readSummary): null when none.
+    const summary = await readSummary(f.dir, file, file === 'spec' ? f.spec?.version ?? null : docVersion(f.dir, file, f.recordedArtifacts)).catch(() => null);
+    return { file, name, type, text: doc.text, updatedAt: doc.updatedAt, size: doc.size, specPath, summary };
+  }
+
   async function jobDocs(f) {
     const docs = [];
     const spec = await shownSpec(f);
@@ -1057,21 +1085,27 @@ export async function createRunner(config) {
 
   // One page of the conversation with the Foreman (see lib/thread.js): the newest items, or the ones
   // just before the item `before`. Only the replies on this page are rendered. Null: `before` unknown.
-  async function threadPage(f, audit, { before = null } = {}) {
+  // whole: also the whole conversation as built (all, nothing rendered) and each brief's text (texts:
+  // file -> text), for the new job page's cache.
+  async function threadPage(f, audit, { before = null, whole = false } = {}) {
     const briefs = [];
+    const texts = new Map();
     for (const b of f.briefs) {
       const st = await fsp.stat(path.join(f.dir, b.file)).catch(() => null);
-      const parsed = parseBrief((await readInside(f.dir, b.file)) ?? '');
+      const text = (await readInside(f.dir, b.file)) ?? '';
+      if (whole) texts.set(b.file, text);
+      const parsed = parseBrief(text);
       // Versions only on the brief status.json names (as first seen); older briefs have none.
       const versions = b.file === f.statusBriefFile ? raisedVersions.get(f.dir, b.file) ?? f.versions : null;
       briefs.push({ number: b.number, stage: b.stage, file: b.file, at: st?.mtime.toISOString() ?? null, headline: parsed.headline, point: parsed.happened[0] ?? parsed.next ?? null, versions });
     }
     // Starbase's own stops and starts name no job folder: read beside the job's lines (lib/thread.js).
     const service = (await state.auditAll()).filter((e) => e.action === 'service-stop' || e.action === 'service-start');
-    const page = pageThread(withRestartNotes(buildThread({ briefs, audit, autoResume: limits.autoResume, service, featureDir: f.dir }), audit), { before });
+    const all = withRestartNotes(buildThread({ briefs, audit, autoResume: limits.autoResume, service, featureDir: f.dir }), audit);
+    const page = pageThread(all, { before });
     if (!page) return null;
     const items = page.items.map(({ reply, ...it }) => (it.kind === 'reply' ? { ...it, html: renderMarkdown(reply, { idHref: idHref(f) }) } : it));
-    return { items, more: page.more };
+    return whole ? { items, more: page.more, all, texts } : { items, more: page.more };
   }
 
   // The job page's overview facts (design 3.1): the ticket with who filed it (Starbase's own record,
@@ -1149,7 +1183,8 @@ export async function createRunner(config) {
     try { await state.setSession(f.dir, { tryStartedAt: new Date().toISOString() }); } catch { /* the page shows it as not started */ }
   }
 
-  async function jobDetail(f) {
+  // whole: also the whole conversation (threadAll) and each brief's text (briefTexts), for the new job page's cache.
+  async function jobDetail(f, { whole = false } = {}) {
     const run = runFor(f);
     const latestPath = f.latestBrief?.path ?? f.briefs.at(-1)?.file ?? null;
     let latestBrief = null;
@@ -1214,7 +1249,7 @@ export async function createRunner(config) {
       }
     }
 
-    const threadPart = await threadPage(f, audit);
+    const threadPart = await threadPage(f, audit, { whole });
     const card = boardCard(f, run);
     // What Auto decided that Copy decisions keeps, in its words, oldest first (the gate card lists it): only on a job Auto ran on.
     const autoDecided = f.auto?.ran === true ? autoLines(decisionRows(audit, { briefs: await briefNames(f.dir) })) : null;
@@ -1250,6 +1285,7 @@ export async function createRunner(config) {
       statusForCompose: statusForCompose(f),
       // A gate reply waiting for the usage limit to reset ({ kind, gateBrief, at }), or null.
       heldReply: limits.heldFor(f.dir),
+      ...(whole ? { threadAll: threadPart.all, briefTexts: threadPart.texts } : {}),
     };
   }
 
@@ -2174,6 +2210,53 @@ export async function createRunner(config) {
     const slug = filename ? String(filename).split(path.sep)[0] : null;
     if (slug && !slug.startsWith('.')) { threadChanged(slug, 'files'); playbook.noteJob(slug); playbook.schedule(); }
   }
+
+  // ---------- The new job page's warm cache (lib/job-payload-cache.js; the job page rebuild, Task 4) ----------
+  // One payload per job the page has opened, rebuilt at the moments the runner already tells the pages
+  // a job changed (below), never on a request. Every costly read is here, in the rebuild: jobDetail (all
+  // of the job's audit, every brief, `ps` for terminals, git for the proof stamp), the job's lane, its
+  // commits (git) and the text of each document its steps show.
+  async function jobPageSource(slug) {
+    const f = await featureBySlug(slug);
+    if (!f) return null;
+    const detail = await jobDetail(f, { whole: true });
+    const card = (await boardCards([f])).find((c) => c.slug === slug) ?? detail;
+    const commits = await branchCommitsOf(f).then((c) => (Array.isArray(c) ? c.length : null), () => null);
+    const evidence = await local_.evidence.view(slug).catch(() => null);
+    const key = detail.page?.ticket?.key ?? (await statusTicketKey(f.dir).catch(() => null)) ?? null;
+    const payload = buildJobPage({
+      card, lane: card.lane ?? null, laneReason: card.laneReason ?? null, lanePaused: card.paused === true,
+      detail, thread: detail.threadAll, commits, evidence: evidence?.evidence || evidence?.recording ? evidence : null,
+      usage: limits.view(), key, orbitUrl, hosted: false,
+    });
+    const files = [...new Set(payload.steps.flatMap((st) => st.outputs).filter((o) => o.kind === 'doc').map((o) => o.id))];
+    const docs = (await Promise.all(files.map((file) => docOf(f, file).catch(() => null)))).filter(Boolean);
+    const sources = itemSources({
+      payload, thread: detail.threadAll, briefTexts: detail.briefTexts, docs,
+      decided: detail.decidedOnYourBehalf, autoDecided: Array.isArray(detail.auto?.decided) ? detail.auto.decided : [],
+      render: (text, { json = false } = {}) => (json ? jsonHtml(text) : renderMarkdown(text, { idHref: idHref(f) })),
+    });
+    return { payload, sources };
+  }
+  const jobPages = jobPageCache({ build: jobPageSource, onVersion: (slug, v) => events.emit('job-page', slug, { slug, v }) });
+  if (testHooks && typeof testHooks === 'object') testHooks.jobPages = jobPages;
+  // The change points (interfaces note §4): a job's own events rebuild that job; a change that names no
+  // job (a job folder or session log written, the usage limit, the flow map's lanes) rebuilds the open
+  // ones. A reply's `run` events come many times a second: only a new status counts.
+  const JOB_PAGE_EVENTS = new Set(['thread', 'permission', 'permission-gone', 'gate-stale', 'evidence', 'pr', 'change']);
+  const runStatusSeen = new Map(); // run id -> its last status
+  on('*', (type, job, data) => {
+    if (type === 'run') {
+      if (!job || !data?.id || runStatusSeen.get(data.id) === data.status) return;
+      runStatusSeen.set(data.id, data.status);
+      if (!ACTIVE_RUN.has(data.status)) setTimeout(() => runStatusSeen.delete(data.id), 60_000).unref?.();
+      jobPages.touch(job);
+    } else if (type === 'usage') {
+      jobPages.touchAll();
+    } else if (JOB_PAGE_EVENTS.has(type)) {
+      if (job) jobPages.touch(job); else if (type === 'change') jobPages.touchAll();
+    }
+  });
 
   function watch(dir, onFile = null) {
     try {
@@ -3466,6 +3549,10 @@ export async function createRunner(config) {
       return { file: DECISIONS_FILE, path: d.file, text: d.text, orbit: orbitCopy(d.rows, { ticket, title: f.title, today: localDay(), notDoing: d.notDoing }) };
     },
     hasJob: async (slug) => Boolean(await featureBySlug(slug)),
+    /** The new job page's payload from the warm cache, or { same: true, v } when v is current (site/routes-job-page.js). */
+    jobPage: (slug, v = null) => jobPages.page(slug, v),
+    /** One body of the new job page, from the warm cache: { id, kind, version, html, text, meta }. */
+    jobItem: (slug, id) => jobPages.item(slug, id),
     /** The job a name means: its slug, or a ticket key (ORBIT-479) an open job is for. Null: none. */
     async jobForName(name) {
       if (await featureBySlug(name)) return name;
@@ -3501,31 +3588,10 @@ export async function createRunner(config) {
       return { docs: await listJobDocs(f.dir, { spec: specPath ? { path: specPath, version: f.spec?.version ?? null } : null, recorded: f.recordedArtifacts }) };
     },
     async doc(slug, file) {
-      // One document, rendered (sanitised, lib/markdown.js) and as its source text. Inside the job
-      // folder only: no way out, no symlinks, .md and .json only, at most DOC_MAX_BYTES (lib/docs.js).
-      // The spec ('spec') only when it is a .md inside the job's repository or folder (shownSpec).
       const f = await jobOf(slug);
-      let doc;
-      let name;
-      let specPath = null;
-      if (file === 'spec') {
-        const p = (specPath = await shownSpec(f));
-        name = 'Product spec';
-        const st = p ? await fsp.stat(p).catch(() => null) : null;
-        if (!st?.isFile()) throw new HttpError(404, 'That file isn’t there (yet).');
-        if (st.size > DOC_MAX_BYTES) throw new HttpError(413, `The spec is too big to show here (at most ${Math.round(DOC_MAX_BYTES / 1024)} KB). Open it in your editor instead.`);
-        const text = await fsp.readFile(p, 'utf8').catch(() => null);
-        if (text === null) throw new HttpError(404, 'That file isn’t there (yet).');
-        doc = { text, updatedAt: st.mtime.toISOString(), size: st.size };
-      } else {
-        try { doc = await readJobDoc(f.dir, file); } catch (err) { throw err instanceof DocError ? new HttpError(err.status, err.message) : err; }
-        name = f.artifacts.find((a) => a.file === file)?.name ?? describeDoc(file).name;
-      }
-      const type = /\.json$/i.test(file) ? 'json' : 'md';
-      const html = type === 'json' ? jsonHtml(doc.text) : renderMarkdown(doc.text, { idHref: idHref(f) });
-      // Its Key points, when the Foreman wrote them (summaries/, lib/docs.js readSummary): null when none.
-      const summary = await readSummary(f.dir, file, file === 'spec' ? f.spec?.version ?? null : docVersion(f.dir, file, f.recordedArtifacts)).catch(() => null);
-      return { file, name, type, html, text: doc.text, updatedAt: doc.updatedAt, size: doc.size, vscode: file === 'spec' ? specPath : path.join(f.dir, file), summary };
+      const doc = await docOf(f, file);
+      const html = doc.type === 'json' ? jsonHtml(doc.text) : renderMarkdown(doc.text, { idHref: idHref(f) });
+      return { file, name: doc.name, type: doc.type, html, text: doc.text, updatedAt: doc.updatedAt, size: doc.size, vscode: file === 'spec' ? doc.specPath : path.join(f.dir, file), summary: doc.summary };
     },
     async ids(slug, id) {
       const index = indexIds(await jobDocs(await jobOf(slug)));
@@ -3882,6 +3948,7 @@ export async function createRunner(config) {
     stopping ??= (async () => {
       if (resumeTimer) { clearInterval(resumeTimer); resumeTimer = null; }
       siteLink?.stop();
+      jobPages.close();
       const active = driver.list().filter((r) => ACTIVE_RUN.has(r.status));
       const paused = active.map((r) => ({ runId: r.id, slug: r.slug, featureDir: r.featureDir, sessionId: r.sessionId, model: r.model, cwd: r.cwd, kind: r.kind }));
       for (const [dir, p] of restartPaused) {

@@ -33,7 +33,7 @@
 //   thread       ThreadLine[]: one line per conversation item, oldest first, no bodies
 //   waiting      null (R8, Task 16: the one message waiting for the Foreman)
 //   prs          PrLine[]: always three
-//   hosted       boolean: built on the website
+//   hosted       boolean: built on the website (mirrorJobPage, which leaves out drive and lock: LOCAL_ONLY)
 //
 //   StepRow      { id: 'spec' | … | 'ship', label, state: 'done' | 'current' | 'todo' | 'skipped',
 //                  word: string | null (the result: 'v3', '19 passed', '2 open', 'PR #1 open'; only on done
@@ -631,4 +631,28 @@ export function buildJobPage(facts) {
     prs: (Array.isArray(page.prs) ? page.prs : []).map((p) => ({ n: p.n, number: p.number ?? null, url: p.url ?? null, state: p.state ?? 'not-started', word: prWord(p), next: null, comments: null })),
     hosted: Boolean(f.hosted),
   };
+}
+
+// ---------- The website's payload ----------
+
+/** What only the laptop has: how the job is driven (terminals) and which process holds it. Left out on the website. */
+export const LOCAL_ONLY = Object.freeze(['drive', 'lock']);
+
+/**
+ * The website's payload (hosted/site/routes-mirror.js), the same shape built from the mirrored job
+ * record (runner/mirror.js jobRecord: jobDetail's shape, the Foreman's replies already lines saying
+ * they show on the laptop, the newest 60 items): hosted, and without the LOCAL_ONLY fields. `row` is
+ * the job's row on the mirrored board (its lane); `v` the record's version (the site's own).
+ * @param {object} job  the mirrored job record
+ * @param {{ row?: object | null, v?: number }} [o]
+ */
+export function mirrorJobPage(job, { row = null, v = 0 } = {}) {
+  const j = job ?? {};
+  const payload = buildJobPage({
+    v, card: j, detail: j, thread: Array.isArray(j.thread) ? j.thread : [],
+    lane: row?.lane ?? j.lane ?? null, laneReason: row?.laneReason ?? j.laneReason ?? null, lanePaused: Boolean(row?.paused),
+    commits: null, evidence: null, usage: null, hosted: true,
+  });
+  for (const k of LOCAL_ONLY) delete payload[k];
+  return payload;
 }

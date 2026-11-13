@@ -579,6 +579,8 @@ export function createSiteLink({ runner, stateDir, store, fetch: fetchFn = globa
   }
   /** Any runner event: a job's own marks that job to look at again; the rest, the board. */
   function onRunnerEvent(type, job) {
+    // The new job page's own event: its job's record is already marked by the change that moved it.
+    if (type === 'job-page') return;
     if (job) records.dirty(job);
     if (type !== 'change' && type !== 'run') onChange();
     if (type === 'settings') reposChanged().catch((err) => log(`site link: ${err.message}`));

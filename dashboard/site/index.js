@@ -32,11 +32,12 @@ import stacksRoutes from './routes-stacks.js';
 import evidenceRoutes from './routes-evidence.js';
 import reviewRoutes from './routes-review.js';
 import stageRoutes from './routes-stage.js';
+import jobPageRoutes from './routes-job-page.js';
 import { PRODUCT } from '../lib/brand.js';
 
 // Every list of routes, in the order they are tried.
-// stageRoutes before jobRoutes: the job routes answer every other GET /api/job/:slug/... with a 404.
-const ROUTE_LISTS = [boardRoutes, evidenceRoutes, stageRoutes, jobRoutes, settingsRoutes, playRoutes, reposRoutes];
+// stageRoutes and jobPageRoutes before jobRoutes: the job routes answer every other GET /api/job/:slug/... with a 404.
+const ROUTE_LISTS = [boardRoutes, evidenceRoutes, stageRoutes, jobPageRoutes, jobRoutes, settingsRoutes, playRoutes, reposRoutes];
 // The parts that answer every method under their own prefix, tried before the lists above.
 const MOUNTS = [integrateRoutes, stacksRoutes, orbitRoutes, telemetryRoutes, reviewRoutes];
 

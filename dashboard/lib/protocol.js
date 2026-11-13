@@ -228,6 +228,9 @@ export const EVENT_TYPES = Object.freeze([
   'record', 'audit',
   // The laptop's suggested tickets changed ({ at }): the link looks again. An older site refuses it.
   'inbox-suggest',
+  // The new job page's payload for a job changed ({ slug, v }; lib/job-payload-cache.js). The laptop's page
+  // only: the site link never sends it (an older site refuses a type it doesn't know).
+  'job-page',
 ]);
 
 /** Keys an event never carries, at any depth (§2.4 "Never carries"). */
