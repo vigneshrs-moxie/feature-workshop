@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { keepVersions, versionBase, compareVersionLabels, EARLIER_MAX } from '../lib/doc-versions.js';
+import { keepVersions, versionBase, compareVersionLabels, inVersionsFolder, EARLIER_MAX, STALE_TMP_MS } from '../lib/doc-versions.js';
 
 async function jobDir() {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'starbase-doc-versions-')));
@@ -41,7 +41,7 @@ test('the copies survive a restart: a fresh call reads them from the folder', as
   // A new process knows nothing but the folder.
   const { keepVersions: again } = await import(`../lib/doc-versions.js?restart=${Date.now()}`);
   const older = await again(dir, [{ file: 'spec', name: 'Product spec', version: '0.4', text: 'spec 0.4', type: 'md' }]);
-  assert.deepEqual(older.get('spec').map((v) => [v.n, v.id, v.text]), [['0.3', 'versions/spec.v0.3.md', 'spec 0.3']]);
+  assert.deepEqual(older.get('spec').map((v) => [v.n, v.id, v.text]), [['0.3', 'versions/@spec.v0.3.md', 'spec 0.3']]);
 });
 
 test('rewritten under the same number: the words seen before are kept as an earlier copy of that number (at most a few)', async () => {
@@ -71,7 +71,65 @@ test('never outside the job’s folder: a symlinked versions folder is not writt
     { file: 'notes.json', version: '1', text: '{}', type: 'json' },
     { file: 'findings.md', version: null, text: 'x', type: 'md' },
   ]);
-  assert.deepEqual((await fs.readdir(path.join(other, 'versions')).catch(() => [])).sort(), ['outside.v1.md'], 'the path part dropped from the name');
-  assert.equal(versionBase('review/db.md'), 'review__db');
+  assert.deepEqual((await fs.readdir(path.join(other, 'versions')).catch(() => [])).sort(), [], 'a name with a .. part is never kept');
+  assert.equal(versionBase('review/db.md'), 'review_2fdb');
   assert.equal(compareVersionLabels('0.10', '0.9'), 1);
+});
+
+test('fix round 2: no two documents share a copy: review/db.md and review__db.md, the repository spec and a job’s spec.md; a second rebuild writes nothing', async () => {
+  const { dir } = await jobDir();
+  const docs = [
+    { file: 'review/db.md', name: 'Review: db', version: '1', text: 'the db lens', type: 'md' },
+    { file: 'review__db.md', name: 'Review db notes', version: '1', text: 'some notes', type: 'md' },
+    { file: 'spec', name: 'Product spec', version: '1', text: 'the repository spec', type: 'md' },
+    { file: 'spec.md', name: 'Spec notes', version: '1', text: 'the job folder’s spec.md', type: 'md' },
+  ];
+  await keepVersions(dir, docs);
+  const files = async () => Promise.all((await fs.readdir(path.join(dir, 'versions'))).sort().map(async (n) => [n, (await fs.readFile(path.join(dir, 'versions', n), 'utf8')), (await fs.stat(path.join(dir, 'versions', n))).mtimeMs]));
+  const first = await files();
+  assert.deepEqual(first.map(([n, t]) => [n, t]), [
+    ['@spec.v1.md', 'the repository spec'],
+    ['review_2fdb.v1.md', 'the db lens'],
+    ['review_5f_5fdb.v1.md', 'some notes'],
+    ['spec.v1.md', 'the job folder’s spec.md'],
+  ]);
+  await new Promise((r) => setTimeout(r, 20));
+  const older = await keepVersions(dir, docs);
+  assert.deepEqual(await files(), first, 'nothing written again, so no watch fires and no rebuild follows');
+  for (const d of docs) assert.deepEqual(older.get(d.file), [], d.file);
+  // The same document twice in one call is written once.
+  await keepVersions(dir, [docs[0], { ...docs[0], text: 'other words' }]);
+  assert.equal(await fs.readFile(path.join(dir, 'versions', 'review_2fdb.v1.md'), 'utf8'), 'the db lens');
+});
+
+test('fix round 2: a write under a job’s versions/ folder is not a change of the job; one document’s failed copy leaves the others kept and listed', async () => {
+  assert.equal(inVersionsFolder(path.join('orbit-1-x', 'versions', 'spec.v1.md')), true);
+  assert.equal(inVersionsFolder('orbit-1-x/versions/spec.v1.md.123.abcd1234.tmp'), true);
+  assert.equal(inVersionsFolder(path.join('orbit-1-x', 'spec.md')), false);
+  assert.equal(inVersionsFolder(path.join('orbit-1-x', 'versions')), false, 'the folder made is not a copy, but a write in it is');
+  assert.equal(inVersionsFolder(path.join('orbit-1-x', 'review', 'versions', 'x.md')), false);
+  const { dir } = await jobDir();
+  await keepVersions(dir, [plan('1', 'plan 1'), { file: 'test-plan.md', version: '1', text: 'tests 1', type: 'md' }]);
+  const write = async (file, text) => {
+    if (file.includes('implementation-plan')) throw new Error('disk full');
+    await fs.writeFile(file, text);
+  };
+  const older = await keepVersions(dir, [plan('2', 'plan 2'), { file: 'test-plan.md', version: '2', text: 'tests 2', type: 'md' }], { write });
+  assert.equal(older.has('implementation-plan.md'), false, 'left out');
+  assert.deepEqual(older.get('test-plan.md').map((v) => v.n), ['1'], 'the other is still kept and listed');
+});
+
+test('fix round 2: a save’s temporary file a crash left behind is cleared once it is a minute old', async () => {
+  const { dir } = await jobDir();
+  await keepVersions(dir, [plan('1', 'plan 1')]);
+  const old = path.join(dir, 'versions', 'implementation-plan.v2.md.999.deadbeef.tmp');
+  const fresh = path.join(dir, 'versions', 'implementation-plan.v2.md.999.feedface.tmp');
+  await fs.writeFile(old, 'half');
+  await fs.writeFile(fresh, 'half');
+  const then = new Date(Date.now() - STALE_TMP_MS - 5000);
+  await fs.utimes(old, then, then);
+  await keepVersions(dir, [plan('1', 'plan 1')]);
+  const left = await fs.readdir(path.join(dir, 'versions'));
+  assert.equal(left.includes(path.basename(old)), false);
+  assert.equal(left.includes(path.basename(fresh)), true, 'one being written now stays');
 });

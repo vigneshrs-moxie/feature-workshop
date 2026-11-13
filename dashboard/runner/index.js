@@ -94,7 +94,7 @@ import { stopOf } from '../lib/stage-view.js';
 import { checkCounts } from '../lib/job-page.js';
 import { buildJobPage } from '../lib/job-payload.js';
 import { bodyHash, itemSources, jobPageCache } from '../lib/job-payload-cache.js';
-import { keepVersions } from '../lib/doc-versions.js';
+import { inVersionsFolder, keepVersions } from '../lib/doc-versions.js';
 import { crewLogs, jobWork, runLines, workFacts } from '../lib/work-rows.js';
 import { writeFileAtomic } from '../lib/atomic-write.js';
 import { UsageLog, TurnMeter, turnLines, usageDir, starbaseUser, claudeAccountId } from '../lib/usage-log.js';
@@ -2267,6 +2267,10 @@ export async function createRunner(config) {
   const crewLogReader = crewLogs({ projectsDir: PROJECTS_DIR });
   const jobPages = jobPageCache({ build: jobPageSource, onVersion: (slug, v) => events.emit('job-page', slug, { slug, v }) });
   if (testHooks && typeof testHooks === 'object') testHooks.jobPages = jobPages;
+  // The jobs folder's watch. A copy the job page keeps in a job's versions/ folder (lib/doc-versions.js,
+  // written at a rebuild) is no change of the job: it would start another rebuild, and so on.
+  const featuresWatch = watchHandler(featureFileChanged, inVersionsFolder);
+  if (testHooks && typeof testHooks === 'object') testHooks.featuresWatch = featuresWatch;
   // The change points (interfaces note §4): a job's own events rebuild that job; a change that names no
   // job (a job folder or session log written, the usage limit, the flow map's lanes) rebuilds the open
   // ones. A reply's `run` events come many times a second: only a new status counts.
@@ -2288,9 +2292,13 @@ export async function createRunner(config) {
     }
   });
 
-  function watch(dir, onFile = null) {
+  /** What a watched folder's change does; `ignore` names the changes that do nothing. */
+  function watchHandler(onFile = null, ignore = null) {
+    return (type, filename) => { if (ignore?.(filename)) return; notifyChange(); onFile?.(type, filename); };
+  }
+  function watch(dir, handler = watchHandler()) {
     try {
-      fs.watch(dir, { recursive: true }, (type, filename) => { notifyChange(); onFile?.(type, filename); }).on('error', () => {});
+      fs.watch(dir, { recursive: true }, handler).on('error', () => {});
     } catch {
       console.warn(`Not watching ${dir} (missing or not supported); the page still refreshes every 30 seconds.`);
     }
@@ -3933,7 +3941,7 @@ export async function createRunner(config) {
     await checkSkill(); // read once at start; /api/meta re-reads only when the file changes
     // Before the routes open: what the last stop (or crash) left (runner/replay.js).
     await replayRestart();
-    watch(FEATURES_DIR, featureFileChanged);
+    watch(FEATURES_DIR, featuresWatch);
     watch(PROJECTS_DIR);
     await listen();
     // How `starbase resume` finds this service (runner/service-file.js): pid, port, token.

@@ -9,10 +9,18 @@
 //   versions/<name>.v<n>.e<k>.md the earlier words of version n, when the document was rewritten
 //                                without a new number (k = 1, 2, …; at most EARLIER_MAX kept, the
 //                                newest in the highest k)
-// <name> is the document's file without .md, with any folder part joined by `__` (review/db.md →
-// review__db); the product spec (`spec`, kept in the repository) is `spec`. So when a document's
-// number moves on, the copy of its previous version is already there, also across a restart, and a
-// version is copied once: a rebuild that sees the same words writes nothing.
+// <name> is the document's file without .md, written so that no two files share it (versionBase):
+// letters, digits and `-` stay, every other character is `_` and its hex code (review/db.md →
+// review_2fdb, review__db.md → review_5f_5fdb), and a document that is no .md file of the job
+// folder (the product spec, `spec`, kept in the repository) starts with `@` (@spec, apart from a
+// job's own spec.md, `spec`). So when a document's number moves on, the copy of its previous version
+// is already there, also across a restart, and a version is copied once: a rebuild that sees the
+// same words writes nothing. One call never writes one name twice.
+//
+// The runner's watch on the jobs folder takes no notice of writes under a job's versions/ folder
+// (inVersionsFolder), so a copy never starts another rebuild. One document whose copy cannot be
+// written is left out; the others are still kept and listed. A save's temporary file left behind
+// (a crash mid-write) is cleared by a later call once it is a minute old.
 //
 // It returns, per document, its older versions newest first ([{ n, id, name, text, updatedAt }]; id is
 // the copy's path in the job folder, `versions/…`), for the payload's `versions` and the item route.
@@ -28,11 +36,27 @@ export const VERSIONS_DIR = 'versions';
 export const EARLIER_MAX = 5;
 const SAFE_VERSION = /^[0-9A-Za-z][0-9A-Za-z._-]{0,23}$/;
 const MAX_BYTES = 1024 * 1024;
+/** A save's temporary file this old is one a crash left behind. */
+export const STALE_TMP_MS = 60_000;
 
-/** The copy's base name for a document's file: no folder part, no dots at the start, nothing odd. */
+/**
+ * The copy's base name for a document's file, one name per file: letters, digits and `-` as they
+ * are, every other character (`/`, `.`, `_`, …) as `_` and its hex code (UTF-8 bytes), so the name
+ * has no path part, no dot (the first `.v` after it is always the version's) and no clash; a file
+ * that is no .md file starts with `@`. Null for an empty name or one with a `..` or `.` part.
+ */
 export function versionBase(file) {
-  const s = String(file ?? '').replace(/\.md$/i, '').split(/[\\/]/).filter((p) => p && p !== '.' && p !== '..').join('__').replace(/[^0-9A-Za-z._-]/g, '_').replace(/^[.]+/, '');
-  return s || null;
+  const f = String(file ?? '');
+  if (!f || f.split(/[\\/]/).some((p) => p === '' || p === '.' || p === '..')) return null;
+  const md = /\.md$/i.test(f);
+  const enc = [...Buffer.from(md ? f.slice(0, -3) : f, 'utf8')].map((b) => (/[0-9A-Za-z-]/.test(String.fromCharCode(b)) ? String.fromCharCode(b) : `_${b.toString(16).padStart(2, '0')}`)).join('');
+  return enc ? `${md ? '' : '@'}${enc}` : null;
+}
+
+/** Whether a path the jobs folder's watch names (<job>/…) is under that job's versions/ folder. */
+export function inVersionsFolder(filename) {
+  const parts = String(filename ?? '').split(/[\\/]/);
+  return parts.length > 2 && parts[1] === VERSIONS_DIR;
 }
 
 /** 1 when version a is newer than b, -1 when older, 0 when the same: number by number ('0.10' after '0.9'). */
@@ -66,7 +90,7 @@ async function plain(abs) {
  * @param {{ file: string, name?: string, version: string|null, text: string, type?: string }[]} docs
  * @returns {Promise<Map<string, { n: string, id: string, name: string, text: string, updatedAt: string }[]>>}
  */
-export async function keepVersions(jobDir, docs) {
+export async function keepVersions(jobDir, docs, { write = writeFileAtomic, now = Date.now } = {}) {
   const out = new Map();
   const root = path.resolve(jobDir);
   const rootSt = await fs.lstat(root).catch(() => null);
@@ -82,19 +106,38 @@ export async function keepVersions(jobDir, docs) {
   };
   let names = null;
   const list = async () => (names ??= await fs.readdir(dir).catch(() => []));
+  // A save's temporary file a crash left behind (atomic-write's <file>.<pid>.<id>.tmp), once a minute old.
+  const dirSt = await fs.lstat(dir).catch(() => null);
+  if (dirSt?.isDirectory() && !dirSt.isSymbolicLink()) {
+    for (const f of await list()) {
+      if (!f.endsWith('.tmp')) continue;
+      const st = await fs.lstat(path.join(dir, f)).catch(() => null);
+      if (st?.isFile() && now() - st.mtimeMs > STALE_TMP_MS) await fs.unlink(path.join(dir, f)).catch(() => {});
+    }
+    names = null;
+  }
+  const used = new Set();
   for (const d of Array.isArray(docs) ? docs : []) {
     const version = d?.version == null ? null : String(d.version);
     const base = versionBase(d?.file);
     if (!version || !SAFE_VERSION.test(version) || !base || d.type === 'json' || typeof d.text !== 'string') continue;
+    // One name is written once a call (the same document listed twice): never two words in turn.
+    if (used.has(base)) continue;
+    used.add(base);
+    try { await keepOne(d, version, base); } catch { /* this document's copy could not be written: it is left out */ }
+  }
+  return out;
+
+  async function keepOne(d, version, base) {
     const st = await fs.lstat(dir).catch(() => null);
     const exists = Boolean(st?.isDirectory() && !st.isSymbolicLink());
-    if (st && !exists) continue; // versions is something else (a file, a symlink): never written through
+    if (st && !exists) return; // versions is something else (a file, a symlink): never written through
     const current = path.join(dir, `${base}.v${version}.md`);
     const seen = exists ? await plain(current) : null;
     if (!seen || seen.text !== d.text) {
-      if (!(await folder())) continue;
+      if (!(await folder())) return;
       const cst = await fs.lstat(current).catch(() => null);
-      if (cst && !cst.isFile()) continue;
+      if (cst && !cst.isFile()) return;
       if (seen) {
         // Rewritten under the same number: the words seen before become its newest earlier copy.
         const taken = (await list()).map((f) => new RegExp(`^${escape(base)}\\.v${escape(version)}\\.e(\\d+)\\.md$`).exec(f)).filter(Boolean).map((m) => Number(m[1]));
@@ -103,9 +146,9 @@ export async function keepVersions(jobDir, docs) {
           // Full: the oldest goes, the rest move down one.
           for (let i = 1; i < EARLIER_MAX; i++) await fs.rename(path.join(dir, `${base}.v${version}.e${i + 1}.md`), path.join(dir, `${base}.v${version}.e${i}.md`)).catch(() => {});
         }
-        await writeFileAtomic(path.join(dir, `${base}.v${version}.e${k}.md`), seen.text);
+        await write(path.join(dir, `${base}.v${version}.e${k}.md`), seen.text);
       }
-      await writeFileAtomic(current, d.text);
+      await write(current, d.text);
       names = null;
     }
     // Its older versions: every other number, and the earlier copies of this one; newest first.
@@ -124,5 +167,4 @@ export async function keepVersions(jobDir, docs) {
     found.sort((a, b) => compareVersionLabels(b.v, a.v) || (a.k === 0 ? -1 : b.k === 0 ? 1 : b.k - a.k));
     out.set(String(d.file), found.map(({ n, id, name, text, updatedAt }) => ({ n, id, name, text, updatedAt })));
   }
-  return out;
 }

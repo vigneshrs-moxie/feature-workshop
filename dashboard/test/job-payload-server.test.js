@@ -483,3 +483,23 @@ test('Task 12 fix round 1: a document’s older version is copied into the job�
     assert.deepEqual(before.map(([n]) => n), ['implementation-plan.v1.md', 'implementation-plan.v2.md']);
   } finally { viewer.close(); }
 });
+
+test('Task 12 fix round 2: a write in a job’s versions/ folder starts no rebuild; any other file of the job does', { timeout: 60_000 }, async () => {
+  const slug = 'notes-versions-watch';
+  await writeJob(slug, { 'implementation-plan.md': '# Implementation plan\n' });
+  await sleep(1600); // past the runner's 1.5 s job list, so it lists the new job
+  const viewer = await openViewer();
+  try {
+    await get(`/api/job/${slug}/page?viewer=${viewer.id}`);
+    await sleep(1200); // anything the first build set going settles
+    const before = hooks.jobPages.stats().builds;
+    hooks.featuresWatch('rename', path.join(slug, 'versions', 'implementation-plan.v1.md'));
+    hooks.featuresWatch('change', path.join(slug, 'versions', 'implementation-plan.v1.md.1.abcd1234.tmp'));
+    await sleep(1500); // past the thread (300 ms), change (700 ms) and rebuild (150 ms) waits
+    assert.equal(hooks.jobPages.stats().builds, before, 'a copy is no change of the job');
+    hooks.featuresWatch('change', path.join(slug, 'implementation-plan.md'));
+    const end = Date.now() + 5000;
+    while (Date.now() < end && hooks.jobPages.stats().builds === before) await sleep(50);
+    assert.ok(hooks.jobPages.stats().builds > before, 'a document of the job is');
+  } finally { viewer.close(); }
+});
