@@ -284,3 +284,16 @@ test('an Auto job whose waiting step he wrote to needs him and does not say Auto
     assert.deepEqual(laneFor(card({ needsYou: true, waitingFor: 'approval', stage: 'plan', auto: { on: true, ran: true, stopped: null, yours, deciding: false, allowed: true, why: null } })), { lane: 'working', laneReason: 'Auto is deciding: the plan' });
   }
 });
+
+test('an Auto job waiting for its turn to test is working, with that reason', () => {
+  const auto = { on: true, ran: true, stopped: null, deciding: false, allowed: true, why: null, waitingToTest: true };
+  assert.deepEqual(laneFor(card({ needsYou: true, waitingFor: 'approval', stage: 'implement', auto })), { lane: 'working', laneReason: 'Waiting for its turn to test' });
+  // Not waiting (false, or a card from an older Starbase without the field): Auto is deciding, as before.
+  for (const waitingToTest of [false, undefined]) {
+    assert.deepEqual(laneFor(card({ needsYou: true, waitingFor: 'approval', stage: 'implement', auto: { ...auto, waitingToTest } })), { lane: 'working', laneReason: 'Auto is deciding: the build' });
+  }
+  // Stopped, or Auto off: the wait for the place says nothing.
+  const stopped = { reason: 'the plan adds a migration', rule: 'database', at: '2026-11-10T09:30:00.000Z' };
+  assert.deepEqual(laneFor(card({ needsYou: true, waitingFor: 'approval', stage: 'implement', auto: { ...auto, stopped } })), { lane: 'needs-you', laneReason: 'Auto stopped: the plan adds a migration' });
+  assert.deepEqual(laneFor(card({ needsYou: true, waitingFor: 'approval', stage: 'implement', auto: { ...auto, on: false } })), { lane: 'needs-you', laneReason: 'Waiting for your go-ahead on the build' });
+});

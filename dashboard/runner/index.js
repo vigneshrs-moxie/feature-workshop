@@ -579,7 +579,10 @@ export async function createRunner(config) {
   const PARK_CHECK_MS = Math.min(DEMO ? 30_000 : 5 * 60_000, Math.max(200, Math.floor(PARK_MS / 4)));
   const parking = new GateParking({ thresholdMs: PARK_MS, file: path.join(state.dir, 'gate-parking.json') });
   const gateOf = (f, runActive) => ({ slug: f.slug, briefNumber: f.currentBrief?.number ?? null, briefAt: f.currentBrief?.at ?? null, waitingSince: f.gateWaitingSince, runActive: Boolean(runActive) });
-  const gateParked = (f, runActive) => isParkable(f) && !closedOff(f) && parking.isParked(gateOf(f, runActive));
+  // An Auto job whose go-ahead into Test waits for its turn (runner/auto.js, set once Auto's pass exists, below): it is not
+  // waiting for you, so it is never parked and never told.
+  let waitingToTestOf = () => false;
+  const gateParked = (f, runActive) => isParkable(f) && !closedOff(f) && !waitingToTestOf(f.dir) && parking.isParked(gateOf(f, runActive));
   // Briefs answered from a gate card: read from the audit once at start, then kept up as replies are
   // sent (or held until the usage limit resets: you've decided, so the gate isn't parked, unless
   // that held reply is dropped). The same rule as answeredBriefs.
@@ -782,6 +785,7 @@ export async function createRunner(config) {
     const gates = waiting.map((f) => gateOf(f, driver.activeRunFor({ featureDir: f.dir })));
     let changed = parking.trim(gates);
     for (const g of parking.due(gates)) {
+      if (waitingToTestOf(waiting.find((x) => x.slug === g.slug)?.dir)) continue;
       parking.mark(g);
       changed = true;
       events.emit('gate-stale', g.slug, { job: g.slug, briefNumber: g.briefNumber, waitingSince: g.waitingSince });
@@ -998,8 +1002,8 @@ export async function createRunner(config) {
       parked: gateParked(f, active),
       finish,
       // Auto mode (lib/auto.js): on, ran, stopped, deciding, and whether this job's level allows it; its
-      // Auto group (none when closed). waitingToTest is filled by the test place (a later part).
-      auto: autoCardView(f.auto, { level: f.level, suggestedLevel: f.suggestedLevel, closed: Boolean(f.closed), waitingToTest: false }),
+      // Auto group (none when closed); whether its go-ahead into Test waits for the test place (runner/auto.js).
+      auto: autoCardView(f.auto, { level: f.level, suggestedLevel: f.suggestedLevel, closed: Boolean(f.closed), waitingToTest: waitingToTestOf(f.dir) }),
       // Its evidence being recorded now, by line ("Recording evidence: line 4 of 19"; runner/evidence.js), else null.
       testing: testingOf(f.slug),
       // The PR hand-offs waiting on someone (lib/nudges.js): the Desk's nudge items.
@@ -2035,6 +2039,7 @@ export async function createRunner(config) {
     // A job stopped or finished: its Auto start place is free, so a waiting tagged ticket starts now, not at the next Inbox poll.
     freed: () => { invalidate(); runAutoStart(); },
   });
+  waitingToTestOf = (dir) => auto.waitingToTest(dir);
 
   // The finish line (lib/finish.js) and the flow map. "Done" is told once, when a job crosses the
   // line you set, whatever crossed it (a PR merged, Mark done); reaching staging or main after that
@@ -3383,7 +3388,7 @@ export async function createRunner(config) {
     async snapshot(pageMeta) {
       const list = await features();
       const jobs = groupCards(await boardCards(list));
-      // The Auto queue (lib/auto-queue.js): the places and the Inbox's Auto groups. testing: the test place's holder (auto.testHolder, once there is one).
+      // The Auto queue (lib/auto-queue.js): the places and the Inbox's Auto groups. testing: the test place's holder (auto.testHolder).
       const autoQueue = autoQueueView({
         setting: autoStartSetting, paused: autoStartView().paused, cards: jobs, items: await withJobs(orbitInbox.view().items ?? [], list),
         failed: autoStarter.failedList(), started: autoStarter.startedList(), hadJobs: autoStarter.hadJobList(), places: autoPlaces(list),
@@ -3816,6 +3821,7 @@ export async function createRunner(config) {
   if (testHooks && typeof testHooks === 'object') {
     testHooks.replay = replayRestart;
     testHooks.startJob = (body, internal) => HANDLERS.start(body, internal);
+    testHooks.checkParked = checkParkedGates; // one look for parked gates, without start()'s timer
   }
 
   // ---------- Start and stop ----------

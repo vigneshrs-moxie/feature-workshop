@@ -5765,3 +5765,282 @@ test('a go-ahead into PR #1 is still sent when the lines cannot be read', { time
   assert.equal(u.record().stopped, null);
   assert.equal(u.lines.filter((l) => l.what === 'gate').length, 1);
 });
+
+// ---------- Task 10: one Auto job in Test at a time (the test place) ----------
+
+const TO_TEST = { briefNumber: 1, stale: false, questions: [], decided: [], headline: 'The build is done', nextStage: 'test' };
+/**
+ * createAuto on several in-memory jobs, each with its own record. over[slug]: the job's own fields over a job at the build's
+ * brief into Test (a test changes them between passes); record(slug) and set(slug, fields): its record. decides: 'slug#brief'.
+ */
+function places(over, { now } = {}) {
+  const dirOf = (slug) => `/jobs/${slug}`;
+  const recs = new Map(Object.keys(over).map((s) => [s, { ...autoRecord(null, { on: true, now: OLD }) }]));
+  const lines = [];
+  const notes = [];
+  const decides = [];
+  const view = (slug) => ({
+    dir: dirOf(slug), slug, title: slug, auto: { ...recs.get(slug) }, level: 1, suggestedLevel: null, stage: 'implement', stageState: 'waiting_for_you', ticketKey: null,
+    triggers: [], statusCard: false, prOpen: false, gate: { ...TO_TEST }, answered: [], briefPath: null, artifacts: [], running: false, locked: false, restarting: false,
+    paused: false, worktrees: [], specDirs: [], ...over[slug],
+  });
+  const auto = createAuto({
+    read: async (dir) => Object.keys(over).filter((s) => recs.get(s).on === true && (!dir || dirOf(s) === dir)).map(view),
+    update: async (dir, fn) => { const s = path.basename(dir); const next = fn({ ...recs.get(s) }); if (next) recs.set(s, next); return { ...recs.get(s) }; },
+    decide: { gate: async (_kind, body) => { decides.push(`${body.slug}#${body.briefNumber}`); }, permission: async () => {} },
+    askApprover: async () => ({ ok: true, costUsd: 0, answer: { decision: 'go', answers: [], why: 'Fine.', risk: 'low' } }),
+    state: { audit: async (l) => { lines.push(l); }, auditFor: async () => [] },
+    notify: (n) => notes.push(n),
+    ...(now ? { now } : {}),
+  });
+  return { auto, over, decides, lines, notes, dirOf, record: (s) => recs.get(s), set: (s, fields) => recs.set(s, { ...recs.get(s), ...fields }) };
+}
+const intoTest = (over = {}) => status(1, { stage: 'implement', brief: { number: 1, path: 'briefs/001-plan.md', headline: 'Visit audit · the build is done' }, ...over });
+const inTest = (over = {}) => status(1, { stage: 'test', stage_state: 'working', waiting_for: null, ...over });
+const writeOther = (w, s) => fs.writeFile(path.join(w.otherDir, 'status.json'), JSON.stringify({ slug: path.basename(w.otherDir), ...s }, null, 2));
+const gateSends = async (w) => (await w.sends()).filter((s) => s.gateBrief);
+
+test('two Auto jobs at the brief into Test in one pass: one Go is sent, the other waits for its turn', { timeout: 60_000 }, async () => {
+  const w = await world({ jobStatus: intoTest(), also: { slug: 'zzz-other', status: intoTest({ title: 'Other' }), options: { level: 1, flow: 'quick', title: 'Other' } } });
+  const cardOf = async (slug) => (await w.runner.read.features()).features.find((c) => c.slug === slug);
+  try {
+    await w.pass();
+    const sent = await gateSends(w);
+    assert.equal(sent.length, 1, 'exactly one Go');
+    const first = sent[0].slug;
+    const second = first === w.slug ? 'zzz-other' : w.slug;
+    await w.idle();
+    await new Promise((r) => setTimeout(r, 1700));
+    const card = await cardOf(second);
+    assert.equal(card.auto.waitingToTest, true);
+    assert.deepEqual({ lane: card.lane, laneReason: card.laneReason }, { lane: 'working', laneReason: 'Waiting for its turn to test' });
+    assert.equal((await cardOf(first)).auto.waitingToTest, false);
+    assert.equal((await w.runner.read.snapshot()).autoQueue.testing, first);
+    // Another pass while the first job has not left Test: the second still waits.
+    await w.pass();
+    assert.equal((await gateSends(w)).length, 1);
+    assert.equal(w.asks.length, 1, 'the Approver is not asked for a job that waits');
+    // The first job moves on to the review: the place is free, and the next pass sends the second's Go.
+    const moved = inTest({ stage: 'review' });
+    if (first === w.slug) await w.writeStatus(moved); else await writeOther(w, { ...moved, title: 'Other' });
+    await new Promise((r) => setTimeout(r, 1700));
+    await w.pass();
+    assert.deepEqual((await gateSends(w)).map((s) => s.slug), [first, second]);
+    assert.equal((await w.runner.read.snapshot()).autoQueue.testing, second);
+    assert.equal((await cardOf(second)).auto.waitingToTest, false);
+    assert.equal(w.notes.length, 0, 'nobody is told');
+  } finally { await w.stop(); }
+});
+
+test('Auto switched off on the job that holds the place: the next pass gives it to the waiting job; the same for stopped, finished and set aside', { timeout: 30_000 }, async () => {
+  const leaves = {
+    // He switches Auto off on it (closing a job switches it off the same way): it is not among the Auto jobs on the next pass.
+    'switched off': async (u) => { u.set('a', { on: false }); },
+    // The Foreman says it is blocked in Test: Auto stops it on this pass; the place is let go on the next.
+    stopped: async (u) => {
+      u.over.a = { stage: 'test', stageState: 'blocked', gate: null };
+      await u.auto.pass();
+      assert.equal(u.record('a').stopped?.rule, 'blocked');
+      assert.equal(u.auto.waitingToTest(u.dirOf('b')), true, 'the place is still a\'s on the pass that stopped it');
+    },
+    // PR #1 is open: Auto finishes it on this pass; the place is let go on the next.
+    finished: async (u) => {
+      u.over.a = { stage: 'test', prOpen: true, gate: null };
+      await u.auto.pass();
+      assert.equal(typeof u.record('a').finished, 'string');
+      assert.equal(u.auto.waitingToTest(u.dirOf('b')), true);
+    },
+  };
+  for (const [how, leave] of Object.entries(leaves)) {
+    const u = places({ a: {}, b: {} });
+    await u.auto.pass();
+    assert.deepEqual(u.decides, ['a#1'], how);
+    assert.equal(u.auto.testHolder(), 'a', how);
+    assert.equal(u.auto.waitingToTest(u.dirOf('b')), true, how);
+    u.over.a = { stage: 'test', running: true, gate: null }; // a is in Test, its crew at work
+    await u.auto.pass();
+    assert.deepEqual(u.decides, ['a#1'], `${how}: b still waits while a is in Test`);
+    await leave(u);
+    await u.auto.pass();
+    assert.deepEqual(u.decides, ['a#1', 'b#1'], `${how}: the next pass sends b's Go`);
+    assert.equal(u.auto.testHolder(), 'b', how);
+    assert.equal(u.auto.waitingToTest(u.dirOf('b')), false, how);
+  }
+  // Set aside as too big for Auto (Task 12): a job whose first brief goes into Test takes the place, then is set aside in the
+  // same step; the place is let go on the next pass.
+  const u = places({ a: { stackSuggested: 'Three separate screens.' }, b: {} });
+  await u.auto.pass();
+  assert.deepEqual(u.record('a').tooBig?.reason, 'Three separate screens.');
+  assert.equal(u.record('a').on, false);
+  assert.deepEqual(u.decides, []);
+  assert.equal(u.auto.waitingToTest(u.dirOf('b')), true, 'set aside on this pass, so b waits on it');
+  await u.auto.pass();
+  assert.deepEqual(u.decides, ['b#1'], 'set aside: the next pass sends b\'s Go');
+  assert.equal(u.auto.testHolder(), 'b');
+});
+
+test('a job at L0 or in the quick flow never waits for the place (no brief into Test)', { timeout: 60_000 }, async () => {
+  const cases = [
+    // L0: no plan, no Test, no review: its one brief, the diff, goes into PR #1.
+    { name: 'L0', status: status(1, { stage: 'implement', title: 'Tweak', suggested_level: 0, brief: { number: 1, path: 'briefs/001-plan.md', headline: 'Tweak · the diff' } }), options: { level: 0, flow: 'quick', skip: ['plan', 'test', 'review'], title: 'Tweak' } },
+    // The quick flow: its brief is the short plan, into the build.
+    { name: 'quick flow', status: status(1, { title: 'Tweak' }), options: { level: 1, flow: 'quick', title: 'Tweak' } },
+  ];
+  for (const c of cases) {
+    // The other job is in Test and holds the place.
+    const w = await world({ auto: { ...autoRecord(null, { on: true, now: OLD }), lastBrief: 1 }, jobStatus: inTest(), also: { slug: 'zzz-tweak', status: c.status, options: c.options } });
+    try {
+      await w.pass();
+      assert.deepEqual((await gateSends(w)).map((s) => s.slug), ['zzz-tweak'], `${c.name}: its Go is sent`);
+      await w.idle();
+      await new Promise((r) => setTimeout(r, 1700));
+      assert.equal((await w.runner.read.snapshot()).autoQueue.testing, w.slug, `${c.name}: the other job holds the place`);
+      const card = (await w.runner.read.features()).features.find((x) => x.slug === 'zzz-tweak');
+      assert.equal(card.auto.waitingToTest, false, c.name);
+    } finally { await w.stop(); }
+  }
+});
+
+test('a hand-switched job takes the place like a tag-started one', { timeout: 60_000 }, async () => {
+  // A tag-started Auto job is in Test; his own job, not in Auto, reaches the brief into Test.
+  const w = await world({ auto: null, jobStatus: intoTest(), also: { slug: 'zzz-tagged', status: inTest({ title: 'Tagged' }), options: { level: 1, flow: 'quick', title: 'Tagged' } } });
+  try {
+    const file = path.join(w.dirs.state, 'sessions.json');
+    const sessions = JSON.parse(await fs.readFile(file, 'utf8'));
+    sessions[w.otherDir].auto = { ...autoRecord(null, { on: true, by: 'tag', tag: 'auto', now: OLD }), lastBrief: 1 };
+    await fs.writeFile(file, JSON.stringify(sessions));
+    await w.restart();
+    await w.pass();
+    assert.equal((await w.runner.read.snapshot()).autoQueue.testing, 'zzz-tagged');
+    // He switches Auto on on his own job: it waits for its turn like any other.
+    await w.runner.handle({ type: 'auto', slug: w.slug, on: true }, { from: 'local' });
+    assert.equal((await w.record()).began, 'you');
+    await w.pass();
+    assert.equal((await gateSends(w)).length, 0);
+    await new Promise((r) => setTimeout(r, 1700));
+    const card = (await w.runner.read.features()).features.find((x) => x.slug === w.slug);
+    assert.deepEqual({ waitingToTest: card.auto.waitingToTest, laneReason: card.laneReason }, { waitingToTest: true, laneReason: 'Waiting for its turn to test' });
+    // The tagged job moves on to the review: his job takes the place and its Go is sent.
+    await writeOther(w, inTest({ stage: 'review', title: 'Tagged' }));
+    await new Promise((r) => setTimeout(r, 1700));
+    await w.pass();
+    assert.deepEqual((await gateSends(w)).map((s) => [s.slug, s.by]), [[w.slug, 'auto']]);
+    assert.equal((await w.runner.read.snapshot()).autoQueue.testing, w.slug);
+  } finally { await w.stop(); }
+});
+
+test('the waiting job is not stopped after ten minutes', { timeout: 30_000 }, async () => {
+  const base = Date.parse('2026-10-02T10:00:00Z');
+  let t = base;
+  const u = places({ a: {}, b: {} }, { now: () => new Date(t) });
+  await u.auto.pass();
+  u.over.a = { stage: 'test', running: true, gate: null };
+  for (const minutes of [1, 9, 11, 30]) { t = base + minutes * 60_000; await u.auto.pass(); }
+  assert.equal(u.record('b').stopped, null);
+  assert.equal(u.auto.waitingToTest(u.dirOf('b')), true);
+  assert.deepEqual(u.decides, ['a#1']);
+  assert.equal(u.notes.length, 0);
+});
+
+test('a job waiting for its turn to test tells him nothing', { timeout: 30_000 }, async () => {
+  // Passes run out to five hours: no notice, no stop, no line saying it is stuck.
+  const base = Date.parse('2026-10-02T10:00:00Z');
+  let t = base;
+  const u = places({ a: {}, b: {} }, { now: () => new Date(t) });
+  await u.auto.pass();
+  u.over.a = { stage: 'test', running: true, gate: null };
+  for (let minutes = 1; minutes <= 300; minutes += 7) { t = base + minutes * 60_000; await u.auto.pass(); }
+  t = base + 300 * 60_000;
+  await u.auto.pass();
+  assert.equal(u.notes.length, 0);
+  assert.equal(u.record('b').stopped, null);
+  assert.equal(u.record('b').failures, 0);
+  assert.deepEqual(u.lines.filter((l) => l.slug === 'b'), [], 'no line for the waiting job');
+  assert.equal(u.auto.waitingToTest(u.dirOf('b')), true);
+});
+
+test('a job waiting for its turn to test tells him nothing: no waiting notice and no four-hour reminder', { timeout: 60_000 }, async () => {
+  // This job is in Test and holds the place; the other is working on its build.
+  const w = await world({ auto: { ...autoRecord(null, { on: true, now: OLD }), lastBrief: 1 }, jobStatus: inTest(), also: { slug: 'zzz-other', status: inTest({ stage: 'implement', title: 'Other' }), options: { level: 1, flow: 'quick', title: 'Other' } } });
+  try {
+    await w.runner.auto.checkWaiting(); // what waits now is never told
+    await w.pass();
+    // The other job's brief into Test, raised long ago (past the four hours).
+    await writeOther(w, intoTest({ title: 'Other' }));
+    await new Promise((r) => setTimeout(r, 1700));
+    await w.pass();
+    assert.equal((await gateSends(w)).length, 0);
+    await w.runner.auto.checkWaiting();
+    await w.hooks.checkParked();
+    await new Promise((r) => setTimeout(r, 300));
+    assert.deepEqual(w.notes, []);
+    const card = (await w.runner.read.features()).features.find((x) => x.slug === 'zzz-other');
+    assert.deepEqual({ waitingToTest: card.auto.waitingToTest, parked: card.parked, lane: card.lane }, { waitingToTest: true, parked: false, lane: 'working' });
+  } finally { await w.stop(); }
+});
+
+test('the job that holds the place keeps it when it goes back to the build for a fix', { timeout: 30_000 }, async () => {
+  const u = places({ a: {}, b: {} });
+  await u.auto.pass();
+  u.over.a = { stage: 'test', running: true, gate: null };
+  await u.auto.pass();
+  // Back to the build for a fix: the stage moves backwards, and the place stays a's.
+  u.over.a = { stage: 'implement', running: true, gate: null };
+  await u.auto.pass();
+  assert.equal(u.auto.testHolder(), 'a');
+  // The fix is built: a's new brief into Test goes, b still waits.
+  u.over.a = { stage: 'implement', gate: { ...TO_TEST, briefNumber: 2 } };
+  await u.auto.pass();
+  assert.deepEqual(u.decides, ['a#1', 'a#2']);
+  assert.equal(u.auto.testHolder(), 'a');
+  assert.equal(u.auto.waitingToTest(u.dirOf('b')), true);
+});
+
+test('after a restart the job already in Test holds the place', { timeout: 30_000 }, async () => {
+  // b is read first; a, working in Test, still holds the place.
+  const u = places({ b: {}, a: { stage: 'test', running: true, gate: null } });
+  await u.auto.pass();
+  assert.equal(u.auto.testHolder(), 'a');
+  assert.deepEqual(u.decides, []);
+  assert.equal(u.auto.waitingToTest(u.dirOf('b')), true);
+});
+
+test('a job he un-stops in Test while another holds the place carries on and takes nothing', { timeout: 30_000 }, async () => {
+  const u = places({ a: {}, b: {} });
+  await u.auto.pass();
+  // a is in Test and Auto stops on it; the place is let go on the next pass, and b takes it and goes into Test.
+  u.over.a = { stage: 'test', stageState: 'blocked', gate: null };
+  await u.auto.pass();
+  assert.equal(u.record('a').stopped?.rule, 'blocked');
+  await u.auto.pass();
+  assert.deepEqual(u.decides, ['a#1', 'b#1']);
+  u.over.b = { stage: 'test', running: true, gate: null };
+  // He clears a's stop. a is still in Test: its brief into the review goes, two jobs are in Test, and the place stays b's.
+  u.set('a', { stopped: null });
+  u.over.a = { stage: 'test', gate: { ...TO_TEST, briefNumber: 2, nextStage: 'review' } };
+  await u.auto.pass();
+  assert.deepEqual(u.decides, ['a#1', 'b#1', 'a#2']);
+  assert.equal(u.auto.testHolder(), 'b');
+  assert.equal(u.auto.waitingToTest(u.dirOf('a')), false);
+  // b moves on to the review while a is still in Test: a, in Test with no holder, takes the place.
+  u.over.a = { stage: 'test', running: true, gate: null };
+  u.over.b = { stage: 'review', running: true, gate: null };
+  await u.auto.pass();
+  assert.equal(u.auto.testHolder(), 'a');
+});
+
+test('a job he un-stops at the brief into Test while another holds the place waits for its turn', { timeout: 30_000 }, async () => {
+  const u = places({ a: {}, b: {} });
+  await u.auto.pass();
+  u.over.a = { stage: 'implement', stageState: 'blocked', gate: null };
+  await u.auto.pass();
+  await u.auto.pass();
+  assert.deepEqual(u.decides, ['a#1', 'b#1']);
+  u.over.b = { stage: 'test', running: true, gate: null };
+  u.set('a', { stopped: null });
+  u.over.a = { stage: 'implement', gate: { ...TO_TEST, briefNumber: 2 } };
+  await u.auto.pass();
+  assert.deepEqual(u.decides, ['a#1', 'b#1']);
+  assert.equal(u.auto.waitingToTest(u.dirOf('a')), true);
+  assert.equal(u.auto.testHolder(), 'b');
+});

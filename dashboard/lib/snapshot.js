@@ -96,6 +96,8 @@ export function laneFor(card, { lane = null, pending = [], handled = null } = {}
     // The person wrote to this job while its step waited (the runner's boardCards, lib/auto.js wroteWhileWaiting): the step is
     // theirs from that moment, in the words Auto's stop writes a moment later, never "Auto is deciding".
     if (card.auto.yours === true) return needs(`Auto stopped: ${YOURS_NOW}`);
+    // Its go-ahead into Test waits while another Auto job holds the test place (runner/auto.js): not waiting for the person.
+    if (card.auto.waitingToTest === true && !leftToYou) return { lane: 'working', laneReason: 'Waiting for its turn to test' };
     if (!leftToYou) return { lane: 'working', laneReason: `Auto is deciding: ${STAGE_WORDS[card.stage] ?? 'the next step'}` };
   }
   if (cards.length) {

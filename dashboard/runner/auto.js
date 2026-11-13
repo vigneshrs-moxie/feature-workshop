@@ -28,6 +28,7 @@ import { APPROVER_BUDGET_USD, approverCut, approverPaths, approverRoots, callPre
 import { DECIDING_KINDS } from '../lib/gate.js';
 import { ownLevelStands } from '../lib/auto-level.js';
 import { prDecisions } from '../lib/auto-log.js';
+import { STAGE_IDS } from '../lib/stages.js';
 
 /** Anything the Approver wrote, on one line: nothing it writes can start a line of its own, and no copy of the mark gets through. */
 const oneLine = (s) => {
@@ -103,6 +104,8 @@ const isNotNow = (err) => {
   const code = err?.extra?.code ?? err?.code ?? null;
   return NOT_NOW.has(code) || err?.constructor?.name === 'Busy' || err?.name === 'Busy' || err?.name === 'JobLocked';
 };
+/** A stage after Test (review, the PRs): the job has left Test. An unknown stage is not. */
+const pastTest = (stage) => STAGE_IDS.indexOf(stage) > STAGE_IDS.indexOf('test');
 
 export function createAuto({ read, update, decide, askApprover, pendingCard = () => null, cardCtx = async () => null, raiseLevel = async () => {}, changed = () => {}, freed = () => {}, state, notify = () => {}, stopping = () => {}, now = () => new Date() }) {
   let running = null;
@@ -115,6 +118,10 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
   // The cards Auto has taken up (id -> true) until each is gone, and the order a job's cards are handled in.
   const cards = new Map();
   const queues = new Map(); // dir -> the promise of the last card queued
+  // The test place (Auto queue, Task 10): Auto jobs share one database copy in Test, so one at a time. The job that holds it,
+  // and the jobs whose go-ahead into Test waits for it this pass (none of them is waiting for the person: nobody is told).
+  let testPlace = null; // { dir, slug } | null
+  let waitingTest = new Set(); // dir
 
   /** One pass at a time; a request during one runs once after it. */
   function pass() {
@@ -130,9 +137,13 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
   // is the Approver asked, job by job, so a slow answer for one job never delays another job's stop.
   async function run() {
     const waiting = [];
-    for (const job of await read()) {
-      try { const gate = await triage(job); if (gate) waiting.push([job, gate]); } catch (err) { console.error(`auto (${job.slug}):`, err.message); }
+    const jobs = await read();
+    placeAtStart(jobs);
+    const waitingNow = new Set();
+    for (const job of jobs) {
+      try { const gate = await triage(job, waitingNow); if (gate) waiting.push([job, gate]); } catch (err) { console.error(`auto (${job.slug}):`, err.message); }
     }
+    waitingTest = waitingNow;
     for (const [job, gate] of waiting) {
       try { await attend(job, gate); } catch (err) {
         console.error(`auto (${job.slug}):`, err.message);
@@ -140,6 +151,28 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
         try { await failedOnGate(job, err); } catch (again) { console.error(`auto (${job.slug}):`, again.message); }
       }
     }
+  }
+
+  /**
+   * At the start of each pass: the place is let go when its job is no longer one of Auto's (off, finished, set aside, closed),
+   * is stopped, or has moved past Test (going back to an earlier stage for a fix keeps it). With no holder, the first working
+   * job read that is in Test takes it (after a restart, or a job he un-stopped in Test while another held the place).
+   */
+  function placeAtStart(jobs) {
+    if (testPlace) {
+      const holder = jobs.find((j) => j.dir === testPlace.dir);
+      if (!holder || holder.auto?.on !== true || holder.auto.stopped || pastTest(holder.stage)) testPlace = null;
+    }
+    if (!testPlace) {
+      const inTest = jobs.find((j) => j.auto?.on === true && !j.auto.stopped && j.stage === 'test');
+      if (inTest) testPlace = { dir: inTest.dir, slug: inTest.slug };
+    }
+  }
+  /** A go-ahead into Test: the job takes the place when it is free or already its own (true); else it waits its turn (false). */
+  function takePlace(job, waitingNow) {
+    if (testPlace && testPlace.dir !== job.dir) { waitingNow.add(job.dir); return false; }
+    testPlace = { dir: job.dir, slug: job.slug };
+    return true;
   }
 
   async function failedOnGate(job, err) {
@@ -241,8 +274,8 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     return true;
   }
 
-  /** Everything about one job that needs no Approver. Returns the gate to ask about, or null. */
-  async function triage(job) {
+  /** Everything about one job that needs no Approver. Returns the gate to ask about, or null. waitingNow: this pass's waits for the test place. */
+  async function triage(job, waitingNow) {
     // The ten minutes of a step Auto can't act on count only passes that found it so one after another: any pass that
     // returns before the check below (a reply running, a lock, a pause, a stop, a restart) forgets the time.
     const stuckFirst = stuckSince.get(job.dir);
@@ -278,6 +311,9 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     }
     const route = fixedStop({ kind: 'gate', stage: job.stage, nextStage: gate.nextStage });
     if (route) { await stop(job, route); return null; }
+    // The go-ahead into Test waits while another Auto job holds the test place: its turn comes on a later pass. Taken here, in
+    // the first round, so two jobs in one pass can't both take it. No stuck time is counted (the gate is there) and nobody is told.
+    if (gate.nextStage === 'test' && !takePlace(job, waitingNow)) return null;
     // The person wrote to this job while this step waited: the step is theirs, and the stop is written here, in the pass's first
     // round, before any job's Approver is asked (attend checks again, for a message sent while the Approver thinks).
     if (await youWroteWhileWaiting(job)) {
@@ -942,5 +978,10 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     await paidOff(job, spent);
   }
 
-  return { pass, onPermission, cardGone, leftCard, handlingCard };
+  /** Whether this job's go-ahead into Test waits for its turn (as of the last pass). */
+  function waitingToTest(dir) { return waitingTest.has(dir); }
+  /** The slug of the job that holds the test place, or null. */
+  function testHolder() { return testPlace?.slug ?? null; }
+
+  return { pass, onPermission, cardGone, leftCard, handlingCard, waitingToTest, testHolder };
 }
