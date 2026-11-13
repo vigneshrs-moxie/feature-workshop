@@ -475,11 +475,19 @@ git runs a program named in a job folder's git settings when Starbase runs git t
 
 ### Task L2: CI is red on `main`; make it green (do this first)
 
-- Locally the whole server suite is 2,105 of 2,106: `gate-server` test "I2 B" fails, on `main` before the Auto queue too.
-- On GitHub the `Tests` workflow has failed on `main` since 11 Nov. For `912703e` (run `43466953613`) the macOS job failed in the step `Server tests (dashboard/)`, so its web tests were skipped; the Windows job was still running when this was written, and it is the first Windows run of this code. The logs could not be read before the run finished.
-- [ ] `gh run view 43466953613 --log-failed` in `/Users/moxie/Projects/feature-workshop` (reading only). List every failing test on each system. More than "I2 B" may fail there: tests that need this laptop's tools, or that time out on a slower machine.
-- [ ] For each: find the root cause with superpowers:systematic-debugging; fix the code or the test, whichever is wrong, and say which in the commit. A test that cannot run on CI is skipped there by a stated condition, not deleted.
-- [ ] Green on both systems is the goal; a Windows-only failure in a part he does not use on Windows (he has no Windows laptop) may be listed for him instead of fixed, with the reason.
+On his laptop the whole server suite is 2,105 of 2,106 (`gate-server` test "I2 B" fails, as it did before the Auto queue). On GitHub the `Tests` workflow has failed on `main` since 11 Nov, and the Auto queue added to it. The run for `912703e` is `43466953613`; its failed-test log and the one for the run before go-live are saved in `.superpowers/sdd/2026-11-12-auto-queue-plan/` (`ci-912703e-failed.log`, `ci-8c794b8-failed.log`).
+
+| System | Before go-live (`8c794b8`) | Now (`912703e`) |
+|---|---|---|
+| macOS | 21 tests not ok | 2,106 tests: 2,051 pass, 2 fail, 52 cancelled, 1 skipped |
+| Windows | 98 tests not ok | 2,106 tests: 1,872 pass, 98 fail, 21 cancelled, 115 skipped |
+
+- macOS, the two that fail: "I2 B" (the known one) and `evidence: the watch mark is made or touched as a plain file, never through a link`. The 52 cancelled are the rest of `dashboard/test/evidence-server.test.js` after its event loop ended (`Promise resolution is still pending but the event loop has already resolved`); they pass on his laptop. Likely causes to check first: the runner's long temp-folder path (a very long path switches the fence off, known gap 17), and tools the runner lacks.
+- Because the server step fails, CI skips the web tests on both systems.
+- Windows: the Auto rules tests (`auto-forms`, `auto-walk`, the demo) fail on Windows paths, among others; one says `EPERM … rename` in the temp folder.
+- [ ] Read both logs. List every failing test with its cause, grouped by cause.
+- [ ] For each cause: find the root cause with superpowers:systematic-debugging; fix the code or the test, whichever is wrong, and say which in the commit. A test that cannot run on a CI runner is skipped there by a stated condition, never deleted.
+- [ ] macOS green is the goal. He has no Windows laptop and is Starbase's only user: on Windows, fix what is cheap and list the rest for him with the reason, rather than spending days there.
 
 ### Task L3: The go-ahead for a push covers only the push
 
