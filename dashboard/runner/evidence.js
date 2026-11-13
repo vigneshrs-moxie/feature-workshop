@@ -21,7 +21,9 @@
 // Its Playwright run starts inside the sandbox its app runs in (lib/db-door.js): a spec is the job's
 // own code, and could open a database connection. An Auto job whose app names no database where
 // Starbase looks has no copy and no door, but its app and its Playwright run start inside the sandbox
-// all the same (startServer's fenced): its own code may name one. No sandbox, no recording.
+// all the same (startServer's fenced): its own code may name one. No sandbox, no recording. A
+// recording asked for while the job was Auto's, whose turn comes once it no longer is, is not made
+// (recordNow's wasAuto): it would start as any job of his, on his database.
 //   returns the door the site's routes use (site/routes-evidence.js, through runner.local.evidence):
 //     view(slug)          { evidence, commit, wanted, why, recording, problem, progress, watch, folder, folderUrl }
 //                         (progress: by line while Playwright runs, else null; each change is an
@@ -83,6 +85,8 @@ export const AUTO_DB_HIS_NEW_STOP = "Something new connected to your database ea
 export const AUTO_DB_TAKEN_STOP = "Something stayed connected to Auto's copy of the database through 3 tries, so no recording was made. Stop whatever is using it, then switch Auto on again.";
 /** A migration that exited well but isn't in Auto's copy: Auto stops on the job with this reason (lead's words). */
 export const AUTO_NOT_LANDED_STOP = 'A migration from this job did not land on Auto\'s copy of the database. It may have run on yours. Check your database before this job goes on.';
+/** A recording asked for while the job was Auto's, whose turn came once it no longer was: nothing is recorded (implementer's words). */
+export const AUTO_ENDED = "Auto was no longer on for this job when its recording's turn came, so nothing was recorded.";
 /**
  * The note on a recording during which the door refused a session (lib/db-door.js): Auto's app asked
  * for another database than its own copy. The recording is kept. refusal: lib/local.js autoRefusal's
@@ -416,7 +420,16 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
     return { auto: true, onAutoDb: await local.namesADatabase(f, env) }; // Starbase's own environment (the runner's)
   }
 
-  async function recordNow(f, via) {
+  /**
+   * wasAuto: the job was Auto's when this recording was asked for (queued by the look, or by his
+   * Record). One recording runs at a time, so its turn may come minutes later. Asked for as an Auto
+   * job's and not Auto's now (Auto finished on it when PR #1 opened, or was switched off): nothing is
+   * recorded, since it would start as any job of his does, on his database and with no fence. The
+   * commit is forgotten (a job of his still in Test is recorded by the next look) and a waiting line
+   * goes. The look's ends as an answer; his own press is told why (AUTO_ENDED) as any refusal is.
+   * Asked for as his and Auto's now: recorded as Auto's.
+   */
+  async function recordNow(f, via, wasAuto = false) {
     const pw = playwright();
     const { auto, onAutoDb } = await autoFor(f);
     const sayRecording = () => events.emit('evidence', f.slug, { slug: f.slug, outcome: 'recording', at: new Date().toISOString() });
@@ -425,6 +438,11 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
     let cwd = f.worktree ?? f.repoPath;
     const at = new Date().toISOString();
     try {
+      if (wasAuto && !auto) {
+        tried.delete(`${f.slug}@${await reportCommit(f.dir)}`);
+        if (problems.get(f.slug)?.waiting) problems.delete(f.slug);
+        throw new EvidenceError(409, AUTO_ENDED, { code: via === 'page' ? 'auto-ended' : 'not-wanted' });
+      }
       if (!pw && evidenceWanted(f.options).on) {
         throw new EvidenceError(409, demo ? 'Demo mode: nothing real runs, so no evidence is recorded.' : `Playwright isn’t installed with ${PRODUCT}. Run npm install in ${PRODUCT}’s folder, then press Record again.`);
       }
@@ -516,11 +534,11 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
     }
   }
 
-  /** One recording at a time; a job already recording says so. */
-  function record(f, via) {
+  /** One recording at a time; a job already recording says so. wasAuto: whether the job is Auto's now, as it is asked for (recordNow). */
+  function record(f, via, wasAuto = false) {
     if (recording.has(f.slug)) return Promise.reject(new EvidenceError(409, 'Evidence for this job is being recorded now.', { code: 'busy' }));
     recording.add(f.slug);
-    const job = queue.then(() => recordNow(f, via)).finally(() => { recording.delete(f.slug); });
+    const job = queue.then(() => recordNow(f, via, wasAuto)).finally(() => { recording.delete(f.slug); });
     queue = job.catch(() => {});
     return job;
   }
@@ -559,8 +577,9 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
           if (f.stage !== 'test' && !(await stillOwed(f))) continue;
           const ready = await readyToRecord(f).catch(() => null);
           if (!ready || tried.has(`${f.slug}@${ready.commit}`)) continue;
+          const wasAuto = await isAuto(f);
           tried.add(`${f.slug}@${ready.commit}`);
-          record(f, 'auto').catch(() => {});
+          record(f, 'auto', wasAuto).catch(() => {});
         }
       } while (again);
     } finally {
@@ -641,8 +660,9 @@ export function evidenceRunner({ jobs, local, state, events, on, demo = false, e
      */
     async record(slug, { waitMs = 1500 } = {}) {
       const f = await jobOf(slug);
+      const wasAuto = await isAuto(f);
       let job;
-      try { job = record(f, 'page'); } catch (err) { throw httpError(err); }
+      try { job = record(f, 'page', wasAuto); } catch (err) { throw httpError(err); }
       const quick = await Promise.race([job.then((ev) => ({ ev }), (err) => ({ err })), new Promise((r) => { setTimeout(() => r(null), waitMs).unref?.(); })]);
       if (!quick) { job.catch(() => {}); return { ok: true, started: true }; }
       if (quick.err) throw httpError(quick.err);
