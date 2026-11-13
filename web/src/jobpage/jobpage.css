@@ -40,6 +40,7 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2-auto .queued-decision.is-compact .queued-decision-words { flex: 0 1 auto; align-items: center; min-width: 0; overflow: hidden; white-space: nowrap; font-weight: 400; }
 .jp2-auto .queued-decision.is-compact .queued-decision-words > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .jp2-auto .queued-decision.is-compact .queued-decision-words > svg { margin-top: 0; }
+.jp2-auto .queued-decision.is-compact .queued-decision-actions { flex: none; }
 .jp2-auto .queued-decision.is-compact .field-problem { margin: 0; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 /* The ⋯ menu's items at the prototype's size (.sj-mi) on a laptop; the phone keeps the shared 40 px rows. */
 .jp2:not([data-layout="phone"]) .jp2-menu .menu-item { min-height: 32px; font-size: 13px; }
@@ -157,7 +158,8 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2[data-layout="phone"] .jp2-spacer { display: none; }
 .jp2[data-layout="phone"] .jp2-facts { order: 3; flex-basis: 100%; font-size: 13px; }
 .jp2[data-layout="phone"] .jp2-menu { order: 0; margin-left: auto; }
-.jp2[data-layout="phone"] .jp2-auto { order: 4; flex: 1 1 100%; margin-left: -6px; }
+.jp2[data-layout="phone"] .jp2-auto { order: 4; flex: 1 1 100%; margin-left: -6px; contain: inline-size; }
+.jp2[data-layout="phone"] .jp2-auto .auto-line, .jp2[data-layout="phone"] .jp2-auto .queued-decision.is-compact { margin-left: 6px; }
 .jp2[data-layout="phone"] .jp2-head-note { order: 5; flex: 1 1 100%; }
 .jp2[data-layout="phone"] .jp2-ym { padding: 12px; }
 .jp2[data-layout="phone"] .jp2-ym-one { padding: 12px 6px; font-size: 15px; }
