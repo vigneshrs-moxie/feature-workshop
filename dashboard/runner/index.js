@@ -579,10 +579,10 @@ export async function createRunner(config) {
   const PARK_CHECK_MS = Math.min(DEMO ? 30_000 : 5 * 60_000, Math.max(200, Math.floor(PARK_MS / 4)));
   const parking = new GateParking({ thresholdMs: PARK_MS, file: path.join(state.dir, 'gate-parking.json') });
   const gateOf = (f, runActive) => ({ slug: f.slug, briefNumber: f.currentBrief?.number ?? null, briefAt: f.currentBrief?.at ?? null, waitingSince: f.gateWaitingSince, runActive: Boolean(runActive) });
-  // An Auto job whose go-ahead into Test waits for its turn (runner/auto.js, set once Auto's pass exists, below): it is not
-  // waiting for you, so it is never parked and never told.
-  let waitingToTestOf = () => false;
-  const gateParked = (f, runActive) => isParkable(f) && !closedOff(f) && !waitingToTestOf(f.dir) && parking.isParked(gateOf(f, runActive));
+  // A job whose Auto is on and not stopped: its decision is Auto's (Auto answers it, or stops and tells you), so it is never
+  // parked and never reminded, waiting for its turn to test or not. The same rule as the waiting check (checkWaitingNow).
+  const autoDecides = (f) => f?.auto?.on === true && !f.auto.stopped;
+  const gateParked = (f, runActive) => isParkable(f) && !closedOff(f) && !autoDecides(f) && parking.isParked(gateOf(f, runActive));
   // Briefs answered from a gate card: read from the audit once at start, then kept up as replies are
   // sent (or held until the usage limit resets: you've decided, so the gate isn't parked, unless
   // that held reply is dropped). The same rule as answeredBriefs.
@@ -777,7 +777,7 @@ export async function createRunner(config) {
     if (cached && Date.now() - cached.at < Math.min(PARK_CHECK_MS, 60_000)) return cached.list;
     const saved = await state.allSessions();
     const list = await loadGateStates({ featuresDir: FEATURES_DIR });
-    for (const f of list) { f.closed = saved[f.dir]?.closed ?? null; noteRaisedVersions(f); }
+    for (const f of list) { f.closed = saved[f.dir]?.closed ?? null; f.auto = saved[f.dir]?.auto ?? null; noteRaisedVersions(f); }
     return list;
   }
   async function checkParkedGates() {
@@ -785,7 +785,7 @@ export async function createRunner(config) {
     const gates = waiting.map((f) => gateOf(f, driver.activeRunFor({ featureDir: f.dir })));
     let changed = parking.trim(gates);
     for (const g of parking.due(gates)) {
-      if (waitingToTestOf(waiting.find((x) => x.slug === g.slug)?.dir)) continue;
+      if (autoDecides(waiting.find((x) => x.slug === g.slug))) continue; // Auto's decision: not marked, not told
       parking.mark(g);
       changed = true;
       events.emit('gate-stale', g.slug, { job: g.slug, briefNumber: g.briefNumber, waitingSince: g.waitingSince });
@@ -938,6 +938,8 @@ export async function createRunner(config) {
   let roundStateOf = () => null;
   // The evidence recording's words for a job while Playwright runs it (set once the evidence door exists, below).
   let testingOf = () => null;
+  // Whether an Auto job's go-ahead into Test waits for its turn (runner/auto.js; set once Auto's pass exists, below).
+  let waitingToTestOf = () => false;
   function boardCard(f, run) {
     const ids = STAGES.map((s) => s.id).filter((id) => !f.skipped.includes(id));
     const at = ids.indexOf(f.stage);

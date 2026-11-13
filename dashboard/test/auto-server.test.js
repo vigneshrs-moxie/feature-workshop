@@ -5901,13 +5901,16 @@ test('a job at L0 or in the quick flow never waits for the place (no brief into 
     // The other job is in Test and holds the place.
     const w = await world({ auto: { ...autoRecord(null, { on: true, now: OLD }), lastBrief: 1 }, jobStatus: inTest(), also: { slug: 'zzz-tweak', status: c.status, options: c.options } });
     try {
+      // Its brief is not into Test: the pass sends its Go at once, though another job holds the place.
       await w.pass();
       assert.deepEqual((await gateSends(w)).map((s) => s.slug), ['zzz-tweak'], `${c.name}: its Go is sent`);
       await w.idle();
       await new Promise((r) => setTimeout(r, 1700));
       assert.equal((await w.runner.read.snapshot()).autoQueue.testing, w.slug, `${c.name}: the other job holds the place`);
+      // It never waited, so it never shows the wait for its turn: not on its card, not in its lane.
       const card = (await w.runner.read.features()).features.find((x) => x.slug === 'zzz-tweak');
       assert.equal(card.auto.waitingToTest, false, c.name);
+      assert.notEqual(card.laneReason, 'Waiting for its turn to test', c.name);
     } finally { await w.stop(); }
   }
 });
@@ -6112,5 +6115,119 @@ test('a PR that opens while the Approver thinks: the go is not sent', { timeout:
     assert.equal((await w.record()).on, false);
     assert.equal((await w.autoLines('finished')).length, 1);
     assert.deepEqual(await w.sends(), []);
+  } finally { await w.stop(); }
+});
+
+// ---------- Task 10, fix round 1: an Auto job is never parked or reminded; a sent go into Test holds the place ----------
+
+const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
+const REMINDER = /Your decision has waited 4 hours\./;
+/** This job is in Test and holds the place; the other's brief into Test, raised 42 days ago, waits for its turn. */
+const waitingWorld = (more = {}) => world({
+  auto: { ...autoRecord(null, { on: true, now: OLD }), lastBrief: 1 }, jobStatus: inTest(),
+  also: { slug: 'zzz-other', status: intoTest({ title: 'Other' }), options: { level: 1, flow: 'quick', title: 'Other' } }, ...more,
+});
+
+test('a waiting job under a usage-limit pause for five hours is not reminded and not parked', { timeout: 60_000 }, async () => {
+  const w = await waitingWorld();
+  try {
+    await w.pass();
+    assert.equal((await gateSends(w)).length, 0, 'it waits for its turn');
+    // The limit pauses every job: the pass leaves the waiting job early, and its gate is far past the four hours.
+    await limited(w);
+    await w.pass();
+    await w.hooks.checkParked();
+    await sleepMs(300);
+    assert.deepEqual(w.notes.filter((n) => REMINDER.test(n.body)), [], 'no four-hour reminder');
+    const card = (await w.runner.read.features()).features.find((x) => x.slug === 'zzz-other');
+    assert.equal(card.parked, false);
+    assert.equal((await gateSends(w)).length, 0);
+  } finally { await w.stop(); }
+});
+
+test('a job whose turn has come and whose Approver is still thinking is not reminded', { timeout: 60_000 }, async () => {
+  let wRef = null;
+  let during = null;
+  const w = await waitingWorld({
+    ask: async (task) => {
+      // The parked check lands while the Approver thinks about the job that has just taken the place.
+      if (wRef && task.job.slug === 'zzz-other') { await wRef.hooks.checkParked(); await sleepMs(300); during = wRef.notes.map((n) => n.body); }
+      return goodAnswer(task);
+    },
+  });
+  wRef = w;
+  try {
+    await w.pass();
+    assert.equal((await gateSends(w)).length, 0, 'it waits for its turn');
+    await w.writeStatus(inTest({ stage: 'review' }));
+    await sleepMs(1700);
+    await w.pass();
+    assert.deepEqual(during, [], 'nothing told while the Approver thinks');
+    assert.deepEqual((await gateSends(w)).map((s) => s.slug), ['zzz-other'], 'and its Go is sent');
+    assert.deepEqual(w.notes, []);
+  } finally { await w.stop(); }
+});
+
+test('Auto switched off on a waiting job: it is parked and reminded like any job from then on', { timeout: 60_000 }, async () => {
+  const w = await waitingWorld();
+  try {
+    await w.pass();
+    assert.equal((await gateSends(w)).length, 0, 'it waits for its turn');
+    await w.runner.handle({ type: 'auto', slug: 'zzz-other', on: false }, { from: 'local' });
+    await w.hooks.checkParked();
+    await sleepMs(300);
+    const reminders = w.notes.filter((n) => REMINDER.test(n.body));
+    assert.deepEqual(reminders.map((n) => n.slug), ['zzz-other']);
+    const card = (await w.runner.read.features()).features.find((x) => x.slug === 'zzz-other');
+    assert.equal(card.parked, true);
+  } finally { await w.stop(); }
+});
+
+test('a stopped Auto job is parked and reminded like any job', { timeout: 60_000 }, async () => {
+  // Auto is on but stopped: the decision on its old gate is his.
+  const w = await world({ auto: { ...autoRecord(null, { on: true, now: OLD }), stopped: { rule: 'blocked', reason: 'the Foreman says it is blocked.', at: OLD } } });
+  try {
+    await w.hooks.checkParked();
+    await sleepMs(300);
+    assert.deepEqual(w.notes.filter((n) => REMINDER.test(n.body)).map((n) => n.slug), [w.slug]);
+    const card = (await w.runner.read.features()).features.find((x) => x.slug === w.slug);
+    assert.equal(card.parked, true);
+  } finally { await w.stop(); }
+});
+
+test('after a restart, a job whose go into Test was sent but whose stage still reads the step before holds the place', { timeout: 30_000 }, async () => {
+  // a's go into Test went out (lastBrief 1) and its reply runs; its status still says the build. b is read second.
+  const u = places({ a: { running: true }, b: {} });
+  u.set('a', { lastBrief: 1 });
+  await u.auto.pass();
+  assert.equal(u.auto.testHolder(), 'a');
+  assert.deepEqual(u.decides, [], 'b\'s go is not sent');
+  assert.equal(u.auto.waitingToTest(u.dirOf('b')), true);
+  // His own go into Test (an answered brief) holds it the same way.
+  const v = places({ b: {}, a: { running: true, answered: [1] } });
+  await v.auto.pass();
+  assert.equal(v.auto.testHolder(), 'a');
+  assert.deepEqual(v.decides, []);
+});
+
+test('he writes to a job that is waiting for its turn: it stops on the next pass and never takes the place', { timeout: 60_000 }, async () => {
+  const w = await waitingWorld();
+  const recordOf = async (dir) => JSON.parse(await fs.readFile(path.join(w.dirs.state, 'sessions.json'), 'utf8'))[dir]?.auto ?? null;
+  try {
+    await w.pass();
+    assert.equal((await gateSends(w)).length, 0, 'it waits for its turn');
+    await w.runner.handle({ type: 'reply', slug: 'zzz-other', text: 'Hold on, I want to look at the build first.' }, { from: 'local' });
+    await w.idle();
+    await w.pass();
+    assert.equal((await recordOf(w.otherDir)).stopped?.reason, YOURS);
+    await w.told(1);
+    assert.deepEqual(w.notes.map((n) => [n.slug, n.title]), [['zzz-other', 'Needs you: Other']]);
+    assert.equal((await w.runner.read.snapshot()).autoQueue.testing, w.slug, 'the place stays with the job in Test');
+    // The job in Test moves on: the place is free, and the stopped job does not take it.
+    await w.writeStatus(inTest({ stage: 'review' }));
+    await sleepMs(1700);
+    await w.pass();
+    assert.equal((await w.runner.read.snapshot()).autoQueue.testing, null);
+    assert.deepEqual((await gateSends(w)).filter((s) => s.by === 'auto'), [], 'Auto sent no go over his message');
   } finally { await w.stop(); }
 });

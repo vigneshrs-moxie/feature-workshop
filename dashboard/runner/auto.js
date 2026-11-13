@@ -156,7 +156,8 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
   /**
    * At the start of each pass: the place is let go when its job is no longer one of Auto's (off, finished, set aside, closed),
    * is stopped, or has moved past Test (going back to an earlier stage for a fix keeps it). With no holder, the first working
-   * job read that is in Test takes it (after a restart, or a job he un-stopped in Test while another held the place).
+   * job read that is in Test takes it (after a restart, or a job he un-stopped in Test while another held the place), or whose
+   * go into Test has been sent while its stage still reads the step before (a restart just after Auto's go, or his own go).
    */
   function placeAtStart(jobs) {
     if (testPlace) {
@@ -164,7 +165,9 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       if (!holder || holder.auto?.on !== true || holder.auto.stopped || pastTest(holder.stage)) testPlace = null;
     }
     if (!testPlace) {
-      const inTest = jobs.find((j) => j.auto?.on === true && !j.auto.stopped && j.stage === 'test');
+      const sentIntoTest = (j) => j.gate?.nextStage === 'test' && j.gate.briefNumber != null
+        && (j.auto.lastBrief === j.gate.briefNumber || (j.answered ?? []).includes(j.gate.briefNumber));
+      const inTest = jobs.find((j) => j.auto?.on === true && !j.auto.stopped && (j.stage === 'test' || sentIntoTest(j)));
       if (inTest) testPlace = { dir: inTest.dir, slug: inTest.slug };
     }
   }
@@ -311,9 +314,6 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     }
     const route = fixedStop({ kind: 'gate', stage: job.stage, nextStage: gate.nextStage, prOpen: job.prOpen });
     if (route) { await stop(job, route); return null; }
-    // The go-ahead into Test waits while another Auto job holds the test place: its turn comes on a later pass. Taken here, in
-    // the first round, so two jobs in one pass can't both take it. No stuck time is counted (the gate is there) and nobody is told.
-    if (gate.nextStage === 'test' && !takePlace(job, waitingNow)) return null;
     // The person wrote to this job while this step waited: the step is theirs, and the stop is written here, in the pass's first
     // round, before any job's Approver is asked (attend checks again, for a message sent while the Approver thinks).
     if (await youWroteWhileWaiting(job)) {
@@ -327,6 +327,10 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
         return null;
       }
     }
+    // The go-ahead into Test waits while another Auto job holds the test place: its turn comes on a later pass. Taken here, in
+    // the first round, so two jobs in one pass can't both take it; after "you wrote while waiting", so a job he wrote to stops at
+    // once and never takes the place. No stuck time is counted (the gate is there) and nobody is told.
+    if (gate.nextStage === 'test' && !takePlace(job, waitingNow)) return null;
     // The first brief suggests a stack (Auto queue, Task 12): the ticket is too big for Auto. After every fixed stop and "you
     // wrote while waiting", straight before the Approver is asked: set aside once, on brief 1 only, and never after he has acted
     // on a set-aside job (asOne).
