@@ -153,6 +153,17 @@ export function fixedStop(input, ctx = {}) {
   }
 }
 
+/**
+ * The hard line that refuses this card's call outright ({ line, reason }), or null. Such a call never comes as a card:
+ * the hook and the driver refuse it first, which is why judgeCard has no answer for it. Auto's own pass asks this, so that
+ * it does not rest on those two (runner/auto.js).
+ */
+export function refusedOutright(input, ctx = {}) {
+  const own = hardLineOf(input?.toolName, input?.input ?? {}, { cwd: ctx.cwd ?? null, stateDir: ctx.stateDir });
+  const deny = [own, input?.hardLine].find((h) => h?.decision === 'deny');
+  return deny ? { line: deny.line ?? '', reason: deny.reason ?? null } : null;
+}
+
 // ---------- gate and job ----------
 
 /**

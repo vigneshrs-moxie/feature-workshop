@@ -23,7 +23,7 @@
 // nothing reaches the Foreman but through decide.gate with by: 'auto'.
 
 import { AUTO_CARDS_PER_REPLY, AUTO_MARK, OWN_SENDS, REFUSED_RULES, YOURS_NOW, finishBody, refuseNote, refuseReason, wroteWhileWaiting } from '../lib/auto.js';
-import { AUTO_STOP_REASONS, HIDDEN_PROGRAM_REASON, OUTSIDE_REASONS, autoVerdict, fixedStop, plainPushCard, pr1StepGate } from '../lib/auto-rules.js';
+import { AUTO_STOP_REASONS, HIDDEN_PROGRAM_REASON, OUTSIDE_REASONS, autoVerdict, fixedStop, plainPushCard, pr1StepGate, refusedOutright } from '../lib/auto-rules.js';
 import { APPROVER_BUDGET_USD, approverCut, approverPaths, approverRoots, callPreview, checkAnswer } from '../lib/approver.js';
 import { DECIDING_KINDS } from '../lib/gate.js';
 import { ownLevelStands } from '../lib/auto-level.js';
@@ -728,11 +728,15 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     let hit;
     let ctx = null;
     let why = null; // why Starbase asked (autoVerdict), for the Approver's facts (I10)
+    // A call the hard lines refuse outright never comes as a card: the hook and the driver refuse it first, so the fixed
+    // stops have no answer for it. Auto's own pass does not rest on those two: such a card is refused as its hard line.
+    let outright = null;
     try {
       ctx = await cardCtx(card);
       if (!ctx) throw new Error('no folders for this card');
       const asked = { kind: 'card', toolName: full.toolName, input: full.input, hardLine: full.hardLine ? { decision: 'ask', ...full.hardLine } : null, blockedPath: full.blockedPath ?? null };
       hit = fixedStop(asked, ctx);
+      if (!hit) outright = refusedOutright(asked, ctx);
       if (!hit) why = autoVerdict(asked, ctx)?.why ?? null;
     } catch (err) {
       // Refused on the card like a tool Auto can't judge; said here, so a broken job context is not silent (m3).
@@ -746,7 +750,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     // The job's own branch names are taken out first (n3), so a branch like feature/gh-pages is not read as a gh call.
     // The test is lib/auto-rules.js's (plainPushCard), which its own gh pr create rule reads too, so the two cannot drift.
     const plainPush = plainPushCard(full.hardLine, full.input?.command, ctx?.branches);
-    const hardLineHit = !hit && Boolean(full.hardLine) && !plainPush;
+    const hardLineHit = !hit && (Boolean(outright) || (Boolean(full.hardLine) && !plainPush));
     // A refused hard line's note and line come from REFUSE_REASONS by its id (refuseCard): no owner sentence is built for it (n1).
     if (hardLineHit) hit = { rule: 'blocked', reason: null };
     // A call Auto may never allow (a rule in REFUSED_RULES, or a hard line other than the plain push) is refused on its card,
@@ -761,7 +765,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     }
     // Before youSpokeSince on purpose: the call is one Auto may never allow, so his message does not make the card his to
     // answer here. To take such a card himself he switches Auto off (m1).
-    if (refused) return refuseCard(job, full, hit, { leave, quietly, lastAnswered, hardLine: hardLineHit ? full.hardLine.line ?? '' : null });
+    if (refused) return refuseCard(job, full, hit, { leave, quietly, lastAnswered, hardLine: hardLineHit ? (outright ?? full.hardLine).line ?? '' : null });
 
     // The person wrote to the job (a message, or one steered into the reply) since Auto took the card up, while it
     // queued behind another: it is theirs, and the Approver is not asked. A stop on the card, and he is told.

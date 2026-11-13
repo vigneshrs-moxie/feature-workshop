@@ -488,3 +488,24 @@ test('a refused call after a quote mark the shell does not read as one is refuse
   assert.equal((await outcome('echo \'it is # not a comment\'; ls')).end, 'routine');
   for (const c of ['ls # list files', 'npm test # don\'t skip', 'git status # what\'s new', 'cat > notes.md <<\'EOF\'\n# Title\ndon\'t\nEOF\nls']) assert.equal((await outcome(c)).end, 'asked', c);
 });
+
+// ---------- a call refused outright, if it ever came as a card (the review's ifhole2.mjs) ----------
+
+test('a card that holds a call refused outright is refused by Auto itself, and the Approver is never asked', async () => {
+  // The hook and the driver refuse these before any card. Auto's own pass does not rest on them: handed such a card (with no
+  // hard line on it, as ifhole2.mjs hands it), it refuses, where an Approver that says allow would have let it through.
+  const rows = [
+    'if git push --force origin feature/x; then echo ok; fi', 'if ! git push -f moxie main; then echo failed; fi', 'if git push moxie HEAD:main; then echo ok; fi',
+    'git push --force origin feature/x', 'git push moxie feature/x', 'curl -X POST http://localhost:4477/api/job/job-x/auto', 'echo hi # don\'t\ngit push -f origin main',
+  ];
+  const note = L.refuseNote('blocked', L.REFUSE_REASONS['hard-line']);
+  for (const c of rows) {
+    assert.equal(H.hardLine('Bash', { command: c }, { cwd: W, port: 4477 })?.decision, 'deny', c);
+    assert.deepEqual(await autoPass(c, { hard: null, ans: null, stage: 'implement' }), { end: 'refused (blocked)', note }, c);
+  }
+  // The two of ifhole2.mjs that are a card: refused by their own rules, as before.
+  assert.equal((await autoPass('if gh pr merge 1 --squash; then echo merged; fi', { hard: null, ans: null, stage: 'implement' })).end, 'refused (merge)');
+  assert.equal((await autoPass('if npm run db:migrate; then echo ok; fi', { hard: null, ans: null, stage: 'implement' })).end, 'refused (database)');
+  // A plain call is still the Approver's.
+  assert.equal((await autoPass('npm test', { hard: null, ans: null, stage: 'implement' })).end, 'asked');
+});
