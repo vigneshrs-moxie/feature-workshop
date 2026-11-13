@@ -352,3 +352,21 @@ describe('the website', () => {
     expect(await screen.findByRole('main', { name: 'Job' })).not.toHaveClass('jp2');
   });
 });
+
+describe('the snapshot row is for the first paint only', () => {
+  it('a newer row shows before the payload lands, and redraws nothing after', async () => {
+    window.history.replaceState(null, '', `/#/job/${SLUG}`);
+    const c = client({ hold: true });
+    const tree = (row: Job) => <WorkshopContext.Provider value={{ api: c.api, store: createStore() }}><Routed row={row} /></WorkshopContext.Provider>;
+    const { rerender } = render(tree(ROW));
+    rerender(tree({ ...ROW, title: 'Renamed on Jobs' }));
+    expect(screen.getByRole('heading', { level: 1, name: 'Renamed on Jobs' })).toBeInTheDocument();
+    c.release();
+    await settle();
+    const steps = screen.getByRole('navigation', { name: 'Steps' });
+    rerender(tree({ ...ROW, title: 'Renamed again', stage: 'ship' }));
+    expect(screen.getByRole('heading', { level: 1, name: 'Crew schedule export' })).toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: 'Steps' })).toBe(steps);
+    expect(stepRow('Review')).toHaveAttribute('aria-expanded', 'true');
+  });
+});

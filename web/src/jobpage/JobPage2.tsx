@@ -30,7 +30,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import type { Job } from '../api/types';
 import { useKeyScope } from '../app/keyRegistry';
-import { MenuButton } from '../app/Menu';
+import { MenuButton, type MenuEntry } from '../app/Menu';
 import { readHref, replaceHash, stageHref, type JobView } from '../app/router';
 import { Button } from '../components/Button';
 import { Icon } from '../components/Icon';
@@ -124,11 +124,14 @@ export const JobPage2 = memo(function JobPage2({ slug, job, step, view, read, st
   );
 });
 
-function Frame({ slug, job, step, view, read }: Omit<JobPage2Props, 'store'>) {
+function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'>) {
   const store = useJobStore();
   const layout = useLayout();
   const hasPayload = useJob((s) => s.payload !== null);
-  const target = useJob(readerOf);
+  // The snapshot row is for the first paint only: once the payload is in, a newer row redraws nothing.
+  const firstRow = useRef(row);
+  if (!hasPayload) firstRow.current = row;
+  const job = firstRow.current;
   // Over the left pane under 1100 px: open from a pick (or an address that names a reader target).
   const [covered, setCovered] = useState(() => addressTarget(view, read) !== null);
   const [cursor, setCursor] = useState<number | null>(null);
@@ -221,8 +224,8 @@ function Frame({ slug, job, step, view, read }: Omit<JobPage2Props, 'store'>) {
         <div className="jp2-left" aria-hidden={leftHidden || undefined} inert={leftHidden || undefined}>
           <div className="jp2-lscroll">
             <YourMove job={job} />
-            <Steps job={job} cursor={cursor} onStep={pickStep} onOpen={(t, el) => pickReader(t, el)} />
-            <JobRows cursor={cursor} first={lines.findIndex((l) => l.target)} target={target} onOpen={(t, el) => pickReader(t, el)} />
+            <Steps job={job} cursor={cursor} onStep={pickStep} onOpen={pickReader} />
+            <JobRows cursor={cursor} first={lines.findIndex((l) => l.target)} onOpen={pickReader} />
           </div>
           <MessageBox boxRef={box} />
         </div>
@@ -303,7 +306,7 @@ export function slugKey(slug: string): string | null {
   return m ? `ORBIT-${Number(m[1])}` : null;
 }
 
-function Header({ job }: { job: Job | null }) {
+const Header = memo(function Header({ job }: { job: Job | null }) {
   const title = useJob((s) => s.payload?.title) ?? (job?.title || job?.slug || '');
   const key = useJob((s) => s.payload?.key) ?? (job ? slugKey(job.slug) : null);
   const keyUrl = useJob((s) => s.payload?.keyUrl ?? null);
@@ -328,11 +331,14 @@ function Header({ job }: { job: Job | null }) {
         hint="Rare things for this job."
         icon="dots"
         className="jp2-menu"
-        entries={[{ kind: 'action', id: 'old-page', label: 'Back to the old job page', hint: 'Show this job on the job page you had before. You can switch again from its job menu.', run: backToOldJobPage }]}
+        entries={MENU}
       />
     </header>
   );
-}
+});
+
+/** The ⋯ menu until Task 8 gives it everything rare. */
+const MENU: MenuEntry[] = [{ kind: 'action', id: 'old-page', label: 'Back to the old job page', hint: 'Show this job on the job page you had before. You can switch again from its job menu.', run: backToOldJobPage }];
 
 // ---------- The left pane (Tasks 9, 10, 11 fill it) ----------
 
@@ -343,7 +349,7 @@ function sinceWords(at: string | null | undefined): string | null {
   return d.toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' });
 }
 
-function YourMove({ job }: { job: Job | null }) {
+const YourMove = memo(function YourMove({ job }: { job: Job | null }) {
   const move = useJob((s) => s.payload?.move);
   const state = useJob((s) => s.payload?.state);
   const line = useJob((s) => s.payload?.stateLine);
@@ -361,7 +367,7 @@ function YourMove({ job }: { job: Job | null }) {
     return <div className="jp2-ym"><Card label={label} ask={ask} /></div>;
   }
   return <div className="jp2-ym"><p className="jp2-ym-one">{state ? STATE_WORDS[state] : ''}{line ? ` · ${line}` : ''}</p></div>;
-}
+});
 
 function Card({ label, ask }: { label: string; ask: string }) {
   return (
@@ -372,7 +378,7 @@ function Card({ label, ask }: { label: string; ask: string }) {
   );
 }
 
-function Steps({ job, cursor, onStep, onOpen }: { job: Job | null; cursor: number | null; onStep(id: StopId): void; onOpen(t: ReaderTarget, el: HTMLElement): void }) {
+const Steps = memo(function Steps({ job, cursor, onStep, onOpen }: { job: Job | null; cursor: number | null; onStep(id: StopId): void; onOpen(t: ReaderTarget, el: HTMLElement): void }) {
   const steps = useJob((s) => s.payload?.steps ?? null);
   const open = useJob((s) => openStepOf(s, job));
   const rows = steps ?? stepsFromRow(job).map((s) => ({ ...s, word: null, durationMs: null, startedAt: null, outputs: [] as Output[] }));
@@ -410,9 +416,10 @@ function Steps({ job, cursor, onStep, onOpen }: { job: Job | null; cursor: numbe
       })}
     </nav>
   );
-}
+});
 
-function JobRows({ cursor, first, target, onOpen }: { cursor: number | null; first: number; target: ReaderTarget | null; onOpen(t: ReaderTarget, el: HTMLElement): void }) {
+const JobRows = memo(function JobRows({ cursor, first, onOpen }: { cursor: number | null; first: number; onOpen(t: ReaderTarget, el: HTMLElement): void }) {
+  const target = useJob(readerOf);
   const convo = useJob((s) => s.payload?.rows.conversation.count ?? null);
   const decided = useJob((s) => s.payload?.rows.decisions.count ?? null);
   const rows: { t: ReaderTarget; name: string; more: string | null }[] = [
@@ -437,9 +444,9 @@ function JobRows({ cursor, first, target, onOpen }: { cursor: number | null; fir
       ))}
     </div>
   );
-}
+});
 
-function MessageBox({ boxRef }: { boxRef: React.RefObject<HTMLTextAreaElement | null> }) {
+const MessageBox = memo(function MessageBox({ boxRef }: { boxRef: React.RefObject<HTMLTextAreaElement | null> }) {
   const store = useJobStore();
   const draft = useJob((s) => s.ui.draft);
   return (
@@ -456,7 +463,7 @@ function MessageBox({ boxRef }: { boxRef: React.RefObject<HTMLTextAreaElement | 
       <Button kind="primary" size="sm" disabled title="Sending from the new page comes in a later build. The old job page (⋯ menu) sends for now.">Send</Button>
     </div>
   );
-}
+});
 
 // ---------- The reader (Tasks 12 to 14 fill it) ----------
 
@@ -488,7 +495,7 @@ function titleOf(t: ReaderTarget, payload: JobPagePayload | null): { title: stri
   return { title: TITLES[t.kind] ?? 'Reader', meta: null };
 }
 
-function Reader({ job, searchRef }: { job: Job | null; searchRef: React.RefObject<HTMLInputElement | null> }) {
+const Reader = memo(function Reader({ job, searchRef }: { job: Job | null; searchRef: React.RefObject<HTMLInputElement | null> }) {
   const target = useJob(readerOf);
   const payload = useJob((s) => s.payload);
   if (!target) {
@@ -511,7 +518,7 @@ function Reader({ job, searchRef }: { job: Job | null; searchRef: React.RefObjec
         : <div className="jp2-rv-body">{BODY_KINDS.has(target.kind) ? <BodyText id={target.id} /> : <p className="jp2-dim">This view comes in a later build of the new page.</p>}</div>}
     </>
   );
-}
+});
 
 /** A body's plain words (Task 12 typesets it); nothing until it lands, so nothing above it moves. */
 function BodyText({ id }: { id: string }) {
