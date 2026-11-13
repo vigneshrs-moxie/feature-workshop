@@ -207,6 +207,8 @@ export function createJobStore(slug: string, { api = createApi(), events = onLiv
   let destroyed = false;
   /** Ask for the whole payload next (after a resync: the held v may mean nothing to the server now). */
   let forget = false;
+  /** A fetch that forgot the held v is out: until it lands, the held v says nothing about an event's v. */
+  let forgetting = false;
   /** The viewer id the last page request named. */
   let named: string | null = null;
   /** Which fetch set the error line, so only a good fetch of that kind clears it. */
@@ -233,6 +235,7 @@ export function createJobStore(slug: string, { api = createApi(), events = onLiv
 
   async function fetchPageOnce() {
     const held = forget ? null : state.payload;
+    forgetting = forget;
     forget = false;
     const id = viewerNow();
     let answer;
@@ -241,6 +244,8 @@ export function createJobStore(slug: string, { api = createApi(), events = onLiv
     } catch (err) {
       if (!destroyed) fail('page', PAGE_ERROR + message(err));
       return;
+    } finally {
+      forgetting = false;
     }
     if (destroyed) return;
     named = id;
@@ -335,7 +340,8 @@ export function createJobStore(slug: string, { api = createApi(), events = onLiv
     if (e.type === 'job-page') {
       if ((e.job ?? d.slug) !== slug) return;
       const v = typeof d.v === 'number' ? d.v : null;
-      if (v !== null && state.payload && v <= state.payload.v) return;
+      // While the held v is being forgotten (after a resync) it says nothing: ask again after.
+      if (v !== null && state.payload && v <= state.payload.v && !forget && !forgetting) return;
       void loadPage();
       return;
     }

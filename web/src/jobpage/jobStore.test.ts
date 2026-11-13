@@ -531,3 +531,40 @@ describe('job store: fix round 1', () => {
     expect(store.getState().bodies[ID]?.version).toBe('bbbbbbbbbbbb');
   });
 });
+
+describe('job store: carried into Task 7', () => {
+  it('Mi1: a job-page event that lands while the fetch after a resync is out is not dropped by v; it asks once more', async () => {
+    let current: JobPagePayload = { ...base(), v: 57 };
+    const asked: Array<number | null> = [];
+    let release: (() => void) | null = null;
+    let hold = false;
+    const api: JobApi = {
+      page: async (_slug, v) => {
+        asked.push(v);
+        // What the server holds when asked; the answer waits while `hold` is on.
+        const answer = v === current.v ? { same: true as const, v } : clone(current);
+        if (hold) { hold = false; await new Promise<void>((r) => { release = r; }); }
+        return answer;
+      },
+      item: async (_slug, id) => bodyOf(id),
+    };
+    const live = stream();
+    const store = createJobStore(SLUG, { api, events: live.events });
+    await store.loadPage();
+    // Starbase restarts and counts from 1; the resync's fetch is held on the way back.
+    current = { ...base(), v: 1 };
+    hold = true;
+    live.send('resync', null, { epoch: 'new' });
+    await settle();
+    expect(asked).toEqual([null, null]);
+    // While it is out the job moves on to v 2 and says so. The store still holds v 57.
+    current = { ...base(), v: 2, title: 'Crew schedule export, moved on' };
+    live.send('job-page', SLUG, { slug: SLUG, v: 2 });
+    release!();
+    await settle();
+    await settle();
+    expect(asked).toEqual([null, null, 1]);
+    expect(store.getState().payload?.v).toBe(2);
+    expect(store.getState().payload?.title).toBe('Crew schedule export, moved on');
+  });
+});
