@@ -2,15 +2,38 @@
 // at the end): a pull request's checks, its review comments and a failed check's log.
 // Commands run through execFile (no shell) with validated arguments and a time limit.
 
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import path from 'node:path';
+
+// Every git command Starbase itself starts goes through execGit, execGitSync or runGit
+// (dashboard/test/git-fsmonitor.test.js fails on any other). They turn off core.fsmonitor: that
+// setting names a program git runs on a status, diff or commit, and a job folder's git settings are
+// not trusted code. The git the Foreman and its crew run themselves is theirs, not this.
+const NO_FSMONITOR = ['-c', 'core.fsmonitor=false'];
+
+/** git through execFile (args, options, callback as execFile takes them), with core.fsmonitor off. */
+export function execGit(args, options, callback) {
+  return execFile('git', [...NO_FSMONITOR, ...args], options, callback);
+}
+
+/** git through execFileSync (args, options), with core.fsmonitor off: its stdout. */
+export function execGitSync(args, options) {
+  return execFileSync('git', [...NO_FSMONITOR, ...args], options);
+}
+
+/** git as promisify(execFile) runs it, with core.fsmonitor off: { stdout, stderr }, or rejects with the error carrying both. */
+export function runGit(args, options = {}) {
+  return new Promise((resolve, reject) => {
+    execGit(args, options, (err, stdout, stderr) => (err ? reject(Object.assign(err, { stdout, stderr })) : resolve({ stdout, stderr })));
+  });
+}
 
 const REF = /^(?!-)[\w./@{}^~-]{1,200}$/;
 const SHA = /^[0-9a-f]{4,40}$/i;
 
 function git(dir, args, { maxBuffer = 8 * 1024 * 1024 } = {}) {
   return new Promise((resolve, reject) => {
-    execFile('git', ['-C', dir, ...args], { timeout: 15000, maxBuffer, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' } }, (err, stdout) => {
+    execGit(['-C', dir, ...args], { timeout: 15000, maxBuffer, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' } }, (err, stdout) => {
       if (err) reject(err); else resolve(stdout);
     });
   });

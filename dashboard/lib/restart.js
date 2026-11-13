@@ -10,14 +10,12 @@
 // A step that fails before the new job exists is undone, in reverse order, so the old job is as it
 // was; when an undo step itself fails, the message says exactly what is where.
 
-import { execFile } from 'node:child_process';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
-import { promisify } from 'node:util';
 import { HttpError } from './http-guard.js';
 import { FABLE } from './options.js';
+import { runGit } from './git.js';
 
-const run = promisify(execFile);
 
 /**
  * The options a restart carries to the new job: what the New job form itself can set. Nothing else is
@@ -81,14 +79,14 @@ export const remoteEnv = (base = process.env) => ({ ...base, GIT_TERMINAL_PROMPT
 /** The git calls a restart makes (injectable for tests). */
 export const realGit = {
   async branches(repo) {
-    const { stdout } = await run('git', ['-C', repo, 'for-each-ref', '--format=%(refname:short)', 'refs/heads']);
+    const { stdout } = await runGit(['-C', repo, 'for-each-ref', '--format=%(refname:short)', 'refs/heads']);
     return stdout.split('\n').filter(Boolean);
   },
-  async moveWorktree(repo, from, to) { await run('git', ['-C', repo, 'worktree', 'move', from, to]); },
-  async renameBranch(repo, from, to) { await run('git', ['-C', repo, 'branch', '-m', from, to]); },
+  async moveWorktree(repo, from, to) { await runGit(['-C', repo, 'worktree', 'move', from, to]); },
+  async renameBranch(repo, from, to) { await runGit(['-C', repo, 'branch', '-m', from, to]); },
   /** Every folder git has a checkout in, with the branch checked out there: [{ path, branch }]. */
   async worktrees(repo) {
-    const { stdout } = await run('git', ['-C', repo, 'worktree', 'list', '--porcelain']);
+    const { stdout } = await runGit(['-C', repo, 'worktree', 'list', '--porcelain']);
     return stdout.split('\n\n').map((block) => {
       const line = (key) => block.split('\n').find((l) => l.startsWith(`${key} `))?.slice(key.length + 1) ?? null;
       const branch = line('branch');
@@ -98,18 +96,18 @@ export const realGit = {
   /** The branch the remote calls its default (origin/HEAD), or null when git doesn't know. */
   async defaultBranch(repo) {
     try {
-      const { stdout } = await run('git', ['-C', repo, 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD']);
+      const { stdout } = await runGit(['-C', repo, 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD']);
       return stdout.trim().replace(/^origin\//, '') || null;
     } catch { return null; }
   },
   async remotes(repo) {
-    const { stdout } = await run('git', ['-C', repo, 'remote']);
+    const { stdout } = await runGit(['-C', repo, 'remote']);
     return stdout.split('\n').filter(Boolean);
   },
   /** Whether the remote has a branch of this name: true, false, or null when it could not be asked (offline, no such remote, too slow). */
   async remoteHasBranch(repo, remote, branch) {
     try {
-      const { stdout } = await run('git', ['-C', repo, 'ls-remote', '--heads', remote, branch], { timeout: 8000, env: remoteEnv() });
+      const { stdout } = await runGit(['-C', repo, 'ls-remote', '--heads', remote, branch], { timeout: 8000, env: remoteEnv() });
       return stdout.split('\n').some((l) => l.trim().endsWith(`refs/heads/${branch}`));
     } catch { return null; }
   },

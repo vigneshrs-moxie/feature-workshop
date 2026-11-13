@@ -35,7 +35,7 @@
 // hands a command on (bundle exec, uv run, stdbuf, find -exec, a redirection in front: see handedOn
 // below) the NEVER lines are looked for and no ASK line is added.
 
-import { execFile } from 'node:child_process';
+import { execGit } from './git.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -777,7 +777,7 @@ const ORG_PUSH = { decision: 'deny', line: 'org-push', reason: 'That remote poin
 
 function git(args, cwd) {
   return new Promise((resolve) => {
-    execFile('git', args, { cwd, timeout: 3000, windowsHide: true }, (err, stdout) => resolve(err ? null : String(stdout).trim()));
+    execGit(args, { cwd, timeout: 3000, windowsHide: true }, (err, stdout) => resolve(err ? null : String(stdout).trim()));
   });
 }
 

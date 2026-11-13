@@ -5,7 +5,7 @@
 // Pure: no files, no clock. (decisions.md, below, is the one part that reads and writes files:
 // writeDecisionsFile.)
 
-import { execFile } from 'node:child_process';
+import { execGit } from './git.js';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -260,7 +260,7 @@ let personAsked = null;
 export function personName() {
   personAsked ??= new Promise((resolve) => {
     const fallback = () => { try { return os.userInfo().username || 'You'; } catch { return 'You'; } };
-    execFile('git', ['config', '--get', 'user.name'], { timeout: 3000 }, (err, out) => resolve((!err && String(out).trim()) || fallback()));
+    execGit(['config', '--get', 'user.name'], { timeout: 3000 }, (err, out) => resolve((!err && String(out).trim()) || fallback()));
   });
   return personAsked;
 }
@@ -608,7 +608,7 @@ export function withoutAgentNotes(markdown) {
 }
 
 const git = (cwd, args) => new Promise((resolve) => {
-  execFile('git', ['-C', cwd, ...args], { timeout: 15_000, windowsHide: true }, (err, stdout, stderr) => {
+  execGit(['-C', cwd, ...args], { timeout: 15_000, windowsHide: true }, (err, stdout, stderr) => {
     resolve({ code: err ? (Number.isInteger(err.code) ? err.code : -1) : 0, out: String(stdout ?? ''), err: String(stderr ?? '') });
   });
 });

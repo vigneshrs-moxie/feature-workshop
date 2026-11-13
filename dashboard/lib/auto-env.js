@@ -7,7 +7,7 @@
 // each remote's address (git remote -v). The dashboard's own hard lines still apply on top
 // (lib/hard-lines.js): org pushes and force pushes are refused, merges and migrations ask.
 
-import { execFile } from 'node:child_process';
+import { execGit } from './git.js';
 
 import { ORG_REMOTES, ORG_URL } from './hard-lines.js';
 import { PRODUCT } from './brand.js';
@@ -16,7 +16,7 @@ import { PRODUCT } from './brand.js';
 export function remotesOf(repo) {
   return new Promise((resolve) => {
     if (!repo) return resolve([]);
-    execFile('git', ['remote', '-v'], { cwd: repo, timeout: 3000, windowsHide: true }, (err, stdout) => {
+    execGit(['remote', '-v'], { cwd: repo, timeout: 3000, windowsHide: true }, (err, stdout) => {
       if (err) return resolve([]);
       const out = new Map();
       for (const line of String(stdout).split('\n')) {

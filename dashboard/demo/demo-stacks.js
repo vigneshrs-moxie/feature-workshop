@@ -17,7 +17,7 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execGitSync } from '../lib/git.js';
 import { createHash } from 'node:crypto';
 
 const MIN = 60 * 1000;
@@ -109,7 +109,7 @@ Order: ${SSO_SECTIONS.map((s) => s.name).join(', ')}
 // ---------- The repository ----------
 
 function gitIn(dir) {
-  return (...args) => execFileSync('git', ['-C', dir, ...args], { stdio: 'pipe' }).toString().trim();
+  return (...args) => execGitSync(['-C', dir, ...args], { stdio: 'pipe' }).toString().trim();
 }
 
 /** A few lines of made-up code for a file, so the diffs read like code. */

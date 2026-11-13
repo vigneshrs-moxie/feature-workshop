@@ -6,11 +6,11 @@
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { execFile } from 'node:child_process';
+import { execGit } from './git.js';
 
 function git(dir, args) {
   return new Promise((resolve) => {
-    execFile('git', ['-C', dir, ...args], { timeout: 8000, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' } }, (err, stdout) => resolve(err ? null : stdout));
+    execGit(['-C', dir, ...args], { timeout: 8000, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' } }, (err, stdout) => resolve(err ? null : stdout));
   });
 }
 

@@ -10,6 +10,7 @@
 // profile gets the general case (profile.js GENERAL), as before profiles existed.
 
 import { spawn, execFile } from 'node:child_process';
+import { execGit } from './git.js';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -47,8 +48,12 @@ const PG_DIRS = {
 
 const exists = (p) => fs.existsSync(p);
 const readJson = async (file) => { try { return JSON.parse(await fsp.readFile(file, 'utf8')); } catch { return null; } };
+const shDone = (resolve) => (err, stdout, stderr) => resolve({ ok: !err, code: err ? err.code ?? 1 : 0, killed: Boolean(err?.killed), stdout: String(stdout), stderr: String(stderr) });
 const sh = (file, args, opts = {}) => new Promise((resolve) => {
-  execFile(file, args, { timeout: 120_000, maxBuffer: 8 * 1024 * 1024, ...opts }, (err, stdout, stderr) => resolve({ ok: !err, code: err ? err.code ?? 1 : 0, killed: Boolean(err?.killed), stdout: String(stdout), stderr: String(stderr) }));
+  execFile(file, args, { timeout: 120_000, maxBuffer: 8 * 1024 * 1024, ...opts }, shDone(resolve));
+});
+const shGit = (args, opts = {}) => new Promise((resolve) => {
+  execGit(args, { timeout: 120_000, maxBuffer: 8 * 1024 * 1024, ...opts }, shDone(resolve));
 });
 
 // ---------- Settings files ----------
@@ -418,7 +423,7 @@ export class LocalRunner extends EventEmitter {
     const port = await this.portFor(f.slug);
     // Every file must be ignored by git before any is written.
     for (const rule of w.files) {
-      const ignored = await sh('git', ['-C', w.root, 'check-ignore', '-q', rule.to]);
+      const ignored = await shGit(['-C', w.root, 'check-ignore', '-q', rule.to]);
       if (!ignored.ok) throw new Error(`${path.basename(rule.to)} isn’t ignored by git in this worktree, so it could be committed by mistake. Not writing it.`);
     }
     let copied = false;
