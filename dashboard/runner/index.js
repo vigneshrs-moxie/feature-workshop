@@ -901,7 +901,7 @@ export async function createRunner(config) {
   function stillRunning(f, a, active) {
     const locked = () => lockView(f.dir) !== null;
     return rowWorking(a, {
-      active, paused: jobPaused({ restart: restartPaused.has(f.dir), limit: Boolean(limits.pausedJob(f.dir)), locked }), endedAt: runEnds[f.dir]?.at ?? null,
+      active, paused: jobPaused({ restart: restartPaused.get(f.dir)?.how ?? null, limit: Boolean(limits.pausedJob(f.dir)), locked }), endedAt: runEnds[f.dir]?.at ?? null,
       startedAt: RUNNER_STARTED_AT, locked,
     });
   }
@@ -931,8 +931,8 @@ export async function createRunner(config) {
     // The record says "working" but nobody is: say so honestly instead of showing a busy crew.
     const notRunning = !active && !running.length && f.stageState === 'working';
     const limitPaused = !active && limits.pausedJob(f.dir) ? limits.view().resetsAt : null;
-    // A restart's pause holds until a terminal takes the job's lock (lib/working.js jobPaused).
-    const restart = !active && jobPaused({ restart: restartPaused.has(f.dir), locked: () => lockView(f.dir) !== null }) ? restartPaused.get(f.dir) : null;
+    // A crash's pause gives way once a terminal takes the job's lock; a clean stop's waits for the lock (lib/working.js jobPaused).
+    const restart = !active && jobPaused({ restart: restartPaused.get(f.dir)?.how ?? null, locked: () => lockView(f.dir) !== null }) ? restartPaused.get(f.dir) : null;
     const pausedHere = Boolean(limitPaused) || Boolean(restart) || (notRunning && runEnds[f.dir]?.status === 'stopped');
     const nowDoing = running.map((a) => ({
       who: a.who, name: a.name, doing: a.doing, quietMs: a.quiet?.quietMs ?? null,

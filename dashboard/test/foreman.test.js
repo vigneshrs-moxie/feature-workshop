@@ -541,18 +541,22 @@ test('a job whose crew stopped before Starbase started is not working: after a c
   }
 });
 
-test('jobPaused: the usage limit pauses a job; a restart\'s pause holds only until a live process takes the job\'s lock', () => {
+test('jobPaused: the usage limit pauses a job; a crash\'s pause holds only until a live process takes the job\'s lock, a clean stop\'s holds', () => {
   assert.equal(jobPaused({}), false);
   assert.equal(jobPaused({ limit: true }), true);
   assert.equal(jobPaused({ limit: true, locked: true }), true, 'the limit holds a terminal too');
-  assert.equal(jobPaused({ restart: true }), true);
-  assert.equal(jobPaused({ restart: true, locked: false }), true);
-  assert.equal(jobPaused({ restart: true, locked: true }), false, 'a terminal took the job up');
-  assert.equal(jobPaused({ restart: true, locked: () => true }), false);
+  assert.equal(jobPaused({ restart: 'crash' }), true);
+  assert.equal(jobPaused({ restart: 'crash', locked: false }), true);
+  assert.equal(jobPaused({ restart: 'crash', locked: true }), false, 'a terminal took the job up: Starbase will not carry a crash on');
+  assert.equal(jobPaused({ restart: 'crash', locked: () => true }), false);
+  // A clean stop's reply waits for the lock to be free, then carries on by itself: it stays paused while a terminal holds it.
+  assert.equal(jobPaused({ restart: 'clean', locked: true }), true);
+  assert.equal(jobPaused({ restart: 'clean' }), true);
   // The lock is asked only when a restart's pause is in question.
   let asked = 0;
   const ask = () => { asked += 1; return true; };
   jobPaused({ locked: ask });
   jobPaused({ limit: true, locked: ask });
+  jobPaused({ restart: 'clean', locked: ask });
   assert.equal(asked, 0);
 });

@@ -4,8 +4,9 @@
 // pauses, its last recorded run end, when this Starbase started and the job's lock. No process scan
 // and no disk here, so it is cheap on every snapshot.
 //
-//   A paused job is never working: nothing of it runs. The usage limit pauses it; a restart's pause
-//   holds until another live process (a terminal) takes the job's lock, since that process works it now.
+//   A paused job is never working: nothing of it runs. The usage limit pauses it. A clean stop's pause
+//   holds until Starbase carries the reply on (it waits for the job's lock to be free); a crash's pause
+//   holds until you resume it or another live process (a terminal) takes the job's lock and works it.
 //   A crew row works only with a live process behind it: an active run, or another live process
 //   holding the job's lock (a terminal). Without either:
 //   - on a job Starbase ran (a run end on record), a row that stopped before that end ended with it,
@@ -51,12 +52,16 @@ export function cardPaused(card) {
 
 /**
  * Whether a job is paused, so nothing of it runs (and no crew row of it works). Pure.
- * limit: the usage limit holds it (a terminal is held by it too). restart: a restart paused it (runner/replay.js),
- * which holds only while no other live process holds the job's lock: one that took the job up works it now.
- * locked: a boolean, or a function asked only when a restart's pause is in question.
+ * limit: the usage limit holds it (a terminal is held by it too).
+ * restart: how a restart paused it (runner/replay.js), 'clean' | 'crash' | null. A clean stop's reply waits for the
+ * job's lock to be free and then carries on by itself, so it stays paused while a terminal holds the lock. Starbase
+ * never carries a crash's reply on by itself: once another live process holds the lock, the job is that process's
+ * (as replay.js treats a held job at start), and the pause no longer holds.
+ * locked: a boolean, or a function asked only when a crash's pause is in question.
  */
-export function jobPaused({ restart = false, limit = false, locked = false } = {}) {
+export function jobPaused({ restart = null, limit = false, locked = false } = {}) {
   if (limit) return true;
   if (!restart) return false;
+  if (restart !== 'crash') return true;
   return !(typeof locked === 'function' ? locked() : locked);
 }
