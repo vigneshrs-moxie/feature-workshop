@@ -27,6 +27,7 @@ import { AUTO_STOP_REASONS, OUTSIDE_REASONS, autoVerdict, fixedStop } from '../l
 import { APPROVER_BUDGET_USD, approverCut, approverPaths, approverRoots, callPreview, checkAnswer } from '../lib/approver.js';
 import { DECIDING_KINDS } from '../lib/gate.js';
 import { ownLevelStands } from '../lib/auto-level.js';
+import { prDecisions } from '../lib/auto-log.js';
 
 /** Anything the Approver wrote, on one line: nothing it writes can start a line of its own, and no copy of the mark gets through. */
 const oneLine = (s) => {
@@ -512,13 +513,17 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     };
   }
 
-  /** The reply for one go: labelled lines, each of the Approver's strings on one line, the mark last. */
-  function noteFor(task, answer) {
+  /**
+   * The reply for one go: labelled lines, each of the Approver's strings on one line, then `decisions` (the go-ahead for
+   * PR #1's Decisions Auto made block, lib/auto-log.js prDecisions, each line already one line), the mark last.
+   */
+  function noteFor(task, answer, { decisions = [] } = {}) {
     const lines = [`Why: ${oneLine(answer.why)}`];
     task.questions.forEach((q, i) => {
       const a = answer.answers.find((x) => x.id === String(q.id));
       if (a && oneLine(a.reason)) lines.push(`Reason for question ${i + 1}: ${oneLine(a.reason)}`);
     });
+    lines.push(...decisions);
     lines.push(AUTO_MARK);
     return lines.join('\n');
   }
@@ -532,8 +537,19 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     // Confirmed only on a go (a stop never gets here), and only the ones the Approver was shown; never on a second look: its first
     // answer doubted the step, so the items stay open for the person (the reply says "Not confirmed yet").
     if (answer.decision === 'go' && !task.safer) for (const d of gate.decided ?? []) if (!d.confirmed) verdicts[d.id ?? d.decision] = { verdict: 'confirm' };
+    // The second ask's answer (task.safer holds the first): a risky call, counted with the brief it answered. open: the decided
+    // items it left unconfirmed, for the person.
+    const open = task.safer ? (gate.decided ?? []).filter((d) => !d.confirmed).length : 0;
+    const risky = task.safer ? { risky: true, first: firstWords(task.safer), ...(open ? { open } : {}) } : null;
+    // The go-ahead that leads to PR #1 carries the job's risky calls (this one last) for the PR's description. Reading the
+    // lines never holds the go-ahead up: if it fails, the go-ahead goes without the block.
+    let decisions = [];
+    if (gate.nextStage === 'pr1' || job.stage === 'pr1') {
+      const extra = risky ? { stage: job.stage, asked: oneLine(gate.headline) || `Brief ${gate.briefNumber}`, why: oneLine(answer.why), ...risky } : null;
+      try { decisions = prDecisions(await state.auditFor(job.dir, Infinity), { extra }); } catch { decisions = []; }
+    }
     try {
-      await decide.gate('approve', { slug: job.slug, briefNumber: n, answers, verdicts, note: noteFor(task, answer) }, { by: 'auto' });
+      await decide.gate('approve', { slug: job.slug, briefNumber: n, answers, verdicts, note: noteFor(task, answer, { decisions }) }, { by: 'auto' });
     } catch (err) {
       if (MOVED_ON.has(codeOf(err))) { held.delete(job.dir); await settleIfOff(job); return 'dropped'; }
       if (isNotNow(err)) {
@@ -553,8 +569,6 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       return 'failed';
     }
     held.delete(job.dir); refused.delete(job.dir);
-    // The second ask's answer (task.safer holds the first): a risky call, counted with the brief it answered.
-    const risky = task.safer ? { risky: true, first: firstWords(task.safer) } : null;
     let spent = 0;
     await update(job.dir, (prev) => {
       if (!prev) return null;

@@ -6,7 +6,9 @@
 import path from 'node:path';
 import { writeFileAtomic } from './atomic-write.js';
 import { STAGES } from './stages.js';
-import { stopOf } from './stage-view.js';
+import { STOPS, stopOf } from './stage-view.js';
+import { AUTO_MARK } from './auto.js';
+import { PRODUCT } from './brand.js';
 
 export const AUTO_LOG_FILE = 'auto-log.md';
 
@@ -165,6 +167,68 @@ export function autoLogMarkdown(view) {
     out.push('');
   }
   return `${out.join('\n').replace(/\n+$/, '')}\n`;
+}
+
+/** The heading of the block of risky calls Auto hands the Foreman with the go-ahead for PR #1 (the skills text looks for it). */
+export const DECISIONS_HEADING = 'Decisions Auto made';
+// A line of the block at most this long; its question cut to this first; at most this many calls, then a last line.
+const PR_LINE = 300;
+const PR_ASKED = 80;
+const PR_CALLS = 30;
+// An @ that starts a word: GitHub would notify that name from PR #1's description.
+const MENTION = /(^|[^A-Za-z0-9_])@(?=[A-Za-z0-9])/g;
+
+// Words for PR #1's description: on one line, with no copy of the mark and no mention. Each step only shortens the
+// words, so it is done again until nothing changes (taking a copy out can join the rest into another).
+function prText(s) {
+  let t = text(s);
+  for (let before = null; t !== before;) {
+    before = t;
+    t = t.replace(/[\u0000-\u001F\u007F-\u009F\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim();
+    t = t.split(AUTO_MARK).join(' ').replace(MENTION, '$1');
+  }
+  return t;
+}
+// A part that ends a sentence of the line: a full stop after it, unless it ends in one already.
+const ended = (s) => (/[.!?…]$/.test(s) ? s : `${s}.`);
+
+// One risky call as a line: `- <step>: <asked>. In doubt: <first>. Auto chose: <why>`, at most PR_LINE characters. Over that,
+// the question is cut to PR_ASKED first, then the choice, and only then what was in doubt, which is why the line exists.
+// open: the decided items the go left for the person, said at the end, which is never cut.
+function prLine(l) {
+  const stop = typeof l.stage === 'string' ? stopOf(l.stage) : null;
+  const step = prText(STOPS.find((s) => s.id === stop)?.label ?? (l.stage ? stageLabel(l.stage) : ''));
+  let asked = prText(l.asked);
+  const first = prText(l.first);
+  const why = prText(l.why);
+  const n = Number.isInteger(l.open) && l.open > 0 ? l.open : 0;
+  const end = n ? ` ${n} decided item${n === 1 ? '' : 's'} on this step ${n === 1 ? 'is' : 'are'} left for you in ${PRODUCT}.` : '';
+  const room = PR_LINE - end.length;
+  const body = () => `- ${step ? `${step}: ` : ''}${ended(asked)} In doubt: ${ended(first)} Auto chose: ${end && why ? ended(why) : why}`;
+  let line = body();
+  if (line.length > room && asked.length > PR_ASKED) { asked = `${asked.slice(0, PR_ASKED)}…`; line = body(); }
+  // Cut from the end: the choice is the last part, so it goes before what was in doubt.
+  if (line.length > room) line = `${line.slice(0, room - 1)}…`;
+  line += end;
+  // An odd number of backticks would turn the rest of the description into code: they all go. Then once more for a mark or
+  // a mention that taking them out made.
+  if ((line.match(/`/g) ?? []).length % 2) line = prText(line.replace(/`/g, ''));
+  return line;
+}
+
+/**
+ * The block Auto hands the Foreman with the go-ahead for PR #1, for the end of the PR's description: [] when there is no
+ * risky call; else DECISIONS_HEADING, then one line per risky call in the audit lines (gate or card, in the lines' order,
+ * oldest first), then `extra` (the risky call being sent now, not written down yet: { stage, asked, first, why, open }).
+ * Refusals are never listed. At most PR_CALLS calls; more end with a line saying how many more Starbase lists.
+ */
+export function prDecisions(lines, { extra = null } = {}) {
+  const calls = (Array.isArray(lines) ? lines : []).filter((l) => isAuto(l) && l.risky === true && DECISIONS.has(l.what) && l.what !== 'refuse');
+  if (extra && typeof extra === 'object') calls.push(extra);
+  if (!calls.length) return [];
+  const out = [DECISIONS_HEADING, ...calls.slice(0, PR_CALLS).map(prLine)];
+  if (calls.length > PR_CALLS) out.push(`- And ${calls.length - PR_CALLS} more, listed in ${PRODUCT}.`);
+  return out;
 }
 
 /**

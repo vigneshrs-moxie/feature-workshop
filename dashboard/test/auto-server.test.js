@@ -5622,3 +5622,146 @@ test('a restart keeps the name when the ticket\'s title has changed since', { ti
     assert.deepEqual((await nameLines(w)).map((l) => [l.name, l.by]), [[SHORT_471, 'title'], [SHORT_471, 'kept']]);
   } finally { await w.stop(); }
 });
+
+// ---------- Decisions Auto made: the risky calls go to the Foreman with the go-ahead for PR #1 (Task 14) ----------
+
+const HEADING = 'Decisions Auto made';
+/** Two risky calls written down earlier on the job: a gate at plan and a card at build. */
+const twoRisky = async (w) => {
+  await auditLine(w, { at: AT(1), action: 'auto', what: 'gate', stage: 'plan', briefNumber: 1, asked: 'Plan v1 ready', chose: 'Approved', why: 'I kept the old column.', risk: 'low', risky: true, first: 'Stop: The plan drops a column.' });
+  await auditLine(w, { at: AT(2), action: 'auto', what: 'permission', stage: 'implement', asked: 'Fetch a page', chose: 'Said no', why: 'It is not needed.', risk: 'medium', risky: true, first: 'Allow, high risk: It reaches an outside site.' });
+  // An ordinary go and a refusal: neither is listed.
+  await auditLine(w, { at: AT(3), action: 'auto', what: 'gate', stage: 'implement', briefNumber: 2, asked: 'Build done', chose: 'Approved', why: 'Fine.', risk: 'low' });
+  await auditLine(w, { at: AT(4), action: 'auto', what: 'refuse', stage: 'implement', rule: 'database', asked: 'Run npm run db:migrate', chose: 'Refused: Run npm run db:migrate', why: 'Not his database.' });
+};
+const PLAN_LINE = '- Plan: Plan v1 ready. In doubt: Stop: The plan drops a column. Auto chose: I kept the old column.';
+const BUILD_LINE = '- Build: Fetch a page. In doubt: Allow, high risk: It reaches an outside site. Auto chose: It is not needed.';
+/** The block in a sent reply: the heading and the lines after it, up to the mark. */
+const blockOf = (text) => { const rows = text.split('\n'); const i = rows.indexOf(HEADING); return i < 0 ? null : rows.slice(i, -1); };
+const atReview = (over = {}) => status(1, { stage: 'review', brief: { number: 1, path: 'briefs/001-plan.md', headline: 'Visit audit · review done' }, ...over });
+
+test('the go-ahead into PR #1 carries Decisions Auto made before the mark, and the mark is still last', { timeout: 30_000 }, async () => {
+  const w = await world({ jobStatus: atReview() });
+  try {
+    await twoRisky(w);
+    await w.pass();
+    const [send] = await w.sends();
+    assert.equal(send.by, 'auto');
+    const rows = send.text.split('\n');
+    assert.equal(rows.at(-1), AUTO_MARK, 'the mark is last');
+    assert.equal(rows.filter((r) => r === AUTO_MARK).length, 1);
+    assert.deepEqual(blockOf(send.text), [HEADING, PLAN_LINE, BUILD_LINE]);
+    assert.ok(rows.indexOf('Why: The plan matches the ticket.') < rows.indexOf(HEADING), 'after Auto\'s why');
+    // The Foreman got it as sent; an ordinary go writes no open count.
+    await w.until(() => w.texts.length === 1, 'the Foreman to receive it');
+    assert.ok(w.texts[0].includes(`${HEADING}\n${PLAN_LINE}\n${BUILD_LINE}\n${AUTO_MARK}`));
+    const gates = await w.autoLines('gate');
+    assert.equal('open' in gates.at(-1), false);
+  } finally { await w.stop(); }
+});
+
+test('the risky call on that very gate is the last line of the block', { timeout: 30_000 }, async () => {
+  const w = await world({ jobStatus: atReview(), ask: (task, n) => (n === 1
+    ? { ok: true, costUsd: 0.2, answer: { decision: 'stop', answers: [], why: 'The review\nmissed a case.', risk: 'high' } }
+    : goodAnswer(task, { why: 'The missed case is covered by the old test.', risk: 'medium' })) });
+  try {
+    await twoRisky(w);
+    await w.pass();
+    const [send] = await w.sends();
+    const block = blockOf(send.text);
+    assert.equal(block.length, 4);
+    assert.deepEqual(block.slice(0, 3), [HEADING, PLAN_LINE, BUILD_LINE]);
+    assert.equal(block[3], '- Review: Visit audit · review done. In doubt: Stop: The review missed a case. Auto chose: The missed case is covered by the old test. 1 decided item on this step is left for you in Starbase.');
+    assert.equal(send.text.split('\n').at(-1), AUTO_MARK);
+    // It is written down after it was sent, as before: the block did not count it twice.
+    const gates = await w.autoLines('gate');
+    assert.equal(gates.at(-1).risky, true);
+    assert.equal(gates.at(-1).first, 'Stop: The review missed a case.');
+  } finally { await w.stop(); }
+});
+
+test('a go-ahead into any other stage carries no block', { timeout: 30_000 }, async () => {
+  // The plan gate (into Build), with risky calls on the job and a risky call on this very gate.
+  const w = await world({ ask: (task, n) => (n === 1
+    ? { ok: true, costUsd: 0.2, answer: { decision: 'stop', answers: [], why: 'Not sure.', risk: 'high' } }
+    : goodAnswer(task)) });
+  try {
+    await twoRisky(w);
+    await w.pass();
+    const [send] = await w.sends();
+    assert.equal(blockOf(send.text), null);
+    assert.ok(!send.text.includes(HEADING));
+    assert.ok(!send.text.includes('In doubt:'));
+    assert.equal(send.text.split('\n').at(-1), AUTO_MARK);
+  } finally { await w.stop(); }
+});
+
+test('with no risky calls the go-ahead into PR #1 carries no block', { timeout: 30_000 }, async () => {
+  const w = await world({ jobStatus: atReview() });
+  try {
+    await auditLine(w, { at: AT(3), action: 'auto', what: 'gate', stage: 'implement', briefNumber: 2, asked: 'Build done', chose: 'Approved', why: 'Fine.', risk: 'low' });
+    await auditLine(w, { at: AT(4), action: 'auto', what: 'refuse', stage: 'implement', rule: 'database', asked: 'Run npm run db:migrate', chose: 'Refused: Run npm run db:migrate', why: 'Not his database.' });
+    await w.pass();
+    const [send] = await w.sends();
+    assert.ok(!send.text.includes(HEADING));
+    assert.ok(!send.text.includes('In doubt:'));
+    assert.equal(send.text.split('\n').at(-1), AUTO_MARK);
+  } finally { await w.stop(); }
+});
+
+test('an L0 job\'s diff brief into PR #1 carries it', { timeout: 30_000 }, async () => {
+  const w = await world({
+    options: { level: 0, flow: 'quick', skip: ['plan', 'test', 'review'], title: 'Visit audit columns' },
+    jobStatus: status(1, { stage: 'implement', brief: { number: 1, path: 'briefs/001-plan.md', headline: 'Visit audit · the diff' }, suggested_level: 0 }),
+  });
+  try {
+    await twoRisky(w);
+    await w.pass();
+    const [send] = await w.sends();
+    assert.ok(send, 'the go-ahead was sent');
+    assert.equal((await w.optionsFile()).level, 0, 'still an L0 job');
+    assert.deepEqual(blockOf(send.text), [HEADING, PLAN_LINE, BUILD_LINE]);
+    assert.equal(send.text.split('\n').at(-1), AUTO_MARK);
+  } finally { await w.stop(); }
+});
+
+test('the risky go into PR #1 with two decided items open writes open: 2 and the block\'s last line says so', { timeout: 30_000 }, async () => {
+  const decided = [
+    { id: 'D-1', decision: 'Reviewers: head inspector', reason: 'L2 defaults', where: 'review', confirmed: false },
+    { id: 'D-2', decision: 'Keep the old export', reason: 'Nothing reads the new one', where: 'review', confirmed: false },
+    { id: 'D-3', decision: 'Name: visited_at', reason: 'Matches the others', where: 'plan', confirmed: true },
+  ];
+  const w = await world({ jobStatus: atReview({ decided_on_your_behalf: decided }), ask: (task, n) => (n === 1
+    ? { ok: true, costUsd: 0.2, answer: { decision: 'go', answers: task.questions.map((q) => ({ id: q.id, choice: q.recommendation, other: null, reason: 'Recommended.' })), why: 'Fine.', risk: 'high' } }
+    : goodAnswer(task, { why: 'Safe enough.', risk: 'medium' })) });
+  try {
+    await w.pass();
+    const [gate] = await w.autoLines('gate');
+    assert.equal(gate.risky, true);
+    assert.equal(gate.open, 2);
+    const [send] = await w.sends();
+    const block = blockOf(send.text);
+    assert.equal(block.length, 2);
+    assert.equal(block[1], '- Review: Visit audit · review done. In doubt: Go, high risk: Fine. Auto chose: Safe enough. 2 decided items on this step are left for you in Starbase.');
+    // Not confirmed: the items stay open for him.
+    assert.match(send.text, /Not confirmed yet/);
+  } finally { await w.stop(); }
+});
+
+test('a go-ahead into PR #1 is still sent when the lines cannot be read', { timeout: 30_000 }, async () => {
+  // The job's lines read as they are everywhere but in send, where reading them throws.
+  let thrown = 0;
+  const auditLines = { slice() { if (/\bat send \(/.test(new Error().stack)) { thrown++; throw new Error('EIO: the audit file cannot be read'); } return []; } };
+  const u = unit({
+    auditLines,
+    decide: () => {},
+    job: () => ({ stage: 'review', gate: { briefNumber: 1, stale: false, questions: [], decided: [], headline: 'Review brief 1', nextStage: 'pr1' } }),
+  });
+  await u.auto.pass();
+  assert.equal(thrown, 1, 'the lines were read for the block, and that failed');
+  assert.equal(u.decides.length, 1, 'the go-ahead was sent');
+  assert.equal(u.decides[0].note, `Why: Fine.\n${AUTO_MARK}`, 'with no block');
+  assert.equal(u.record().lastBrief, 1);
+  assert.equal(u.record().stopped, null);
+  assert.equal(u.lines.filter((l) => l.what === 'gate').length, 1);
+});

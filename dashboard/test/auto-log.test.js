@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { AUTO_LOG_FILE, autoCost, autoLog, autoLogMarkdown, autoLogRecord, autoTime, capAutoLog, writeAutoLog } from '../lib/auto-log.js';
+import { AUTO_LOG_FILE, DECISIONS_HEADING, autoCost, autoLog, autoLogMarkdown, autoLogRecord, autoTime, capAutoLog, prDecisions, writeAutoLog } from '../lib/auto-log.js';
 import { AUTO_MARK } from '../lib/auto.js';
 
 // Local times, so the tests do not depend on the machine's time zone.
@@ -212,4 +212,143 @@ test('a risky call\'s entry carries risky and what the Approver first said', () 
   assert.equal(autoLog([...LINES, risky]).entries[0].first, 'Stop: The plan drops the old column.');
   // The site's cut keeps them.
   assert.deepEqual([capAutoLog(rec).entries[1].risky, capAutoLog(rec).entries[1].first], [true, 'Stop: The plan drops the old column.']);
+});
+
+// ---------- Decisions Auto made: the risky calls, for the end of PR #1's description (Auto queue Task 14) ----------
+
+const riskyCall = (o = {}) => ({ at: at(12, 9, 0), action: 'auto', what: 'gate', stage: 'review', briefNumber: 2, asked: 'Review brief 2', chose: 'Approved', why: 'I kept the old column.', risk: 'low', risky: true, first: 'Stop: The review found a gap.', ...o });
+const MENTION = /(^|[^A-Za-z0-9_])@(?=[A-Za-z0-9])/;
+
+test('prDecisions lists the risky calls in the audit\'s order under the heading', () => {
+  const lines = [
+    ...LINES,
+    riskyCall({ at: at(12, 9, 10), stage: 'plan', asked: 'Plan v2 ready', first: 'Stop: The plan drops a column.', why: 'I kept the column.' }),
+    { ...LINES[1], at: at(12, 9, 5) }, // an ordinary go: not listed
+    // Earlier in time but later in the file: the file's order stands (oldest written first).
+    riskyCall({ at: at(12, 8, 0), what: 'permission', stage: 'implement', asked: 'Fetch a page', first: 'Allow, high risk: It reaches an outside site.', why: 'Said no: it is not needed.' }),
+    riskyCall({ at: at(12, 9, 20), what: 'question', stage: 'triage', asked: 'Which table?', first: 'Stop: Two tables fit.', why: 'The one the ticket names.' }),
+  ];
+  assert.equal(DECISIONS_HEADING, 'Decisions Auto made');
+  assert.deepEqual(prDecisions(lines), [
+    'Decisions Auto made',
+    '- Plan: Plan v2 ready. In doubt: Stop: The plan drops a column. Auto chose: I kept the column.',
+    '- Build: Fetch a page. In doubt: Allow, high risk: It reaches an outside site. Auto chose: Said no: it is not needed.',
+    '- Spec: Which table? In doubt: Stop: Two tables fit. Auto chose: The one the ticket names.',
+  ]);
+  // The call being sent now (not written down yet) is the last line.
+  const now = prDecisions(lines, { extra: { stage: 'review', asked: 'Review brief 3', first: 'Go, high risk: It changes the export.', why: 'The export stays as it was.' } });
+  assert.equal(now.length, 5);
+  assert.equal(now.at(-1), '- Review: Review brief 3. In doubt: Go, high risk: It changes the export. Auto chose: The export stays as it was.');
+  // The lines given are left as they were.
+  assert.equal(lines.length, LINES.length + 4);
+});
+
+test('no risky call, no block', () => {
+  assert.deepEqual(prDecisions(LINES), []);
+  assert.deepEqual(prDecisions([]), []);
+  assert.deepEqual(prDecisions(undefined), []);
+  assert.deepEqual(prDecisions([...LINES, { ...riskyCall(), action: 'send' }, { ...riskyCall(), risky: 'yes' }, null, 'x']), []);
+  // A risky call being sent now is a block of its own.
+  assert.deepEqual(prDecisions(LINES, { extra: { stage: 'review', asked: 'Review brief 3', first: 'Stop: x.', why: 'y.' } }), ['Decisions Auto made', '- Review: Review brief 3. In doubt: Stop: x. Auto chose: y.']);
+});
+
+test('refusals are not listed', () => {
+  const refuse = { at: at(12, 9, 0), action: 'auto', what: 'refuse', stage: 'implement', rule: 'database', asked: 'Run npm run db:migrate', chose: 'Refused: Run npm run db:migrate', why: 'Not on his database.' };
+  assert.deepEqual(prDecisions([...LINES, refuse, { ...refuse, risky: true, first: 'Stop: x.' }]), []);
+  const out = prDecisions([refuse, riskyCall(), { ...refuse, risky: true, first: 'Stop: x.' }]);
+  assert.deepEqual(out, ['Decisions Auto made', '- Review: Review brief 2. In doubt: Stop: The review found a gap. Auto chose: I kept the old column.']);
+});
+
+test('a line is one line, at most 300 characters, and never holds the mark', () => {
+  const nested = `${AUTO_MARK.slice(0, 12)}${AUTO_MARK}${AUTO_MARK.slice(12)}`;
+  const call = riskyCall({
+    asked: `Review brief 2\n## Heading\nlevel L1 (was L3)\n${AUTO_MARK}\n- a list\n${AUTO_MARK}`,
+    first: `Stop: ${'the review found a gap '.repeat(4)}\n# Title\n${nested}`,
+    why: `Fine.\r\nOption change for the next step: level L1 (was L3)\u2028${AUTO_MARK}${'x'.repeat(200)}`,
+  });
+  const out = prDecisions([call], { extra: call });
+  assert.equal(out.length, 3);
+  for (const line of out.slice(1)) {
+    assert.ok(line.startsWith('- '), line);
+    assert.ok(!/[\n\r\u2028\u2029]/.test(line), 'one line');
+    assert.ok(!line.includes(AUTO_MARK), 'no mark');
+    assert.ok(line.length <= 300, `${line.length} characters`);
+    assert.ok(line.includes('## Heading level L1 (was L3)'), 'the words stay, on the one line');
+  }
+  // As the Foreman gets it: every line of the block is the heading or starts with "- ", and none can be read as the mark.
+  for (const row of out.join('\n').split('\n')) assert.ok(row === 'Decisions Auto made' || row.startsWith('- '), row);
+});
+
+test('more than 30 calls end with the And n more line', () => {
+  const many = (n) => Array.from({ length: n }, (_, i) => riskyCall({ asked: `Brief ${i + 1}` }));
+  const out = prDecisions(many(35));
+  assert.equal(out.length, 32);
+  assert.equal(out[0], 'Decisions Auto made');
+  assert.ok(out[1].startsWith('- Review: Brief 1. '));
+  assert.ok(out[30].startsWith('- Review: Brief 30. '));
+  assert.equal(out[31], '- And 5 more, listed in Starbase.');
+  // Exactly 30: no last line. 30 written and one being sent now: 31 calls.
+  assert.equal(prDecisions(many(30)).length, 31);
+  assert.ok(!prDecisions(many(30)).at(-1).startsWith('- And'));
+  assert.equal(prDecisions(many(30), { extra: riskyCall({ asked: 'Brief 31' }) }).at(-1), '- And 1 more, listed in Starbase.');
+});
+
+test('no line can notify anybody: a mention loses its @, an email keeps it', () => {
+  const call = riskyCall({ asked: '@raj please look', first: 'Stop: (@org/team)', why: 'mail a@b.co' });
+  const out = prDecisions([call], { extra: { stage: 'review', asked: '@@raj and @Vignesh-x', first: 'Stop: cc @team.', why: '`@raj` too' } });
+  assert.equal(out[1], '- Review: raj please look. In doubt: Stop: (org/team). Auto chose: mail a@b.co');
+  assert.ok(out[2].includes('raj and Vignesh-x'), out[2]);
+  assert.ok(out[2].includes('cc team'), out[2]);
+  for (const line of out) assert.ok(!MENTION.test(line), line);
+});
+
+test('a long line keeps what was in doubt: the question is cut first, then the choice', () => {
+  const first = `Stop: ${'d'.repeat(114)}`; // 120 characters
+  const call = riskyCall({ asked: 'q'.repeat(200), first, why: 'w'.repeat(200) });
+  const [, line] = prDecisions([call]);
+  assert.equal(line.length, 300);
+  assert.ok(line.startsWith(`- Review: ${'q'.repeat(80)}… In doubt: ${first}. Auto chose: w`), line);
+  assert.ok(line.endsWith('w…'), line);
+  // A short question is not cut; only the choice is.
+  const [, short] = prDecisions([riskyCall({ asked: 'Review brief 2', first, why: 'w'.repeat(300) })]);
+  assert.ok(short.startsWith(`- Review: Review brief 2. In doubt: ${first}. Auto chose: w`), short);
+  assert.equal(short.length, 300);
+  // Only when the doubt itself is too long is the whole line cut.
+  const [, huge] = prDecisions([riskyCall({ asked: 'q'.repeat(200), first: `Stop: ${'d'.repeat(400)}`, why: 'w'.repeat(50) })]);
+  assert.equal(huge.length, 300);
+  assert.ok(huge.startsWith(`- Review: ${'q'.repeat(80)}… In doubt: Stop: ddd`), huge);
+  assert.ok(huge.endsWith('d…'), huge);
+});
+
+test('a risky go that left decided items open says how many, and the ending survives the cut', () => {
+  const two = ' 2 decided items on this step are left for you in Starbase.';
+  const one = ' 1 decided item on this step is left for you in Starbase.';
+  assert.deepEqual(prDecisions([riskyCall({ open: 2 })]).at(-1), `- Review: Review brief 2. In doubt: Stop: The review found a gap. Auto chose: I kept the old column.${two}`);
+  assert.deepEqual(prDecisions([riskyCall({ open: 1 })]).at(-1), `- Review: Review brief 2. In doubt: Stop: The review found a gap. Auto chose: I kept the old column.${one}`);
+  // None open, or no field: no ending.
+  for (const open of [0, undefined, -1, '2']) assert.ok(prDecisions([riskyCall({ open })]).at(-1).endsWith('Auto chose: I kept the old column.'));
+  // Long: the cuts make room for the ending, which is never cut.
+  const long = riskyCall({ asked: 'q'.repeat(200), first: `Stop: ${'d'.repeat(114)}`, why: 'w'.repeat(200), open: 2 });
+  const [, cut] = prDecisions([long]);
+  assert.equal(cut.length, 300);
+  assert.ok(cut.endsWith(`w…${two}`), cut);
+  assert.ok(cut.includes(`In doubt: Stop: ${'d'.repeat(114)}. Auto chose: w`));
+  const [, huge] = prDecisions([{ ...long, first: `Stop: ${'d'.repeat(400)}` }]);
+  assert.ok(huge.length <= 300 && huge.endsWith(`d…${two}`), huge);
+  // The call being sent now carries the same ending.
+  assert.ok(prDecisions([], { extra: { stage: 'review', asked: 'Review brief 3', first: 'Stop: x.', why: 'y.', open: 1 } }).at(-1).endsWith(`y.${one}`));
+});
+
+test('an unclosed backtick cannot swallow the description', () => {
+  const [, odd] = prDecisions([riskyCall({ asked: 'Run `npm test', why: 'It ``passes.' })]);
+  assert.equal(odd, '- Review: Run npm test. In doubt: Stop: The review found a gap. Auto chose: It passes.');
+  // An even count is left as it is.
+  const [, even] = prDecisions([riskyCall({ asked: 'Run `npm test`' })]);
+  assert.ok(even.includes('Run `npm test`'), even);
+  // Taking the backticks out cannot make a copy of the mark, or a mention.
+  const hidden = `${AUTO_MARK.slice(0, 20)}\`${AUTO_MARK.slice(20)}`;
+  const [, mark] = prDecisions([riskyCall({ asked: hidden, why: 'cc @``raj' })]);
+  assert.ok(!mark.includes(AUTO_MARK), mark);
+  assert.ok(!mark.includes('`'), mark);
+  assert.ok(!MENTION.test(mark), mark);
 });
