@@ -875,7 +875,7 @@ function unwrap(ws, st, cwd, depth) {
 // ---------- the programs ----------
 
 const DB_CLIENTS = new Set(['psql', 'pgcli', 'pg_restore', 'pg_dump', 'pg_dumpall', 'createdb', 'dropdb', 'createuser', 'dropuser', 'mysql', 'mysqldump', 'mysqlsh', 'mariadb', 'mariadb-dump', 'sqlite', 'sqlite3', 'litecli', 'mongosh', 'mongo', 'mongorestore', 'mongodump', 'redis-cli', 'cqlsh', 'sqlcmd', 'sqlplus', 'usql', 'clickhouse-client', 'duckdb', 'alembic', 'flyway', 'liquibase', 'dbmate', 'goose', 'atlas', 'bq', 'tsql', 'isql', 'turso', 'pscale', 'drizzle-kit']);
-const RUNNERS = new Set(['iex', 'elixir', 'mix', 'npx', 'bunx', 'pnpx', 'npm', 'pnpm', 'yarn', 'bun', 'dlx', 'exec', 'uvx', 'poetry', 'pipenv', 'bundle']);
+const RUNNERS = new Set(['iex', 'elixir', 'mix', 'npx', 'bunx', 'pnpx', 'npm', 'pnpm', 'yarn', 'bun', 'dlx', 'exec', 'uv', 'uvx', 'poetry', 'pipenv', 'bundle']);
 const EXEC_LIKE = new Set(['docker', 'podman', 'nerdctl', 'kubectl', 'oc', 'ssh', 'heroku', 'fly', 'flyctl', 'railway', 'vercel', 'nix-shell', 'direnv', 'devbox', 'doppler', 'dotenv', 'op', 'aws', 'gcloud', 'az']);
 // Programs that only print their arguments or move files about: a client's name among them is just text.
 const TEXTY = new Set(['grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack', 'echo', 'printf', 'cat', 'head', 'tail', 'less', 'more', 'ls', 'man', 'which', 'whereis', 'type', 'sed', 'awk', 'wc', 'stat', 'file', 'git', 'gh', 'hub', 'npm', 'pnpm', 'yarn', 'bun', 'brew', 'cp', 'mv', 'rm', 'touch', 'mkdir', 'tee', 'code', 'vim', 'nano', 'open', 'diff', 'cmp', 'basename', 'dirname', 'realpath', 'test', '[', 'read']);
@@ -1152,13 +1152,14 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
   if (cmd === 'git') { gitStep(args, assigns, cwd, st, xargs); return; }
   if (cmd === 'gh' || cmd === 'hub') { ghStep(cmd, args, a, st); return; }
   // bundle exec, poetry run, uv run and pipenv run only hand a command on: it is judged as it is when written plainly.
-  // A program Auto does not know behind them stays the question it was (bundle exec rspec).
+  // A program Auto does not know behind them stays the question it was (bundle exec rspec), but for one that deploys or
+  // publishes (bundle exec vercel deploy): that stops by whatever road it is started.
   if (HANDS_ON.has(cmd) && !cmdWord.t.includes('/')) {
     const starts = handedOnStarts(cmd, a);
     for (const k of starts) {
       if (args[k].dyn) { if (starts.length === 1) hit('outside'); continue; } // a command chosen while it runs
       const prog = name(args[k].t);
-      if (programGroup(prog) || SHELLS.has(prog) || prog === 'eval' || WRAPPERS.has(prog) || EXTRA_WRAPPERS.has(prog) || DB_CLIENTS.has(prog) || DANGEROUS.has(prog)) simple(args.slice(k), [], cwd, st, depth + 1, viaXargs);
+      if (programGroup(prog) || SHELLS.has(prog) || prog === 'eval' || WRAPPERS.has(prog) || EXTRA_WRAPPERS.has(prog) || DB_CLIENTS.has(prog) || DANGEROUS.has(prog) || deploys(prog, a.slice(k + 1))) simple(args.slice(k), [], cwd, st, depth + 1, viaXargs);
     }
   }
 

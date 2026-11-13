@@ -612,3 +612,43 @@ test('F11: with a .sql file named, an option that names a program to run is caug
     assert.deepEqual(await outcome(c), await outcome(twin(c)), c);
   }
 });
+
+// ---------- Fix round 2, G1 (re-review N1): a database tool behind uv run, a deploy tool behind any runner ----------
+
+test('G1: a database or deploy tool behind uv run, bundle exec, poetry run or pipenv run is refused as it is when written plainly', async () => {
+  const DB_NOTE = L.refuseNote('database', L.REFUSE_REASONS.database);
+  const DEPLOY_NOTE = L.refuseNote('outside', L.REFUSE_REASONS['outside-deploy']);
+  // The re-review's lines: [behind the runner, written plainly, the rule, what the crew is told].
+  const rows = [
+    ['uv run prisma migrate deploy', 'prisma migrate deploy', 'database', DB_NOTE], ['uv run supabase db reset', 'supabase db reset', 'database', DB_NOTE],
+    ['uv run django-admin migrate', 'django-admin migrate', 'database', DB_NOTE], ['uv run --with x prisma db push', 'prisma db push', 'database', DB_NOTE],
+    ['bundle exec vercel deploy --prod', 'vercel deploy --prod', 'outside', DEPLOY_NOTE], ['poetry run twine upload dist/*', 'twine upload dist/*', 'outside', DEPLOY_NOTE],
+    ['pipenv run vercel --prod', 'vercel --prod', 'outside', DEPLOY_NOTE], ['uv run wrangler deploy', 'wrangler deploy', 'outside', DEPLOY_NOTE], ['poetry run fly deploy', 'fly deploy', 'outside', DEPLOY_NOTE],
+    // other spellings of the same
+    ['uv run -q supabase migration up', 'supabase migration up', 'database', DB_NOTE], ['uv run -- prisma migrate deploy', 'prisma migrate deploy', 'database', DB_NOTE],
+    ['uv run knex migrate:latest', 'knex migrate:latest', 'database', DB_NOTE], ['uv run --with x netlify deploy', 'netlify deploy', 'outside', DEPLOY_NOTE],
+    ['bundle exec -- vercel deploy', 'vercel deploy', 'outside', DEPLOY_NOTE], ['pipenv run changeset publish', 'changeset publish', 'outside', DEPLOY_NOTE], ['poetry run terraform apply', 'terraform apply', 'outside', DEPLOY_NOTE],
+  ];
+  for (const [c, plain, rule, note] of rows) {
+    const refused = { hook: 'ask', end: `refused (${rule})`, note };
+    assert.equal(verdictOf(c), rule, c);
+    assert.deepEqual(await outcome(c), refused, c);
+    assert.deepEqual(await outcome(plain), refused, plain); // the plain command's own answer
+    // With the hard lines seeing nothing, Auto's own steps still refuse it.
+    assert.equal(R.withoutHardLines(() => verdictOf(c)), rule, c);
+    // Inside if, after the job's own push, at the build step and at the PR #1 step (where the go-ahead covers that push).
+    const inIf = `if git push origin feature/x; then ${c}; fi`;
+    assert.equal(verdictOf(inIf), rule, inIf);
+    for (const stage of ['implement', 'pr1']) assert.deepEqual(await outcome(inIf, stage), refused, `${stage}: ${inIf}`);
+  }
+  // Everyday commands behind the same runners keep the answer they had: a card for the Approver, at both steps.
+  const keep = [
+    'uv run pytest', 'uv run ruff check .', 'uv sync', 'bundle exec rspec', 'bundle exec rubocop', 'poetry run pytest', 'pipenv run pytest', 'bundle exec cap production deploy',
+    'uv run prisma generate', 'uv run flask run', 'uv run pytest tests/test_migrate.py', 'uv add requests', 'uv lock', 'uv run firebase emulators:start', 'bundle exec wrangler dev', 'poetry run terraform plan',
+    'pipenv run changeset version', 'bundle exec rails test', 'poetry run mkdocs build',
+  ];
+  for (const c of keep) {
+    assert.equal(verdictOf(c), 'ask', c);
+    for (const stage of ['implement', 'pr1']) assert.deepEqual(await outcome(c, stage), { hook: 'ask', end: 'asked' }, `${stage}: ${c}`);
+  }
+});
