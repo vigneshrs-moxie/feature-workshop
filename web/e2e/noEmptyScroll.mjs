@@ -18,13 +18,20 @@
 //      phone layout, 760 px and under, has its own conversation screen);
 //   5. the screen is not there: the address could not be opened, or the page has no main, or its
 //      main has no text (a blank page or a crashed route never passes), or it still says it is
-//      loading 10 s after it opened (each screen is checked only once it has finished loading).
+//      loading 10 s after it opened (each screen is checked only once it has finished loading);
+//   6. on the new job page, the message box lies over the left pane's last row (on the phone, the job
+//      screen's last row) with the pane scrolled to its end.
+// NEW_PAGE=1 checks the new job page (jobpage/JobPage2.tsx: the switch sb.jobPage is set to new
+// before every screen) instead of the old one, and adds its reader addresses for the first job (the
+// conversation, the ticket and goal, the decisions, the details) and, when the app has the made-up
+// long job (orbit-905-crew-schedule-export), its conversation, a document and its Review step. At
+// 760 px and under those are the phone's own screens: the job screen, a step's screen, the reader.
 // The check only reads: it refuses every request that is not a GET.
 //
 // Run it against a running app (the demo is best):
 //   PORT=4493 STARBASE_DEMO=1 node dashboard/demo/run-demo.js      # in one terminal
 //   npm run web:build && node web/e2e/noEmptyScroll.mjs            # in another
-// Environment: BASE (default http://127.0.0.1:4493/next/), WIDTHS (comma list, default
+// Environment: NEW_PAGE (1: the new job page, above), BASE (default http://127.0.0.1:4493/next/), WIDTHS (comma list, default
 // 1280,1512,1920), WIDTH (one width only; overrides WIDTHS), THEME (light; a theme's id, such as
 // default, glass or starbase; dark means default, the dark theme; a theme the app does not put on
 // fails the run), JOBS (a comma list of
@@ -39,6 +46,7 @@ import { extname, join, resolve } from 'node:path';
 const { chromium } = await import(process.env.PLAYWRIGHT || 'playwright');
 
 const BASE = process.env.BASE || 'http://127.0.0.1:4493/next/';
+const NEW_PAGE = process.env.NEW_PAGE === '1';
 const DIST = process.env.DIST ? resolve(process.env.DIST) : null;
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2', '.json': 'application/json', '.ico': 'image/x-icon' };
 const WIDTHS = (process.env.WIDTH || process.env.WIDTHS || '1280,1512,1920')
@@ -70,6 +78,8 @@ const slugs = await jobSlugs();
 const STEPS = ['spec', 'investigate', 'plan', 'build', 'test', 'review', 'ship'];
 /** The demo's job with a recording under way: its Test step, its conversation and its overview. */
 const RECORDING_JOB = 'nightly-export';
+/** The demo's made-up long job (the new job page's fixture job). */
+const LONG_JOB = 'orbit-905-crew-schedule-export';
 const SCREENS = [
   ['Jobs', '#/'],
   ['Table', '#/table'],
@@ -86,6 +96,18 @@ const SCREENS = [
     [`Job ${RECORDING_JOB} at test`, `#/job/${RECORDING_JOB}/stage/test`],
     [`Job ${RECORDING_JOB}: conversation`, `#/job/${RECORDING_JOB}/conversation`],
     [`Job ${RECORDING_JOB}: overview`, `#/job/${RECORDING_JOB}/overview`],
+  ] : []),
+  // The new job page's reader (on the phone, the reader screen) and the long job's screens.
+  ...(NEW_PAGE && slugs.length ? [
+    [`Job ${slugs[0]}: conversation`, `#/job/${slugs[0]}/conversation`],
+    [`Job ${slugs[0]}: ticket and goal`, `#/job/${slugs[0]}/overview`],
+    [`Job ${slugs[0]}: decisions`, `#/job/${slugs[0]}/read/decisions/decisions`],
+    [`Job ${slugs[0]}: details`, `#/job/${slugs[0]}/read/details/details`],
+  ] : []),
+  ...(NEW_PAGE && slugs.includes(LONG_JOB) ? [
+    [`Job ${LONG_JOB}: conversation`, `#/job/${LONG_JOB}/conversation`],
+    [`Job ${LONG_JOB}: the plan`, `#/job/${LONG_JOB}/read/doc/implementation-plan.md`],
+    [`Job ${LONG_JOB} at review`, `#/job/${LONG_JOB}/stage/review`],
   ] : []),
 ];
 
@@ -223,6 +245,21 @@ function check() {
   // 4. A squeezed conversation on a job page: its message list, while it is shown.
   const thread = document.querySelector('.sb-convo-list');
   if (thread && shown(thread) && innerHeight >= 800 && thread.clientHeight < 160) out.push(`the conversation's message list is ${thread.clientHeight} px tall in a ${innerHeight} px window`);
+
+  // 6. The new job page's message box over the left pane's last row, with the pane scrolled to its
+  // end (only while the pane is in use: not under the reader or a phone's other screen).
+  const left = document.querySelector('.jp2-lscroll');
+  const mbw = document.querySelector('.jp2-mbw');
+  if (left && mbw && shown(left) && shown(mbw) && !left.closest('[inert]')) {
+    const was = left.scrollTop;
+    left.scrollTop = left.scrollHeight;
+    const rows = [...left.querySelectorAll('.jp2-row')].filter((r) => shown(r));
+    const last = rows[rows.length - 1];
+    const lastBottom = last ? last.getBoundingClientRect().bottom : -Infinity;
+    const boxTop = mbw.getBoundingClientRect().top;
+    if (last && lastBottom > boxTop + 0.5) out.push(`the message box lies over the last row ("${last.textContent.trim().slice(0, 30)}"): its top at ${Math.round(boxTop)}, the row's bottom at ${Math.round(lastBottom)}`);
+    left.scrollTop = was;
+  }
   return out;
 }
 
@@ -245,9 +282,12 @@ async function runAt(WIDTH) {
   const problems = [];
   let checks = 0;
   const page = await browser.newPage({ viewport: { width: WIDTH, height: HEIGHT } });
-  await page.addInitScript((t) => {
-    try { localStorage.setItem('workshop.theme', t); } catch { /* storage off */ }
-  }, THEME);
+  await page.addInitScript(([t, fresh]) => {
+    try {
+      localStorage.setItem('workshop.theme', t);
+      if (fresh) localStorage.setItem('sb.jobPage', 'new');
+    } catch { /* storage off */ }
+  }, [THEME, NEW_PAGE]);
   // Read only: nothing the check does may send, approve, start, stop or mark anything.
   const base = new URL(BASE);
   await page.route('**/*', async (route) => {
@@ -323,7 +363,7 @@ for (const WIDTH of WIDTHS) {
     const list = [...new Set(problems)];
     console.log(`${WIDTH} px: ${list.length} failures:\n${list.map((p) => `  ${p}`).join('\n')}`);
   } else {
-    console.log(`${WIDTH} px: no empty scroll: ${checks} checks on ${SCREENS.length} screens (${THEME}).`);
+    console.log(`${WIDTH} px: no empty scroll: ${checks} checks on ${SCREENS.length} screens (${THEME}${NEW_PAGE ? ', the new job page' : ''}).`);
   }
 }
 await browser.close();
