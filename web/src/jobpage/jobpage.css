@@ -372,3 +372,34 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2[data-layout="phone"] .jp2-fd-x { grid-column: 2; }
 .jp2[data-layout="phone"] .jp2-fd-t { white-space: normal; }
 .jp2[data-layout="phone"] .jp2-fd-more { padding-left: 8px; }
+
+/* Checks, the recording and Your hand test (Task 14): the picture large, the checks a short list beside it */
+.jp2-ck-big { font-size: 18px; line-height: 28px; }
+.jp2-rec { max-width: 1040px; }
+.jp2-rec-head { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 14px; }
+.jp2-rec-said { flex: 1; min-width: 0; max-width: 620px; font-size: 14px; line-height: 21px; color: var(--text-2); }
+.jp2-rec-said p { margin: 0 0 6px; }
+.jp2-rec-problem { color: var(--status-error); }
+.jp2-rec-laptop { margin: 0; max-width: 260px; font-size: 13px; line-height: 18px; }
+.jp2-rec-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
+.jp2-rec-frame { display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: contain; border-radius: 10px; background: var(--bg-2); }
+.jp2-rec-none { display: grid; place-items: center; padding: 24px; color: var(--text-2); font-size: 14px; text-align: center; }
+.jp2-rec-under { margin-top: 10px; font-size: 14px; line-height: 21px; }
+.jp2-rec-state { font-size: 13px; color: var(--text-2); }
+.jp2-rec-under ul { margin: 6px 0 0; padding-left: 18px; list-style: disc; font-size: 13px; color: var(--text-2); }
+.jp2-rec-list { max-height: 520px; overflow-y: auto; scrollbar-width: thin; }
+.jp2-rec-g { padding: 10px 8px 4px; font-size: 11px; line-height: 16px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--text-3); }
+.jp2-rec-r { display: grid; grid-template-columns: 54px 46px minmax(0, 1fr); gap: 6px; align-items: baseline; width: 100%; padding: 4px 8px; border: 0; border-radius: 6px; background: none; color: var(--text-1); font: inherit; font-size: 13px; line-height: 18px; text-align: left; cursor: pointer; }
+.jp2-rec-r:hover { background: var(--hover-bg); }
+.jp2-rec-r[aria-current="true"] { background: var(--accent-soft); }
+.jp2-rec-r:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.jp2-rec-w { font-size: 12px; color: var(--text-2); }
+.jp2-rec-r.is-failed .jp2-rec-w { color: var(--status-error); font-weight: 600; }
+.jp2-rec-r.is-skipped .jp2-rec-w { font-size: 11px; }
+.jp2-rec-id { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3); }
+.jp2-hand-acts { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
+.jp2-hand-try { margin: 0 0 16px; padding: 12px; border: 1px solid var(--border-1); border-radius: 8px; }
+.jp2[data-layout="phone"] .jp2-rec-head { flex-direction: column; }
+.jp2[data-layout="phone"] .jp2-rec-grid { display: block; }
+.jp2[data-layout="phone"] .jp2-rec-list { max-height: none; margin-top: 12px; }
+.jp2[data-layout="phone"] .jp2-rec-r { min-height: 44px; align-items: center; }
