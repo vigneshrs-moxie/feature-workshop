@@ -161,7 +161,8 @@ test('the web’s long job says nothing the web source checks refuse (the produc
   for (const size of SIZES) {
     const text = webFixture(size);
     // web/src/app/brand.test.ts, dashboard/test/old-names.test.js, web/src/theme/nativeLook.test.ts, tokenCoverage.test.ts.
-    assert.doesNotMatch(text, /Starbase|Feature Workshop|Ground Control|feature-workshop|ground-control|\bDashboard\b/);
+    assert.doesNotMatch(text, /Starbase/);
+    assert.doesNotMatch(text, /Feature Workshop|Ground Control|feature-workshop|ground-control|\bDashboard\b/); // the old names
     assert.doesNotMatch(text, /<select[\s>]|<datalist[\s>]|<title>|[▸▾▴▹▿]|['"]--[a-z]/);
     assert.doesNotMatch(text, /sk_live|sk_test|ghp_|BEGIN [A-Z ]*PRIVATE KEY/);
   }
