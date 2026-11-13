@@ -42,8 +42,12 @@ export interface JobUi {
   step: StopId | null;
   /** What the reader shows; null: the payload's `open`. */
   reader: ReaderTarget | null;
-  /** The gate's questions he answered: question id → option id. */
+  /** The gate the picks are for (Your move's key for it); picks for another gate count as none. */
+  picksFor: string | null;
+  /** The gate's questions he answered: question id → option id (left/gateBody.ts OWN: his own words). */
   picks: Record<string, string>;
+  /** His own answers, by question id. */
+  own: Record<string, string>;
   notes: PageNote[];
   /** The message box's words. */
   draft: string;
@@ -72,8 +76,12 @@ export interface JobStore {
   onEvent(e: LiveEvent): void;
   setStep(step: StopId | null): void;
   setReader(target: ReaderTarget | null): void;
+  /** The picks are for this gate from now: another gate's picks and words are dropped. */
+  forGate(key: string): void;
   /** Pick an option for a question; null takes the pick back. */
   setPick(questionId: string, optionId: string | null): void;
+  /** His own answer to a question. */
+  setOwn(questionId: string, words: string): void;
   setNotes(notes: PageNote[]): void;
   setDraft(draft: string): void;
   /** Stop listening to the stream; fetches still out are dropped when they land. */
@@ -195,7 +203,7 @@ export function prefetchOrder(payload: JobPagePayload): string[] {
 // ---------- The store ----------
 
 const DECISIONS = 'decisions';
-const EMPTY_UI: JobUi = { step: null, reader: null, picks: {}, notes: [], draft: '' };
+const EMPTY_UI: JobUi = { step: null, reader: null, picksFor: null, picks: {}, own: {}, notes: [], draft: '' };
 const sameTarget = (a: ReaderTarget | null, b: ReaderTarget | null) => a === b || (!!a && !!b && a.kind === b.kind && a.id === b.id);
 
 export function createJobStore(slug: string, { api = createApi(), events = onLiveEvent, viewer = liveViewer, initial = null }: JobStoreOptions = {}): JobStore {
@@ -375,6 +383,8 @@ export function createJobStore(slug: string, { api = createApi(), events = onLiv
       else next[questionId] = optionId;
       setUi({ picks: next });
     },
+    forGate(key) { if (state.ui.picksFor !== key) setUi({ picksFor: key, picks: {}, own: {} }); },
+    setOwn(questionId, words) { if (state.ui.own[questionId] !== words) setUi({ own: { ...state.ui.own, [questionId]: words } }); },
     setNotes(notes) { if (state.ui.notes !== notes) setUi({ notes }); },
     setDraft(draft) { if (state.ui.draft !== draft) setUi({ draft }); },
     destroy() {

@@ -382,7 +382,7 @@ describe('job store: the page’s own state', () => {
     await store.loadPage();
     const payload = store.getState().payload;
     const ui0 = store.getState().ui;
-    expect(ui0).toEqual({ step: null, reader: null, picks: {}, notes: [], draft: '' });
+    expect(ui0).toEqual({ step: null, reader: null, picksFor: null, picks: {}, own: {}, notes: [], draft: '' });
 
     store.setStep('test');
     store.setReader({ kind: 'doc', id: 'test-report.md' });
@@ -393,7 +393,7 @@ describe('job store: the page’s own state', () => {
     store.setDraft('Looks right');
     const ui = store.getState().ui;
     expect(ui).toEqual({
-      step: 'test', reader: { kind: 'doc', id: 'test-report.md' }, picks: { 1: 'a' },
+      step: 'test', reader: { kind: 'doc', id: 'test-report.md' }, picksFor: null, picks: { 1: 'a' }, own: {},
       notes: [{ n: 1, target: { kind: 'doc', id: 'spec' }, quote: 'the week picker', note: 'Say which week.' }], draft: 'Looks right',
     });
     expect(store.getState().payload).toBe(payload);
@@ -597,5 +597,28 @@ describe('job store: Task 7 fix round 1', () => {
     expect(live.count()).toBe(0);
     await store.loadPage();
     expect(live.count()).toBe(0);
+  });
+});
+
+describe('job store: Task 9, the gate’s picks', () => {
+  it('picks and own words belong to one gate: a pick for another gate starts from nothing, and nothing else changes', async () => {
+    const s = server();
+    const store = createJobStore(SLUG, { api: s.api, events: stream().events });
+    await store.loadPage();
+    store.setDraft('Mind the totals');
+    store.forGate('gate:15');
+    store.setPick('1', 'b');
+    store.setOwn('2', 'Squash the fixups');
+    expect(store.getState().ui).toMatchObject({ picksFor: 'gate:15', picks: { 1: 'b' }, own: { 2: 'Squash the fixups' }, draft: 'Mind the totals' });
+    let told = 0;
+    store.subscribe(() => { told++; });
+    // The same gate again, or the same words: no one is told.
+    store.forGate('gate:15');
+    store.setOwn('2', 'Squash the fixups');
+    expect(told).toBe(0);
+    // A new brief: its picks start from the recommended ones.
+    store.forGate('gate:16');
+    expect(store.getState().ui).toMatchObject({ picksFor: 'gate:16', picks: {}, own: {}, draft: 'Mind the totals' });
+    expect(told).toBe(1);
   });
 });
