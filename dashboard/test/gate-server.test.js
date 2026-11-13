@@ -458,12 +458,17 @@ test('I2 B: after Starbase started again, a restarted ticket job shows nothing o
   const sends = () => lines.slice(boundary).filter((l) => l.action === 'send' && l.slug === 'orbit-13-import');
   assert.equal(sends()[0].sessionId, null, 'the first reply starts a new session');
   // The next reply resumes the new Foreman, never the old one.
+  // Stopped while still starting, the first reply would have no session yet, and the next one rightly
+  // starts afresh: wait for its session to begin, so there is a new Foreman to resume.
+  for (let i = 0; i < 200 && !(await runsOf('orbit-13-import')).some((r) => r.sessionId); i++) await pause(50);
+  const newSession = (await runsOf('orbit-13-import')).find((r) => r.sessionId)?.sessionId;
+  assert.ok(newSession, 'the first reply began a session');
   await untilNoReply('orbit-13-import');
   const again = await post('/api/job/orbit-13-import/send', { text: 'Carry on' });
   assert.equal(again.status, 200, JSON.stringify(again.body));
   const next = (await auditLines()).filter((l) => l.action === 'send' && l.slug === 'orbit-13-import').at(-1);
   assert.notEqual(next.sessionId, 'old-sess-13', 'the old session is never resumed');
-  assert.ok(next.sessionId, 'the new session is');
+  assert.equal(next.sessionId, newSession, 'the new session is');
   assert.equal(next.model, FABLE);
   await untilNoReply('orbit-13-import');
 });
