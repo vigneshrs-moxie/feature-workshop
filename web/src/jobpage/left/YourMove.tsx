@@ -23,7 +23,7 @@
 // Keys (scope 'jobpage', only while the card waits): ⌘↵ Go from anywhere, the message box too;
 // a Go, or Allow once; ↑ ↓ move through the options (outside the reader); Space picks the one moved to.
 
-import { memo, useCallback, useId, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { ApiError } from '../../api/client';
 import type { GateResult, Job, Permission } from '../../api/types';
 import { BRAND } from '../../app/brand';
@@ -34,6 +34,8 @@ import { Button } from '../../components/Button';
 import { Choice, OptionRow } from '../../components/Choice';
 import { useNarrow } from '../../components/page/Page';
 import { AlwaysAllowSheet } from '../../components/permissions/AlwaysAllowSheet';
+import { useSent } from '../../lib/sentState';
+import { gateSentKey } from '../../panes/Foreman/gateSent';
 import { useWorkshop } from '../../state/store';
 import type { GateMove, PermissionMove, QuestionMove, ReaderTarget } from '../types';
 import { useJob, useJobStore } from '../useJob';
@@ -67,7 +69,7 @@ export const YourMove = memo(function YourMove({ job, onOpen }: YourMoveProps) {
     if (st === 'needs-you') return <div className="jp2-ym"><Card label={moveLabel(job.waitingFor === 'permission', job.waitingSince)} ask={job.headline || job.laneReason || 'This job waits for you.'} /></div>;
     return <div className="jp2-ym"><p className="jp2-ym-one">{STATE_WORDS[st]}{job.laneReason ? ` · ${job.laneReason}` : ''}</p></div>;
   }
-  if (move?.kind === 'gate') return <div className="jp2-ym"><GateCard move={move} onOpen={onOpen} /></div>;
+  if (move?.kind === 'gate') return <div className="jp2-ym"><GateCard key={gateKeyOf(move)} move={move} onOpen={onOpen} /></div>;
   if (move?.kind === 'question') return <div className="jp2-ym"><AskCard move={move} /></div>;
   if (move?.kind === 'permission') return <div className="jp2-ym"><PermissionCard key={move.id} move={move} /></div>;
   return <div className="jp2-ym"><p className="jp2-ym-one">{state ? STATE_WORDS[state] : ''}{line ? ` · ${line}` : ''}</p></div>;
@@ -92,7 +94,21 @@ function Card({ label, ask, children }: { label: string; ask: string; children?:
 // ---------- Go, sent once per job ----------
 
 type GoPhase = 'sending' | 'sent' | 'held' | 'queued';
-interface GoSent { key: string; phase: GoPhase; line: string; runId: string | null }
+interface GoSent {
+  /** The gate it answered, and that gate's stage at the click. */
+  key: string;
+  stage: string | null;
+  phase: GoPhase;
+  line: string;
+  /** The job's run at the click, and the run the server started for it (when it said). */
+  clickRun: string | null;
+  runId: string | null;
+  /** Held for the limit: the payload has shown the held reply (so its going away means something). */
+  heldSeen?: boolean;
+}
+
+/** Where the job stands, as a Go compares it: the gate, its stage, the run, and a held reply. */
+interface GoFacts { key: string; stage: string | null; runId: string | null; runStatus: string | null; held: boolean }
 
 // Kept outside the page, by job: a page drawn again (a step pick, coming back from Jobs) still knows
 // Go went, so it cannot be sent twice before the job moves on.
@@ -117,6 +133,31 @@ const gateKeyOf = (move: GateMove) => (move.brief !== null ? `gate:${move.brief}
 const UNREACHABLE = `Couldn’t reach ${BRAND.name}. Try again.`;
 const ENDED = new Set(['done', 'stopped', 'error', 'limited']);
 
+/**
+ * A Go as it stands now (the same object when nothing changed), or null when it is over and the card
+ * comes back (as today's useGateSent, which clears when the run, what the job waits for or its stage moves):
+ * - another gate, or this gate at another stage: over;
+ * - sending: kept until the answer (a run the server starts meanwhile is this Go's);
+ * - sent, with its run: over when that run has ended and the gate still waits, or a newer run started;
+ * - held: over once the payload showed the held reply and it is gone, unless a new run started (the
+ *   held reply went to the Foreman: then it is that run's, as sent);
+ * - queued on the website, or sent with no run named: a new run is this Go's (ended already: over).
+ */
+function goAsItStands(s: GoSent, now: GoFacts): GoSent | null {
+  if (s.key !== now.key || s.stage !== now.stage) return null;
+  if (s.phase === 'sending') return s;
+  const fresh = now.runId !== null && now.runId !== s.clickRun && now.runId !== s.runId;
+  const ended = ENDED.has(now.runStatus ?? '');
+  if (s.phase === 'sent' && s.runId !== null) return (now.runId === s.runId && ended) || fresh ? null : s;
+  if (s.phase === 'held') {
+    if (now.held) return s.heldSeen ? s : { ...s, heldSeen: true };
+    if (!s.heldSeen) return s;
+    return fresh && !ended ? { ...s, phase: 'sent', runId: now.runId, line: '' } : null;
+  }
+  if (!fresh) return s;
+  return ended ? null : { ...s, phase: 'sent', runId: now.runId, line: '' };
+}
+
 /** The server's no, in plain words. */
 function refusalWords(err: unknown): string {
   if (err instanceof TypeError) return UNREACHABLE;
@@ -126,8 +167,12 @@ function refusalWords(err: unknown): string {
   if (code === 'terminal-open') return 'Not sent: Claude Code is open in this repository in a terminal. Tick the box below if none of those windows is this job’s Foreman, then Go again.';
   if (code === 'stale-gate') return 'Not sent: the spec or plan changed since this was shown. Read the new version, then decide.';
   if (code === 'stale-brief') return 'Not sent: the Foreman has moved on to a newer brief. Decide on the new one.';
+  if (code === 'busy') return BUSY_WORDS;
   return `Not sent: ${err instanceof Error ? err.message : String(err)}`;
 }
+
+/** The Foreman is still on a reply (the gate answers sent: false): nothing went, and the page keeps nothing to send later (yet). */
+const BUSY_WORDS = 'Not sent: the Foreman is still working on a reply. Your picks are kept; Go again when it finishes.';
 
 const NO_PICKS: Record<string, string> = {};
 
@@ -146,17 +191,31 @@ function GateCard({ move, onOpen }: { move: GateMove; onOpen?: YourMoveProps['on
   const own = useJob((s) => (s.ui.picksFor === key ? s.ui.own : NO_PICKS));
   const limited = useJob((s) => Boolean(s.payload?.usage?.limited));
   const held = useJob((s) => Boolean(s.payload?.lock));
-  const run = useJob((s) => s.payload?.run ?? null);
+  const runId = useJob((s) => s.payload?.run?.id ?? null);
+  const runStatus = useJob((s) => s.payload?.run?.status ?? null);
+  const heldReply = useJob((s) => Boolean(s.payload?.heldReply));
   const sentAny = useSyncExternalStore(listenGo, () => goSent.get(slug) ?? null);
-  // A Go for another gate is over; one whose reply ended while this gate still waits gives the card back.
-  const over = sentAny !== null && (sentAny.key !== key
-    || (sentAny.phase === 'sent' && sentAny.runId !== null && run?.id === sentAny.runId && ENDED.has(run.status ?? '')));
-  const sent = sentAny && !over ? sentAny : null;
+  const shared = useSent(gateSentKey(slug));
+  const facts: GoFacts = { key, stage: move.stage, runId, runStatus, held: heldReply };
+  const sent = sentAny ? goAsItStands(sentAny, facts) : null;
+  // Keep the Go as it now stands (held seen, a run adopted), or end it: the card comes back, and the
+  // old page's, the Desk's and the quick look's calls wake again.
+  useEffect(() => {
+    if (!sentAny || sent === sentAny) return;
+    setGo(slug, sent);
+    if (!sent) shared.clear();
+  });
   const [line, setLine] = useState<string | null>(null);
   const [askTerminal, setAskTerminal] = useState(false);
   const [noTerminal, setNoTerminal] = useState(false);
   const uid = useId();
   const root = useRef<HTMLDivElement>(null);
+  const goBtn = useRef<HTMLButtonElement>(null);
+  /** Given back after the card had gone: Go takes the focus again (when nothing else has it). */
+  const [refocus, setRefocus] = useState(0);
+  useEffect(() => {
+    if (refocus && (document.activeElement === document.body || document.activeElement === null)) goBtn.current?.focus();
+  }, [refocus]);
   /** The question whose own-answer field takes the focus when `Your own answer` is picked. */
   const focusOwn = useRef<string | null>(null);
 
@@ -183,20 +242,26 @@ function GateCard({ move, onOpen }: { move: GateMove; onOpen?: YourMoveProps['on
   const goNow = useCallback(async (extra: { startAfterReset?: boolean } = {}) => {
     // Once: a second click, ⌘↵ or a while it is out finds it here and does nothing.
     const was = goSent.get(slug);
-    if (was && was.key === key && !over) return;
+    const pay = store.getState().payload;
+    if (was && goAsItStands(was, { key, stage: move.stage, runId: pay?.run?.id ?? null, runStatus: pay?.run?.status ?? null, held: Boolean(pay?.heldReply) })) return;
     const ui = store.getState().ui;
     const now: GatePicks = ui.picksFor === key ? { picks: ui.picks, own: ui.own } : { picks: {}, own: {} };
     if (move.stale || held || unanswered(move, now) !== null) return;
     const note = ui.draft;
     const body = gateBody('approve', move, now, { confirmNoTerminal: noTerminal, note, startAfterReset: extra.startAfterReset });
-    setGo(slug, { key, phase: 'sending', line: '', runId: null });
+    const clickRun = pay?.run?.id ?? null;
+    const go = (phase: GoPhase, runIdNow: string | null = null, line = '') => setGo(slug, { key, stage: move.stage, phase, line, clickRun, runId: runIdNow });
+    go('sending');
+    shared.start();
     setLine(null);
     const carried = typeof body.note === 'string';
     if (carried) store.setDraft('');
     /** Not sent: the card again with his picks, and his words back in the box (before anything typed since). */
     const giveBack = (words: string) => {
       setGo(slug, null);
+      shared.failed();
       setLine(words);
+      setRefocus((n) => n + 1);
       if (!carried) return;
       const draft = store.getState().ui.draft;
       if (!draft.trim()) store.setDraft(note);
@@ -212,11 +277,13 @@ function GateCard({ move, onOpen }: { move: GateMove; onOpen?: YourMoveProps['on
       return;
     }
     const queued = (r as { queued?: { id?: unknown } } | null)?.queued;
-    if (r?.sent) setGo(slug, { key, phase: 'sent', line: '', runId: typeof r.run?.id === 'string' ? r.run.id : null });
-    else if (r?.held) setGo(slug, { key, phase: 'held', line: r.message ?? 'Held until Claude’s usage limit resets.', runId: null });
-    else if (queued && typeof queued === 'object') setGo(slug, { key, phase: 'queued', line: '', runId: null });
-    else giveBack(r?.message ?? 'Nothing was sent.');
-  }, [api, store, slug, key, move, held, noTerminal, over]);
+    if (r?.sent) { go('sent', typeof r.run?.id === 'string' ? r.run.id : null); shared.accepted(); }
+    else if (r?.held) { go('held', null, r.message ?? 'Held until Claude’s usage limit resets.'); shared.clear(); }
+    else if (queued && typeof queued === 'object') { go('queued'); shared.accepted(); }
+    // The Foreman is still on a reply: today's card parks the reply in its composer; this page has no
+    // place for it yet (Task 16 queues it), so it says so in its own words.
+    else giveBack(BUSY_WORDS);
+  }, [api, store, slug, key, move, held, noTerminal, shared]);
 
   const options = () => [...(root.current?.querySelectorAll<HTMLInputElement>('input[data-jp-opt]') ?? [])];
   const moveBy = (by: 1 | -1, e: KeyboardEvent) => {
@@ -322,7 +389,7 @@ function GateCard({ move, onOpen }: { move: GateMove; onOpen?: YourMoveProps['on
         </label>
       )}
       <div className="jp2-ym-calls">
-        <Button kind="primary" size={size} keyId="jp-go" keyShown disabled={why !== null} onClick={() => void goNow()} title={why ? `Off: ${why}` : hint}>{label}</Button>
+        <Button ref={goBtn} kind="primary" size={size} keyId="jp-go" keyShown disabled={why !== null} onClick={() => void goNow()} title={why ? `Off: ${why}` : hint}>{label}</Button>
         {limited && (
           <Button kind="quiet" size={size} disabled={why !== null} onClick={() => void goNow({ startAfterReset: true })} title="Claude’s usage limit is reached: your Go waits, and goes to the Foreman when it resets.">Go after the reset</Button>
         )}

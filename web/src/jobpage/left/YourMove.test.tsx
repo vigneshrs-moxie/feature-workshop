@@ -7,9 +7,9 @@ import { ApiError, type ApiClient } from '../../api/client';
 import type { DecidedItem, Gate, JobDetail, Permission } from '../../api/types';
 import { installKeyListener, resetChord } from '../../app/keyRegistry';
 import { UiProvider } from '../../app/ui';
-import { clearAllSent } from '../../lib/sentState';
+import { clearAllSent, useSent } from '../../lib/sentState';
 import { GateSlot } from '../../panes/Foreman/GateCard';
-import { clearGateSent } from '../../panes/Foreman/gateSent';
+import { clearGateSent, gateSentKey } from '../../panes/Foreman/gateSent';
 import { createStore, WorkshopContext, type Store } from '../../state/store';
 import { job as jobRow, LEVELS, snapshot } from '../../state/test-fixtures';
 import { longJob } from '../fixtures/longJob';
@@ -207,7 +207,9 @@ describe('a gate', () => {
     const busy = open({ post: vi.fn(async () => ({ ok: true, sent: false, queued: false, text: 'x', message: 'The Foreman is still working on a reply, so nothing was sent. Send this text once the reply is done.' })) });
     fireEvent.click(go());
     await settle();
-    expect(card()).toHaveTextContent('The Foreman is still working on a reply, so nothing was sent.');
+    // The page's own words: the server's "Send this text once the reply is done" names text this page never placed.
+    expect(card()).toHaveTextContent('Not sent: the Foreman is still working on a reply. Your picks are kept; Go again when it finishes.');
+    expect(card()).not.toHaveTextContent('Send this text');
     expect(go()).toBeEnabled();
     busy.unmount();
     forgetSentGo();
@@ -435,5 +437,134 @@ describe('when the job does not wait', () => {
     expect(card().children).toHaveLength(1);
     expect(card()).toHaveTextContent('Working · Builder on step 4 of 8 · 12 min');
     expect(within(card()).queryByRole('button')).toBeNull();
+  });
+});
+
+describe('Task 9 fix round 1: Sent always ends', () => {
+  /** A newer payload with the run (and anything else) given, landed through the store. */
+  async function land(o: Opened, patch: Partial<JobPagePayload>) {
+    const now = o.store.getState().payload!;
+    o.serve({ ...now, ...patch, v: now.v + 1 });
+    await act(async () => { await o.store.loadPage(); });
+  }
+  const run = (id: string, status: string) => ({ id, status, startedAt: '2026-11-13T12:00:00.000Z', lastAction: null });
+  const SENT = 'Sent · the Foreman is reading your answers';
+
+  it('the accepted run ends and the same gate still waits: the card comes back with Go awake', async () => {
+    const o = open({ post: vi.fn(async () => ({ ok: true, sent: true, text: 'ok', run: { id: 'r1' } })) });
+    fireEvent.click(go());
+    await settle();
+    await land(o, { run: run('r1', 'running') });
+    expect(card()).toHaveTextContent(SENT);
+    await land(o, { run: run('r1', 'error') });
+    expect(go()).toBeEnabled();
+    expect(go()).toHaveTextContent('Go · all recommended');
+  });
+
+  it('a newer run (a resume, a message) with the same gate still waiting: the card comes back', async () => {
+    const o = open({ patch: { run: run('r0', 'done') }, post: vi.fn(async () => ({ ok: true, sent: true, text: 'ok', run: { id: 'r1' } })) });
+    fireEvent.click(go());
+    await settle();
+    // The run seen at the click (r0) and the accepted one (r1) keep it Sent.
+    await land(o, { run: run('r1', 'stopping') });
+    expect(card()).toHaveTextContent(SENT);
+    await land(o, { run: run('r2', 'running') });
+    expect(go()).toBeEnabled();
+  });
+
+  it('a new brief after Sent: a fresh card for it, Go awake', async () => {
+    const o = open();
+    fireEvent.click(go());
+    await settle();
+    expect(card()).toHaveTextContent(SENT);
+    await land(o, { move: { ...GATE(), brief: 16, ask: 'Brief 16 waits' } });
+    expect(card()).toHaveTextContent('Brief 16 waits');
+    expect(go()).toHaveTextContent('Go · all recommended');
+    expect(go()).toBeEnabled();
+  });
+
+  it('held for the limit: over once the held reply is gone with no run; a run it starts keeps it Sent until that run ends', async () => {
+    const held = { ok: true, sent: false, held: true, resetsAt: '2026-11-13T15:00:00Z', message: 'Held: it goes to the Foreman when Claude’s usage limit resets (around 3:00 PM).' };
+    const dropped = open({ post: vi.fn(async () => held) });
+    fireEvent.click(go());
+    await settle();
+    // Not shown as held yet: kept.
+    await land(dropped, { heldReply: null });
+    expect(card()).toHaveTextContent('Held: it goes to the Foreman');
+    await land(dropped, { heldReply: { kind: 'approve', gateBrief: 15, at: '2026-11-13T12:00:00Z' } });
+    expect(card()).toHaveTextContent('Held: it goes to the Foreman');
+    await land(dropped, { heldReply: null });
+    expect(go()).toBeEnabled();
+    dropped.unmount();
+    forgetSentGo();
+    const released = open({ post: vi.fn(async () => held) });
+    fireEvent.click(go());
+    await settle();
+    await land(released, { heldReply: { kind: 'approve', gateBrief: 15, at: '2026-11-13T12:00:00Z' } });
+    await land(released, { heldReply: null, run: run('r9', 'running') });
+    expect(card()).toHaveTextContent(SENT);
+    await land(released, { run: run('r9', 'done') });
+    expect(go()).toBeEnabled();
+  });
+
+  it('queued on the website: the run the laptop starts is this Go’s; when it ends with the gate still there, the card comes back', async () => {
+    const o = open({ hosted: true, post: vi.fn(async () => ({ queued: { id: 'q1' } })) });
+    fireEvent.click(go());
+    await settle();
+    expect(card()).toHaveTextContent('Queued for your laptop');
+    await land(o, { run: run('r5', 'running') });
+    expect(card()).toHaveTextContent(SENT);
+    await land(o, { run: run('r5', 'stopped') });
+    expect(go()).toBeEnabled();
+  });
+
+  it('marks the shared gate send, so today’s card, the old bar and the Desk grey out too; a refusal clears it', async () => {
+    let answer: (v: unknown) => void = () => {};
+    const Probe = () => <i data-testid="shared">{useSent(gateSentKey(SLUG)).state}</i>;
+    render(<Probe />);
+    const o = open({ post: vi.fn(() => new Promise((r) => { answer = r; })) });
+    fireEvent.click(go());
+    expect(screen.getByTestId('shared')).toHaveTextContent('sending');
+    await act(async () => { answer({ ok: true, sent: true, text: 'ok', run: { id: 'r1' } }); });
+    expect(screen.getByTestId('shared')).toHaveTextContent('sent');
+    await land(o, { run: run('r1', 'done') });
+    expect(screen.getByTestId('shared')).toHaveTextContent('idle');
+    o.unmount();
+    forgetSentGo();
+    open({ post: vi.fn(async () => { throw new ApiError(409, 'x', { code: 'limited' }); }) });
+    fireEvent.click(go());
+    await settle();
+    expect(screen.getByTestId('shared')).toHaveTextContent('idle');
+  });
+
+  it('a refusal gives Go the focus back; the next brief starts without the last one’s line or terminal tick', async () => {
+    const post = vi.fn(async () => { throw new ApiError(409, 'Claude Code is open…', { code: 'terminal-open', terminals: 1 }); });
+    const o = open({ post });
+    fireEvent.click(go());
+    await settle();
+    expect(go()).toHaveFocus();
+    fireEvent.click(within(card()).getByRole('checkbox', { name: 'None of the open terminals is this job’s Foreman' }));
+    await land(o, { move: { ...GATE(), brief: 16, ask: 'Brief 16 waits' } });
+    expect(within(card()).queryByRole('checkbox')).toBeNull();
+    expect(card()).not.toHaveTextContent('Not sent');
+  });
+
+  it('↑ ↓ in the reader stay the reader’s; a busy answer is said plainly; any other refusal names the server’s words', async () => {
+    const reader = screen.queryByRole('region', { name: 'Reader', hidden: true });
+    expect(reader).toBeNull();
+    const busy = open({ post: vi.fn(async () => { throw new ApiError(409, 'The Foreman is still working on your last message.', { code: 'busy' }); }) });
+    const region = screen.getByRole('region', { name: 'Reader' });
+    region.focus();
+    key('ArrowDown', region);
+    expect(document.activeElement).toBe(region);
+    fireEvent.click(go());
+    await settle();
+    expect(card()).toHaveTextContent('Not sent: the Foreman is still working on a reply.');
+    busy.unmount();
+    forgetSentGo();
+    open({ post: vi.fn(async () => { throw new ApiError(409, 'Starbase is being restarted. Try again in a moment.'); }) });
+    fireEvent.click(go());
+    await settle();
+    expect(card()).toHaveTextContent('Not sent: Starbase is being restarted. Try again in a moment.');
   });
 });
