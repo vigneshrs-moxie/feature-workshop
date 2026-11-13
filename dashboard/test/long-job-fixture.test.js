@@ -142,3 +142,27 @@ for (const size of SIZES) {
     assert.notEqual(later.thread[0].at, pages[size].facts.thread[0].at);
   });
 }
+
+// ---------- The web's copy (web/src/jobpage/fixtures, written by fixtures/write-long-job.js) ----------
+
+test('the web’s long job files are what the server fixture writes now (run node dashboard/test/fixtures/write-long-job.js)', async () => {
+  const { WEB_FILES, WEB_FIXTURES, webFixture } = await import('./fixtures/write-long-job.js');
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  for (const size of SIZES) {
+    const file = path.join(WEB_FIXTURES, WEB_FILES[size]);
+    assert.ok(fs.existsSync(file), `${WEB_FILES[size]} is written`);
+    assert.ok(fs.readFileSync(file, 'utf8') === webFixture(size), `${WEB_FILES[size]} is out of date: run node dashboard/test/fixtures/write-long-job.js`);
+  }
+});
+
+test('the web’s long job says nothing the web source checks refuse (the product name, old names, native controls, text arrows)', async () => {
+  const { webFixture } = await import('./fixtures/write-long-job.js');
+  for (const size of SIZES) {
+    const text = webFixture(size);
+    // web/src/app/brand.test.ts, dashboard/test/old-names.test.js, web/src/theme/nativeLook.test.ts, tokenCoverage.test.ts.
+    assert.doesNotMatch(text, /Starbase|Feature Workshop|Ground Control|feature-workshop|ground-control|\bDashboard\b/);
+    assert.doesNotMatch(text, /<select[\s>]|<datalist[\s>]|<title>|[▸▾▴▹▿]|['"]--[a-z]/);
+    assert.doesNotMatch(text, /sk_live|sk_test|ghp_|BEGIN [A-Z ]*PRIVATE KEY/);
+  }
+});
