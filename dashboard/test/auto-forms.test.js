@@ -52,7 +52,7 @@ async function autoPass(command, { hard, ans, stage, ctx = CTX, seen = null }) {
     state: { audit: async (line) => { log.audits.push(line); }, auditFor: async () => log.audits }, notify: () => {},
   });
   await auto.onPermission({ id: 'c', featureDir: F, slug: 'job-x', runId: 'r', cwd: W }, { leftWaiting: () => {} });
-  if (seen) seen.audits = log.audits; // the lines of What Auto decided
+  if (seen) { seen.audits = log.audits; seen.cards = rec.cards; } // the lines of What Auto decided, and the cards counted in this reply
   const dec = log.decisions[0];
   if (log.asks > 0) return { end: 'asked' };
   if (dec?.decision === 'deny' && dec.by === 'auto') return { end: `refused (${log.audits.find((l) => l.what === 'refuse')?.rule})`, note: dec.note };
@@ -66,7 +66,7 @@ async function autoPass(command, { hard, ans, stage, ctx = CTX, seen = null }) {
  *   end   'refused outright (<line>)'; for a card 'refused (<rule>)' or 'asked'; 'covered' (the go-ahead) or 'routine'
  *         when no card comes. With hook 'nothing', end is what follows if Claude Code asks.
  */
-async function outcome(command, stage = 'implement') {
+async function outcome(command, stage = 'implement', seen = null) {
   const out = await hookFor(stage)({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command }, cwd: W, tool_use_id: 't' });
   const hook = out?.hookSpecificOutput?.permissionDecision ?? 'nothing';
   // The driver's order for a card (lib/driver.js #askInner): the hard line again, Auto's answer, the cover, the routine list.
@@ -75,7 +75,7 @@ async function outcome(command, stage = 'implement') {
   const ans = R.autoAnswer({ kind: 'card', toolName: 'Bash', input: { command }, hardLine: hard, blockedPath: null }, CTX);
   if (!ans && hard && cover(stage)('Bash', { command })) return { hook, end: 'covered' };
   if (!ans && !hard && P.classify('Bash', { command }, { mode: 'auto', stage, featureDir: F, worktrees: [W], repoPath: REPO, specDirs: CTX.specDirs, cwd: W, defaultToNo: false, rules: [] }).auto) return { hook, end: 'routine' };
-  return { hook, ...(await autoPass(command, { hard, ans, stage })) };
+  return { hook, ...(await autoPass(command, { hard, ans, stage, seen })) };
 }
 const show = (c) => c.replace(/\n/g, '\\n');
 // Rows whose answer is not the wanted one: want is a RegExp for `end`; a refused row must never be left to Claude Code's own mode.
@@ -675,5 +675,102 @@ test('G2: a number inside a git option group, and less, do not get a .sql file p
     assert.notEqual(verdictOf(c), 'database', c);
     assert.equal(verdictOf(c), verdictOf(twin(c)), c);
     for (const stage of ['implement', 'pr1']) assert.deepEqual(await outcome(c, stage), await outcome(twin(c), stage), `${stage}: ${c}`);
+  }
+});
+
+// ---------- Fix round 2, G3 (re-review N3 and N4): the could-not-read words wherever the refusal comes only from the reading ----------
+
+const OWN_PR = 'gh pr create --repo moxie-org/orbit --head me:feature/x --base feature/x --title t --body b';
+const noteOf = (rule, key) => L.refuseNote(rule, L.REFUSE_REASONS[key]);
+// One Bash call on an Auto job at a step: its verdict (outcome's end), what the crew is told, and what is kept of it.
+async function refusedAs(command, stage) {
+  const seen = {};
+  const got = await outcome(command, stage, seen);
+  const line = (seen.audits ?? []).find((l) => l.what === 'refuse') ?? null;
+  return { hook: got.hook, end: got.end, note: got.note ?? null, why: line?.why ?? null, listed: line?.rule ?? null, counted: seen.cards ?? null };
+}
+// The re-review's N3 table: the one push and the one create the PR #1 step exists for, written with a comment, in
+// brackets or with a trailing &. [the command, the rule it is refused under (as before this round)].
+const N3_ROWS = [
+  ['git push -u origin feature/x # push the branch', 'push'],
+  ['# push the branch\ngit push -u origin feature/x', 'push'],
+  ['git push -u origin feature/x &', 'push'],
+  [`cd ${W} && git push -u origin feature/x # push`, 'push'],
+  [`${OWN_PR} # open PR #1`, 'blocked'],
+  [`(${OWN_PR})`, 'blocked'],
+];
+
+test('G3: at the PR #1 step the job\'s own push and PR #1\'s own create, refused only for how they are written, get the could-not-read words', async () => {
+  // The words are one row and one ending, whatever the rule.
+  assert.equal(L.refuseReason({ rule: 'push', unread: true }), L.REFUSE_REASONS['outside-unread']);
+  assert.equal(L.refuseReason({ rule: 'blocked', hardLine: 'gh-pr-create', unread: true }), L.REFUSE_REASONS['outside-unread']);
+  for (const rule of ['push', 'merge', 'database', 'tool', 'blocked', 'outside']) assert.equal(L.refuseNote(rule, L.REFUSE_REASONS['outside-unread']), UNREAD_NOTE, rule);
+  for (const [c, rule] of N3_ROWS) {
+    // Still refused under the same rule, still counted, still listed: only the words differ.
+    assert.deepEqual(await refusedAs(c, 'pr1'), { hook: 'ask', end: `refused (${rule})`, note: UNREAD_NOTE, why: L.REFUSE_REASONS['outside-unread'], listed: rule, counted: 1 }, show(c));
+  }
+  // Written plainly, each is covered by the go-ahead there, as before.
+  for (const c of ['git push -u origin feature/x', `cd ${W} && git push -u origin feature/x`, OWN_PR]) assert.deepEqual(await outcome(c, 'pr1'), { hook: 'nothing', end: 'covered' }, c);
+  // At the build step the push written plainly would only be asked, so its words are the same; PR #1's own create written
+  // plainly is refused there as a hard line, so it keeps that line's words.
+  for (const [c, rule] of N3_ROWS.slice(0, 4)) assert.deepEqual(await refusedAs(c, 'implement'), { hook: 'ask', end: `refused (${rule})`, note: UNREAD_NOTE, why: L.REFUSE_REASONS['outside-unread'], listed: rule, counted: 1 }, show(c));
+  for (const [c, rule] of N3_ROWS.slice(4)) assert.deepEqual(await refusedAs(c, 'implement'), { hook: 'ask', end: `refused (${rule})`, note: noteOf('blocked', 'gh-pr-create'), why: L.REFUSE_REASONS['gh-pr-create'], listed: rule, counted: 1 }, show(c));
+  assert.deepEqual(await outcome(OWN_PR, 'implement'), { hook: 'ask', end: 'refused (blocked)', note: noteOf('blocked', 'gh-pr-create') });
+});
+
+test('G3: the same words under the database and merge rules and for a refused rm -rf, when only the reading refuses the call', async () => {
+  const rows = [
+    // a comment that names a database client, a database address or a merge: the command itself is an everyday one
+    ['npm test # psql must be running', 'database'], ['npm test # the database is at postgres://u:p@db.example/x', 'database'], ['npm run check # do not run prisma migrate deploy', 'database'],
+    ['echo done # gh pr merge 1', 'merge'], ['gh pr view --json url # gh pr merge comes later', 'merge'],
+    // deleting inside the job's own folders, in brackets: written plainly the go-ahead covers it
+    ['(rm -rf build)', 'blocked'],
+    // the job's own push and a comment that names something else
+    ['git push -u origin feature/x # then gh pr merge 1', 'push'], ['git push # push', 'push'], ['git push -u origin feature/x 2>&1 | tail -3 # the end', 'push'],
+  ];
+  for (const stage of ['implement', 'pr1']) {
+    for (const [c, rule] of rows) assert.deepEqual(await refusedAs(c, stage), { hook: 'ask', end: `refused (${rule})`, note: UNREAD_NOTE, why: L.REFUSE_REASONS['outside-unread'], listed: rule, counted: 1 }, `${stage}: ${show(c)}`);
+  }
+  // The push and PR #1's own create in one line: covered at the PR #1 step when plain, a hard line at the build step.
+  const both = `git push -u origin feature/x && ${OWN_PR} # push and open`;
+  assert.deepEqual(await refusedAs(both, 'pr1'), { hook: 'ask', end: 'refused (push)', note: UNREAD_NOTE, why: L.REFUSE_REASONS['outside-unread'], listed: 'push', counted: 1 });
+  assert.deepEqual(await refusedAs(both, 'implement'), { hook: 'ask', end: 'refused (push)', note: noteOf('push', 'push'), why: L.REFUSE_REASONS.push, listed: 'push', counted: 1 });
+});
+
+test('G3: a call that is refused written plainly too keeps its own words, whatever is round it', async () => {
+  const DB = L.refuseNote('database', L.REFUSE_REASONS.database);
+  const rows = [
+    // the lead's rows
+    ['git push origin main # x', 'push', noteOf('push', 'push')], ['gh pr merge 1 # x', 'merge', noteOf('merge', 'merge')], ['npm run db:migrate # apply', 'database', DB],
+    [`cd ${APP} && bundle exec vercel deploy --prod # ship`, 'outside', noteOf('outside', 'outside-deploy')], [`cd ${W} && bundle exec vercel deploy --prod # ship`, 'outside', noteOf('outside', 'outside-deploy')], // G1 shows through
+    // N4: a bracketed group that closes before the end of the line: the cd in it moves nothing after it
+    [`cd ${REPO}; (cd ${W}); rm -rf build`, 'outside', noteOf('outside', 'outside')], [`cd ${REPO}; (cd ${W}); npm test`, 'outside', noteOf('outside', 'outside')], [`(cd ${W}); npm test`, 'outside', noteOf('outside', 'outside')],
+    // more of the same kinds
+    ['git push upstream feature/x # x', 'push', noteOf('push', 'push')], ['(git push origin main)', 'push', noteOf('push', 'push')], ['git push origin main &', 'push', noteOf('push', 'push')],
+    ['git push -u origin feature/y # another branch', 'push', noteOf('push', 'push')], ['git push -u origin `git branch --show-current`', 'push', noteOf('push', 'push')],
+    ['gh pr merge 1 &', 'merge', noteOf('merge', 'merge')], ['(gh pr merge 1)', 'merge', noteOf('merge', 'merge')], ['git push -u origin feature/x & gh pr merge 1', 'merge', noteOf('merge', 'merge')],
+    ['gh api -X PUT repos/moxie-org/orbit/pulls/1/merge # merge', 'merge', noteOf('merge', 'merge')], [`${OWN_PR}; gh pr merge 1 # both`, 'merge', noteOf('merge', 'merge')],
+    ['psql -c "select 1" # x', 'database', DB], ['cat x.sql | psql # x', 'database', DB], ['(npm run db:migrate)', 'database', DB], ['npm run db:migrate &', 'database', DB], ['(psql -f x.sql)', 'database', DB],
+    // a pull request that is not PR #1's own, at the PR #1 step: the hard line's words
+    ['gh pr create --repo moxie-org/orbit --head me:feature/x --base main --title t --body b # wrong base', 'blocked', noteOf('blocked', 'gh-pr-create')],
+    [`${OWN_PR} --label x # labelled`, 'blocked', noteOf('blocked', 'gh-pr-create')], [`${OWN_PR} --reviewer bob # ask bob`, 'blocked', noteOf('blocked', 'gh-pr-create')], ['gh pr create --fill # open', 'blocked', noteOf('blocked', 'gh-pr-create')],
+    // deleting outside the job's folders
+    ['rm -rf ~/x # tidy', 'outside', noteOf('outside', 'outside')], ['rm -rf ~/x &', 'outside', noteOf('outside', 'outside')],
+  ];
+  for (const [c, rule, note] of rows) {
+    const got = await refusedAs(c, 'pr1');
+    assert.deepEqual({ hook: got.hook, end: got.end, note: got.note, listed: got.listed, counted: got.counted }, { hook: 'ask', end: `refused (${rule})`, note, listed: rule, counted: 1 }, show(c));
+    assert.doesNotMatch(got.note, /could not read|run it again/, show(c));
+  }
+});
+
+test('G3: a job that is not Auto\'s sees no change for these lines: the hook asks as it did', async () => {
+  // No Auto: the hook has no autoStop. With the go-ahead's cover of a job in auto mode at the PR #1 step, and with none.
+  for (const coverFor of [null, async (toolName, input) => cover('pr1')(toolName, input)]) {
+    const hook = H.hardLineHook(() => {}, { check, cwd: W, port: 4477, cover: coverFor, autoStop: null });
+    for (const [c] of N3_ROWS) {
+      const out = await hook({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: c }, cwd: W, tool_use_id: 't' });
+      assert.equal(out?.hookSpecificOutput?.permissionDecision ?? 'nothing', 'ask', show(c)); // a card for the person, as before
+    }
   }
 });

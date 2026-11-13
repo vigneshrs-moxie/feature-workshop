@@ -33,7 +33,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { classify, commandParts, githubOwner, isInside, prCreateProblem, TEMP_DIRS } from './policy.js';
-import { databaseLine, databaseText, handedOnStarts, hardLine, namesStarbaseAddress, namesThisComputer, ORG_REMOTES, ORG_URL, physicalPath, rmInsideJob, withPathMemo, WRAPPERS } from './hard-lines.js';
+import { databaseLine, databaseText, goAheadCovers, handedOnStarts, hardLine, namesStarbaseAddress, namesThisComputer, ORG_REMOTES, ORG_URL, physicalPath, rmInsideJob, withPathMemo, WRAPPERS } from './hard-lines.js';
 import { envCopy, gitReadForm, localPlain, plainWhy, psRead, starbaseDecisions } from './auto-plain.js';
 import { STAGES, STAGE_IDS } from './stages.js';
 
@@ -495,16 +495,44 @@ function unreadOnly(read, hard, ctx) {
   return !bashVerdict(plain, hard, ctx, false)?.stop;
 }
 
+/**
+ * The same question for a Bash card Auto refuses under any other rule (push, merge, database, tool) or as a hard line
+ * (runner/auto.js): is it refused only for how its command is written? Yes when the same commands written plainly
+ * (plainForm) can be read and would not be refused at this step of the job: no hard line refuses them outright, no
+ * fixed stop matches, and a hard line that asks is the plain push (the Approver's to judge) or one the go-ahead covers
+ * at `stage` (the job's own push and PR #1's own gh pr create at a PR step, rm -rf inside the job's folders). Only the
+ * words of the refusal rest on this, never the verdict: the card is refused either way. In doubt: no.
+ */
+export function refusedAsWritten(input, ctx = {}, stage = null) {
+  if (input?.toolName !== 'Bash') return false;
+  const command = String(input.input?.command ?? '');
+  if (tooBig(command)) return false;
+  return withPathMemo(() => {
+    const plain = plainForm(quotedBodies(command));
+    if (plain === null || tooBig(plain) || !commandParts(plain, ctx.cwd ?? null)) return false;
+    // The plain form as a card of its own: its hard line, the fixed stops, then what Auto does with a hard line that asks.
+    const hard = hardLineOf('Bash', { command: plain }, { cwd: ctx.cwd ?? null, stateDir: ctx.stateDir });
+    if (hard?.decision === 'deny' || bashVerdict(plain, hard, ctx, false)?.stop) return false;
+    if (!hard || plainPushCard(hard, plain, ctx.branches)) return true;
+    // Any other hard line that asks is refused on its card unless the go-ahead covers it, as the hook asks before a card
+    // is made (runner/index.js goAheadFor). A job on Auto runs in auto mode (lib/state.js policyFor), the mode it covers in.
+    const forkOwner = (() => { try { return githubOwner(typeof ctx.remoteUrl === 'function' ? ctx.remoteUrl(ctx.forkRemote || 'origin') : null); } catch { return null; } })();
+    return Boolean(goAheadCovers('Bash', { command: plain }, { mode: 'auto', stage, worktrees: ctx.worktrees ?? [], featureDir: ctx.featureDir ?? null, cwd: ctx.cwd ?? null, branches: ctx.branches ?? [], forkOwner }));
+  });
+}
+
 // The same commands with what Auto's reader cannot follow taken out: no comment, a cd on a line of its own (or before ;)
 // joined to the next command with &&, no brackets round a command, nothing in the background, $( … ) for backticks.
 // null when the command holds none of these, or cannot be rewritten for sure (a here-document, a quote left open, a
-// bracket that is not round a whole command).
+// bracket that is not round a whole command, a bracketed group that closes before the end of the line: a cd inside it
+// moves nothing after it, and without the brackets it would read as if it did).
 function plainForm(text) {
   if (/<</.test(text)) return null;
   let out = '';
   let cmd = ''; // the simple command being read
   let q = null;
   let open = 0; // brackets round a command, not yet closed
+  let closed = false; // a bracketed group has closed: only more closing brackets, blanks and a comment may follow
   let changed = false;
   const put = (s) => { out += s; cmd += s; };
   const end = (sep) => { // a command ends at ; a line break or a background &
@@ -517,6 +545,7 @@ function plainForm(text) {
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
     const n = text[i + 1];
+    if (closed && !/\s/.test(c) && c !== ')' && !(c === '#' && /(^|\s)$/.test(cmd))) return null;
     if (q === "'") { put(c); if (c === "'") q = null; continue; }
     if (c === '\\') { put(c + (n ?? '')); i++; continue; }
     if (c === '$' && n === '(') { const e = subEnd(text, i + 2); if (e < 0) return null; put(text.slice(i, e + 1)); i = e; continue; }
@@ -525,7 +554,7 @@ function plainForm(text) {
     if (c === "'" || c === '"') { q = c; put(c); continue; }
     if (c === '#' && /(^|\s)$/.test(cmd)) { const nl = text.indexOf('\n', i); i = (nl < 0 ? text.length : nl) - 1; changed = true; continue; }
     if (c === '(') { if (cmd.trim()) return null; open++; changed = true; continue; }
-    if (c === ')') { if (!open) return null; open--; continue; }
+    if (c === ')') { if (!open) return null; open--; closed = true; continue; }
     if (c === '&' && n === '&') { out += '&&'; cmd = ''; i++; continue; }
     if (c === '|') { const two = n === '|' || n === '&'; out += two ? c + n : c; if (two) i++; cmd = ''; continue; }
     if (c === '&' && (n === '>' || text[i - 1] === '>' || text[i - 1] === '<')) { put(c); continue; }

@@ -23,7 +23,7 @@
 // nothing reaches the Foreman but through decide.gate with by: 'auto'.
 
 import { AUTO_CARDS_PER_REPLY, AUTO_MARK, OWN_SENDS, REFUSED_RULES, YOURS_NOW, finishBody, refuseNote, refuseReason, wroteWhileWaiting } from '../lib/auto.js';
-import { AUTO_STOP_REASONS, HIDDEN_PROGRAM_REASON, OUTSIDE_REASONS, autoVerdict, fixedStop, plainPushCard, pr1StepGate, refusedOutright } from '../lib/auto-rules.js';
+import { AUTO_STOP_REASONS, HIDDEN_PROGRAM_REASON, OUTSIDE_REASONS, autoVerdict, fixedStop, plainPushCard, pr1StepGate, refusedAsWritten, refusedOutright } from '../lib/auto-rules.js';
 import { APPROVER_BUDGET_USD, approverCut, approverPaths, approverRoots, callPreview, checkAnswer } from '../lib/approver.js';
 import { DECIDING_KINDS } from '../lib/gate.js';
 import { ownLevelStands } from '../lib/auto-level.js';
@@ -765,7 +765,17 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     }
     // Before youSpokeSince on purpose: the call is one Auto may never allow, so his message does not make the card his to
     // answer here. To take such a card himself he switches Auto off (m1).
-    if (refused) return refuseCard(job, full, hit, { leave, quietly, lastAnswered, hardLine: hardLineHit ? (outright ?? full.hardLine).line ?? '' : null });
+    if (refused) {
+      // Refused only for how its command is written (a comment, brackets, a trailing &), where the same commands written
+      // plainly would not be refused at this step: the card is refused all the same, and the crew is told to write it
+      // plainly and run it again, not to leave it. The outside rule's stop says so itself (auto-rules.js bashVerdict);
+      // for the other rules and for a hard line Auto refuses, the same test is asked here, where the step is known.
+      let unread = false;
+      if (ctx && !outright && hit.rule !== 'outside' && full.toolName === 'Bash') {
+        try { unread = refusedAsWritten({ toolName: full.toolName, input: full.input }, ctx, job.stage ?? null); } catch { unread = false; } // the family's own words
+      }
+      return refuseCard(job, full, hit, { leave, quietly, lastAnswered, hardLine: hardLineHit ? (outright ?? full.hardLine).line ?? '' : null, unread });
+    }
 
     // The person wrote to the job (a message, or one steered into the reply) since Auto took the card up, while it
     // queued behind another: it is theirs, and the Approver is not asked. A stop on the card, and he is told.
@@ -890,14 +900,15 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
    * 'auto'; the Approver is never asked. One refuse line; the card counts toward AUTO_CARDS_PER_REPLY; failures stay as they
    * were; nobody is told. The answer is a deny on every path: a decision that fails leaves the card as answerCard does.
    */
-  async function refuseCard(job, card, { rule, reason }, { leave, quietly, lastAnswered, hardLine = null }) {
+  async function refuseCard(job, card, { rule, reason }, { leave, quietly, lastAnswered, hardLine = null, unread = false }) {
     // The crew's reason, looked up (REFUSE_REASONS), never the owner's stop sentence; the refuse line's why is the same.
     let why = '';
     // For outside: which of its sentences hit (its key in OUTSIDE_REASONS), else the general row.
     const outside = rule === 'outside' ? Object.keys(OUTSIDE_REASONS).find((k) => OUTSIDE_REASONS[k] === reason) ?? null : null;
     // For tool: a program started where Auto cannot read it (a git setting, git bisect run, an environment variable) has its own row.
     const hidden = rule === 'tool' && reason === HIDDEN_PROGRAM_REASON;
-    try { why = refuseReason({ rule, outside, hardLine, hidden }); } catch { why = ''; }
+    // unread: refused only for how the command is written, under any rule or as a hard line (attendCard): one row for all.
+    try { why = refuseReason({ rule, outside, hardLine, hidden, unread }); } catch { why = ''; }
     let note = '';
     try { note = refuseNote(rule, why); } catch { note = ''; } // still a deny, with the driver's own words for one of Auto's
     try {

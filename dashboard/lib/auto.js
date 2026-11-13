@@ -81,9 +81,12 @@ const OUTSIDE_ROWS = new Set(['secret', 'unknown', 'deploy', 'read', 'unread']);
  * The crew's reason for one refusal, looked up in REFUSE_REASONS, never built from the owner's sentence: hardLine (the id)
  * when a hard line was refused, else the rule; for outside, `outside` names which of auto-rules.js OUTSIDE_REASONS hit
  * (its key, worked out by the runner: this file imports nothing that reaches the machine). Anything with no row of its
- * own gets the general hard line's.
+ * own gets the general hard line's. unread: the call is refused only for how its command is written (the runner's
+ * finding, auto-rules.js refusedAsWritten), under any rule or as a hard line. Its row is `outside-unread`: the name is
+ * from when only the outside rule had it, and it is kept because it is pinned and listed.
  */
-export function refuseReason({ rule, outside = null, hardLine = null, hidden = false } = {}) {
+export function refuseReason({ rule, outside = null, hardLine = null, hidden = false, unread = false } = {}) {
+  if (unread === true) return REFUSE_REASONS['outside-unread'];
   if (hardLine !== null && hardLine !== undefined) return REFUSE_REASONS[HARD_LINE_ROWS.has(hardLine) ? hardLine : 'hard-line'];
   if (rule === 'outside') return OUTSIDE_ROWS.has(outside) ? REFUSE_REASONS[`outside-${outside}`] : REFUSE_REASONS.outside;
   if (rule === 'tool' && hidden === true) return REFUSE_REASONS['tool-hidden'];
@@ -91,10 +94,11 @@ export function refuseReason({ rule, outside = null, hardLine = null, hidden = f
 }
 
 /** What the crew is told when Auto refuses a call on its card: reason is refuseReason's. The database row has its own ending,
- *  and so has a command Auto could not read: that one is not refused for what it does, so the crew may write it again plainly. */
+ *  and so has a command Auto could not read, whatever the rule it is refused under: that one is not refused for what it
+ *  does, so the crew may write it again plainly. */
 export function refuseNote(rule, reason) {
+  if (reason === REFUSE_REASONS['outside-unread']) return `Auto refused this: ${reason} Write it plainly on one line, as cd <folder> && <command>, with no comment, and run it again.`;
   if (rule === 'database') return `Auto refused this: ${REFUSE_REASONS.database} Don't run database commands. Carry on without it.`;
-  if (rule === 'outside' && reason === REFUSE_REASONS['outside-unread']) return `Auto refused this: ${reason} Write it plainly on one line, as cd <folder> && <command>, with no comment, and run it again.`;
   return ['Auto refused this:', String(reason ?? '').trim(), "Don't try the same thing another way. Carry on without it inside the job's folders, or leave it for after PR #1."].filter(Boolean).join(' ');
 }
 
