@@ -42,6 +42,12 @@ export const longJob200: LongJobFixture = {
       "mode": "workshop"
     },
     "lock": null,
+    "local": {
+      "dir": null,
+      "worktree": null,
+      "policyOverride": null,
+      "started": false
+    },
     "heldReply": null,
     "usage": null,
     "closed": null,

@@ -6,7 +6,7 @@
 // On the website (hosted/site/routes-mirror.js, mirrorJobPage) the payload has hosted: true and no
 // `drive` or `lock` (LOCAL_ONLY), so both are optional here.
 
-import type { Closed, JobAuto, JobLockInfo, StopId } from '../api/types';
+import type { Closed, JobAuto, JobLockInfo, PolicyId, StopId } from '../api/types';
 
 export type { StopId };
 
@@ -131,6 +131,9 @@ export interface JobPagePayload {
   drive?: { mode: 'none' | 'workshop' | 'running' | 'terminal' | 'terminal-open' };
   /** Laptop only: another process holds the job. */
   lock?: JobLockInfo | null;
+  /** Laptop only: what the ⋯ menu's laptop items need (the job's folder, its worktree, its own
+   *  permission setting, whether its Foreman has a session). */
+  local?: { dir: string | null; worktree: string | null; policyOverride: PolicyId | null; started: boolean };
   heldReply: null | { kind: string; gateBrief: number | null; at: string };
   usage: null | { limited: boolean; resetsAt: string | null; label: string | null; line: string | null };
   closed: Closed | null;

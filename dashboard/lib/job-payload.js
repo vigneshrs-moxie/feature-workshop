@@ -20,6 +20,8 @@
 //   run          null | { id, status, startedAt, lastAction }: the job's newest run (Stop needs its id)
 //   drive        { mode: 'none' | 'workshop' | 'running' | 'terminal' | 'terminal-open' }
 //   lock         null | { owner, pid, branch, acquiredAt }: another process holds the job
+//   local        { dir, worktree, policyOverride, started }: what the ⋯ menu's laptop items need (the job's
+//                folder, its worktree, its own permission setting, whether its Foreman has a session)
 //   heldReply    null | { kind, gateBrief, at }: a gate reply waiting for the usage limit
 //   usage        null | { limited, resetsAt, label, line }: Claude's usage limit, and the gate's line about it
 //   closed       null | { as: 'done' | 'dropped', at }
@@ -34,7 +36,7 @@
 //   thread       ThreadLine[]: one line per conversation item, oldest first, no bodies
 //   waiting      null (R8, Task 16: the one message waiting for the Foreman)
 //   prs          PrLine[]: always three
-//   hosted       boolean: built on the website (mirrorJobPage, which leaves out drive and lock: LOCAL_ONLY)
+//   hosted       boolean: built on the website (mirrorJobPage, which leaves out drive, lock and local: LOCAL_ONLY)
 //
 //   StepRow      { id: 'spec' | … | 'ship', label, state: 'done' | 'current' | 'todo' | 'skipped',
 //                  word: string | null (the result: 'v3', '19 passed', '2 open', 'PR #1 open'; only on done
@@ -618,6 +620,12 @@ export function buildJobPage(facts) {
     run: pick(detail.run, ['id', 'status', 'startedAt', 'lastAction']),
     drive: { mode: detail.drive?.mode ?? 'none' },
     lock: card.lock ?? null,
+    local: {
+      dir: typeof detail.dir === 'string' ? detail.dir : null,
+      worktree: typeof detail.worktree === 'string' ? detail.worktree : null,
+      policyOverride: typeof detail.policyOverride === 'string' ? detail.policyOverride : null,
+      started: Boolean(detail.drive?.sessionId),
+    },
     heldReply: detail.heldReply ?? null,
     usage,
     closed: card.closed ?? null,
@@ -637,8 +645,8 @@ export function buildJobPage(facts) {
 
 // ---------- The website's payload ----------
 
-/** What only the laptop has: how the job is driven (terminals) and which process holds it. Left out on the website. */
-export const LOCAL_ONLY = Object.freeze(['drive', 'lock']);
+/** What only the laptop has: how the job is driven (terminals), which process holds it, and what the ⋯ menu's laptop items need. Left out on the website. */
+export const LOCAL_ONLY = Object.freeze(['drive', 'lock', 'local']);
 
 /**
  * The website's payload (hosted/site/routes-mirror.js), the same shape built from the mirrored job

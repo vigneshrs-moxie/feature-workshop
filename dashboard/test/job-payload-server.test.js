@@ -324,7 +324,7 @@ test('the website’s payload: the same shape from the mirrored job record, host
   const { facts, payload } = longJobPage({ size: 52 });
   const record = jobRecord({ ...facts.card, ...facts.detail, thread: facts.thread });
   const site = mirrorJobPage(record, { row: { lane: facts.lane, laneReason: facts.laneReason }, v: 5 });
-  assert.deepEqual(LOCAL_ONLY, ['drive', 'lock']);
+  assert.deepEqual(LOCAL_ONLY, ['drive', 'lock', 'local']);
   assert.deepEqual(Object.keys(site).sort(), Object.keys(payload).filter((k) => !LOCAL_ONLY.includes(k)).sort());
   for (const k of LOCAL_ONLY) assert.equal(k in site, false, k);
   assert.equal(site.hosted, true);

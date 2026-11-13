@@ -471,3 +471,15 @@ test('stateOf: the one working rule (lib/working.js) — a paused job is never w
     assert.equal(stateOf(facts({ lane: undefined, card })) === 'working', working, JSON.stringify(card));
   }
 });
+
+test('the ⋯ menu’s laptop items get the job’s folder, worktree, own permission setting and whether it has started; the website gets none of it', async () => {
+  const { mirrorJobPage } = await import('../lib/job-payload.js');
+  const f = facts();
+  f.detail.dir = '/made/up/jobs/orbit-901-widget-export';
+  f.detail.worktree = '/made/up/worktrees/widget-export';
+  f.detail.policyOverride = 'ask-all';
+  f.detail.drive = { mode: 'workshop', model: 'claude-opus-5-5', sessionId: 'sess-1' };
+  assert.deepEqual(buildJobPage(f).local, { dir: '/made/up/jobs/orbit-901-widget-export', worktree: '/made/up/worktrees/widget-export', policyOverride: 'ask-all', started: true });
+  assert.deepEqual(buildJobPage(facts()).local, { dir: null, worktree: null, policyOverride: null, started: false });
+  assert.equal('local' in mirrorJobPage({ ...f.card, ...f.detail }), false);
+});
