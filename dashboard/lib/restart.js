@@ -16,7 +16,6 @@ import { HttpError } from './http-guard.js';
 import { FABLE } from './options.js';
 import { runGit } from './git.js';
 
-
 /**
  * The options a restart carries to the new job: what the New job form itself can set. Nothing else is
  * copied. Left out on purpose: auto and auto_since (the old job's Auto level, and when it was set),
