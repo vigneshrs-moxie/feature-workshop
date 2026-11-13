@@ -68,6 +68,8 @@ export const OUTSIDE_REASONS = Object.freeze({
   unknown: 'this runs a program Auto does not know, so it needs you.',
   deploy: 'this would deploy or publish something, so it needs you.',
   read: 'this only reads, but in a way Auto cannot judge (another folder, a setting or a place it cannot work out), so it needs you.',
+  // Refused for how it is written, not for what it does (unreadOnly): the same words as the crew's row (lib/auto.js).
+  unread: 'Auto could not read this command as it is written (a comment, a line break after cd, brackets, a backtick or a trailing &).',
 });
 /** The tool rule's sentence for a Bash call that starts a program where no reader can see it: git bisect run, a git setting or a variable that names a program. */
 export const HIDDEN_PROGRAM_REASON = 'this starts a program through a git setting, a git command or an environment variable, where Auto cannot check what runs, so it needs you.';
@@ -385,7 +387,7 @@ function readElsewhere(p, roots) {
 }
 
 // A Bash call: a fixed stop if a rule matches; else an ask if it is not plain; else null (pass).
-function bashVerdict(whole, hard, ctx) {
+function bashVerdict(whole, hard, ctx, first = true) {
   // ( cd <folder> && … ) as the whole command is judged as the line inside it (R13).
   let command = whole;
   for (let inner = wholeSubshell(command); inner !== null; inner = wholeSubshell(command)) command = inner;
@@ -415,7 +417,9 @@ function bashVerdict(whole, hard, ctx) {
   if ((st.ranRunner && wroteBase(['package.json'])) || (st.ranMake && wroteBase(['Makefile', 'makefile', 'GNUmakefile']))) st.hits.add('outside');
   const rule = PRIORITY.find((r) => st.hits.has(r));
   if (rule) {
-    const why = rule === 'tool' ? HIDDEN_PROGRAM_REASON : rule !== 'outside' ? null : st.deploy ? OUTSIDE_REASONS.deploy : st.secret ? OUTSIDE_REASONS.secret : st.unknown ? OUTSIDE_REASONS.unknown : !st.nonRead ? OUTSIDE_REASONS.read : null;
+    // Only the words change for a command refused for how it is written: it is still a stop under outside.
+    const unread = first && rule === 'outside' && st.hits.size === 1 && !st.deploy && !st.secret && unreadOnly(read, hard, ctx);
+    const why = rule === 'tool' ? HIDDEN_PROGRAM_REASON : rule !== 'outside' ? null : st.deploy ? OUTSIDE_REASONS.deploy : st.secret ? OUTSIDE_REASONS.secret : unread ? OUTSIDE_REASONS.unread : st.unknown ? OUTSIDE_REASONS.unknown : !st.nonRead ? OUTSIDE_REASONS.read : null;
     return { stop: stop(rule, { ...(rule === 'outside' && st.unknown ? { unknownProgram: true } : {}), ...(why ? { reason: why } : {}) }) };
   }
   const why = st.asks[0] ?? plainWhy(command, plainEnv(st, ctx.cwd ?? null));
@@ -478,6 +482,59 @@ function setupForm(words, at, main, ctx) {
 // in single quotes, so a cd before it is still followed (R13: cd <worktree> && git commit -m "$(cat <<'EOF' …)").
 function quotedBodies(command) {
   return command.replace(/"\$\(cat <<'(\w+)'\n([\s\S]*?)\n\1\n\)"/g, (all, delim, body) => (body.split('\n').includes(delim) ? all : `'${body.replace(/\n+$/, '').replace(/'/g, "'\\''")}'`));
+}
+
+// ---------- a command refused only for how it is written ----------
+
+// Is this stop about the way the command is written and nothing else? Yes when the same commands, written the way the
+// refusal asks for (plainForm), can be read and are no stop. A command that does write outside, reach a secret place,
+// push, merge or touch a database is a stop in its plain form too, and keeps its own words. In doubt: no.
+function unreadOnly(read, hard, ctx) {
+  const plain = plainForm(read);
+  if (plain === null || !commandParts(plain, ctx.cwd ?? null)) return false;
+  return !bashVerdict(plain, hard, ctx, false)?.stop;
+}
+
+// The same commands with what Auto's reader cannot follow taken out: no comment, a cd on a line of its own (or before ;)
+// joined to the next command with &&, no brackets round a command, nothing in the background, $( … ) for backticks.
+// null when the command holds none of these, or cannot be rewritten for sure (a here-document, a quote left open, a
+// bracket that is not round a whole command).
+function plainForm(text) {
+  if (/<</.test(text)) return null;
+  let out = '';
+  let cmd = ''; // the simple command being read
+  let q = null;
+  let open = 0; // brackets round a command, not yet closed
+  let changed = false;
+  const put = (s) => { out += s; cmd += s; };
+  const end = (sep) => { // a command ends at ; a line break or a background &
+    if (!cmd.trim()) return;
+    const cdAlone = sep !== '&' && /^\s*cd\s+\S+\s*$/.test(cmd);
+    if (cdAlone) changed = true;
+    out += cdAlone ? ' && ' : sep === '\n' ? '\n' : '; ';
+    cmd = '';
+  };
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    const n = text[i + 1];
+    if (q === "'") { put(c); if (c === "'") q = null; continue; }
+    if (c === '\\') { put(c + (n ?? '')); i++; continue; }
+    if (c === '$' && n === '(') { const e = subEnd(text, i + 2); if (e < 0) return null; put(text.slice(i, e + 1)); i = e; continue; }
+    if (c === '`') { const e = tickEnd(text, i + 1); if (e < 0) return null; put(`$(${text.slice(i + 1, e)})`); changed = true; i = e; continue; }
+    if (q === '"') { put(c); if (c === '"') q = null; continue; }
+    if (c === "'" || c === '"') { q = c; put(c); continue; }
+    if (c === '#' && /(^|\s)$/.test(cmd)) { const nl = text.indexOf('\n', i); i = (nl < 0 ? text.length : nl) - 1; changed = true; continue; }
+    if (c === '(') { if (cmd.trim()) return null; open++; changed = true; continue; }
+    if (c === ')') { if (!open) return null; open--; continue; }
+    if (c === '&' && n === '&') { out += '&&'; cmd = ''; i++; continue; }
+    if (c === '|') { const two = n === '|' || n === '&'; out += two ? c + n : c; if (two) i++; cmd = ''; continue; }
+    if (c === '&' && (n === '>' || text[i - 1] === '>' || text[i - 1] === '<')) { put(c); continue; }
+    if (c === '&') { changed = true; end('&'); continue; }
+    if (c === ';' || c === '\n') { end(c); continue; }
+    put(c);
+  }
+  if (q || open || !changed) return null;
+  return out.replace(/(\s*(;|&&)\s*)+$/, '').trim() || null;
 }
 
 // ---------- a .sql file that nothing on the line can run ----------

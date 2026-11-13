@@ -209,6 +209,7 @@ const CREW = {
   'outside-unknown': 'this runs a program Auto does not know.',
   'outside-deploy': 'this would deploy or publish something.',
   'outside-read': 'this reads in a way Auto cannot judge (another folder, a setting or a place it cannot work out).',
+  'outside-unread': 'Auto could not read this command as it is written (a comment, a line break after cd, brackets, a backtick or a trailing &).',
   tool: 'this tool is not one Auto can judge.',
   'tool-hidden': 'this starts a program through a git setting, a git command or an environment variable, where Auto cannot check what runs.',
   'gh-pr-create': 'gh pr create is a hard line, and Auto does not allow it here.',
@@ -231,7 +232,7 @@ test('every refusal reason is one of the frozen sentences', async () => {
   assert.equal(refuseReason({ rule: 'outside' }), CREW.outside);
   assert.ok(Object.keys(AUTO_STOP_REASONS).every((r) => !Object.values(CREW).includes(AUTO_STOP_REASONS[r]) || ['outside', 'tool'].includes(r)), 'no owner sentence is reused but the two kept rows');
   // Every one of the outside rule's sentences has its own row (the runner names which hit by its key).
-  assert.deepEqual(Object.keys(OUTSIDE_REASONS).sort(), ['deploy', 'read', 'secret', 'unknown']);
+  assert.deepEqual(Object.keys(OUTSIDE_REASONS).sort(), ['deploy', 'read', 'secret', 'unknown', 'unread']);
   for (const k of Object.keys(OUTSIDE_REASONS)) assert.equal(refuseReason({ rule: 'outside', outside: k }), CREW[`outside-${k}`], k);
   assert.equal(refuseReason({ rule: 'outside', outside: 'something-new' }), CREW.outside);
   for (const line of ['gh-pr-create', 'git-push', 'rm-rf', 'too-long']) assert.equal(refuseReason({ rule: 'blocked', hardLine: line }), CREW[line], line);
@@ -239,7 +240,9 @@ test('every refusal reason is one of the frozen sentences', async () => {
   for (const line of ['gh-pr-merge', 'database', 'something-new', '']) assert.equal(refuseReason({ rule: 'blocked', hardLine: line }), CREW['hard-line'], line || 'no id');
   // The notes: the database row keeps its own ending; every other row has the one frame.
   assert.equal(autoLib.refuseNote('database', refuseReason({ rule: 'database' })), 'Auto refused this: Starbase applies this job\'s migrations to Auto\'s own copy of the database when the job\'s turn to test comes. Don\'t run database commands. Carry on without it.');
-  assert.equal(autoLib.refuseNote('merge', refuseReason({ rule: 'merge' })), 'Auto refused this: Auto never merges a pull request. Don\'t try the same thing another way. Carry on without it inside the job\'s folders, or leave it for after PR #1.');
+  assert.equal(autoLib.refuseNote('merge', refuseReason({ rule: 'merge' })), 'Auto refused this: Auto never merges a pull request. Don\'t try the same thing another way. Carry on without it inside the job\'s folders, or leave it for after PR #1.');  // A command Auto could not read is not refused for what it does: its ending says to write it plainly and run it again.
+  assert.equal(autoLib.refuseNote('outside', refuseReason({ rule: 'outside', outside: 'unread' })), 'Auto refused this: Auto could not read this command as it is written (a comment, a line break after cd, brackets, a backtick or a trailing &). Write it plainly on one line, as cd <folder> && <command>, with no comment, and run it again.');
+  assert.equal(OUTSIDE_REASONS.unread, CREW['outside-unread']); // the one row whose two sentences are the same
 });
 
 test('no refusal note tells the crew that someone is needed', () => {

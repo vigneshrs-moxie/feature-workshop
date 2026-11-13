@@ -35,7 +35,7 @@ const hookFor = (stage) => H.hardLineHook(() => {}, {
 });
 
 // Auto's own pass on one card: 'refused (<rule>)' (blocked: a hard line Auto never allows), 'asked' (the Approver), or what else it did.
-async function autoPass(command, { hard, ans, stage }) {
+async function autoPass(command, { hard, ans, stage, ctx = CTX, seen = null }) {
   let rec = { on: true, since: '2026-11-12T00:00:00.000Z', by: 'you', stopped: null, cards: 0, cardsBrief: 0, failures: 0, spent: 0, ran: true };
   const log = { asks: 0, decisions: [], audits: [] };
   const full = {
@@ -48,10 +48,11 @@ async function autoPass(command, { hard, ans, stage }) {
     read: async () => [job()], update: async (dir, fn) => { const next = fn(rec); if (next) rec = next; },
     decide: { gate: async () => {}, permission: async (id, body, opts) => { log.decisions.push({ decision: body.decision, by: opts?.by, note: body.note }); pending.delete(id); } },
     askApprover: async () => { log.asks += 1; return { ok: true, costUsd: 0.01, answer: { decision: 'allow', why: 'fine', risk: 'low' } }; },
-    pendingCard: (id) => pending.get(id) ?? null, cardCtx: async () => CTX,
+    pendingCard: (id) => pending.get(id) ?? null, cardCtx: async () => ctx,
     state: { audit: async (line) => { log.audits.push(line); }, auditFor: async () => log.audits }, notify: () => {},
   });
   await auto.onPermission({ id: 'c', featureDir: F, slug: 'job-x', runId: 'r', cwd: W }, { leftWaiting: () => {} });
+  if (seen) seen.audits = log.audits; // the lines of What Auto decided
   const dec = log.decisions[0];
   if (log.asks > 0) return { end: 'asked' };
   if (dec?.decision === 'deny' && dec.by === 'auto') return { end: `refused (${log.audits.find((l) => l.what === 'refuse')?.rule})`, note: dec.note };
@@ -508,4 +509,75 @@ test('a card that holds a call refused outright is refused by Auto itself, and t
   assert.equal((await autoPass('if npm run db:migrate; then echo ok; fi', { hard: null, ans: null, stage: 'implement' })).end, 'refused (database)');
   // A plain call is still the Approver's.
   assert.equal((await autoPass('npm test', { hard: null, ans: null, stage: 'implement' })).end, 'asked');
+});
+
+// ---------- F9 (addendum 2): a command Auto could not read is refused with words that say so ----------
+
+const APP = `${W}/app`;
+// The Foreman's session sits in the main checkout, as in the walk: a cd that is not followed leaves the command there.
+const AT_MAIN = { ...CTX, cwd: REPO };
+// The final review's list (finding 2): everyday commands, each a stop under outside only for how it is written.
+const UNREAD_ROWS = [
+  `cd ${APP} && npm run check # run all the checks`,
+  `# Run the checks\ncd ${APP} && npm run check`,
+  `cd ${APP}\nnpm run check`,
+  `cd ${APP} && npm test # unit tests`,
+  `cd ${APP} && npx tsc --noEmit # typecheck only`,
+  `cd ${APP} && npm run check 2>&1 | tail -40 # the last lines`,
+  `cd ${W} && git add -A && git commit -m "feat: add the column" # step 3`,
+  `cd ${APP} && npm run build &`,
+  `cd ${APP} && (npm run check)`,
+  `mkdir -p ${F}/review # for the lenses`,
+];
+const UNREAD_NOTE = 'Auto refused this: Auto could not read this command as it is written (a comment, a line break after cd, brackets, a backtick or a trailing &). Write it plainly on one line, as cd <folder> && <command>, with no comment, and run it again.';
+// One card on an Auto job whose session sits in the main checkout: Auto's verdict, what the crew is told, and the Why of What Auto decided.
+async function refusalAt(command, ctx = AT_MAIN) {
+  const hard = H.hardLine('Bash', { command }, { cwd: ctx.cwd, port: 4477 });
+  const v = R.autoVerdict({ kind: 'card', toolName: 'Bash', input: { command }, hardLine: hard, blockedPath: null }, ctx);
+  const seen = {};
+  const got = await autoPass(command, { hard: hard?.decision === 'ask' ? hard : null, ans: null, stage: 'implement', ctx, seen });
+  return { verdict: v ? (v.verdict === 'ask' ? 'ask' : v.rule) : null, end: got.end, note: got.note ?? null, why: seen.audits.find((l) => l.what === 'refuse')?.why ?? null };
+}
+
+test('F9: a harmless command Auto could not read is still refused, with words that say so and that it may be written plainly', async () => {
+  assert.equal(L.REFUSE_REASONS['outside-unread'], 'Auto could not read this command as it is written (a comment, a line break after cd, brackets, a backtick or a trailing &).');
+  assert.equal(L.refuseNote('outside', L.refuseReason({ rule: 'outside', outside: 'unread' })), UNREAD_NOTE);
+  for (const c of UNREAD_ROWS) {
+    assert.deepEqual(await refusalAt(c), { verdict: 'outside', end: 'refused (outside)', note: UNREAD_NOTE, why: L.REFUSE_REASONS['outside-unread'] }, show(c));
+  }
+  // Written plainly, it passes as before.
+  assert.equal(R.autoVerdict({ kind: 'card', toolName: 'Bash', input: { command: `cd ${APP} && npm run check` }, hardLine: null, blockedPath: null }, AT_MAIN), null);
+  assert.equal((await outcome(`cd ${APP} && npm run check`)).end, 'routine');
+});
+
+test('F9: a command that does what Auto refuses keeps its own words, with or without a comment', async () => {
+  const old = (key) => L.refuseNote('outside', L.REFUSE_REASONS[key]);
+  const rows = [
+    ['rm -rf ~/x # tidy', 'outside', old('outside')],
+    [`cd ${W} && rm -rf ~/x # tidy`, 'outside', old('outside')],
+    [`echo x > ~/.zshrc # remember`, 'outside', old('outside')],
+    ['cat ~/.ssh/id_rsa # the key', 'outside', old('outside-secret')],
+    [`cd ${W} && cat ~/.ssh/id_rsa # the key`, 'outside', old('outside-secret')],
+    [`cd ${APP} && vercel deploy # ship it`, 'outside', old('outside-deploy')],
+    [`cd ${APP} && ./deploy.sh # ship it`, 'outside', old('outside-unknown'), old('outside')], // read roughly it is a program Auto does not know; read properly, a file outside the job's folders
+    ['npm run db:migrate # apply', 'database', L.refuseNote('database', L.REFUSE_REASONS.database)],
+    [`cd ${APP} && npm run db:migrate # apply`, 'database', L.refuseNote('database', L.REFUSE_REASONS.database)],
+    [`cd ${W} && git push origin main # push`, 'push', L.refuseNote('push', L.REFUSE_REASONS.push)],
+    [`cd ${W} && gh pr merge 1 # merge it`, 'merge', L.refuseNote('merge', L.REFUSE_REASONS.merge)],
+  ];
+  for (const [c, rule, note] of rows) { // each note is the one the row had before this change
+    const got = await refusalAt(c);
+    assert.deepEqual({ verdict: got.verdict, end: got.end, note: got.note }, { verdict: rule, end: `refused (${rule})`, note }, show(c));
+    assert.doesNotMatch(got.note, /could not read|run it again/, show(c));
+  }
+  // The same commands with no comment: refused as well, with their own words.
+  for (const [c, , note, plain = note] of rows) assert.equal((await refusalAt(c.replace(/ # .*$/, ''))).note, plain, show(c));
+});
+
+test('F9: a job that is not Auto\'s sees no change: its hook never reads Auto\'s rules', async () => {
+  const hook = H.hardLineHook(() => {}, { check, cwd: REPO, port: 4477, cover: null, autoStop: null });
+  for (const c of UNREAD_ROWS) {
+    const out = await hook({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: c }, cwd: REPO, tool_use_id: 't' });
+    assert.equal(out?.hookSpecificOutput?.permissionDecision ?? 'nothing', 'nothing', show(c));
+  }
 });
