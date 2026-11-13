@@ -7,12 +7,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type ApiClient } from '../../api/client';
 import { createStore, WorkshopContext, type Store } from '../../state/store';
 import { LEVELS, snapshot } from '../../state/test-fixtures';
-import { NewJobSheet } from './NewJobSheet';
+import { BRANCH_RULE, NewJobSheet } from './NewJobSheet';
 
 const MODELS = [{ id: 'claude-opus-5-5', label: 'Opus 5.5', note: 'Everyday.' }];
 const REPOS = [{ path: '/tmp/fw-test/sample-one', name: 'sample-one', lastUsed: null }];
 const TICKET = { key: 'ORBIT-471', title: 'Employee status filter', url: 'https://orbit.example.com/t/471' };
-const RULE = 'Use short words joined by hyphens, like employee-status-filter (up to five words, 40 characters).';
+const RULE = BRANCH_RULE;
 const WAITING = 'named when the job starts';
 
 type NameBody = { ticket: { key: string; title: string | null; url: string | null }; description: string; kind: string; repoPath: string; avoid?: string[] };
@@ -47,6 +47,10 @@ const sheet = () => screen.getByRole('dialog', { name: 'Start a new job' });
 const branchField = (dialog: HTMLElement) => within(dialog).getByRole('textbox', { name: 'Branch' });
 const startButton = (dialog: HTMLElement) => within(dialog).getByRole('button', { name: 'Start job' });
 const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+// Real time in short steps, so the form's own timers and the renders they cause run in between.
+async function pause(ms: number) {
+  for (let t = 0; t < ms; t += 100) await act(async () => { await new Promise((r) => setTimeout(r, 100)); });
+}
 
 async function startJob(dialog: HTMLElement) {
   await waitFor(() => expect(within(dialog).getByRole('combobox', { name: 'Repository' })).toHaveAttribute('data-value', '/tmp/fw-test/sample-one'));
@@ -55,21 +59,15 @@ async function startJob(dialog: HTMLElement) {
 
 describe('NewJobSheet: the Branch row', () => {
   it('a ticket’s form shows the suggested branch name', async () => {
-    const { wrap, nameCalls, jobBody } = setup(async (body) => (body.kind === 'bug' ? byModel('status-filter-crash', 'fix/orbit-471-') : byModel('employee-status-filter')));
+    const { wrap, nameCalls, jobBody } = setup(async () => byModel('employee-status-filter'));
     const view = wrap(<NewJobSheet onClose={vi.fn()} ticket={TICKET} />);
     const dialog = sheet();
     const field = branchField(dialog);
     await waitFor(() => expect(field).toHaveValue('employee-status-filter'));
     expect(within(dialog).getByText('feature/orbit-471-')).toBeInTheDocument();
     expect(nameCalls()).toEqual([{ ticket: TICKET, description: 'ORBIT-471: Employee status filter', kind: 'feature', repoPath: '/tmp/fw-test/sample-one' }]);
-    // A bug fix: asked again with its kind; its branch starts fix/.
-    fireEvent.click(within(dialog).getByRole('radio', { name: 'Bug fix' }));
-    await waitFor(() => expect(field).toHaveValue('status-filter-crash'));
-    expect(nameCalls()[1]).toMatchObject({ kind: 'bug' });
-    expect(within(dialog).getByText('fix/orbit-471-')).toBeInTheDocument();
-    expect(within(dialog).queryByText('feature/orbit-471-')).toBeNull();
     await startJob(dialog);
-    expect(jobBody()).toMatchObject({ name: 'status-filter-crash', kind: 'bug' });
+    expect(jobBody()).toMatchObject({ name: 'employee-status-filter', kind: 'feature' });
     view.unmount();
 
     // A job with that name already exists, so the branch ends in -2: the whole branch, as plain text.
@@ -106,12 +104,12 @@ describe('NewJobSheet: the Branch row', () => {
     hold = deferred<void>();
     const held = hold;
     fireEvent.click(again);
-    await waitFor(() => expect(again).toBeDisabled());
+    await waitFor(() => expect(again).toHaveAttribute('aria-disabled', 'true'));
     expect(startButton(dialog)).toBeEnabled();
     hold = null;
     await act(async () => { held.resolve(); });
     await waitFor(() => expect(field).toHaveValue('active-employee-filter'));
-    expect(again).toBeEnabled();
+    expect(again).not.toHaveAttribute('aria-disabled', 'true');
     expect(nameCalls()[2].avoid).toEqual(['employee-status-filter', 'status-filter']);
 
     // At most five names go back: the latest ones.
@@ -206,7 +204,8 @@ describe('NewJobSheet: the Branch row', () => {
     let dialog = sheet();
     await waitFor(() => expect(branchField(dialog)).toHaveAttribute('placeholder', long));
     expect(branchField(dialog)).toHaveValue('');
-    expect(within(dialog).queryByText('feature/orbit-471-')).toBeNull();
+    // Its branch ends with the short title, so its prefix is good (fix round 1, V1).
+    expect(within(dialog).getByText('feature/orbit-471-')).toBeInTheDocument();
     expect(within(dialog).queryByText(RULE)).toBeNull();
     await startJob(dialog);
     expect(titled.jobBody()).toBeDefined();
@@ -230,7 +229,7 @@ describe('NewJobSheet: the Branch row', () => {
     expect(branchField(dialog)).toHaveValue('');
     expect(branchField(dialog)).toHaveAttribute('placeholder', WAITING);
     expect(within(dialog).queryByRole('alert')).toBeNull();
-    expect(within(dialog).getByRole('button', { name: 'Suggest again' })).toBeEnabled();
+    expect(within(dialog).getByRole('button', { name: 'Suggest again' })).not.toHaveAttribute('aria-disabled', 'true');
     await startJob(dialog);
     expect(failed.jobBody()).toBeDefined();
     expect(failed.jobBody()).not.toHaveProperty('name');
@@ -275,5 +274,166 @@ describe('NewJobSheet: the Branch row', () => {
     await act(async () => { fireEvent.click(startButton(dialog)); });
     expect(onStart).toHaveBeenCalledTimes(1);
     expect((onStart.mock.calls[0] as unknown[])[0]).not.toHaveProperty('name');
+  });
+
+  // Fix round 1: nothing in the row moves, and a name changes only by his hand or into an empty field.
+  it('an answer for an earlier kind that arrives late does not win', async () => {
+    const feature = deferred<NameAnswer>();
+    const { wrap, nameCalls, jobBody } = setup((body) => (body.kind === 'bug'
+      ? Promise.resolve({ name: 'short-title', by: 'title', slug: 'orbit-471-short-title', branch: 'fix/orbit-471-short-title' })
+      : feature.promise));
+    wrap(<NewJobSheet onClose={vi.fn()} ticket={TICKET} />);
+    const dialog = sheet();
+    const field = branchField(dialog);
+    await waitFor(() => expect(nameCalls()).toHaveLength(1));
+    fireEvent.click(within(dialog).getByRole('radio', { name: 'Bug fix' }));
+    await waitFor(() => expect(within(dialog).getByText('fix/orbit-471-')).toBeInTheDocument());
+    expect(field).toHaveValue('');
+    // The feature ask answers last: it is dropped, so neither its name nor its prefix lands.
+    await act(async () => { feature.resolve(byModel('feature-name')); });
+    await settle();
+    expect(field).toHaveValue('');
+    expect(within(dialog).getByText('fix/orbit-471-')).toBeInTheDocument();
+    expect(within(dialog).queryByText('feature/orbit-471-')).toBeNull();
+    await startJob(dialog);
+    expect(jobBody()).toMatchObject({ kind: 'bug' });
+    expect(jobBody()).not.toHaveProperty('name');
+  });
+
+  it('changing the ticket key drops the model’s name, and Start does not send it', async () => {
+    const late = deferred<NameAnswer>();
+    const { wrap, nameCalls, jobBody } = setup((body) => {
+      if (body.ticket.key === 'ORBIT-124') return Promise.resolve(byModel('comment-save', 'feature/orbit-124-'));
+      if (body.ticket.key === 'ORBIT-126') return late.promise;
+      return new Promise(() => {});
+    });
+    wrap(<NewJobSheet onClose={vi.fn()} />);
+    const dialog = sheet();
+    const desc = within(dialog).getByRole('textbox', { name: /What should the crew build/ });
+    fireEvent.change(desc, { target: { value: 'Fix the comment save' } });
+    fireEvent.blur(desc);
+    const ticket = within(dialog).getByRole('textbox', { name: 'Orbit ticket (optional)' });
+    fireEvent.change(ticket, { target: { value: 'orbit-124' } });
+    await waitFor(() => expect(branchField(dialog)).toHaveValue('comment-save'));
+    expect(within(dialog).getByText('feature/orbit-124-')).toBeInTheDocument();
+    // Another key: the last ticket's name and prefix go; its ask never answers.
+    fireEvent.change(ticket, { target: { value: 'orbit-125' } });
+    expect(branchField(dialog)).toHaveValue('');
+    expect(within(dialog).queryByText('feature/orbit-124-')).toBeNull();
+    await waitFor(() => expect(nameCalls()).toHaveLength(2));
+    // And an answer for a key he has since left never lands.
+    fireEvent.change(ticket, { target: { value: 'orbit-126' } });
+    await waitFor(() => expect(nameCalls()).toHaveLength(3));
+    fireEvent.change(ticket, { target: { value: 'orbit-127' } });
+    await act(async () => { late.resolve(byModel('stale-name', 'feature/orbit-126-')); });
+    await settle();
+    expect(branchField(dialog)).toHaveValue('');
+    expect(within(dialog).queryByText('feature/orbit-126-')).toBeNull();
+    await startJob(dialog);
+    expect(jobBody()).toMatchObject({ ticket: { key: 'ORBIT-127' } });
+    expect(jobBody()).not.toHaveProperty('name');
+  });
+
+  it('the prefix sits inside the field’s box and stays through a kind switch until the new answer comes', async () => {
+    const bug = deferred<NameAnswer>();
+    const { wrap } = setup((body) => (body.kind === 'bug' ? bug.promise : Promise.resolve(byModel('employee-status-filter'))));
+    wrap(<NewJobSheet onClose={vi.fn()} ticket={TICKET} />);
+    const dialog = sheet();
+    const field = branchField(dialog);
+    const box = field.closest('.branch-box');
+    expect(box).not.toBeNull();
+    await waitFor(() => expect(within(box as HTMLElement).getByText('feature/orbit-471-')).toBeInTheDocument());
+    expect(field.closest('.branch-box')).toBe(box);
+    fireEvent.click(within(dialog).getByRole('radio', { name: 'Bug fix' }));
+    await act(async () => { await new Promise((r) => setTimeout(r, 400)); });
+    expect(within(box as HTMLElement).getByText('feature/orbit-471-')).toBeInTheDocument();
+    await act(async () => { bug.resolve(byModel('status-filter-crash', 'fix/orbit-471-')); });
+    await waitFor(() => expect(within(box as HTMLElement).getByText('fix/orbit-471-')).toBeInTheDocument());
+    expect(field.closest('.branch-box')).toBe(box);
+  });
+
+  it('a kind switch updates the prefix and keeps the name', async () => {
+    const { wrap, nameCalls, jobBody } = setup(async (body) => (body.kind === 'bug' ? byModel('status-filter-crash', 'fix/orbit-471-') : byModel('employee-status-filter')));
+    wrap(<NewJobSheet onClose={vi.fn()} ticket={TICKET} />);
+    const dialog = sheet();
+    const field = branchField(dialog);
+    await waitFor(() => expect(field).toHaveValue('employee-status-filter'));
+    fireEvent.click(within(dialog).getByRole('radio', { name: 'Bug fix' }));
+    await waitFor(() => expect(within(dialog).getByText('fix/orbit-471-')).toBeInTheDocument());
+    expect(nameCalls()[1]).toMatchObject({ kind: 'bug' });
+    expect(field).toHaveValue('employee-status-filter');
+    await startJob(dialog);
+    expect(jobBody()).toMatchObject({ name: 'employee-status-filter', kind: 'bug' });
+  });
+
+  it('editing the description after the first answer asks nothing and changes nothing', async () => {
+    let n = 0;
+    const { wrap, nameCalls } = setup(async () => byModel(n++ === 0 ? 'comment-save' : 'another-name', 'feature/orbit-124-'));
+    wrap(<NewJobSheet onClose={vi.fn()} />);
+    const dialog = sheet();
+    const desc = within(dialog).getByRole('textbox', { name: /What should the crew build/ });
+    fireEvent.change(desc, { target: { value: 'Fix the comment save' } });
+    fireEvent.blur(desc);
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Orbit ticket (optional)' }), { target: { value: 'orbit-124' } });
+    await waitFor(() => expect(branchField(dialog)).toHaveValue('comment-save'));
+    fireEvent.change(desc, { target: { value: 'Fix the comment save on the ticket page' } });
+    fireEvent.blur(desc);
+    await pause(600);
+    fireEvent.change(desc, { target: { value: 'Fix the comment save on the ticket page, again' } });
+    await pause(2200);
+    expect(nameCalls()).toHaveLength(1);
+    expect(branchField(dialog)).toHaveValue('comment-save');
+  });
+
+  it('Suggest again pressed during the wait wins over the automatic ask', async () => {
+    // Pressed before the automatic ask goes out: that ask never goes.
+    let k = 0;
+    const first = setup(async () => byModel(k++ === 0 ? 'hand-name' : 'auto-name'));
+    const one = first.wrap(<NewJobSheet onClose={vi.fn()} ticket={TICKET} />);
+    let dialog = sheet();
+    await waitFor(() => expect(within(dialog).getByRole('combobox', { name: 'Repository' })).toHaveAttribute('data-value', '/tmp/fw-test/sample-one'));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Suggest again' }));
+    await act(async () => { await new Promise((r) => setTimeout(r, 600)); });
+    expect(first.nameCalls()).toHaveLength(1);
+    expect(branchField(dialog)).toHaveValue('hand-name');
+    one.unmount();
+
+    // Pressed while the automatic ask is out: the automatic answer is dropped, the pressed one lands.
+    const auto = deferred<NameAnswer>();
+    const hand = deferred<NameAnswer>();
+    let i = 0;
+    const second = setup(() => (i++ === 0 ? auto.promise : hand.promise));
+    second.wrap(<NewJobSheet onClose={vi.fn()} ticket={TICKET} />);
+    dialog = sheet();
+    await waitFor(() => expect(second.nameCalls()).toHaveLength(1));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Suggest again' }));
+    expect(second.nameCalls()).toHaveLength(2);
+    await act(async () => { auto.resolve(byModel('auto-name')); });
+    await settle();
+    expect(branchField(dialog)).toHaveValue('');
+    await act(async () => { hand.resolve(byModel('hand-name')); });
+    await waitFor(() => expect(branchField(dialog)).toHaveValue('hand-name'));
+  });
+
+  it('Suggest again keeps keyboard focus while it runs', async () => {
+    const held = deferred<NameAnswer>();
+    let n = 0;
+    const { wrap, nameCalls } = setup(() => (n++ === 0 ? Promise.resolve(byModel('employee-status-filter')) : held.promise));
+    wrap(<NewJobSheet onClose={vi.fn()} ticket={TICKET} />);
+    const dialog = sheet();
+    await waitFor(() => expect(branchField(dialog)).toHaveValue('employee-status-filter'));
+    const again = within(dialog).getByRole('button', { name: 'Suggest again' });
+    again.focus();
+    fireEvent.click(again);
+    await waitFor(() => expect(again).toHaveAttribute('aria-disabled', 'true'));
+    expect(again).not.toBeDisabled();
+    expect(again).toHaveFocus();
+    // A press while it runs does nothing.
+    fireEvent.click(again);
+    expect(nameCalls()).toHaveLength(2);
+    await act(async () => { held.resolve(byModel('status-filter')); });
+    await waitFor(() => expect(branchField(dialog)).toHaveValue('status-filter'));
+    expect(again).not.toHaveAttribute('aria-disabled', 'true');
+    expect(again).toHaveFocus();
   });
 });

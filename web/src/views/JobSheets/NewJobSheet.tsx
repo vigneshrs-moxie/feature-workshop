@@ -88,9 +88,11 @@ function ticketOf(key: string, fromInbox: TicketRef | null, text: string): { key
 export const BRANCH_RULE = 'Use short words joined by hyphens, like employee-status-filter (up to five words, 40 characters).';
 const BRANCH_LATER = 'named when the job starts';
 const NAME_DELAY_MS = 300;
+// A typed key's title is the description: the form asks once he has left it alone this long (or left the field).
+const TITLE_SETTLE_MS = 1500;
 const AVOID_MAX = 5;
 /** A branch name of his own as the laptop's ownName reads it (trimmed, lowercased; one to five words of letters and digits joined by hyphens; at most 40 characters), else null. */
-export function ownBranchName(raw: string): string | null {
+function ownBranchName(raw: string): string | null {
   const name = raw.trim().toLowerCase();
   return name.length <= 40 && /^[a-z0-9]+(-[a-z0-9]+){0,4}$/.test(name) ? name : null;
 }
@@ -277,80 +279,130 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
   const list = repos.state === 'ready' ? repos.list : [];
   const options = from?.repo && !list.some((r) => r.path === from.repo) ? [{ path: from.repo, name: from.repo.split('/').pop() ?? from.repo }, ...list] : list;
 
-  // The branch (Task 20): asked for once per ticket (with its title), kind and repository, a moment
-  // after they settle. For an Inbox ticket, editing the description doesn't ask again; Suggest again does.
+  // The branch (Task 20). The form asks by itself once a ticket key and its title have settled (an
+  // Inbox ticket at once; a typed key once the description is left alone), and again on a kind or
+  // repository switch. Editing the description after that asks nothing. An answer that comes by
+  // itself only fills an empty field, so a name in the field changes only by his hand (typing, or
+  // Suggest again). The prefix (feature/orbit-471-) is kept per ticket key until an answer replaces it.
   const ticketKey = ticketText.trim() ? ticketKeyOf(ticketText) : null;
   const chosenRepo = repo === OTHER ? otherPath.trim() : repo;
   const nameBody = ticketKey && chosenRepo && !hosted
     ? { ticket: ticketOf(ticketKey, fromInbox, description.trim()), description: description.trim(), kind, repoPath: chosenRepo }
     : null;
-  const askKey = nameBody ? JSON.stringify([nameBody.ticket, kind, chosenRepo]) : null;
-  // The prefix (feature/orbit-471-) holds for a kind and a ticket, whatever the name.
-  const prefixKey = `${kind} ${ticketKey ?? ''}`;
+  // The description is left alone: it lost the focus, or no key went in it for a moment.
+  const [descSettled, setDescSettled] = useState(true);
+  const descTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The ticket key the form has asked for (by itself or by Suggest again).
+  const [askedFor, setAskedFor] = useState<string | null>(null);
+  const titleReady = fromInbox?.key === ticketKey || descSettled;
+  const autoKey = nameBody && (askedFor === ticketKey || titleReady) ? `${ticketKey} ${kind} ${chosenRepo}` : null;
   // His own once he types; until then the model's name, or empty (the laptop names it at the start).
   const [branchName, setBranchName] = useState<{ value: string; by: 'model' | 'own' }>({ value: '', by: 'model' });
-  const [nameAnswer, setNameAnswer] = useState<{ ask: string; answer: JobNameAnswer } | null>(null);
+  const [nameAnswer, setNameAnswer] = useState<JobNameAnswer | null>(null);
   const [goodPrefix, setGoodPrefix] = useState<{ key: string; prefix: string } | null>(null);
   const [shownNames, setShownNames] = useState<string[]>([]);
-  const [asking, setAsking] = useState(false);
+  // Suggest again's ask while it runs: the button rests (keeping its focus) and its answer lands.
+  const [handBusy, setHandBusy] = useState(false);
+  const handSeq = useRef(0);
   const askSeq = useRef(0);
   // The ask Suggest again started: its answer replaces even his own name, unless he types meanwhile.
   const askedByHand = useRef(0);
-  const currentAsk = useRef<string | null>(null);
-  currentAsk.current = askKey;
+  const autoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The latest body, for an ask that goes out after a wait.
+  const bodyRef = useRef(nameBody);
+  useEffect(() => { bodyRef.current = nameBody; });
   const branchId = useId();
   const prefixId = useId();
   const ruleId = useId();
 
-  function askName(body: NonNullable<typeof nameBody>, ask: string, forPrefix: string, avoid?: string[]): number {
+  function settleDescription() {
+    if (descTimer.current) clearTimeout(descTimer.current);
+    descTimer.current = null;
+    setDescSettled(true);
+  }
+  function editDescription(text: string) {
+    setDescription(text);
+    setDescSettled(false);
+    if (descTimer.current) clearTimeout(descTimer.current);
+    descTimer.current = setTimeout(settleDescription, TITLE_SETTLE_MS);
+  }
+  useEffect(() => () => { if (descTimer.current) clearTimeout(descTimer.current); }, []);
+
+  function askName(body: NonNullable<typeof nameBody>, byHand: boolean, avoid?: string[]) {
     const seq = ++askSeq.current;
-    setAsking(true);
+    if (byHand) { askedByHand.current = seq; handSeq.current = seq; setHandBusy(true); }
+    const key = body.ticket.key;
+    const done = () => { if (byHand) { handSeq.current = 0; setHandBusy(false); } };
     api.post<unknown>('/api/jobs/name', avoid?.length ? { ...body, avoid } : body).then(
       (a) => {
+        // Only the latest ask lands: a later ask, or another ticket, kind or repository, drops this one.
         if (seq !== askSeq.current) return;
-        setAsking(false);
-        if (isNameAnswer(a)) takeName(a, ask, forPrefix, seq);
+        done();
+        if (isNameAnswer(a)) takeName(a, key, seq);
       },
       // A failed or slow ask shows nothing: the form stays as it was.
-      () => { if (seq === askSeq.current) setAsking(false); },
+      () => { if (seq === askSeq.current) done(); },
     );
-    return seq;
   }
 
-  function takeName(a: JobNameAnswer, ask: string, forPrefix: string, seq: number) {
-    if (ask !== currentAsk.current) return;
-    setNameAnswer({ ask, answer: a });
+  function takeName(a: JobNameAnswer, key: string, seq: number) {
+    setNameAnswer(a);
+    if (a.name && a.branch.endsWith(a.name)) setGoodPrefix({ key, prefix: a.branch.slice(0, -a.name.length) });
     // A title answer is only the placeholder; its name never goes in the field or back to the laptop.
     if (a.by !== 'model' || !a.name) return;
-    if (a.branch.endsWith(a.name)) setGoodPrefix({ key: forPrefix, prefix: a.branch.slice(0, -a.name.length) });
-    setShownNames((s) => [...s.filter((x) => x !== a.name), a.name]);
     const byHand = askedByHand.current === seq;
-    setBranchName((cur) => (cur.by === 'own' && !byHand ? cur : { value: a.name, by: 'model' }));
+    setBranchName((cur) => (byHand || (cur.by === 'model' && !cur.value) ? { value: a.name, by: 'model' } : cur));
   }
 
   useEffect(() => {
-    if (!askKey || !nameBody) return;
-    const t = setTimeout(() => askName(nameBody, askKey, prefixKey), NAME_DELAY_MS);
-    return () => clearTimeout(t);
-    // One ask per askKey: nameBody and prefixKey follow from it.
-  }, [askKey]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!autoKey) return;
+    const t = setTimeout(() => {
+      autoTimer.current = null;
+      const body = bodyRef.current;
+      if (!body) return;
+      setAskedFor(body.ticket.key);
+      // Suggest again's ask is out: its answer is the one that lands.
+      if (handSeq.current && handSeq.current === askSeq.current) return;
+      askName(body, false);
+    }, NAME_DELAY_MS);
+    autoTimer.current = t;
+    return () => {
+      clearTimeout(t);
+      autoTimer.current = null;
+      // Answers to asks for the earlier ticket, kind or repository no longer land.
+      askSeq.current++;
+      handSeq.current = 0;
+      setHandBusy(false);
+    };
+    // One ask per autoKey; the body is read when the wait ends.
+  }, [autoKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Another ticket: the last one's suggestions don't fit it.
+  // Another ticket: the last one's suggestions don't fit it. His own name stays.
   useEffect(() => {
     setBranchName((cur) => (cur.by === 'model' && cur.value ? { value: '', by: 'model' } : cur));
     setShownNames((s) => (s.length ? [] : s));
+    setNameAnswer(null);
   }, [ticketKey]);
 
+  // The model's names shown in the field, latest last: Suggest again asks to avoid them.
+  useEffect(() => {
+    const shown = branchName.by === 'model' ? branchName.value : '';
+    if (shown) setShownNames((s) => (s[s.length - 1] === shown ? s : [...s.filter((x) => x !== shown), shown]));
+  }, [branchName]);
+
   function suggestAgain() {
-    if (!nameBody || !askKey) return;
-    askedByHand.current = askName(nameBody, askKey, prefixKey, shownNames.slice(-AVOID_MAX));
+    if (handBusy || !nameBody) return;
+    // An automatic ask still waiting never goes; one already out is dropped (askName raises the count).
+    if (autoTimer.current) { clearTimeout(autoTimer.current); autoTimer.current = null; }
+    setAskedFor(nameBody.ticket.key);
+    askName(nameBody, true, shownNames.slice(-AVOID_MAX));
   }
 
-  const answer = nameAnswer && nameAnswer.ask === askKey ? nameAnswer.answer : null;
+  const answer = nameAnswer;
   const branchPlaceholder = answer?.by === 'title' && answer.name ? answer.name : BRANCH_LATER;
   // The name shown is the model's, but the branch doesn't end with it (a "-2"): the whole branch, as plain text.
   const wholeBranch = answer?.by === 'model' && branchName.by === 'model' && branchName.value === answer.name && !answer.branch.endsWith(answer.name) ? answer.branch : null;
-  const branchPrefix = !wholeBranch && goodPrefix?.key === prefixKey ? goodPrefix.prefix : null;
+  const branchPrefix = !wholeBranch && goodPrefix?.key === ticketKey ? goodPrefix.prefix : null;
   const ownName = branchName.by === 'own' ? ownBranchName(branchName.value) : null;
   const branchProblem = branchName.by === 'own' && branchName.value.trim() !== '' && !ownName;
   // What Start sends as `name`: the model's name, or his own that keeps the rule; else nothing.
@@ -422,7 +474,8 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
               rows={3}
               maxLength={600}
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              onChange={(e) => editDescription(e.target.value)}
+              onBlur={settleDescription}
               onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void submit(); } }}
               placeholder="e.g. Add a Copy ID button next to the ticket ID on the admin ticket page"
               title="One or two sentences. It also becomes the job’s name. ⌘/Ctrl+Enter starts the job."
@@ -522,21 +575,29 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
                 {wholeBranch && <span className="branch-whole">{wholeBranch}</span>}
               </div>
               <div className="branch-line">
-                {branchPrefix && <span className="branch-prefix" id={prefixId}>{branchPrefix}</span>}
-                <TextInput
-                  id={branchId}
-                  value={branchName.value}
-                  onChange={(e) => { askedByHand.current = 0; setBranchName({ value: e.target.value, by: 'own' }); }}
-                  placeholder={branchPlaceholder}
-                  spellCheck={false}
-                  autoComplete="off"
-                  aria-invalid={branchProblem || undefined}
-                  aria-describedby={[branchPrefix ? prefixId : '', branchProblem ? ruleId : ''].filter(Boolean).join(' ') || undefined}
-                  title={`The end of the job’s branch name. Type your own to keep it; leave it empty and ${BRAND.name} names it when the job starts.`}
-                />
-                <Button kind="quiet" size="sm" onClick={suggestAgain} disabled={asking || !nameBody} title="Ask for another name.">Suggest again</Button>
+                {/* One box in the field's look, the same place and size in every state: the prefix
+                    is its quiet leading part (cut at its left when long), the name the rest. */}
+                <div className="text-input branch-box">
+                  {branchPrefix && <span className="branch-prefix" id={prefixId}><span dir="ltr">{branchPrefix}</span></span>}
+                  <input
+                    id={branchId}
+                    type="text"
+                    className="branch-input"
+                    value={branchName.value}
+                    onChange={(e) => { askedByHand.current = 0; setBranchName({ value: e.target.value, by: 'own' }); }}
+                    placeholder={branchPlaceholder}
+                    spellCheck={false}
+                    autoComplete="off"
+                    aria-invalid={branchProblem || undefined}
+                    aria-describedby={[branchPrefix ? prefixId : '', branchProblem ? ruleId : ''].filter(Boolean).join(' ') || undefined}
+                    title={`The end of the job’s branch name. Type your own to keep it; leave it empty and ${BRAND.name} names it when the job starts.`}
+                  />
+                </div>
+                {/* While its ask runs it rests through aria-disabled (the app's Button convention), so it keeps the focus. */}
+                <Button kind="quiet" size="sm" onClick={suggestAgain} aria-disabled={handBusy || !nameBody || undefined} title="Ask for another name.">Suggest again</Button>
               </div>
-              {branchProblem && <p className="field-problem" id={ruleId}>{BRANCH_RULE}</p>}
+              {/* Announced as it appears, like the form's other problems (Field's problem line). */}
+              {branchProblem && <p className="field-problem" id={ruleId} role="alert">{BRANCH_RULE}</p>}
             </div>
           ))}
 
