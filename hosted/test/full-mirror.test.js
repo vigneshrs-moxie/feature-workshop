@@ -804,3 +804,20 @@ test('the new job page’s Details on the site: the mirror’s crew rows with th
     assert.equal((await sam.json('/api/job/add-export/work')).status, 404, 'nothing of Olive’s for anyone else');
   } finally { l.link.stop(); await s.close(); }
 });
+
+test('the new job page on the site carries the decision made here for the job’s gate (queuedDecision), until it is put away', async () => {
+  const { s, olive, l } = await setUp();
+  try {
+    assert.equal((await olive.person.json('/api/job/add-export/page')).body.queuedDecision, null, 'none yet');
+    closeLaptop(s, l);
+    const r = await olive.person.send('POST', '/api/job/add-export/gate', { kind: 'approve', briefNumber: 2 });
+    assert.equal(r.body.queued.state, 'waiting');
+    const page = (await olive.person.json('/api/job/add-export/page')).body;
+    assert.equal(page.queuedDecision.id, r.body.queued.id);
+    assert.equal(page.queuedDecision.state, 'waiting');
+    assert.equal(page.waiting, null, 'R8’s field is a different one');
+    assert.equal((await olive.person.send('POST', `/api/decisions/${r.body.queued.id}/cancel`, {})).status, 200);
+    const after = (await olive.person.json('/api/job/add-export/page')).body.queuedDecision;
+    assert.ok(after === null || after.state === 'cancelled', JSON.stringify(after));
+  } finally { l.link.stop(); await s.close(); }
+});

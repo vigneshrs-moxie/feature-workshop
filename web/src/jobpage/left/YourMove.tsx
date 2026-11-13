@@ -25,18 +25,18 @@
 
 import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { ApiError } from '../../api/client';
-import type { GateResult, Job, Permission } from '../../api/types';
+import type { GateResult, Job, Permission, Run } from '../../api/types';
 import { BRAND } from '../../app/brand';
-import { sendGate } from '../../app/jobActions';
 import { pressKey, useKeyScope } from '../../app/keyRegistry';
 import { readHref, replaceHash } from '../../app/router';
 import { Button } from '../../components/Button';
 import { Choice, OptionRow } from '../../components/Choice';
 import { useNarrow } from '../../components/page/Page';
 import { AlwaysAllowSheet } from '../../components/permissions/AlwaysAllowSheet';
-import { useSent } from '../../lib/sentState';
-import { gateSentKey } from '../../panes/Foreman/gateSent';
+import { UNREACHABLE_WORDS, useGateSent } from '../../panes/Foreman/gateSent';
+import { jobBySlug } from '../../state/reducer';
 import { useWorkshop } from '../../state/store';
+import { isOpen, queuedOf, type QueuedView } from '../../views/Hosted/QueuedDecision';
 import type { GateMove, PermissionMove, QuestionMove, ReaderTarget } from '../types';
 import { useJob, useJobStore } from '../useJob';
 import { changedCount, gateBody, OWN, pickOf, unanswered, type GatePicks } from './gateBody';
@@ -105,10 +105,13 @@ interface GoSent {
   runId: string | null;
   /** Held for the limit: the payload has shown the held reply (so its going away means something). */
   heldSeen?: boolean;
+  /** Queued on the website: the decision's id, and whether the payload has shown it. */
+  queuedId?: string | null;
+  queuedSeen?: boolean;
 }
 
-/** Where the job stands, as a Go compares it: the gate, its stage, the run, and a held reply. */
-interface GoFacts { key: string; stage: string | null; runId: string | null; runStatus: string | null; held: boolean }
+/** Where the job stands, as a Go compares it: the gate, its stage, the run, a held reply, and the website's decision for the gate. */
+interface GoFacts { key: string; stage: string | null; runId: string | null; runStatus: string | null; held: boolean; queued: QueuedView | null }
 
 // Kept outside the page, by job: a page drawn again (a step pick, coming back from Jobs) still knows
 // Go went, so it cannot be sent twice before the job moves on.
@@ -139,9 +142,12 @@ const ENDED = new Set(['done', 'stopped', 'error', 'limited']);
  * - another gate, or this gate at another stage: over;
  * - sending: kept until the answer (a run the server starts meanwhile is this Go's);
  * - sent, with its run: over when that run has ended and the gate still waits, or a newer run started;
- * - held: over once the payload showed the held reply and it is gone, unless a new run started (the
- *   held reply went to the Foreman: then it is that run's, as sent);
- * - queued on the website, or sent with no run named: a new run is this Go's (ended already: over).
+ * - held: a newer run ends it (the held reply went to the Foreman: it is that run's, as sent; one
+ *   already ended: over); else over once the payload showed the held reply and it is gone;
+ * - queued on the website: follows its own decision (the payload's queuedDecision, by id): kept while
+ *   it waits or is on its way, sent once the laptop ran it, over when it failed, changed, ran out, was
+ *   cancelled, or was put away after the payload showed it (the card then says why: settledWords);
+ * - sent with no run named: a new run is this Go's (ended already: over).
  */
 function goAsItStands(s: GoSent, now: GoFacts): GoSent | null {
   if (s.key !== now.key || s.stage !== now.stage) return null;
@@ -150,17 +156,33 @@ function goAsItStands(s: GoSent, now: GoFacts): GoSent | null {
   const ended = ENDED.has(now.runStatus ?? '');
   if (s.phase === 'sent' && s.runId !== null) return (now.runId === s.runId && ended) || fresh ? null : s;
   if (s.phase === 'held') {
+    if (fresh) return ended ? null : { ...s, phase: 'sent', runId: now.runId, line: '' };
     if (now.held) return s.heldSeen ? s : { ...s, heldSeen: true };
-    if (!s.heldSeen) return s;
-    return fresh && !ended ? { ...s, phase: 'sent', runId: now.runId, line: '' } : null;
+    return s.heldSeen ? null : s;
+  }
+  if (s.phase === 'queued' && s.queuedId) {
+    const q = now.queued && now.queued.id === s.queuedId ? now.queued : null;
+    if (!q) return s.queuedSeen ? null : s;
+    if (stillOpen(q)) return s.queuedSeen ? s : { ...s, queuedSeen: true };
+    if (q.state === 'done') return { ...s, phase: 'sent', runId: fresh && !ended ? now.runId : null, queuedSeen: true };
+    return null;
   }
   if (!fresh) return s;
   return ended ? null : { ...s, phase: 'sent', runId: now.runId, line: '' };
 }
 
+/** The decision still waits on the website or is on its way to the laptop (a plain boolean: isOpen's guard narrows too far here). */
+const stillOpen = (q: QueuedView): boolean => isOpen(q);
+
+/** Why a Go queued on the website ended without running: the site's own words for its decision. */
+function settledWords(s: GoSent, q: QueuedView | null): string | null {
+  if (s.phase !== 'queued' || !q || q.id !== s.queuedId || stillOpen(q) || q.state === 'done') return null;
+  return q.words;
+}
+
 /** The server's no, in plain words. */
 function refusalWords(err: unknown): string {
-  if (err instanceof TypeError) return UNREACHABLE;
+  if (err instanceof TypeError || (err instanceof Error && err.message === UNREACHABLE_WORDS)) return UNREACHABLE;
   const code = err instanceof ApiError ? err.body.code : null;
   if (code === 'limited') return 'Not sent: Claude’s usage limit is reached. Your picks are kept; Go again once it resets.';
   if (code === 'terminal') return 'Not sent: this job’s Foreman was last used in your terminal. Carry on there, or close it in the terminal and Go again here.';
@@ -194,18 +216,29 @@ function GateCard({ move, onOpen }: { move: GateMove; onOpen?: YourMoveProps['on
   const runId = useJob((s) => s.payload?.run?.id ?? null);
   const runStatus = useJob((s) => s.payload?.run?.status ?? null);
   const heldReply = useJob((s) => Boolean(s.payload?.heldReply));
+  const queuedDecision = useJob((s) => queuedOf(s.payload?.queuedDecision));
   const sentAny = useSyncExternalStore(listenGo, () => goSent.get(slug) ?? null);
-  const shared = useSent(gateSentKey(slug));
-  const facts: GoFacts = { key, stage: move.stage, runId, runStatus, held: heldReply };
+  const facts: GoFacts = { key, stage: move.stage, runId, runStatus, held: heldReply, queued: queuedDecision };
   const sent = sentAny ? goAsItStands(sentAny, facts) : null;
-  // Keep the Go as it now stands (held seen, a run adopted), or end it: the card comes back, and the
-  // old page's, the Desk's and the quick look's calls wake again.
+  const [line, setLine] = useState<string | null>(null);
+  // Keep the Go as it now stands (held seen, a run adopted, its queued decision seen), or end it: the
+  // card comes back, saying why when the website's decision did not run.
   useEffect(() => {
     if (!sentAny || sent === sentAny) return;
     setGo(slug, sent);
-    if (!sent) shared.clear();
+    if (!sent) { const why = settledWords(sentAny, queuedDecision); if (why) setLine(why); }
   });
-  const [line, setLine] = useState<string | null>(null);
+  // The send today's card, the old page's bar, the Desk and the quick look read (useGateSent): it marks
+  // the job the way they mark it (its run, what it waits for, its stage, from the app's Jobs row), so
+  // every Go for this job greys out together and wakes when the job moves.
+  const { store: app } = useWorkshop();
+  const rowWaits = useSyncExternalStore(app.subscribe, () => jobBySlug(app.getState(), slug)?.waitingFor ?? null);
+  const rowStage = useSyncExternalStore(app.subscribe, () => jobBySlug(app.getState(), slug)?.stage ?? null);
+  const liveRun = useSyncExternalStore(app.subscribe, () => app.getState().runs[slug]?.id ?? null);
+  const markJob = useMemo(() => ({ slug, waitingFor: rowWaits, stage: rowStage }) as Job, [slug, rowWaits, rowStage]);
+  const markRunId = liveRun ?? runId;
+  const markRun = useMemo(() => (markRunId ? ({ id: markRunId } as Run) : null), [markRunId]);
+  const shared = useGateSent(markJob, markRun, isOpen(queuedDecision) ? queuedDecision.id : null);
   const [askTerminal, setAskTerminal] = useState(false);
   const [noTerminal, setNoTerminal] = useState(false);
   const uid = useId();
@@ -243,23 +276,21 @@ function GateCard({ move, onOpen }: { move: GateMove; onOpen?: YourMoveProps['on
     // Once: a second click, ⌘↵ or a while it is out finds it here and does nothing.
     const was = goSent.get(slug);
     const pay = store.getState().payload;
-    if (was && goAsItStands(was, { key, stage: move.stage, runId: pay?.run?.id ?? null, runStatus: pay?.run?.status ?? null, held: Boolean(pay?.heldReply) })) return;
+    if (was && goAsItStands(was, { key, stage: move.stage, runId: pay?.run?.id ?? null, runStatus: pay?.run?.status ?? null, held: Boolean(pay?.heldReply), queued: queuedOf(pay?.queuedDecision) })) return;
     const ui = store.getState().ui;
     const now: GatePicks = ui.picksFor === key ? { picks: ui.picks, own: ui.own } : { picks: {}, own: {} };
     if (move.stale || held || unanswered(move, now) !== null) return;
     const note = ui.draft;
     const body = gateBody('approve', move, now, { confirmNoTerminal: noTerminal, note, startAfterReset: extra.startAfterReset });
     const clickRun = pay?.run?.id ?? null;
-    const go = (phase: GoPhase, runIdNow: string | null = null, line = '') => setGo(slug, { key, stage: move.stage, phase, line, clickRun, runId: runIdNow });
+    const go = (phase: GoPhase, runIdNow: string | null = null, line = '', queuedId: string | null = null) => setGo(slug, { key, stage: move.stage, phase, line, clickRun, runId: runIdNow, queuedId });
     go('sending');
-    shared.start();
     setLine(null);
     const carried = typeof body.note === 'string';
     if (carried) store.setDraft('');
     /** Not sent: the card again with his picks, and his words back in the box (before anything typed since). */
     const giveBack = (words: string) => {
       setGo(slug, null);
-      shared.failed();
       setLine(words);
       setRefocus((n) => n + 1);
       if (!carried) return;
@@ -269,7 +300,8 @@ function GateCard({ move, onOpen }: { move: GateMove; onOpen?: YourMoveProps['on
     };
     let r: GateResult;
     try {
-      r = await sendGate(api, slug, body);
+      // Through the shared send (it marks the job sending, then sent or clear, as today's card does).
+      r = await shared.send(api, body);
     } catch (err) {
       giveBack(refusalWords(err));
       if (err instanceof ApiError && err.body.code === 'terminal-open') setAskTerminal(true);
@@ -277,9 +309,10 @@ function GateCard({ move, onOpen }: { move: GateMove; onOpen?: YourMoveProps['on
       return;
     }
     const queued = (r as { queued?: { id?: unknown } } | null)?.queued;
-    if (r?.sent) { go('sent', typeof r.run?.id === 'string' ? r.run.id : null); shared.accepted(); }
-    else if (r?.held) { go('held', null, r.message ?? 'Held until Claude’s usage limit resets.'); shared.clear(); }
-    else if (queued && typeof queued === 'object') { go('queued'); shared.accepted(); }
+    // The website first: its answer can say held too (the laptop is off), and it is still a decision waiting there.
+    if (queued && typeof queued === 'object') go('queued', null, '', typeof queued.id === 'string' ? queued.id : null);
+    else if (r?.sent) go('sent', typeof r.run?.id === 'string' ? r.run.id : null);
+    else if (r?.held) go('held', null, r.message ?? 'Held until Claude’s usage limit resets.');
     // The Foreman is still on a reply: today's card parks the reply in its composer; this page has no
     // place for it yet (Task 16 queues it), so it says so in its own words.
     else giveBack(BUSY_WORDS);

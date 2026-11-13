@@ -195,7 +195,10 @@ export default function mirrorRoutes(ctx) {
       const rec = await jobOf(slug);
       const boards = await records.all(person.id, 'board');
       const row = boards.filter((b) => b.runnerId === rec.runnerId).flatMap((b) => b.value.jobs ?? []).find((j) => j.slug === slug) ?? null;
-      return mirrorJobPage(rec.value, { row, v: Date.parse(rec.updatedAt) || 0 });
+      // The decision made here for this job's gate (the old page's `queued`), so Your move's Queued ends
+      // when it runs, is refused or is put away. Named apart from the payload's `waiting` (R8).
+      const { byJob } = await shownFor(person.id);
+      return { ...mirrorJobPage(rec.value, { row, v: Date.parse(rec.updatedAt) || 0 }), queuedDecision: byJob.get(slug) ?? null };
     },
     /**
      * One body of the new job page: a brief or document from its mirrored doc, the decisions list, a line's own

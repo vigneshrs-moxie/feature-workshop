@@ -2,15 +2,16 @@
 // made-up long job (a gate with two questions, the recommended options a and a, 13 decided for him,
 // two of them still open). The body Go sends is compared with today's gate card's, rendered.
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type ApiClient } from '../../api/client';
-import type { DecidedItem, Gate, JobDetail, Permission } from '../../api/types';
+import type { DecidedItem, Gate, Job, JobDetail, Permission } from '../../api/types';
 import { installKeyListener, resetChord } from '../../app/keyRegistry';
 import { UiProvider } from '../../app/ui';
-import { clearAllSent, useSent } from '../../lib/sentState';
+import { clearAllSent } from '../../lib/sentState';
 import { GateSlot } from '../../panes/Foreman/GateCard';
-import { clearGateSent, gateSentKey } from '../../panes/Foreman/gateSent';
-import { createStore, WorkshopContext, type Store } from '../../state/store';
+import { clearGateSent } from '../../panes/Foreman/gateSent';
+import { createStore, useWorkshop, WorkshopContext, type Store } from '../../state/store';
 import { job as jobRow, LEVELS, snapshot } from '../../state/test-fixtures';
 import { longJob } from '../fixtures/longJob';
 import { createJobStore, type JobStore } from '../jobStore';
@@ -27,8 +28,10 @@ const GATE = () => payload().move as GateMove;
 interface Opened { store: JobStore; app: Store; post: ReturnType<typeof vi.fn>; unmount(): void; serve(p: JobPagePayload): void }
 
 /** The page with a store already holding the payload (with `patch`), and a client whose post is `post`. */
-function open({ move, patch = {}, post = vi.fn(async (): Promise<unknown> => ({ ok: true, sent: true, text: 'ok', run: { id: 'r1' } })), permissions = [], hosted = false }: {
+function open({ move, patch = {}, post = vi.fn(async (): Promise<unknown> => ({ ok: true, sent: true, text: 'ok', run: { id: 'r1' } })), permissions = [], hosted = false, jobs = [], beside = null }: {
   move?: Move | null; patch?: Partial<JobPagePayload>; post?: ReturnType<typeof vi.fn>; permissions?: Permission[]; hosted?: boolean;
+  /** The app's Jobs rows, and something drawn beside the page in the same app (today's card). */
+  jobs?: Job[]; beside?: ReactNode;
 } = {}): Opened {
   const p = { ...payload(), ...patch };
   if (move !== undefined) p.move = move;
@@ -39,9 +42,9 @@ function open({ move, patch = {}, post = vi.fn(async (): Promise<unknown> => ({ 
     events: () => () => {}, viewer: () => null, initial: p,
   });
   const app = createStore();
-  app.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [], permissions }) });
+  app.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs, permissions, meta: { token: 't', levels: LEVELS } }) });
   const api = { get: vi.fn(), post, hosted: () => hosted } as unknown as ApiClient;
-  const utils = render(<WorkshopContext.Provider value={{ api, store: app }}><JobPage2 slug={SLUG} job={null} store={store} /></WorkshopContext.Provider>);
+  const utils = render(<WorkshopContext.Provider value={{ api, store: app }}><UiProvider><JobPage2 slug={SLUG} job={null} store={store} />{beside}</UiProvider></WorkshopContext.Provider>);
   return { store, app, post, unmount: utils.unmount, serve: (next) => { served = next; } };
 }
 
@@ -507,34 +510,80 @@ describe('Task 9 fix round 1: Sent always ends', () => {
     expect(go()).toBeEnabled();
   });
 
-  it('queued on the website: the run the laptop starts is this Go’s; when it ends with the gate still there, the card comes back', async () => {
-    const o = open({ hosted: true, post: vi.fn(async () => ({ queued: { id: 'q1' } })) });
+  it('queued on the website: follows its own decision; another run (Auto, a message) does not end it; done then its run ends: the card comes back', async () => {
+    const q = (state: string, words = 'Go: sent to your laptop. It runs there in a moment.') => ({ id: 'q1', kind: 'approve', state, words, at: '2026-11-13T12:00:00Z', expiresAt: null, waiting: state === 'waiting', canCancel: state === 'waiting', permissionId: null });
+    const o = open({ hosted: true, post: vi.fn(async () => ({ ok: true, sent: false, held: true, queued: q('waiting', 'Go: waiting for your laptop. It runs when the laptop is back.') })) });
     fireEvent.click(go());
     await settle();
+    // The site's answer says held too (the laptop is off): it is still a decision waiting there.
     expect(card()).toHaveTextContent('Queued for your laptop');
-    await land(o, { run: run('r5', 'running') });
+    // Not shown in the payload yet: kept. A run that is not this decision's (Auto, a message): kept.
+    await land(o, { run: run('r4', 'running') });
+    expect(card()).toHaveTextContent('Queued for your laptop');
+    await land(o, { queuedDecision: q('sent'), run: run('r4', 'done') });
+    expect(card()).toHaveTextContent('Queued for your laptop');
+    // The laptop ran it, and its run starts: Sent until that run ends with the gate still there.
+    await land(o, { queuedDecision: q('done', 'Go: done on your laptop.'), run: run('r5', 'running') });
     expect(card()).toHaveTextContent(SENT);
     await land(o, { run: run('r5', 'stopped') });
     expect(go()).toBeEnabled();
   });
 
-  it('marks the shared gate send, so today’s card, the old bar and the Desk grey out too; a refusal clears it', async () => {
-    let answer: (v: unknown) => void = () => {};
-    const Probe = () => <i data-testid="shared">{useSent(gateSentKey(SLUG)).state}</i>;
-    render(<Probe />);
-    const o = open({ post: vi.fn(() => new Promise((r) => { answer = r; })) });
-    fireEvent.click(go());
-    expect(screen.getByTestId('shared')).toHaveTextContent('sending');
-    await act(async () => { answer({ ok: true, sent: true, text: 'ok', run: { id: 'r1' } }); });
-    expect(screen.getByTestId('shared')).toHaveTextContent('sent');
-    await land(o, { run: run('r1', 'done') });
-    expect(screen.getByTestId('shared')).toHaveTextContent('idle');
-    o.unmount();
-    forgetSentGo();
-    open({ post: vi.fn(async () => { throw new ApiError(409, 'x', { code: 'limited' }); }) });
+  it('queued on the website and refused by the laptop (the gate changed): the card comes back with the site’s words; put away: back too', async () => {
+    const q = (state: string, words: string) => ({ id: 'q2', kind: 'approve', state, words, at: '2026-11-13T12:00:00Z', expiresAt: null, waiting: false, canCancel: false, permissionId: null });
+    const o = open({ hosted: true, post: vi.fn(async () => ({ queued: q('waiting', 'Go: waiting for your laptop.') })) });
     fireEvent.click(go());
     await settle();
-    expect(screen.getByTestId('shared')).toHaveTextContent('idle');
+    await land(o, { queuedDecision: q('changed', 'This changed on your laptop. Look again. The plan changed since this was shown.') });
+    expect(go()).toBeEnabled();
+    expect(card()).toHaveTextContent('This changed on your laptop. Look again. The plan changed since this was shown.');
+    o.unmount();
+    forgetSentGo();
+    const away = open({ hosted: true, post: vi.fn(async () => ({ queued: q('waiting', 'Go: waiting for your laptop.') })) });
+    fireEvent.click(go());
+    await settle();
+    await land(away, { queuedDecision: q('waiting', 'Go: waiting for your laptop.') });
+    expect(card()).toHaveTextContent('Queued for your laptop');
+    await land(away, { queuedDecision: null });
+    expect(go()).toBeEnabled();
+  });
+
+  it('held, released into a run before any payload showed it held: that run ends Held (Sent until it ends)', async () => {
+    const o = open({ post: vi.fn(async () => ({ ok: true, sent: false, held: true, resetsAt: '2026-11-13T15:00:00Z', message: 'Held: it goes to the Foreman when Claude’s usage limit resets (around 3:00 PM).' })) });
+    fireEvent.click(go());
+    await settle();
+    await land(o, { run: run('r7', 'running') });
+    expect(card()).toHaveTextContent(SENT);
+    await land(o, { run: run('r7', 'done') });
+    expect(go()).toBeEnabled();
+  });
+
+  it('today’s card beside the page greys out after Go and stays so once the answer lands (the shared send: useGateSent)', async () => {
+    const move = GATE();
+    const gate = {
+      briefNumber: move.brief, briefFile: 'briefs/015-review.md', headline: move.ask, stage: move.stage, nextStage: move.nextStage, nextProposed: null,
+      questions: move.questions.map((x) => ({ id: x.id, text: x.text, recommendation: x.options.find((y) => y.recommended)?.id ?? null, options: x.options.map((y) => ({ id: y.id, label: y.label, consequence: y.consequence })) })),
+      decided: [], versions: null, raisedVersions: null, stale: false, waitingSince: move.since, runActive: false, parked: false, level: 3, suggestedLevel: null, levelReason: null, usage: null,
+    } as unknown as Gate;
+    const lastRun = payload().run!;
+    const row = jobRow(SLUG, 'needs-you', { level: 3, waitingFor: 'approval', stage: 'review' });
+    const detail = { slug: SLUG, thread: [], threadMore: false, options: { level: 3 }, statusForCompose: { questions: gate.questions, decidedOnYourBehalf: [] }, drive: { mode: 'workshop' }, gate, answeredBriefs: [], heldReply: null, run: lastRun } as unknown as JobDetail;
+    const Old = () => {
+      const { store: app } = useWorkshop();
+      return <GateSlot job={app.getState().jobs[0]} detail={detail} now={new Date()} reload={() => {}} />;
+    };
+    let answer: (v: unknown) => void = () => {};
+    const o = open({ jobs: [row], beside: <Old />, post: vi.fn(() => new Promise((r) => { answer = r; })) });
+    const approve = () => document.querySelector<HTMLButtonElement>('.gate-card [data-gate="approve"]')!;
+    expect(approve()).toBeEnabled();
+    fireEvent.click(go());
+    expect(approve()).toBeDisabled();
+    await act(async () => { answer({ ok: true, sent: true, text: 'ok', run: { id: 'r1' } }); });
+    await settle();
+    // Answered and taken: today's card stays off (before, its own check cleared the mark at once).
+    expect(approve()).toBeDisabled();
+    expect(card()).toHaveTextContent(SENT);
+    o.unmount();
   });
 
   it('a refusal gives Go the focus back; the next brief starts without the last one’s line or terminal tick', async () => {
