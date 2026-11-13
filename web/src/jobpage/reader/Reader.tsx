@@ -20,6 +20,7 @@ import { ChangesView } from './ChangesView';
 import { ChecksView } from './ChecksView';
 import { ConversationView } from './ConversationView';
 import { DecisionsView } from './DecisionsView';
+import { DetailsView } from './DetailsView';
 import { DocView } from './DocView';
 import { FindingsView } from './FindingsView';
 import { MessageView } from './MessageView';
@@ -64,6 +65,8 @@ function View({ target, searchRef, onOpen }: { target: ReaderTarget } & Pick<Rea
       return <FindingsView onOpen={onOpen} />;
     case 'checks':
       return <ChecksView id={target.id} onOpen={onOpen} />;
+    case 'details':
+      return <DetailsView />;
     case 'not-yet':
       return <ReaderBody view="not-yet" place={placeKey(target)}><NotYet id={target.id} /></ReaderBody>;
     default:

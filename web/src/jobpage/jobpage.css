@@ -403,3 +403,19 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2[data-layout="phone"] .jp2-rec-grid { display: block; }
 .jp2[data-layout="phone"] .jp2-rec-list { max-height: none; margin-top: 12px; }
 .jp2[data-layout="phone"] .jp2-rec-r { min-height: 44px; align-items: center; }
+
+/* Details (Task 14): one table of the work, newest first; cost by step under it */
+.jp2-dt { max-width: 1000px; }
+.jp2-dt-wrap { overflow-x: auto; }
+.jp2-dt table { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 18px; }
+.jp2-dt th, .jp2-dt td { padding: 6px 10px 6px 0; border-bottom: 1px solid var(--border-1); text-align: left; vertical-align: top; }
+.jp2-dt th { font-size: 12px; font-weight: 600; color: var(--text-3); }
+.jp2-dt td .jp2-dim { font-size: 12px; }
+.jp2-dt td.jp2-num { text-align: right; padding-right: 16px; white-space: nowrap; }
+.jp2-dt-c { max-width: 360px; }
+.jp2-dt-sum td { font-weight: 600; }
+.jp2-dt-h { margin: 22px 0 6px; font-size: 14px; line-height: 20px; font-weight: 650; }
+.jp2-dt-bad { font-size: 12px; color: var(--status-error); }
+.jp2-dt-err { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; }
+.jp2-dt-err p { margin: 0; }
+.jp2[data-layout="phone"] .jp2-dt-t th:nth-child(4), .jp2[data-layout="phone"] .jp2-dt-t td:nth-child(4) { display: none; }
