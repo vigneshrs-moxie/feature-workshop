@@ -58,9 +58,10 @@ afterEach(() => fs.rm(root, { recursive: true, force: true }));
 
 test('planRestart: names, and -2, -3 when taken', () => {
   const j = { slug: 's', branch: 'feature/s', worktree: '/w/s', archiveRoot: '/f/.restarted' };
-  assert.deepEqual(planRestart(j, { today: TODAY }), { archiveDir: '/f/.restarted/s-2026-11-10', backupBranch: 'backup/feature/s-2026-11-10', worktreeAside: '/w/s.2026-11-10' });
-  const second = planRestart(j, { today: TODAY, existingBranches: ['backup/feature/s-2026-11-10'], existingArchives: ['/f/.restarted/s-2026-11-10'], existingPaths: ['/w/s.2026-11-10'] });
-  assert.deepEqual(second, { archiveDir: '/f/.restarted/s-2026-11-10-2', backupBranch: 'backup/feature/s-2026-11-10-2', worktreeAside: '/w/s.2026-11-10-2' });
+  const archive = (name) => path.join('/f/.restarted', name); // a folder path: on Windows it is joined with backslashes
+  assert.deepEqual(planRestart(j, { today: TODAY }), { archiveDir: archive('s-2026-11-10'), backupBranch: 'backup/feature/s-2026-11-10', worktreeAside: '/w/s.2026-11-10' });
+  const second = planRestart(j, { today: TODAY, existingBranches: ['backup/feature/s-2026-11-10'], existingArchives: [archive('s-2026-11-10')], existingPaths: ['/w/s.2026-11-10'] });
+  assert.deepEqual(second, { archiveDir: archive('s-2026-11-10-2'), backupBranch: 'backup/feature/s-2026-11-10-2', worktreeAside: '/w/s.2026-11-10-2' });
   const third = planRestart(j, { today: TODAY, existingBranches: ['backup/feature/s-2026-11-10', 'backup/feature/s-2026-11-10-2'] });
   assert.equal(third.backupBranch, 'backup/feature/s-2026-11-10-3');
   assert.equal(planRestart({ ...j, branch: null, worktree: null }, { today: TODAY }).backupBranch, null);

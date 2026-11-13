@@ -471,7 +471,8 @@ test('buildDemo refuses a root outside the temp folder and deletes nothing', asy
   const root = path.join(self, 'demo-root');
   await assert.rejects(buildDemo({ root }), /only inside the system’s temp folder/);
   assert.equal(await fs.readFile(self, 'utf8'), before, 'the file is untouched');
-  await assert.rejects(fs.lstat(root), { code: 'ENOTDIR' });
+  // Nothing is there: macOS says ENOTDIR (its parent is a file), Windows ENOENT.
+  await assert.rejects(fs.lstat(root), (err) => ['ENOTDIR', 'ENOENT'].includes(err.code));
 });
 
 test('a link inside the temp folder that points outside it is refused', async () => {

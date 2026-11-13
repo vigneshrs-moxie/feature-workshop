@@ -395,7 +395,7 @@ test('restart route: the job starts again on the new model; the old work is kept
   assert.equal(res.status, 200, JSON.stringify(res.body));
   assert.equal(res.body.ok, true);
   assert.equal(res.body.slug, 'do-the-restart-me-job', 'the new job is named from the description, as New job does');
-  assert.match(res.body.archive, /\.restarted\/restart-me-\d{4}-\d\d-\d\d$/);
+  assert.match(res.body.archive, /\.restarted[\\/]restart-me-\d{4}-\d\d-\d\d$/);
   assert.match(res.body.backupBranch, /^backup\/feature\/restart-me-\d{4}-\d\d-\d\d$/);
   assert.equal(await fs.readFile(path.join(res.body.archive, 'status.json'), 'utf8').then((t) => JSON.parse(t).slug), 'restart-me');
   assert.equal(await fs.readFile(`${wt}.${res.body.backupBranch.slice(-10)}`+'/wip.txt', 'utf8'), 'not committed\n');

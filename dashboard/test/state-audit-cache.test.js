@@ -41,7 +41,8 @@ test('I2: restartTimes gives each folder the time of its last restart that still
   assert.deepEqual(restartTimes(lines), { '/f/a': 't2', '/f/b': 't3' }, 'a restart put back does not count; a refusal cancels nothing');
 });
 
-test('C-M5: clearSession forgets the record in memory only once the write worked', async () => {
+// Windows has no folder permission bits, so chmod cannot make the write fail there.
+test('C-M5: clearSession forgets the record in memory only once the write worked', { skip: process.platform === 'win32' && 'chmod cannot stop a write on Windows' }, async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'sb-clear-session-'));
   const state = new State(dir);
   await state.setSession('/f/job', { sessionId: 's1', model: 'm' });
