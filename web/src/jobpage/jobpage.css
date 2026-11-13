@@ -22,6 +22,7 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2-auto { flex: none; position: relative; }
 .jp2-auto .auto-switch.is-inline { display: flex; flex-wrap: nowrap; align-items: center; gap: 6px; }
 .jp2-auto .auto-switch-row { width: auto; display: inline-flex; align-items: center; gap: 6px; height: 28px; min-height: 0; padding: 0 6px; border-radius: 6px; font-size: 13px; color: var(--text-2); cursor: pointer; }
+.jp2-auto .auto-switch-row, .jp2-auto .auto-switch-row:has(.choice:checked) { border: 0; background: none; }
 .jp2-auto .auto-switch-row:hover { background: var(--hover-bg); }
 .jp2-auto .auto-switch-row .option-body { order: 0; }
 .jp2-auto .auto-switch-label { font-weight: 400; }
@@ -35,6 +36,9 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2-auto .auto-line:has(.is-refused, .is-stopped) { display: block; }
 .jp2-auto .auto-line > span:not(.is-refused):not(.is-stopped) { display: none; }
 .jp2-auto .auto-line, .jp2-head-note { position: absolute; top: calc(100% + 6px); right: 0; z-index: 1; width: max-content; max-width: 340px; min-height: 0; margin: 0; padding: 6px 10px; border: 1px solid var(--border-2); border-radius: 8px; background: var(--surface-float); box-shadow: var(--elev-md); font-size: 13px; line-height: 18px; white-space: normal; color: var(--text-1); }
+/* The ⋯ menu's items at the prototype's size (.sj-mi) on a laptop; the phone keeps the shared 40 px rows. */
+.jp2:not([data-layout="phone"]) .jp2-menu .menu-item { min-height: 32px; font-size: 13px; }
+.jp2:not([data-layout="phone"]) .jp2-menu .menu-heading { font-size: 12px; }
 /* What a menu item did, or why it could not: one line under the menu, with a button to hide it. */
 .jp2-head-note { right: 12px; display: flex; align-items: center; gap: 6px; padding-right: 4px; }
 
