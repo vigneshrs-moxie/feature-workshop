@@ -137,6 +137,8 @@ interface GoSent {
   runId: string | null;
   /** Held for the limit: the payload has shown the held reply (so its going away means something). */
   heldSeen?: boolean;
+  /** The message box's words it carried (its note, or Send back's change), to give back if it never runs. */
+  note?: string | null;
   /** Queued on the website: the decision's id, and whether the payload has shown it. */
   queuedId?: string | null;
   queuedSeen?: boolean;
@@ -268,7 +270,17 @@ function GateCard({ move, onOpen }: { move: GateMove; onOpen?: YourMoveProps['on
   useEffect(() => {
     if (!sentAny || sent === sentAny) return;
     setGo(slug, sent);
-    if (!sent) { const why = settledWords(sentAny, queuedDecision); if (why) setLine(why); }
+    if (!sent) {
+      const why = settledWords(sentAny, queuedDecision);
+      if (why) setLine(why);
+      // Queued on the website and ended there without running (failed, changed, ran out, cancelled,
+      // put away): the words it carried come back to the box, after anything typed since.
+      if (sentAny.phase === 'queued' && sentAny.key === key && sentAny.stage === move.stage && sentAny.note) {
+        const draft = store.getState().ui.draft;
+        if (!draft.trim()) store.setDraft(sentAny.note);
+        else if (!draft.includes(sentAny.note)) store.setDraft(`${draft.replace(/\s+$/, '')}\n${sentAny.note}`);
+      }
+    }
   });
   // The send today's card, the old page's bar, the Desk and the quick look read (useGateSent): it marks
   // the job the way they mark it (its run, what it waits for, its stage, from the app's Jobs row), so
@@ -344,10 +356,10 @@ function GateCard({ move, onOpen }: { move: GateMove; onOpen?: YourMoveProps['on
       ? gateBody('approve', move, now, { confirmNoTerminal: noTerminal, note, startAfterReset: extra.startAfterReset })
       : gateBody('changes', move, now, { confirmNoTerminal: noTerminal, note });
     const clickRun = pay?.run?.id ?? null;
-    const go = (phase: GoPhase, runIdNow: string | null = null, line = '', queuedId: string | null = null) => setGo(slug, { kind, key, stage: move.stage, phase, line, clickRun, runId: runIdNow, queuedId });
+    const carried = typeof body.note === 'string';
+    const go = (phase: GoPhase, runIdNow: string | null = null, line = '', queuedId: string | null = null) => setGo(slug, { kind, key, stage: move.stage, phase, line, clickRun, runId: runIdNow, queuedId, note: carried ? note : null });
     go('sending');
     setLine(null);
-    const carried = typeof body.note === 'string';
     if (carried) store.setDraft('');
     /** Not sent: the card again with his picks, and his words back in the box (before anything typed since). */
     const giveBack = (words: string) => {

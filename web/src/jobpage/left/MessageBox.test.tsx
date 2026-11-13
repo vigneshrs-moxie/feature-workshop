@@ -201,6 +201,8 @@ describe('words alone go as a message', () => {
     ['busy', new ApiError(409, 'The Foreman is still working on your last message. Wait for it to finish, or stop it.'), /Foreman is still working/],
     ['locked', new ApiError(409, 'Held.', { code: 'job-locked', lock: { owner: 'terminal' } }), /Another place is working on this job/],
     ['unreachable', new TypeError('Failed to fetch'), /Couldn’t reach Starbase/],
+    ['restarting', new ApiError(409, 'This job is being started again on another model right now. Wait for that to finish.'), /being started again on another model/],
+    ['closing', new ApiError(409, 'This job is being marked done right now. Wait a moment.'), /being marked done right now/],
   ])('a refusal (%s) puts the words back with the reason in plain words', async (_name, err, words) => {
     let refuse: (e: unknown) => void = () => {};
     const post = vi.fn(() => new Promise((_r, j) => { refuse = j; }));
@@ -340,10 +342,10 @@ describe('words with Go and with Send back', () => {
 });
 
 describe('while a reply runs', () => {
-  it('the box says Sends when the Foreman finishes, with Stop it and send now beside it; Send keeps the words and sends nothing', async () => {
+  it('the box says Sends when it finishes, with Stop it and send now beside it in the same row; Send keeps the words and sends nothing', async () => {
     const o = open({ move: null, patch: { run: RUNNING } });
-    expect(box()).toHaveAttribute('placeholder', 'Sends when the Foreman finishes');
-    expect(screen.getByRole('button', { name: 'Stop it and send now' })).toBeInTheDocument();
+    expect(box()).toHaveAttribute('placeholder', 'Sends when it finishes');
+    expect(screen.getByRole('button', { name: 'Stop it and send now' }).parentElement).toBe(box().parentElement);
     type('Also the header.');
     fireEvent.click(send());
     await settle();
@@ -381,5 +383,150 @@ describe('while a reply runs', () => {
     act(() => { o.app.dispatch({ type: 'event', event: { v: 2, type: 'run', job: SLUG, seq: 999999, data: { id: 'run-now', slug: SLUG, status: 'done' } } } as never); });
     expect(box()).toHaveAttribute('placeholder', 'Write to the Foreman…');
     expect(screen.queryByRole('button', { name: 'Stop it and send now' })).toBeNull();
+  });
+});
+
+describe('Task 11 fix round 1', () => {
+  const q = (id: string, state: string, words = 'Waiting for your laptop.') => ({ id, kind: 'approve', state, words, at: '2026-11-13T12:00:00Z', expiresAt: null, waiting: state === 'waiting', canCancel: state === 'waiting', permissionId: null });
+  const withQueued = (v: number, decision: unknown) => { const p = payload(); p.v = v; p.queuedDecision = decision; return p; };
+
+  it('a Go the website queues and then fails gives its note back to the box, after what was typed since', async () => {
+    const o = open({ post: vi.fn(async () => ({ queued: q('g1', 'waiting') })) });
+    type('Mind the totals row.');
+    fireEvent.click(within(card()).getByRole('button', { name: /^Go/ }));
+    await settle();
+    expect(box()).toHaveValue('');
+    await refresh(o, withQueued(2, q('g1', 'waiting')));
+    type('And the header.');
+    await refresh(o, withQueued(3, q('g1', 'failed', 'Your laptop couldn’t run it.')));
+    expect(box()).toHaveValue('And the header.\nMind the totals row.');
+    expect(within(card()).getByRole('button', { name: /^Go/ })).toBeEnabled();
+  });
+
+  it('a Send back the website queues and then puts away (the gate changed) gives the change back to an empty box', async () => {
+    const o = open({ post: vi.fn(async () => ({ queued: q('b1', 'waiting') })) });
+    type('Split the export into two files.');
+    fireEvent.click(within(card()).getByRole('button', { name: /^Send back/ }));
+    await settle();
+    expect(box()).toHaveValue('');
+    await refresh(o, withQueued(2, q('b1', 'changed', 'This changed on your laptop. Look again.')));
+    expect(box()).toHaveValue('Split the export into two files.');
+    expect(card()).toHaveTextContent('This changed on your laptop. Look again.');
+  });
+
+  it('a message the website queues comes back to the box when it is cancelled there, or put away after it showed', async () => {
+    const post = vi.fn().mockResolvedValueOnce({ queued: q('m1', 'waiting') }).mockResolvedValueOnce({ queued: q('m2', 'waiting') });
+    const o = open({ move: null, post });
+    type('Please also check the totals row.');
+    fireEvent.click(send());
+    await settle();
+    expect(box()).toHaveValue('');
+    expect(foot().getByRole('status')).toHaveTextContent('Queued for your laptop');
+    await refresh(o, withQueued(2, q('m1', 'waiting')));
+    expect(box()).toHaveValue('');
+    await refresh(o, withQueued(3, q('m1', 'cancelled', 'Cancelled on the website.')));
+    expect(box()).toHaveValue('Please also check the totals row.');
+    expect(foot().getByRole('alert')).toHaveTextContent('Not sent: Cancelled on the website. Your words are back in the box.');
+    fireEvent.click(send());
+    await settle();
+    await refresh(o, withQueued(4, q('m2', 'sent')));
+    await refresh(o, withQueued(5, null));
+    expect(box()).toHaveValue('Please also check the totals row.');
+    // Sent on the laptop: the words stay gone.
+    const done = vi.fn().mockResolvedValueOnce({ queued: q('m3', 'waiting') });
+    o.unmount();
+    localStorage.clear();
+    const o2 = open({ move: null, post: done });
+    type('Ship it.');
+    fireEvent.click(send());
+    await settle();
+    await refresh(o2, withQueued(2, q('m3', 'done', 'Sent on your laptop.')));
+    expect(box()).toHaveValue('');
+  });
+
+  it('at a go-ahead the box says the prototype’s words, and ⌘↵ in it is Go with the words as its note (never a message)', async () => {
+    const o = open();
+    expect(box()).toHaveAttribute('placeholder', 'Your own answer, or a message to the Foreman…');
+    type('Mind the totals row.');
+    key('Enter', box(), { metaKey: true });
+    await settle();
+    expect(callsTo(o.post, '/gate').map((c) => JSON.stringify(c[1]))).toEqual([JSON.stringify(gateBody('approve', GATE(), { picks: {}, own: {} }, { note: 'Mind the totals row.' }))]);
+    expect(callsTo(o.post, '/send')).toHaveLength(0);
+    expect(box()).toHaveValue('');
+  });
+
+  it('Stop it and send now: the reply ending by itself while the stop is out sends the words and says nothing wrong', async () => {
+    let refuseStop: (e: unknown) => void = () => {};
+    const post = vi.fn((path: string, _body?: unknown) => (path.endsWith('/stop') ? new Promise((_r, j) => { refuseStop = j; }) : Promise.resolve({ run: { id: 'r2' } })));
+    const o = open({ move: null, patch: { run: RUNNING }, post });
+    type('Use the old header.');
+    fireEvent.click(screen.getByRole('button', { name: 'Stop it and send now' }));
+    const ended = payload();
+    ended.v = 2;
+    ended.move = null;
+    ended.run = { ...RUNNING, status: 'done' };
+    await refresh(o, ended);
+    await settle();
+    await act(async () => { refuseStop(new ApiError(404, 'That reply already finished.')); });
+    expect(callsTo(post, '/send')).toHaveLength(1);
+    expect(foot().queryByRole('alert')).toBeNull();
+    expect(box()).toHaveValue('');
+  });
+
+  it('Stop it and send now stops waiting after ten seconds with a plain line when the reply never shows as ended; the words stay', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const o = open({ move: null, patch: { run: RUNNING } });
+      type('Use the old header.');
+      fireEvent.click(screen.getByRole('button', { name: 'Stop it and send now' }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(9_000); });
+      expect(screen.getByRole('button', { name: /Stop it and send now|Stopping/ })).toHaveAttribute('aria-busy', 'true');
+      await act(async () => { await vi.advanceTimersByTimeAsync(1_500); });
+      expect(foot().getByRole('alert')).toHaveTextContent('The Foreman hasn’t stopped yet. Your words are still here');
+      expect(box()).toHaveValue('Use the old header.');
+      expect(callsTo(o.post, '/send')).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a send the server still calls busy right after an accepted stop is tried once more', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const post = vi.fn()
+        .mockResolvedValueOnce({})
+        .mockRejectedValueOnce(new ApiError(409, 'The Foreman is still working on your last message. Wait for it, or pause it first.'))
+        .mockResolvedValueOnce({ run: { id: 'r2' } });
+      const o = open({ move: null, patch: { run: RUNNING }, post });
+      type('Use the old header.');
+      fireEvent.click(screen.getByRole('button', { name: 'Stop it and send now' }));
+      const stopped = payload();
+      stopped.v = 2;
+      stopped.move = null;
+      stopped.run = { ...RUNNING, status: 'stopped' };
+      await refresh(o, stopped);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(callsTo(post, '/send')).toHaveLength(1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1_500); });
+      expect(callsTo(post, '/send')).toHaveLength(2);
+      expect(foot().queryByRole('alert')).toBeNull();
+      expect(box()).toHaveValue('');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('Task 11 fix round 1: the phone', () => {
+  it('on the phone the row has no room for Stop it and send now: the box says Sends when it finishes and Send keeps the words', async () => {
+    windowWidth(390);
+    const o = open({ move: null, patch: { run: RUNNING } });
+    expect(box()).toHaveAttribute('placeholder', 'Sends when it finishes');
+    expect(screen.queryByRole('button', { name: 'Stop it and send now' })).toBeNull();
+    type('Also the header.');
+    fireEvent.click(send());
+    await settle();
+    expect(o.post).not.toHaveBeenCalled();
+    expect(document.querySelector('.jp2-mb-line')).toHaveTextContent(/^Kept here, not sent. Press Send when the Foreman finishes.$/);
   });
 });
