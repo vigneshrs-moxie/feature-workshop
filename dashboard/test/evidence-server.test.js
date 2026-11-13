@@ -880,7 +880,8 @@ async function autoWorld({ slugs = ['auto-job'], auto = { on: true }, original =
   const runs = async () => (await fs.readFile(runsFile, 'utf8').catch(() => '')).split('\n').filter(Boolean).length;
   const done = async () => {
     for (const j of list) await stopWait(j.slug).catch(() => {});
-    await fs.rm(top, { recursive: true, force: true });
+    // On Windows the stop waits only for the top process: what it started may still hold the folder for a moment.
+    await fs.rm(top, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   };
   return { top, list, local, door, handlers, emitted, audits, sends, stops, steps, log, pg, runs, done };
 }
@@ -1046,14 +1047,25 @@ test('an Auto job whose app has no database Starbase can copy records nothing, s
   } finally { await w.done(); }
 });
 
-test('an Auto job whose app names no database anywhere records as today', { timeout: 60_000 }, async () => {
+test('an Auto job whose app names no database is recorded under the fence, with no door and no copy', { timeout: 60_000, skip: NEEDS_SANDBOX }, async () => {
+  const { sandboxProfile } = await import('../lib/db-door.js');
   const { database, ...noKey } = AUTO_PROFILE;
   const w = await autoWorld({ profile: noKey, settings: 'OTHER=1\n', appSettings: 'NEXT_PUBLIC_X=1\n' });
   try {
     const r = await w.door.record('auto-job', { waitMs: 50_000 });
     assert.equal(r.evidence.commit, 'abc1234def5');
-    assert.deepEqual(w.steps.filter((s) => s.startsWith('copy')), [], 'no autoDatabase call');
-    assert.equal(w.local.jobs.get('auto-job').server.db, null);
+    assert.equal(await w.runs(), 1, 'Playwright ran once');
+    assert.deepEqual(w.steps, ['stopped auto-job'], 'no autoDatabase call: no copy; the app stopped at the end');
+    const server = w.local.jobs.get('auto-job').server;
+    assert.equal(server.db, null, 'not on Auto\'s database: there is none');
+    assert.deepEqual(server.child.spawnargs.slice(0, 3), ['/usr/bin/sandbox-exec', '-p', sandboxProfile({ port: 5432 })], 'its app ran inside the sandbox, with the 5432 profile');
+    assert.equal(server.door, null, 'no door');
+    assert.equal(server.status, 'stopped');
+    assert.deepEqual(await w.log(), [], 'no Postgres tool ran');
+    assert.equal((await w.pg()).app__auto, undefined, 'no copy of his database');
+    assert.equal('notes' in r.evidence, false);
+    assert.equal((await w.door.view('auto-job')).problem, null);
+    assert.equal(w.emitted.filter((e) => e.outcome === 'recording').length, 1, 'it said once that it records');
   } finally { await w.done(); }
 });
 
@@ -1413,4 +1425,219 @@ test('an Auto recording that has no fence for its browser run starts no browser:
     assert.ok(w.steps.includes('stopped auto-job'), 'the app it started is stopped');
     assert.equal(his.reached(), 0);
   } finally { await w.done(); await his.close(); }
+});
+
+// ---------- Task 9, after re-review 5: every Auto recording runs under the fence, database named or not ----------
+// An Auto job whose app names no database where Starbase looks may still name one in its own code. Its app
+// and its browser run go under the fence all the same (port 5432): no door, no copy. Stand-in sockets only.
+
+/** Auto's world for a job whose app names no database where Starbase looks: no database key in the profile, none in a settings file. */
+function noDbWorld(opts = {}) {
+  const { database, ...noKey } = AUTO_PROFILE;
+  return autoWorld({ profile: noKey, settings: 'OTHER=1\n', appSettings: 'NEXT_PUBLIC_X=1\n', ...opts });
+}
+
+test('an Auto job with no database setting: the app and the browser run are started under the fence with the 5432 profile', { timeout: 120_000, skip: NEEDS_SANDBOX }, async () => {
+  const { spawn } = await import('node:child_process');
+  const { sandboxProfile } = await import('../lib/db-door.js');
+  const { shellFor } = await import('../lib/platform.js');
+  const profile = sandboxProfile({ port: 5432 });
+  assert.equal(profile, [
+    '(version 1)',
+    '(allow default)',
+    '(deny network-outbound (remote unix-socket (regex #"\\.s\\.PGSQL\\.")))',
+    '(deny file-write* (regex #"\\.s\\.PGSQL\\."))',
+    '(deny file-link (regex #"\\.s\\.PGSQL\\."))',
+    '(deny network-outbound (remote tcp "*:5432"))',
+    '(deny network-outbound (remote tcp "*:5432"))',
+  ].join('\n'), 'the app\'s form of the profile, with 5432 as the port');
+  const started = [];
+  const spawnFn = (file, args, opts) => { started.push({ file, args: [...args], env: { ...opts.env } }); return spawn(file, args, opts); };
+  const w = await noDbWorld({ spawnFn });
+  const holdFile = path.join(w.top, 'hold');
+  process.env.STARBASE_FAKE_HOLD = holdFile; // Playwright holds after the first line begins, so the app can be asked
+  try {
+    const usualEnv = { ...process.env, FORCE_COLOR: '0', PLAYWRIGHT_HTML_OPEN: 'never' };
+    assert.equal((await w.door.record('auto-job', { waitMs: 100 })).started, true);
+    await untilTrue(async () => (await w.door.view('auto-job')).progress?.lines?.[0]?.state === 'running', 'the recording never got going');
+    // The app: sandbox-exec, -p and the profile in front of the usual shell and command.
+    const server = w.local.jobs.get('auto-job').server;
+    const shell = shellFor(server.command);
+    assert.deepEqual(server.child.spawnargs, ['/usr/bin/sandbox-exec', '-p', profile, shell.file, ...shell.args], 'the app: sandbox-exec, -p and the 5432 profile in front of the usual command');
+    assert.equal(w.local.autoProfile('auto-job'), profile, 'Try it gives the profile its app was started with');
+    assert.equal(server.door, null, 'no door');
+    const fenced = await (await fetch(`${server.url}/env`)).json(); // the database settings in the app's environment, as the app says them
+    // The browser run: the same in front of its usual command.
+    assert.equal(started.length, 1, 'one browser run');
+    const [{ file, args, env }] = started;
+    const usual = [process.execPath, path.join(w.top, 'pw.mjs'), 'test', '--config', path.join(w.list[0].dir, 'evidence', 'playwright.config.mjs')];
+    assert.deepEqual([file, ...args], ['/usr/bin/sandbox-exec', '-p', profile, ...usual], 'the browser run: sandbox-exec, -p and the 5432 profile in front of the usual command');
+    assert.equal(args[1], server.child.spawnargs[2], 'the very profile its app was started with');
+    assert.deepEqual(env, usualEnv, 'the browser\'s environment is as ever: no door address in it');
+    await fs.writeFile(holdFile, 'go');
+    await untilTrue(async () => { const v = await w.door.view('auto-job'); return v.evidence && !v.recording; }, 'the recording never ended');
+    assert.equal(server.status, 'stopped', 'the recording stopped its app');
+    assert.deepEqual(w.steps, ['stopped auto-job'], 'no copy');
+    // His own Try it app for the same job starts as today: the usual command alone. Its database settings are the
+    // fenced app's: nothing was added to the fenced one, so no door address.
+    await w.local.startServer(w.list[0]);
+    await untilTrue(() => w.local.jobs.get('auto-job').server.status === 'running', 'his app never ran');
+    const his = w.local.jobs.get('auto-job').server;
+    assert.deepEqual(his.child.spawnargs, [shell.file, ...shell.args], 'his own Try it app: the usual command alone');
+    assert.equal(w.local.autoProfile('auto-job'), null, 'and no profile');
+    assert.deepEqual(fenced, await (await fetch(`${his.url}/env`)).json(), 'the fenced app\'s environment names no database his own Try it app\'s does not: no door address');
+  } finally { delete process.env.STARBASE_FAKE_HOLD; await w.done(); }
+});
+
+test('an app that names its database in its own code cannot reach it from an Auto recording', { timeout: 120_000, skip: NEEDS_SANDBOX }, async () => {
+  const net = await import('node:net');
+  const { database, ...noKey } = AUTO_PROFILE;
+  // The database the app's code names: a plain listener on a socket file named like Postgres's (.s.PGSQL.6543, as
+  // fixtures/auto-db-app/dev.mjs names it), in a folder the test makes. The app is told only the folder.
+  const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'sb-fence-')));
+  let reached = 0;
+  const his = net.createServer((s) => { reached++; s.on('error', () => {}); s.end(); });
+  await new Promise((resolve, reject) => { his.once('error', reject); his.listen(path.join(dir, '.s.PGSQL.6543'), resolve); });
+  const theirs = `RUN_FOLDER=${dir}\n`;
+  try {
+    for (const auto of [{ on: true }, { on: false }]) {
+      const w = await autoWorld({ auto, profile: noKey, settings: theirs, appSettings: theirs });
+      try {
+        assert.equal(await w.local.namesADatabase(w.list[0], {}), false, 'Starbase takes no setting of this app for a database setting');
+        const r = await w.door.record('auto-job', { waitMs: 50_000 });
+        assert.equal(r.evidence.commit, 'abc1234def5', 'the recording is made');
+        const said = /^own database: (\w+)$/m.exec(w.local.jobs.get('auto-job').server.output)?.[1];
+        if (auto.on) {
+          assert.equal(said, 'EPERM', 'in an Auto recording the app is refused the socket its code names');
+          assert.equal(reached, 0, 'nothing reached the listener behind it');
+        } else {
+          // With no fence the same app gets through: the refusal above is the fence's doing.
+          assert.equal(said, 'connected', 'with Auto off on the job it connects, as today');
+          assert.equal(reached, 1);
+        }
+        assert.deepEqual(w.steps, ['stopped auto-job'], 'no copy either way');
+      } finally { await w.done(); }
+    }
+  } finally { await new Promise((r) => { his.close(r); }); await fs.rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
+});
+
+test('no fence: an Auto job with no database setting is not recorded', { timeout: 60_000 }, async () => {
+  const NO_FENCE = 'Auto could not fence its app off from your database on this computer, so it made no recording.';
+  const w = await noDbWorld({ sandboxWorks: async () => false });
+  try {
+    await assert.rejects(w.door.record('auto-job', { waitMs: 50_000 }), (err) => err.status === 409 && err.message === NO_FENCE && err.extra.code === 'auto-no-database');
+    assert.equal((await w.door.view('auto-job')).problem.message, NO_FENCE, 'the Test step says why');
+    assert.ok(!w.emitted.some((e) => e.outcome === 'recording'), 'nothing said a recording started');
+    assert.deepEqual(w.audits.map((a) => [a.outcome, a.reason]), [['not-recorded', NO_FENCE]]);
+    assert.equal(w.local.jobs.get('auto-job')?.server ?? null, null, 'the app never started');
+    assert.equal(await w.runs(), 0, 'no Playwright run');
+    assert.deepEqual(w.steps, [], 'nothing copied, nothing to stop');
+    assert.deepEqual(await w.log(), [], 'no Postgres tool ran');
+  } finally { await w.done(); }
+  // The same outcome as for a job with a database (test 16): the same sentence and the same code.
+  const withDb = await autoWorld({ sandboxWorks: async () => false });
+  try {
+    await assert.rejects(withDb.door.record('auto-job', { waitMs: 50_000 }), (err) => err.status === 409 && err.message === NO_FENCE && err.extra.code === 'auto-no-database');
+    assert.ok(!withDb.emitted.some((e) => e.outcome === 'recording'));
+    assert.deepEqual(withDb.audits.map((a) => [a.outcome, a.reason]), [['not-recorded', NO_FENCE]]);
+  } finally { await withDb.done(); }
+});
+
+// Two cases the ruling leaves open, decided the stricter way: an Auto recording never runs on his own (unfenced)
+// Try it app, and a fenced app is never handed to him as his Try it app.
+
+test('his Try it server running for an Auto job with no database setting: the recording is refused before it says it records, and his server is left running', { timeout: 60_000 }, async () => {
+  const WORDS = 'Try it is running for this job, so Auto can\'t record it. Stop Try it, then press Record.';
+  const w = await noDbWorld();
+  try {
+    await w.local.startServer(w.list[0]);
+    await untilTrue(() => w.local.jobs.get('auto-job').server.status === 'running', 'his app never ran');
+    const his = w.local.jobs.get('auto-job').server;
+    let asks = 0;
+    const start = w.local.startServer.bind(w.local);
+    w.local.startServer = (...a) => { asks++; return start(...a); };
+    await assert.rejects(w.door.record('auto-job', { waitMs: 50_000 }), (err) => err.status === 409 && err.message === WORDS);
+    assert.equal((await w.door.view('auto-job')).problem.message, WORDS);
+    assert.ok(!w.emitted.some((e) => e.outcome === 'recording'), 'refused before it says it records');
+    assert.equal(asks, 0, 'and before Try it is asked to start anything');
+    assert.equal(await w.runs(), 0, 'no browser run against his unfenced app');
+    assert.deepEqual(w.steps, [], 'nothing stopped');
+    assert.equal(w.local.jobs.get('auto-job').server, his, 'the app is still his');
+    assert.equal(his.status, 'running', 'his server is left running');
+    // Asked for all the same (the recorder's start, were the refusal above not there): Try it refuses it too.
+    await assert.rejects(w.local.startServer(w.list[0], { fenced: true }), (err) => err.message === WORDS);
+  } finally { await w.done(); }
+});
+
+test('his Try it Start while an Auto recording holds a fenced app with no database setting is refused, never handed over, and the recording ends and stops its app', { timeout: 90_000, skip: NEEDS_SANDBOX }, async () => {
+  const WORDS = 'Auto is recording this job. Start Try it when the recording ends.';
+  const w = await noDbWorld();
+  const holdFile = path.join(w.top, 'hold');
+  process.env.STARBASE_FAKE_HOLD = holdFile;
+  try {
+    assert.equal((await w.door.record('auto-job', { waitMs: 100 })).started, true);
+    await untilTrue(async () => (await w.door.view('auto-job')).progress?.lines?.[0]?.state === 'running', 'the recording never got going');
+    assert.equal(w.door.startRefusal('auto-job'), WORDS, 'what the start action says');
+    await assert.rejects(w.local.startServer(w.list[0]), (err) => err.message === WORDS);
+    w.door.handAppOver('auto-job'); // even if it were asked: a fenced app is never his
+    await fs.writeFile(holdFile, 'go');
+    await untilTrue(async () => { const v = await w.door.view('auto-job'); return v.evidence && !v.recording; }, 'the recording never ended');
+    assert.equal(w.local.jobs.get('auto-job').server.status, 'stopped', 'the recording stopped its app');
+    assert.equal(w.door.startRefusal('auto-job'), null, 'his Start works again');
+  } finally { delete process.env.STARBASE_FAKE_HOLD; await w.done(); }
+});
+
+test('an Auto job with no database setting whose fenced app stops before it is ready: nothing is recorded, and the recording stops what it started', { timeout: 60_000, skip: NEEDS_SANDBOX }, async () => {
+  const w = await noDbWorld();
+  try {
+    const pkgFile = path.join(w.list[0].worktree, 'app', 'package.json');
+    const pkg = JSON.parse(await fs.readFile(pkgFile, 'utf8'));
+    pkg.scripts.dev = 'node -e "process.exit(3)"'; // an app that ends at once
+    await fs.writeFile(pkgFile, JSON.stringify(pkg));
+    await assert.rejects(w.door.record('auto-job', { waitMs: 50_000 }), (err) => err.status === 409 && err.message === 'The app stopped before it was ready. Its output is in Try it.');
+    assert.equal(w.local.jobs.get('auto-job').server.child.spawnfile, '/usr/bin/sandbox-exec', 'it was started inside the sandbox');
+    assert.deepEqual(w.steps, ['stopped auto-job'], 'the recording\'s own stop of the app it started');
+    assert.equal(await w.runs(), 0, 'no browser run');
+  } finally { await w.done(); }
+});
+
+test('his Try it server started just as an Auto recording of a job with no database setting starts its app: Try it refuses the fenced start, nothing is recorded, and his server is left running', { timeout: 60_000 }, async () => {
+  const WORDS = 'Try it is running for this job, so Auto can\'t record it. Stop Try it, then press Record.';
+  const w = await noDbWorld();
+  try {
+    const asked = [];
+    const start = w.local.startServer.bind(w.local);
+    w.local.startServer = (f, opts) => { asked.push(opts ?? 'his'); return start(f, opts); };
+    // His Start lands after the recorder saw no app running, and before it asks Try it for its own.
+    const portFor = w.local.portFor.bind(w.local);
+    let his = null;
+    w.local.portFor = async (slug) => {
+      if (!his) {
+        his = true;
+        await w.local.startServer(w.list[0]);
+        await untilTrue(() => w.local.jobs.get('auto-job').server.status === 'running', 'his app never ran');
+        his = w.local.jobs.get('auto-job').server;
+      }
+      return portFor(slug);
+    };
+    await assert.rejects(w.door.record('auto-job', { waitMs: 50_000 }), (err) => err.status === 409 && err.message === WORDS);
+    assert.deepEqual(asked, ['his', { fenced: true }], 'his Start, then the recorder\'s fenced start, which Try it refused');
+    assert.equal(await w.runs(), 0, 'no browser run against his unfenced app');
+    assert.ok(!w.emitted.some((e) => e.outcome === 'recording'), 'nothing said a recording started');
+    assert.deepEqual(w.steps, [], 'nothing stopped');
+    assert.equal(w.local.jobs.get('auto-job').server, his, 'the app is still his');
+    assert.equal(his.status, 'running', 'his server is left running');
+  } finally { await w.done(); }
+});
+
+test('an Auto recording of a job with no database setting that has no fence for its browser run starts no browser: it is refused with the sentence and its app is stopped', { timeout: 120_000, skip: NEEDS_SANDBOX }, async () => {
+  const NO_FENCE = 'Auto could not fence its app off from your database on this computer, so it made no recording.';
+  const w = await noDbWorld();
+  try {
+    w.local.autoProfile = () => null; // as if the app's fence were not there to be had
+    await assert.rejects(w.door.record('auto-job', { waitMs: 50_000 }), (err) => err.status === 409 && err.message === NO_FENCE);
+    assert.equal(await w.runs(), 0, 'no browser run, fenced or not');
+    assert.equal((await w.door.view('auto-job')).problem.message, NO_FENCE, 'the Test step says why');
+    assert.deepEqual(w.steps, ['stopped auto-job'], 'the app it started is stopped');
+  } finally { await w.done(); }
 });

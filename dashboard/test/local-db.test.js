@@ -70,7 +70,8 @@ async function setup({ version = 170000, original = true, connections = 0, fixtu
   const log = async () => parse(await fs.readFile(logFile, 'utf8'));
   const logNow = () => parse(readFileSync(logFile, 'utf8'));
   const pg = async () => JSON.parse(await fs.readFile(stateFile, 'utf8')).databases;
-  const done = () => fs.rm(root, { recursive: true, force: true });
+  // On Windows a stopped app's own children may still hold the folder for a moment: the removal tries again.
+  const done = () => fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   return { root, local, f, log, logNow, pg, done };
 }
 
