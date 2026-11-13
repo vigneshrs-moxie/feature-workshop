@@ -1849,11 +1849,14 @@ export async function createRunner(config) {
   /**
    * The name a restarted job was given: the `name` of the old job's last name line (whatever its `by`; every line in the
    * file, since the restart's boundary is already written), else read back from its slug (a job from before names were
-   * recorded), else null (today's short title).
+   * recorded, or its last line holds no name), else null (today's short title). A recorded name counts only when it is one:
+   * words of a-z and 0-9 joined by single hyphens, at most 60 characters (an old short title can be more than five words,
+   * so not ownName).
    */
   async function keptName(oldDir, ticket, profile) {
-    const line = (await state.auditAll().catch(() => [])).filter((e) => e?.featureDir === oldDir && e.action === 'name' && typeof e.name === 'string' && /^[a-z0-9-]{1,60}$/.test(e.name)).at(-1);
-    return line?.name ?? slugName(path.basename(oldDir), ticket, profile);
+    const recorded = (await state.auditAll().catch(() => [])).filter((e) => e?.featureDir === oldDir && e.action === 'name').at(-1)?.name;
+    const isName = typeof recorded === 'string' && recorded.length <= 60 && /^[a-z0-9]+(-[a-z0-9]+)*$/.test(recorded);
+    return isName ? recorded : slugName(path.basename(oldDir), ticket, profile);
   }
 
   /** Change a job's Auto record under the Auto lock (fn(prev) returns the next record, or null for no change); options.json follows. */

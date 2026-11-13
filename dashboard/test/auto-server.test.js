@@ -5338,14 +5338,7 @@ test('a second job on the same name gets -2', { timeout: 30_000 }, async () => {
     await w.until(() => w.texts.length === 2, 'both first messages');
     assert.match(w.texts[1], /\nBranch: feature\/orbit-471-employee-status-filter-2 /, 'the branch follows the folder');
     await w.idle();
-    // His Start and a tag start at once on one ticket (fix round 1, one start per ticket): never one folder. Whichever
-    // holds the ticket first goes on; his Start behind Auto's is refused, Auto's start behind his is not (its starter
-    // never picks a ticket that is starting: see the tests below), so then both start, in folders of their own.
-    const [a, b] = await Promise.allSettled([w.hooks.startJob(ticketBody(w)), w.hooks.startJob(ticketBody(w, { options: { auto: true, level: 1 } }), { autoStart: { tag: 'auto' } })]);
-    assert.equal(b.status, 'fulfilled', String(b.reason));
-    if (a.status === 'fulfilled') assert.deepEqual([a.value.slug, b.value.slug].sort(), ['orbit-471-employee-status-filter-3', 'orbit-471-employee-status-filter-4']);
-    else assert.equal(a.reason.status, 409);
-    await w.idle();
+    // His Start and a tag start of one ticket, in each order: the two tests after "a start that fails gives the ticket back".
     // Two of his Starts at once on one ticket: one starts, the other is refused.
     const two = await Promise.allSettled([w.hooks.startJob(ticketBody(w)), w.hooks.startJob(ticketBody(w))]);
     assert.deepEqual(two.map((r) => r.status).sort(), ['fulfilled', 'rejected']);
@@ -6229,5 +6222,62 @@ test('he writes to a job that is waiting for its turn: it stops on the next pass
     await w.pass();
     assert.equal((await w.runner.read.snapshot()).autoQueue.testing, null);
     assert.deepEqual((await gateSends(w)).filter((s) => s.by === 'auto'), [], 'Auto sent no go over his message');
+  } finally { await w.stop(); }
+});
+
+// ---------- Task 20, follow-up: the two start orders are pinned; a recorded name is checked as a name ----------
+
+test('Auto\'s start is in flight: his Start on the same ticket is refused with the sentence', { timeout: 60_000 }, async () => {
+  const namer = gatedNamer();
+  const w = await world({ auto: null, namer });
+  try {
+    const autos = w.hooks.startJob(ticketBody(w, { options: { auto: true, level: 1 } }), { autoStart: { tag: 'auto' } });
+    await w.until(() => namer.calls.length === 1, 'Auto\'s start to ask for a name');
+    await assert.rejects(w.hooks.startJob(ticketBody(w)), (err) => err.status === 409 && err.message === STARTING_471);
+    assert.equal(namer.calls.length, 1, 'his refused Start asked nothing');
+    namer.open();
+    assert.equal((await autos).slug, 'orbit-471-employee-status-filter');
+    assert.deepEqual(await folders471(w), ['orbit-471-employee-status-filter'], 'one job');
+    assert.equal((await sessionsOf(w))[path.join(w.dirs.features, 'orbit-471-employee-status-filter')]?.auto?.by, 'tag');
+  } finally { await w.stop(); }
+});
+
+test('his Start is in flight: Auto\'s start behind it is never refused', { timeout: 60_000 }, async () => {
+  // Auto's own pass never gets here (its view counts a starting ticket as having a job); a tag start through the
+  // handler while his is held is still let through, into a folder of its own.
+  const namer = gatedNamer();
+  const w = await world({ auto: null, namer });
+  try {
+    const his = w.hooks.startJob(ticketBody(w));
+    await w.until(() => namer.calls.length === 1, 'his start to ask for a name');
+    const autos = await w.hooks.startJob(ticketBody(w, { options: { auto: true, level: 1 } }), { autoStart: { tag: 'auto' } });
+    assert.equal(autos.slug, 'orbit-471-employee-status-filter', 'Auto\'s start is not refused, and its name came at once');
+    namer.open();
+    assert.equal((await his).slug, 'orbit-471-employee-status-filter-2', 'his lands beside it');
+    assert.deepEqual((await folders471(w)).sort(), ['orbit-471-employee-status-filter', 'orbit-471-employee-status-filter-2']);
+  } finally { await w.stop(); }
+});
+
+test('a recorded name that is not a name is not used', { timeout: 60_000 }, async () => {
+  const namer = namerOf('status-filter');
+  const w = await world({ auto: null, namer });
+  try {
+    await fs.writeFile(path.join(w.dirs.repo, 'starbase.md'), '---\nname: Work\ngithub: acme-org/work\nslug: "w{n}-{title}"\nbranch: "work/{kind}/{title}"\n---\nNotes.\n');
+    const out = await w.hooks.startJob(ticketBody(w));
+    assert.equal(out.slug, 'w471-status-filter');
+    await w.idle();
+    const dir = path.join(w.dirs.features, out.slug);
+    let restarts = 0;
+    for (const bad of ['-x', 'x--', 'a--b', '', 'a'.repeat(61)]) {
+      // Something other than Starbase wrote a name line for the job.
+      await fs.appendFile(path.join(w.dirs.state, 'audit.jsonl'), `${JSON.stringify({ at: new Date().toISOString(), action: 'name', featureDir: dir, slug: out.slug, name: bad, by: 'model' })}\n`);
+      const res = await w.runner.handle({ type: 'restart', slug: out.slug, model: restarts % 2 ? OPUS : FABLE }, { from: 'local' });
+      restarts++;
+      assert.equal(res.slug, out.slug, JSON.stringify(bad));
+      await w.until(() => w.texts.length === restarts + 1, 'the new job\'s first message');
+      assert.match(w.texts.at(-1), /\nBranch: work\/feature\/status-filter \(/, `${JSON.stringify(bad)}: read back from the slug instead`);
+      assert.equal((await nameLines(w)).at(-1).name, 'status-filter');
+      await w.idle();
+    }
   } finally { await w.stop(); }
 });
