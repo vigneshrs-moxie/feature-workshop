@@ -69,7 +69,8 @@ function cut(s) {
 }
 
 /** A line without its markdown marks (heading, quote, list, bold), its spaces collapsed. */
-const plain = (raw) => raw.trim().replace(/^(#{1,6}\s+|>\s*|[-*•]\s+)/, '').replace(/\*\*|__/g, '').replace(/\s+/g, ' ').trim();
+const plain = (raw) => raw.trim().replace(/^(#{1,6}\s+|>\s*|[-*•]\s+)/, '').replace(/\*\*|__/g, '')
+  .replace(/(^|\s)\*+(?=\p{L})/gu, '$1').replace(/(?<=[\p{L}:.!?])\*+(?=[\s:,;!?]|$)/gu, '').replace(/\s+/g, ' ').trim();
 
 /** One plain line from a text: its first line that says something, without markdown marks, secrets hidden. */
 function oneLine(text) {
@@ -90,10 +91,12 @@ function oneLine(text) {
 //   - a label with no value: a markdown heading or a short line ending in ":" ("## Context", "Read first:",
 //     "Inputs:"), with the list under it; a heading or "Task:" that names the task ("## Task", "Your task:")
 //     makes the next line the task
-//   - a role line ("You are the Builder for this job"); anything after it on the line is the task
-//     ("You are the implementer for this job: build the notes table" → "Build the notes table")
+//   - a role line ("You are the Builder for this job"); what follows it after a ":" or a dash is the task
+//     when it is not boilerplate itself ("You are the implementer for this job: build the notes table" →
+//     "Build the notes table"); after a comma or a full stop it is not ("…for job x (stage Build).")
 //   - a short "Read / Follow / Use / Load / See … .md (first, rules, skill …)" line, "Return the report …",
-//     "This is a bug job …", a path alone, a marker line
+//     "This is a bug job …", a path alone, a separator (only marker characters) or a marked block's edge
+// Prose under a "## Context" heading is not skipped: its first line is taken as the task (left as is).
 // A "Task: …" line gives its value. A long sentence is never skipped as boilerplate.
 const KEYS = 'stage|level|job|slug|ticket|(?:private |job |feature )?folder|repo(?:sitory)?|worktree|(?:feature |base )?branch|base(?: commit)?|commit|range|diff(?: range)?|spec|plan|(?:implementation |test |quick )?plan|findings|diagnosis|reproduction|artifacts?|paths?|inputs?|(?:job )?options|gates? file|(?:the human\'?s )?(?:authori[sz]ation|answers?)|checklists?|layer(?: tags)?|skipped(?: stages)?|provided(?: documents)?|stand-?ins?|facts|versions?|private';
 const SHORT_KEYS = 'title|kind|model|effort|scope|round|rules|worker rules|report|note|notes';
@@ -115,6 +118,15 @@ const SHORT_WORDS = 10;
 /** A label with no value: at most this many words. */
 const LABEL_WORDS = 4;
 const words = (l) => l.split(' ').filter(Boolean).length;
+/** A separator: a line made only of marker characters ("---", "* * *", "#######"). */
+const MARKER = /^(?=(?:\s*[=\-*_~<>#]){3})[=\-*_~<>#\s]+$/;
+/** A marked block's edge ("===== FACTS START =====", "--- end ---"): runs of = - ~ < > # at both ends (not * or _: emphasis). */
+const FENCED = /^[=\-~<>#]{3,}\s.*\s[=\-~<>#]{3,}$/;
+/** An opening line to skip: a firm key, or a short loose key, file-to-read line or path alone. */
+function boilerplate(l) {
+  const short = words(l) <= SHORT_WORDS;
+  return KEY_LINE.test(l) || (short && (SHORT_KEY_LINE.test(l) || OPENING.some((re) => re.test(l)) || /^[~/.][^\s]*$/.test(l)));
+}
 const capital = (l) => l.charAt(0).toUpperCase() + l.slice(1);
 
 /**
@@ -132,13 +144,16 @@ export function firstInstruction(text) {
     const t = raw.trim();
     if (!t) continue;
     if (++seen > 60) break;
-    if (/^<\/?[\w-]+(\s[^>]*)?>$/.test(t) || /^(?:[=\-*_~<>]{3,}|#{7,})/.test(t)) continue; // a lone tag, a marker line (not a heading)
+    if (/^<\/?[\w-]+(\s[^>]*)?>$/.test(t) || MARKER.test(t) || FENCED.test(t)) continue; // a lone tag, a marker line
     const l = plain(t);
     if (!l) continue;
-    if (next) return cut(l.replace(/:$/, ''));
+    const heading = /^#{1,6}\s/.test(t);
+    if (next) {
+      if (heading) continue; // "## Task" then "### Details": the task is the first line that is not a heading
+      return cut(l.replace(/:$/, ''));
+    }
     if (underLabel && LIST_ITEM.test(t)) continue;
     underLabel = false;
-    const heading = /^#{1,6}\s/.test(t);
     const bare = l.replace(/\s*:$/, '');
     if (TASK_LABEL.test(l)) { next = true; continue; } // "Task:", "## Your task", "**Task**"
     const task = TASK_LINE.exec(l);
@@ -146,13 +161,12 @@ export function firstInstruction(text) {
     if ((heading || /:$/.test(l)) && words(bare) <= LABEL_WORDS) { underLabel = true; continue; } // "## Context", "Read first:"
     const role = ROLE.exec(l);
     if (role) {
-      const rest = l.slice(role[0].length).replace(/^[\s:.,;—–-]+/, '');
-      if (words(rest) >= 2) return cut(capital(rest));
+      // Only what follows a ":" or a dash is the role line's task, and only if it is not boilerplate itself.
+      const tail = /^\s*(?::|—|–| - )\s*(.+)$/.exec(l.slice(role[0].length))?.[1]?.trim() ?? '';
+      if (words(tail) >= 2 && !boilerplate(tail)) return cut(capital(tail.replace(/:$/, '')));
       continue;
     }
-    const short = words(l) <= SHORT_WORDS;
-    if (KEY_LINE.test(l) || (short && SHORT_KEY_LINE.test(l))) continue;
-    if (short && (OPENING.some((re) => re.test(l)) || /^[~/.][^\s]*$/.test(l))) continue;
+    if (boilerplate(l)) continue;
     return cut(l.replace(/:$/, ''));
   }
   return null;

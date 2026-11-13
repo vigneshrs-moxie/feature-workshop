@@ -530,3 +530,22 @@ test('the opening skip is loose: a role line keeps what follows it; long “Use 
   assert.equal(firstInstruction(`Stage: implement\n${report}`), report);
   assert.equal(firstInstruction('Use ~/.claude/skills/workflow-common/worker-rules.md.\nReport: as usual.\nFix the login page.'), 'Fix the login page.', 'short ones are still skipped');
 });
+
+// ---------- Fix round 3 ----------
+
+test('a role line’s tail is the task only after a colon or a dash, and only when it is not boilerplate itself', () => {
+  const next = '\nAdd the export button to the notes page.';
+  assert.equal(firstInstruction(`You are the feature-implementer for job notes-on-customers (stage Build).${next}`), 'Add the export button to the notes page.');
+  assert.equal(firstInstruction(`You are the Builder for this job, working in /tmp/sample-repo-notes${next}`), 'Add the export button to the notes page.');
+  assert.equal(firstInstruction(`You are the Builder for this job. Read ~/.claude/rules.md first.${next}`), 'Add the export button to the notes page.');
+  assert.equal(firstInstruction('You are the feature-implementer for job notes-on-customers (stage Build).'), null, 'nothing else: the description is used');
+  assert.equal(firstInstruction(`You are the Builder for this job: read ~/.claude/rules.md first.${next}`), 'Add the export button to the notes page.', 'a boilerplate tail after a colon is skipped too');
+  assert.equal(firstInstruction('You are the Builder for this job — fix the date filter.'), 'Fix the date filter.');
+});
+
+test('emphasis is not a separator; after “## Task” further headings are skipped', () => {
+  assert.equal(firstInstruction('***Important:*** fix the login page on Safari.'), 'Important: fix the login page on Safari.');
+  assert.equal(firstInstruction('---\n* * *\n===== FACTS START =====\nFix the login page.'), 'Fix the login page.', 'separators and a block’s edge are skipped');
+  assert.equal(firstInstruction('## Task\n### Details\n#### Step 3\nBuild the notes table.'), 'Build the notes table.');
+  assert.equal(firstInstruction('Run the checks in src/*.js and keep test_plan.md as it is.'), 'Run the checks in src/*.js and keep test_plan.md as it is.', 'a star in a path stays');
+});
