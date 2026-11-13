@@ -643,3 +643,42 @@ test('demo Foreman: a job whose description says (demo: migrate) asks to run npm
   assert.ok(!cards.includes('npm run db:migrate'), 'a job without the words never asks for it');
   await fs.rm(root, { recursive: true, force: true });
 });
+
+test('the demo has the made-up long job (test/fixtures/long-job.js) as the runner reads it: its conversation, review files, findings, commits and recording', { timeout: 120_000 }, async () => {
+  const { LONG_JOB, LONG_JOB_COUNTS, longJobFacts } = await import('./fixtures/long-job.js');
+  const c = LONG_JOB_COUNTS[52];
+  const slug = LONG_JOB[52].slug;
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'workshop-demo-long-'));
+  const hadDir = Object.hasOwn(process.env, 'STARBASE_DIR');
+  const oldDir = process.env.STARBASE_DIR;
+  process.env.STARBASE_DIR = path.join(root, 'state');
+  let w = null;
+  try {
+    w = await wholeDemo(root);
+    const job = await w.runner.read.job(slug);
+    assert.deepEqual([job.stage, job.stageState, job.gate?.briefNumber, job.gate?.nextStage], ['review', 'waiting_for_you', c.briefs, 'pr1']);
+    // The same conversation as the fixture's: the same kinds in the same order, the same brief headlines.
+    const facts = longJobFacts({ size: 52 });
+    assert.equal(job.thread.length, c.items);
+    assert.equal(job.threadMore, false);
+    assert.deepEqual(job.thread.map((it) => it.kind), facts.thread.map((it) => it.kind));
+    assert.deepEqual(job.thread.filter((it) => it.kind === 'brief').map((it) => it.headline), facts.thread.filter((it) => it.kind === 'brief').map((it) => it.headline));
+    // The step facts: 22 review files, 2 findings (1 open), 14 checks passed, every plan step built from 9 commits over 14 files.
+    assert.equal(job.page.docs.review.length, c.reviewFiles);
+    assert.deepEqual(job.page.review.rows.map((r) => r.status), facts.detail.page.review.rows.map((r) => r.status));
+    assert.equal(job.page.checks.passed, c.checks);
+    assert.deepEqual(job.page.plan.steps.map((s) => s.state), Array(c.planSteps).fill('done'));
+    const { commits } = await w.runner.read.commits(slug);
+    assert.equal(commits.length, c.commits);
+    assert.equal(new Set(commits.flatMap((x) => x.files.map((f) => f.path))).size, c.commitFiles);
+    assert.equal(job.page.prs.length, c.prs);
+    // The recording: its evidence record, one line per check.
+    const view = await w.runner.local.evidence.view(slug);
+    assert.equal(view.evidence?.criteria.length, c.checks);
+  } finally {
+    w?.runner.stop();
+    if (hadDir) process.env.STARBASE_DIR = oldDir;
+    else delete process.env.STARBASE_DIR;
+    await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }).catch(() => {});
+  }
+});

@@ -1343,6 +1343,71 @@ async function autoJobs() {
   await fs.appendFile(path.join(ROOT, 'state', 'audit.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
 }
 
+// ---------- the new job page's long job (the job page rebuild, Task 2) ----------
+
+// Crew schedule export: the made-up long job of test/fixtures/long-job.js (52 conversation items, 22
+// review files, 2 findings, 9 commits over 14 files, a recording, three PRs not started, the gate
+// open at Review), written the way the runner finds a job: its folder (status.json, options.json,
+// the briefs and documents at their times), its branch in the demo app, and its conversation as
+// audit lines. Its times end ten minutes before the demo starts.
+async function longJob() {
+  const { longJobSource, LONG_JOB_START } = await import('../test/fixtures/long-job.js');
+  const { describeDoc } = await import('../lib/docs.js');
+  const span = Date.parse(longJobSource({ size: 52 }).endAt) - Date.parse(LONG_JOB_START);
+  const src = longJobSource({ size: 52, start: iso(span + 10 * MIN) });
+  const { slug, title, gate } = src;
+  const dir = path.join(FEATURES, slug);
+  const description = 'Let office managers download the crew schedule for a week as a CSV file.';
+
+  // Its branch: each commit writes its files at its own time.
+  const git = (args, when) => execFileSync('git', ['-C', ACME, ...args], { stdio: 'pipe', env: when ? { ...process.env, GIT_AUTHOR_DATE: when, GIT_COMMITTER_DATE: when } : process.env }).toString().trim();
+  git(['switch', '-q', '-c', src.branch, 'main']);
+  for (const c of src.commits) {
+    for (const f of c.files) {
+      const file = path.join(ACME, f.path);
+      await fs.mkdir(path.dirname(file), { recursive: true });
+      const lines = Array.from({ length: f.added }, (_, i) => `export const line${c.short}${i} = ${i};`);
+      await fs.appendFile(file, `${lines.join('\n')}\n`);
+    }
+    git(['add', '-A']);
+    git(['commit', '-q', '-m', c.subject], c.date);
+  }
+  git(['switch', '-q', 'main']);
+
+  const docs = src.docs.filter((d) => d.file !== 'spec' && !d.file.startsWith('briefs/'));
+  const versioned = docs.filter((d) => d.version != null).map((d) => ({ name: describeDoc(d.file).name, path: d.file, version: d.version }));
+  await feature(slug, {
+    status: {
+      title, kind: 'feature', route: 'large', stage: 'review', stage_state: 'waiting_for_you', waiting_for: 'approval', waiting_since: gate.waitingSince,
+      brief: { number: gate.briefNumber, path: gate.briefFile, headline: gate.headline },
+      questions: src.questions, decided_on_your_behalf: src.decided, next_proposed: gate.nextProposed,
+      spec: { path: path.join(dir, 'spec.md'), version: '0.4', status: 'APPROVED' },
+      artifacts: [...versioned, { name: 'Wireframes', path: 'wireframes.html', version: src.wireframes.version }],
+      branch: src.branch, base_sha: BASE, repo, prs: [{ number: 1, label: 'fork → org branch', url: null, state: 'not_started' }],
+      ...suggestion(description, 3), updated_at: src.endAt,
+    },
+    briefs: src.briefs.map((b) => ({ stage: b.stage, text: b.text })),
+    files: { ...Object.fromEntries(docs.map((d) => [d.file, d.text])), 'wireframes.html': await fs.readFile(new URL('./wireframes.html', import.meta.url), 'utf8') },
+  });
+  await options(slug, 3, description);
+  for (const d of src.docs.filter((x) => x.file !== 'spec')) {
+    const when = new Date(d.updatedAt);
+    await fs.utimes(path.join(dir, d.file), when, when);
+  }
+  const wf = new Date(src.wireframes.updatedAt);
+  await fs.utimes(path.join(dir, 'wireframes.html'), wf, wf);
+
+  // The conversation: his messages, the Foreman's replies and the small notes, as the runner logs them.
+  let run = 0;
+  const lines = src.audit.map((e) => ({
+    ...e, featureDir: dir, slug, sessionId: null,
+    ...(e.action === 'run-ended' ? { runId: `demo-long-run-${++run}`, costUsd: 1.25 } : {}),
+    ...(e.action === 'send' ? { model: FOREMAN_MODEL } : {}),
+  }));
+  await fs.mkdir(path.join(ROOT, 'state'), { recursive: true });
+  await fs.appendFile(path.join(ROOT, 'state', 'audit.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+}
+
 /** Records joining the demo's own sessions.json (its state folder, never ~/.starbase), each merged into the one already there. */
 async function mergeSessions(records) {
   const file = path.join(ROOT, 'state', 'sessions.json');
@@ -1426,6 +1491,7 @@ export async function buildDemo({ root: asked = path.join(os.tmpdir(), 'starbase
   await widgetThread();
   await playSecrets();
   await autoJobs();
+  await longJob();
   await demoUsage();
   await (await import('./demo-stacks.js')).demoStacks({ features: FEATURES, root: ROOT }); // packet V: three demo stacks
   return { root: ROOT, features: FEATURES, projects: path.dirname(PROJECTS), acme: ACME, state: path.join(ROOT, 'state'), logFiles };
