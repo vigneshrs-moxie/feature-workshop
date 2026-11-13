@@ -349,6 +349,13 @@ const AGENT_PREFIX = /^(feature-review-|bug-review-)/;
 const FINDING_COL = /^(findings?|issues?|summary|description)\b/;
 const LENS_COL = /^(lens|lenses|reviewer)\b/;
 const STATUS_COL = /^(status|resolution|outcome)\b/;
+// A Fix / Fixed in / Commit column, and a cell in it that starts with a commit (7 to 40 hex, a digit among them): a fix made.
+const FIX_COL = /^(fix(ed)?|commit)\b/;
+const FIX_COMMIT = /^[\s*_`]*(?=[0-9a-f]*\d)[0-9a-f]{7,40}\b/i;
+// A heading that says the findings under it were fixed ("## Fixed in fix round 1", "## Resolved"), not that they are still to fix.
+const FIXED_HEADING = /\b(fixed|resolved)\b/i;
+const NOT_FIXED_HEADING = /\b(not|never)\s+(yet\s+)?(been\s+)?(fixed|resolved)\b|\bto be (fixed|resolved)\b|\b(open|remaining|still)\b/i;
+const fixedHeading = (line) => FIXED_HEADING.test(line) && !NOT_FIXED_HEADING.test(line);
 const RULE_CELL = /^:?-+:?$/;
 
 /** One table line's cells: split on pipes not escaped (\|) or inside `code`, bold marks dropped. */
@@ -376,7 +383,7 @@ function findingColumns(cells) {
   const sev = names.indexOf('severity');
   if (sev < 0) return null;
   const at = (re) => names.findIndex((n) => re.test(n));
-  return { sev, lens: at(LENS_COL), status: at(STATUS_COL), text: at(FINDING_COL) };
+  return { sev, lens: at(LENS_COL), status: at(STATUS_COL), text: at(FINDING_COL), fix: at(FIX_COL) };
 }
 
 /** Where the finding's words are: its Finding, Issue, Summary or Description cell, else the longest other cell (-1: none). */
@@ -388,10 +395,14 @@ function findingTextAt(cells, cols) {
   return best;
 }
 
-function findingStatus(cells, cols) {
+// A row's status: its Status cell first; with that cell empty (or no Status column), a table under a
+// heading that says its findings were fixed, or a Fix cell that names a commit, is fixed.
+function findingStatus(cells, cols, underFixed = false) {
   const status = cols.status >= 0 ? cells[cols.status] ?? '' : '';
   if (FIXED_STATUS.test(status)) return 'fixed';
   if (NOT_DOING.test(status) || cells.some((c) => TAKEN_BACK.test(c))) return 'not-doing';
+  if (status.trim()) return 'open';
+  if (underFixed || (cols.fix >= 0 && FIX_COMMIT.test(cells[cols.fix] ?? ''))) return 'fixed';
   return 'open';
 }
 
@@ -430,7 +441,9 @@ function findingRows(lines) {
   const out = [];
   let cols;
   let header = true;
+  let underFixed = false; // the latest heading says the findings under it were fixed
   for (const line of lines) {
+    if (/^\s*#/.test(line)) underFixed = fixedHeading(line);
     if (!line.trim().startsWith('|')) { header = true; continue; }
     const cells = tableCells(line);
     if (header) { cols = findingColumns(cells); header = false; continue; }
@@ -439,7 +452,7 @@ function findingRows(lines) {
     const text = textAt >= 0 ? cells[textAt] ?? '' : '';
     // A finding with words is never dropped: any severity maps, any lens word lensType knows maps.
     if (!text) continue;
-    out.push({ lens: cols.lens >= 0 ? findingLens(cells[cols.lens]) : null, severity: findingSeverity(cells[cols.sev]), text: cutFinding(text), status: findingStatus(cells, cols) });
+    out.push({ lens: cols.lens >= 0 ? findingLens(cells[cols.lens]) : null, severity: findingSeverity(cells[cols.sev]), text: cutFinding(text), status: findingStatus(cells, cols, underFixed) });
   }
   return out;
 }
@@ -452,7 +465,9 @@ function findingRows(lines) {
  * name, or the first of a list, maps too; null without a Lens column). Critical or blocker is a
  * blocker, high, major or important a major, anything else a minor. Status fixed or resolved is
  * fixed; a Status of deferred, won't fix or not doing, or a row marked dropped or false positive
- * in any cell, is not-doing; the rest open. A later round ("## Round 2") replaces the earlier
+ * in any cell, is not-doing; with the Status cell empty or no Status column, a row under a heading
+ * that says its findings were fixed ("## Fixed in fix round 1", not one that also says open or not
+ * yet), or whose Fix / Fixed in / Commit cell starts with a commit, is fixed; the rest open. A later round ("## Round 2") replaces the earlier
  * ones, and one that says nothing was found has no rows. The words are cut at FINDING_TEXT_MAX
  * and the first FINDING_ROWS_MAX rows kept. No findings table: []. Pure.
  */

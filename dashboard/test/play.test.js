@@ -1232,3 +1232,43 @@ test('reviewRows: only a heading that names a round is a later round, not any he
   assert.deepEqual(reviewRows('# Review v1\n| Severity | Finding |\n|-|-|\n| Major | Old |\n# Review v2\n| Severity | Finding |\n|-|-|\n| Minor | New |\n').map((r) => r.text), ['New']);
   assert.deepEqual(reviewRows('## First round\n| Severity | Finding |\n|-|-|\n| Major | Old |\n## Second round\n| Severity | Finding |\n|-|-|\n| Minor | New |\n').map((r) => r.text), ['New']);
 });
+
+// ---------- The job page rebuild, Task 1: a review's fixed findings read as fixed ----------
+
+test('reviewRows: a table under a heading that says the findings were fixed reads them as fixed, with no Status column', () => {
+  // The shape a fix round leaves: the fixed findings in their own table with Fix and Re-review
+  // columns and no Status column, then a later fix round with no findings table of its own.
+  const text = [
+    '# Review v2',
+    '',
+    '## Fixed in fix round 1 (confirmed, re-reviewed clean)',
+    '',
+    '| Id | Severity | Finding | Fix | Re-review |',
+    '|---|---|---|---|---|',
+    '| M1 | Major | The list saves twice | a1b2c3d4: one save per click | review/errors-r2.md clean |',
+    '| M2 | Major | A wrong total on page two | e5f6a7b8: total from the query | review/tests-r2.md clean |',
+    '',
+    '## Fix round 2 (your yes, brief 14) — HEAD 9c8d7e6f',
+    '',
+    'The two follow-ups are in; nothing new was found.',
+  ].join('\n');
+  assert.deepEqual(reviewRows(text).map((r) => [r.text, r.status]), [
+    ['The list saves twice', 'fixed'],
+    ['A wrong total on page two', 'fixed'],
+  ]);
+  // A heading that says the findings are not fixed yet, or says nothing of fixing, leaves them open;
+  // a Status cell still wins over the heading.
+  const table = '| Severity | Finding | Status |\n|---|---|---|\n| Major | Saves twice | |\n| Minor | A typo | Open |\n| Minor | Later | Deferred |\n';
+  assert.deepEqual(reviewRows(`## Findings not fixed yet\n${table}`).map((r) => r.status), ['open', 'open', 'not-doing']);
+  assert.deepEqual(reviewRows(`## Open findings\n${table}`).map((r) => r.status), ['open', 'open', 'not-doing']);
+  assert.deepEqual(reviewRows(`## Resolved\n${table}`).map((r) => r.status), ['fixed', 'open', 'not-doing']);
+  // A Fix column holding a commit, with no Status column, is a fix that was made; a suggested fix is not.
+  const fixCol = '| Severity | Finding | Fix |\n|---|---|---|\n| Major | Saves twice | c247104d: one save per click |\n| Major | Slow list | Add an index |\n';
+  assert.deepEqual(reviewRows(fixCol).map((r) => r.status), ['fixed', 'open']);
+});
+
+test('reviewRows: a heading that says some findings are fixed and some open leaves them to their Status cells', () => {
+  const table = '| Severity | Finding | Status |\n|---|---|---|\n| Major | Saves twice | |\n| Minor | A typo | Fixed |\n';
+  assert.deepEqual(reviewRows(`## Findings (1 fixed, 1 open)\n${table}`).map((r) => r.status), ['open', 'fixed']);
+  assert.deepEqual(reviewRows(`## Still to be resolved\n${table}`).map((r) => r.status), ['open', 'fixed']);
+});
