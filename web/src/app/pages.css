@@ -21,6 +21,8 @@
 .seg .seg-tab { border-bottom: 0; border-radius: var(--radius-sm); min-height: var(--control-h-sm); }
 .seg:has(> .seg-tab) { padding: 3px; }
 .seg .seg-tab[aria-selected='true'] { background: var(--bg-3); box-shadow: inset 0 0 0 1px var(--border-2); }
+/* In a page's heading row the tab bar lines up with the title (app.css gives .seg a top margin for elsewhere). */
+.page-head > .seg { margin: 0; }
 .seg-count { font-size: var(--text-xs); color: var(--text-3); font-variant-numeric: tabular-nums; }
 
 /* ---------- The next-step bar: a soft tint of its tone with a 3 px bar on the left, no frame ---------- */
@@ -396,6 +398,21 @@ html[data-theme] .desk-console .gate-card.perm-card { padding: 0; border: 0; bor
 .jobs-empty-actions { justify-content: flex-start; }
 .jobs-folds { display: flex; flex-direction: column; gap: var(--space-2); }
 
+/* ---------- Jobs: the Yours and Auto tabs (home/AutoJobs.tsx): Auto's three groups as columns, one after another on a phone ---------- */
+.sb-auto-tab { display: flex; flex-direction: column; gap: var(--space-4); }
+.sb-auto-paused { display: flex; align-items: center; gap: var(--space-2); margin: 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); background: var(--status-warn-bg); color: var(--status-warn); font-size: var(--text-sm); }
+.sb-auto-groups { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-5); align-items: start; }
+.sb-auto-rows { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--space-2); }
+.sb-auto-row { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-1); padding: var(--space-3); border: 1px solid var(--border-2); border-radius: var(--card-radius); background: var(--surface-1); box-shadow: var(--elev-xs); }
+.sb-auto-row.can-peek { cursor: pointer; }
+.sb-auto-row.is-peeked { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), var(--elev-xs); }
+.sb-auto-row:focus-within { box-shadow: 0 0 0 2px var(--surface-0), 0 0 0 4px var(--focus-ring); }
+.sb-auto-reason { font-size: var(--text-sm); color: var(--text-2); line-height: 1.4; }
+.sb-auto-facts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); font-size: var(--text-sm); color: var(--text-2); }
+@media (max-width: 760px) {
+  .sb-auto-groups { grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
+}
+
 /* The stop's own tooltip: at once, on hover and on keyboard focus. */
 .stop-link.has-tip { cursor: default; }
 .stop-link.has-tip:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
@@ -525,3 +542,17 @@ a.map-pr { min-height: 30px; }
   .text-input, .answer-other .text-input { min-height: 40px; }
   .settings-rail-row { min-height: 40px; justify-content: center; }
 }
+
+/* ---------- The Inbox's Auto tab (views/Inbox.tsx InboxAuto), the Desk's Auto mark, and Auto start's N ---------- */
+.sb-inbox-auto { display: flex; flex-direction: column; gap: var(--space-5); }
+.sb-inbox-auto-head { margin: 0; font: inherit; }
+.sb-inbox-auto-rows { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--space-2); }
+.sb-inbox-auto-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-3); padding: var(--space-2) var(--space-3); border: 1px solid var(--border-2); border-radius: var(--radius-md); background: var(--surface-1); }
+.sb-inbox-auto-row .ticket-title { min-width: 0; overflow-wrap: anywhere; }
+.sb-inbox-auto-reason { flex-basis: 100%; font-size: var(--text-sm); color: var(--text-2); line-height: 1.4; }
+/* On a phone the job links get the same tap room as the other links (above), given back so nothing moves. */
+@media (max-width: 760px) {
+  .sb-inbox-auto-row a.ticket-title { padding-block: 11px; margin-block: -11px; }
+}
+.desk-item-top .sb-desk-auto { flex: none; }
+.sb-auto-start-max { display: flex; align-items: center; gap: var(--space-2); }

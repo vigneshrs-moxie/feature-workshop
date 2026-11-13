@@ -69,8 +69,8 @@ export function OptionsEditor({ slug, level: jobLevel, stage = null, kind = null
   const meta = state.meta;
   const levels = meta?.levels;
   const names = lensNames(meta);
-  // Auto is on for the job (and its level is one Auto works at): the hand test is not asked.
-  const autoOn = state.jobs.some((j) => j.slug === slug && j.auto?.on === true && !(typeof j.level === 'number' && j.level > 2));
+  // Auto is on for the job, at any level: the hand test is not asked.
+  const autoOn = state.jobs.some((j) => j.slug === slug && j.auto?.on === true);
   // Only the stages and lenses this kind of job has (a job with no kind is a feature).
   const lists = optionLists(meta, kind === 'bug' ? 'bug' : 'feature');
   const id = useId();

@@ -25,10 +25,12 @@ export function Field({ label, hint, problem, className = '', children }: { labe
 /**
  * A whole number with − and + (never the browser's spinner). Typing works too; the value is
  * clamped to min..max when it is stepped. onChange gets the text as typed, like an <input>.
+ * onStep, when given, gets a step (− or +, or an arrow key) instead of onChange.
  */
-export function NumberInput({ value, onChange, min, max, step = 1, disabled = false, id, className = '', 'aria-label': label, title }: {
+export function NumberInput({ value, onChange, onStep, min, max, step = 1, disabled = false, id, className = '', 'aria-label': label, title }: {
   value: string | number;
   onChange(value: string): void;
+  onStep?(value: string): void;
   min?: number;
   max?: number;
   step?: number;
@@ -40,7 +42,7 @@ export function NumberInput({ value, onChange, min, max, step = 1, disabled = fa
 }) {
   const n = Number(value);
   const clamp = (v: number) => Math.min(max ?? Infinity, Math.max(min ?? -Infinity, v));
-  const by = (d: number) => onChange(String(clamp((Number.isFinite(n) ? n : (min ?? 0)) + d)));
+  const by = (d: number) => (onStep ?? onChange)(String(clamp((Number.isFinite(n) ? n : (min ?? 0)) + d)));
   return (
     <span className={`number-input ${className}`.trim()} title={title}>
       <button type="button" className="number-step" tabIndex={-1} aria-label="One less" disabled={disabled || (min !== undefined && n <= min)} onClick={() => by(-step)}>

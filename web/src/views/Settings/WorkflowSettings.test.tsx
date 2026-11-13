@@ -125,7 +125,7 @@ describe('Settings → Workflow', () => {
     const tag = within(group).getByRole('textbox', { name: 'Orbit tag' });
     expect(tag).toHaveAttribute('placeholder', 'auto');
     expect(box).not.toBeChecked();
-    expect(group).toHaveTextContent('Only tickets assigned to you. Up to 5 jobs at a time, in Inbox order. Nothing starts while the Claude limit warning shows.');
+    expect(group).toHaveTextContent('Only tickets assigned to you, in Inbox order. Nothing starts while the Claude limit warning shows.');
     fireEvent.click(box);
     expect(await within(group).findByText('Write a tag’s name to turn this on.')).toBeInTheDocument();
     expect(post).not.toHaveBeenCalled();
@@ -240,5 +240,16 @@ describe('Settings → Workflow', () => {
   it('Sections at once: reads a stored number', () => {
     setup({ policy: 'hands-off', workflow: { finishLine: 'pr1-merged', sectionsAtOnce: 7 } });
     expect(screen.getByRole('spinbutton', { name: 'Sections at once, across every stack' })).toHaveValue('7');
+  });
+
+  it('Auto start: Up to N jobs at a time goes to the settings route as max', async () => {
+    const { post, store } = setup({ policy: 'hands-off', workflow: { finishLine: 'pr1-merged', autoStart: { on: true, tag: 'auto', max: 3 } } });
+    const box = within(screen.getByRole('group', { name: 'Auto start' })).getByRole('spinbutton', { name: 'Jobs at a time' });
+    expect(box).toHaveValue('3');
+    fireEvent.change(box, { target: { value: '6' } });
+    // Typing saves on leaving the box (Task 16 fix round 1, I1).
+    fireEvent.focusOut(box);
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/api/settings', { workflow: { autoStart: { on: true, tag: 'auto', max: 6 } } }));
+    await waitFor(() => expect(store.getState().meta?.settings?.workflow?.autoStart).toEqual({ on: true, tag: 'auto', max: 6 }));
   });
 });

@@ -1,4 +1,4 @@
-// The Auto switch on the New job form: it goes with the job as options.auto, and is off at L3.
+// The Auto switch on the New job form: it goes with the job as options.auto, at every level.
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type ApiClient } from '../../api/client';
@@ -39,16 +39,36 @@ describe('NewJobSheet: Auto', () => {
     expect((post.mock.calls[0] as unknown[])[1]).not.toEqual(expect.objectContaining({ options: expect.objectContaining({ auto: true }) }));
   });
 
-  it('does not send auto at L3 although the box was ticked at a lower level', async () => {
+  it('sends auto at L3 too: the tick stays when the level goes up', async () => {
     const { post, dialog } = setup();
     fireEvent.change(within(dialog).getByRole('textbox', { name: /What should the crew build/ }), { target: { value: 'Add a Copy ID button' } });
     fireEvent.click(within(dialog).getByRole('radio', { name: /^L1/ }));
     fireEvent.click(within(dialog).getByRole('checkbox', { name: /Auto: run to PR #1/ }));
     fireEvent.click(within(dialog).getByRole('radio', { name: /^L3/ }));
-    expect(within(dialog).getByRole('checkbox', { name: /Auto: run to PR #1/ })).not.toBeChecked();
+    const box = within(dialog).getByRole('checkbox', { name: /Auto: run to PR #1/ });
+    expect(box).toBeChecked();
+    expect(box).toBeEnabled();
+    expect(dialog).not.toHaveTextContent('Auto works up to L2');
     await start(dialog);
     const options = ((post.mock.calls[0] as unknown[])[1] as { options: Record<string, unknown> }).options;
     expect(options.level).toBe(3);
-    expect(options).not.toHaveProperty('auto');
+    expect(options.auto).toBe(true);
+  });
+
+  it('on the website it sends auto at L3 too', async () => {
+    const store: Store = createStore();
+    store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [] }) });
+    const onStart = vi.fn(async () => {});
+    const api = { get: vi.fn(async () => { throw new ApiError(404, 'Not found'); }), post: vi.fn(), hosted: () => true } as unknown as ApiClient;
+    const laptops = [{ id: 1, name: 'Olive’s Mac', online: true, repos: [{ name: 'sample-one', default: true }] }];
+    render(<WorkshopContext.Provider value={{ store, api }}><NewJobSheet onClose={vi.fn()} hosted={{ laptops, onStart }} /></WorkshopContext.Provider>);
+    const dialog = screen.getByRole('dialog', { name: 'Start a new job' });
+    fireEvent.change(within(dialog).getByRole('textbox', { name: /What should the crew build/ }), { target: { value: 'Add a Copy ID button' } });
+    fireEvent.click(within(dialog).getByRole('radio', { name: /^L3/ }));
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: /Auto: run to PR #1/ }));
+    expect(within(dialog).getByRole('checkbox', { name: /Auto: run to PR #1/ })).toBeChecked();
+    await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Start job' })); });
+    expect(onStart).toHaveBeenCalledTimes(1);
+    expect(((onStart.mock.calls[0] as unknown[])[0] as { options: unknown }).options).toEqual({ level: 3, auto: true });
   });
 });

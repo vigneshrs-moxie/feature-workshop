@@ -186,4 +186,54 @@ describe('the Desk', () => {
     expect(css).toMatch(/@media \(max-width: 900px\) \{\s*\.desk, \.desk-is-clear \{ grid-template-columns: minmax\(0, 1fr\); \}/);
     expect(css).toMatch(/\.desk \.desk-current \{ max-width: none; \}/);
   });
+
+  it('the Auto chip on the row', () => {
+    const stopped = job('auto-one', 'needs-you', { waitingFor: 'approval', stage: 'plan', waitingSince: '2026-10-21T08:00:00Z', auto: { on: true, ran: true, stopped: { reason: 'the Foreman says it is blocked' }, group: 'needs-you' } });
+    // Three columns: the queue's rows.
+    setup({ jobs: [stopped, ALPHA] });
+    const rows = within(queue()).getAllByRole('button').filter((b) => b.classList.contains('desk-item'));
+    expect(within(rows[0]).getByText('Auto')).toHaveClass('chip');
+    expect(within(rows[1]).queryByText('Auto')).toBeNull();
+    cleanup();
+    // One at a time: the queue's drawer (QueueItems).
+    const store: Store = createStore();
+    store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [stopped, ALPHA], meta: { token: 't' } }) });
+    const api = { get: vi.fn(async (p: string) => detail(p.split('/')[3])), post: vi.fn() } as unknown as ApiClient;
+    render(<WorkshopContext.Provider value={{ store, api }}><DeskView items={deskQueue([stopped, ALPHA], [])} now={NOW} layout="one" /></WorkshopContext.Provider>);
+    fireEvent.click(screen.getByRole('button', { name: 'Queue' }));
+    const drawer = screen.getByRole('dialog', { name: 'The queue' });
+    const items = drawer.querySelectorAll<HTMLElement>('.desk-item');
+    expect(within(items[0]).getByText('Auto')).toHaveClass('chip');
+    expect(within(items[1]).queryByText('Auto')).toBeNull();
+  });
+});
+
+// Task 16 fix round 1 (M2, M7): One at a time marks the console's title too, and the website shows the
+// same marks (HostedWorkshop mounts this DeskView with api.hosted).
+describe.each(['laptop', 'hosted'] as const)('the Desk’s Auto mark (%s)', (mode) => {
+  const STOPPED = job('auto-one', 'needs-you', { waitingFor: 'approval', stage: 'plan', waitingSince: '2026-10-21T08:00:00Z', auto: { on: true, ran: true, stopped: { reason: 'the Foreman says it is blocked' }, group: 'needs-you' } });
+  function mount(jobs: Job[], layout: 'one' | 'columns') {
+    const store: Store = createStore();
+    store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs, meta: { token: 't' } }) });
+    const api = { get: vi.fn(async (p: string) => detail(p.split('/')[3])), post: vi.fn(), ...(mode === 'hosted' ? { hosted: () => true } : {}) } as unknown as ApiClient;
+    render(<WorkshopContext.Provider value={{ store, api }}><DeskView items={deskQueue(jobs, [])} now={NOW} layout={layout} /></WorkshopContext.Provider>);
+  }
+  const consoleHead = () => document.querySelector<HTMLElement>('.desk-console-head')!;
+
+  it('One at a time: the console’s title carries the Auto mark when its job is one of Auto’s', () => {
+    mount([STOPPED, ALPHA], 'one');
+    expect(within(consoleHead()).getByText('Auto')).toHaveClass('chip');
+    expect(consoleHead().querySelector('.desk-console-title')).toHaveTextContent(STOPPED.title);
+    cleanup();
+    mount([ALPHA], 'one');
+    expect(consoleHead().querySelector('.desk-console-title')).toHaveTextContent(ALPHA.title);
+    expect(within(consoleHead()).queryByText('Auto')).toBeNull();
+  });
+
+  it('the Auto chip on the row', () => {
+    mount([STOPPED, ALPHA], 'columns');
+    const rows = within(queue()).getAllByRole('button').filter((b) => b.classList.contains('desk-item'));
+    expect(within(rows[0]).getByText('Auto')).toHaveClass('chip');
+    expect(within(rows[1]).queryByText('Auto')).toBeNull();
+  });
 });

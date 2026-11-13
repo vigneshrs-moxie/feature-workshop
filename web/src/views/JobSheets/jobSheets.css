@@ -18,6 +18,38 @@
 /* The ticket beside the kind; one column on a phone. */
 .sheet-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-4); align-items: start; }
 
+/* The branch: the box is the name field itself (a .text-input, so the themes' focus, error and
+   disabled looks are its own), with the prefix lying quiet over its left padding; Suggest again
+   beside it. The head, the box and the button keep their place and size whatever they show, so
+   nothing moves when the name arrives. */
+.branch-head { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; min-height: 1.5em; }
+.branch-whole { min-width: 0; overflow: hidden; color: var(--text-2); font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.branch-line { display: flex; align-items: center; gap: var(--space-2); min-width: 0; min-height: var(--control-h); }
+.branch-line > .btn { flex: none; }
+.branch-box { position: relative; display: flex; flex: 1; min-width: 0; }
+/* The field's text starts after the prefix: its own 10 px padding plus the prefix's measured width. */
+.branch-box > .branch-input { flex: 1; min-width: 0; padding-left: calc(10px + var(--branch-prefix-w, 0px)); }
+/* A broken name: the error look of controls.css, raised above the themes' field rules (up to 0,3,1:
+   Blueprint's `.sheet .text-input` and every theme's `:focus-visible`), so the border is the error
+   colour in every theme, focused or not. */
+.branch-line > .branch-box > .branch-input[aria-invalid='true'] { border-color: var(--status-error); }
+.branch-line > .branch-box > .branch-input[aria-invalid='true']:focus { border-color: var(--status-error); box-shadow: 0 0 0 3px var(--status-error-bg); }
+/* A long prefix is cut at its left (the ticket's end stays readable) and takes at most half the box.
+   Clicks go through it to the field. */
+.branch-prefix {
+  position: absolute;
+  top: 50%;
+  left: 11px;
+  max-width: 50%;
+  overflow: hidden;
+  color: var(--text-3);
+  direction: rtl;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
 /* The repository: the whole width, its folder quiet after its name. */
 .sheet-select { display: flex; width: 100%; }
 .sheet-select > .select { flex: 1; width: 100%; }

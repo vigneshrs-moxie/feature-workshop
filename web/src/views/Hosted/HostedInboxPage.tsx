@@ -8,7 +8,7 @@
 // A 401 from any of it (the session ended) brings the sign-in page back.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ApiClient } from '../../api/client';
-import type { AutoStartSetting, InboxAnswer, InboxItem, InboxLaptop, Snapshot } from '../../api/types';
+import type { AutoQueue, AutoStartSetting, InboxAnswer, InboxItem, InboxLaptop, Snapshot } from '../../api/types';
 import { Button } from '../../components/Button';
 import { Sheet } from '../../components/Sheet';
 import { createStore, WorkshopContext } from '../../state/store';
@@ -52,11 +52,25 @@ export function HostedInboxPage({ api: given, onSignedOut }: HostedProps) {
   const out = useRef(false);
   // Auto start's setting, from the laptop's settings the site mirrors: it marks the rows that start by themselves.
   const [autoStart, setAutoStart] = useState<AutoStartSetting | null>(null);
+  // And the Auto queue the site's snapshot carries (the Inbox's Auto tab); none from an older laptop: no tab.
+  // Both are read with each read of the ticket list (the Inbox calls onRead: on open, its tick, Read
+  // now, after a Start or Cancel) and when the page comes back into view. Only the latest read counts.
+  const [autoQueue, setAutoQueue] = useState<AutoQueue | null>(null);
+  const reads = useRef(0);
+  const readQueue = useCallback(() => {
+    const n = ++reads.current;
+    Promise.resolve(api.get<Pick<Snapshot, 'meta' | 'autoQueue'>>('/api/snapshot')).then((s) => {
+      if (n !== reads.current) return;
+      setAutoStart(s?.meta?.settings?.workflow?.autoStart ?? null);
+      setAutoQueue(s?.autoQueue ?? null);
+    }).catch(() => {});
+  }, [api]);
   useEffect(() => {
-    let live = true;
-    Promise.resolve(api.get<Pick<Snapshot, 'meta'>>('/api/snapshot')).then((s) => { if (live) setAutoStart(s?.meta?.settings?.workflow?.autoStart ?? null); }).catch(() => {});
-    return () => { live = false; };
-  }, [api, version]);
+    const onShow = () => { if (document.visibilityState === 'visible') readQueue(); };
+    document.addEventListener('visibilitychange', onShow);
+    // Leaving the page: a read still out is not shown.
+    return () => { document.removeEventListener('visibilitychange', onShow); reads.current++; };
+  }, [readQueue]);
 
   const send = useCallback(async (item: InboxItem, choices: StartChoices) => {
     await api.post('/api/orbit/start', { key: item.key, ...choices });
@@ -94,7 +108,7 @@ export function HostedInboxPage({ api: given, onSignedOut }: HostedProps) {
 
   // Built once per form: a new object on every render would reset the repository the person picked.
   const startForm = useMemo(() => (form ? { laptops: form.laptops, onStart: (choices: StartChoices) => send(form.item, choices) } : null), [form, send]);
-  const hosted: HostedInbox = { settingsHref: ORBIT_SETTINGS_HREF, onStart: (i) => { void onStart(i); }, onCancel: (i) => { void onCancel(i); }, version, notice, sending, autoStart };
+  const hosted: HostedInbox = { settingsHref: ORBIT_SETTINGS_HREF, onStart: (i) => { void onStart(i); }, onCancel: (i) => { void onCancel(i); }, version, notice, sending, autoStart, autoQueue, onRead: readQueue };
   return (
     <WorkshopContext.Provider value={workshop}>
       <InboxView hosted={hosted} openStream={NO_STREAM} />

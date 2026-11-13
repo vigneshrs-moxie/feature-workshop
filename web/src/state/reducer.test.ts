@@ -253,3 +253,13 @@ describe('reducer: steer', () => {
     expect(s.steers).toEqual({});
   });
 });
+
+describe('reducer: the Auto queue', () => {
+  it('keeps the snapshot\'s autoQueue; a snapshot without one (an older laptop) leaves it not known', () => {
+    const queue = { on: true, tag: 'auto', max: 5, working: 1, unfinished: 1, ceiling: 10, paused: null, testing: null, tickets: [] };
+    const s = reducer(initialState, { type: 'snapshot', snapshot: snapshot({ autoQueue: queue }) });
+    expect(s.autoQueue).toEqual(queue);
+    expect(reducer(s, { type: 'snapshot', snapshot: snapshot() }).autoQueue).toBeNull();
+    expect(initialState.autoQueue).toBeNull();
+  });
+});

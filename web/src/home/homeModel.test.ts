@@ -215,4 +215,17 @@ describe('homeModel', () => {
     // a hard line, a go-ahead, a permission, the Foreman's questions, a crew question
     expect(q.map(oneKeyApprove)).toEqual([false, true, true, false, false]);
   });
+
+  it('a stopped Auto job\'s Needs you row is marked Auto', () => {
+    const jobs: Job[] = [
+      job('stopped', 'needs-you', { waitingFor: 'approval', stage: 'plan', auto: { on: true, ran: true, stopped: { reason: 'the Foreman says it is blocked' }, group: 'needs-you' } }),
+      job('mine', 'needs-you', { waitingFor: 'approval', stage: 'plan' }),
+      // Auto switched off on it (no group): it is his, under Yours, so no mark.
+      job('off', 'needs-you', { waitingFor: 'reply', auto: { on: false, ran: true, group: null } }),
+      // Set aside as too big (off, with tooBig: the server's needs-you group): one of Auto's, so marked.
+      job('big', 'needs-you', { waitingFor: 'approval', stage: 'brief', auto: { on: false, ran: true, tooBig: { at: '2026-10-21T08:00:00Z', reason: 'It needs a stack.' }, group: 'needs-you' } }),
+    ];
+    const q = deskQueue(jobs, []);
+    expect(q.map((i) => [i.key, i.kind === 'gate' && i.auto])).toEqual([['gate:stopped', true], ['gate:mine', false], ['gate:off', false], ['gate:big', true]]);
+  });
 });

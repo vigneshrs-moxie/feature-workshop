@@ -42,8 +42,9 @@ import { useWorkshop, useWorkshopState } from '../state/store';
 // ---------- What the dashboard sends (GET /api/orbit/*) ----------
 
 export type { InboxAnswer, InboxItem, InboxSuggestion, OrbitStatus } from '../api/types';
-import type { InboxAnswer, InboxItem, InboxStart, InboxSuggestion, Job, OrbitStatus } from '../api/types';
+import type { AutoQueue, AutoTicket, InboxAnswer, InboxItem, InboxStart, InboxSuggestion, Job, OrbitStatus } from '../api/types';
 import { BRAND } from '../app/brand';
+import { AUTO_MAX, AUTO_PAUSED, autoPausedLine, TOO_BIG } from '../home/autoTab';
 
 interface SavedView { id: string; name: string; isDefault: boolean }
 
@@ -247,11 +248,11 @@ export const tagMatches = (item: Pick<InboxItem, 'tags'>, tag: string): boolean 
   return Boolean(want) && Array.isArray(item.tags) && item.tags.some((t) => typeof t === 'string' && t.trim().toLowerCase() === want);
 };
 
-/** Auto start's words on the Inbox, exact. */
-export const autoStartLine = (tag: string) => `Auto start is on: tickets tagged "${tag}" start by themselves, up to 5 at a time.`;
-export const AUTO_PAUSED = { limit: 'Auto start is paused: the Claude limit warning is showing.', orbit: 'Auto start is paused: Orbit can\'t be reached.',
-  'limit-reading': `Auto start is paused: ${BRAND.name} can't read your Claude limit right now.`, memory: `Auto start is paused: ${BRAND.name} couldn't read its list of started tickets.` } as const;
+/** Auto start's words on the Inbox, exact: N is the setting's max, 5 when it isn't known. */
+export const autoStartLine = (tag: string, max: number = AUTO_MAX.default) => `Auto start is on: tickets tagged "${tag}" start by themselves, up to ${max} at a time.`;
 export const STARTS_BY_ITSELF = 'Starts by itself';
+/** Mine's mark on a ticket whose job Auto is working on (the queue's `working` group). */
+export const AUTO_WORKING = 'Auto is working on this';
 export const autoFailedLine = (reason: string) => `Couldn't start by itself: ${reason} Press Start to try.`;
 
 /** Whether this row will start by itself: assigned, open, no job and nothing on its way, the tag on it, not tried before. */
@@ -274,7 +275,11 @@ export interface HostedInbox {
   /** The ticket whose Start or Cancel is on its way (its button spins and can't be pressed again). */
   sending?: string | null;
   /** Auto start's setting, from the laptop's settings the site mirrors (null while unknown). */
-  autoStart?: { on: boolean; tag: string } | null;
+  autoStart?: { on: boolean; tag: string; max?: number } | null;
+  /** The Auto queue from the site's snapshot (null or missing: not known, so no Auto tab). */
+  autoQueue?: AutoQueue | null;
+  /** Called each time the ticket list is read (its tick, Read now, after a Start or Cancel), so the page reads the queue with it. */
+  onRead?: () => void;
 }
 
 /** The hosted Inbox reads the site's list this often, and asks for a fresh read from Orbit every fourth time (once a minute). */
@@ -299,18 +304,26 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
   const isHosted = Boolean(hosted);
   const hostedVersion = hosted?.version ?? 0;
   const { api } = useWorkshop();
-  const { jobs } = useWorkshopState();
+  const { jobs, autoQueue: laptopQueue } = useWorkshopState();
+  // The Auto queue: the laptop's store keeps the snapshot's; the site reads its own snapshot. Missing: no Auto tab.
+  const queue = (isHosted ? hosted?.autoQueue : laptopQueue) ?? null;
   const ui = useUi();
   const now = useNow();
   const [tab, setTab] = useState<string>('mine');
+  // The Auto tab goes when the queue does (an older laptop): back to Mine.
+  useEffect(() => { if (tab === 'auto' && !queue) setTab('mine'); }, [tab, queue]);
   const [mine, setMine] = useState<Load<InboxAnswer>>({ state: 'loading' });
   const [viewList, setViewList] = useState<Load<InboxAnswer> | null>(null);
   const [views, setViews] = useState<SavedView[]>([]);
   const [peek, setPeek] = usePeekAddress();
   const [refreshing, setRefreshing] = useState(false);
   const focused = useRef<InboxItem | null>(null);
+  // The site's queue is read with every read of the list, so it is never staler than the list.
+  const onRead = useRef(hosted?.onRead);
+  onRead.current = hosted?.onRead;
 
   const loadMine = useCallback(async (refresh = false) => {
+    onRead.current?.();
     try {
       const data = await api.get<InboxAnswer>(`/api/orbit/inbox${refresh ? '?refresh=1' : ''}`);
       setMine({ state: 'ready', data });
@@ -354,7 +367,7 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
   }, [api, configured, isHosted]);
 
   useEffect(() => {
-    if (tab === 'mine') { setViewList(null); return; }
+    if (tab === 'mine' || tab === 'auto') { setViewList(null); return; }
     let live = true;
     setViewList({ state: 'loading' });
     api.get<InboxAnswer>(`/api/orbit/inbox?view=${encodeURIComponent(tab)}`)
@@ -375,8 +388,10 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
     ui.openSheet(stackSheet(item));
   }, [ui, isHosted]);
 
-  const shown = tab === 'mine' ? mine : viewList ?? { state: 'loading' as const };
-  const items = useMemo(() => (shown.state === 'ready' ? sortInbox(shown.data.items) : []), [shown]);
+  // The Auto tab lists the queue's tickets (InboxAuto), not a list from Orbit: no rows, so no bar and no s.
+  const onAuto = tab === 'auto';
+  const shown = tab === 'mine' || onAuto ? mine : viewList ?? { state: 'loading' as const };
+  const items = useMemo(() => (shown.state === 'ready' && !onAuto ? sortInbox(shown.data.items) : []), [shown, onAuto]);
   const suggest = tab === 'mine' ? ready?.suggest : null;
   const picks = useMemo(() => shownPicks(items, suggest), [items, suggest]);
   const next = useMemo(() => nextTicket(items, picks), [items, picks]);
@@ -411,12 +426,12 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
     try { await loadMine(true); } finally { setRefreshing(false); }
   }
 
-  const lists = [{ id: 'mine', name: 'Mine' }, ...views];
+  const lists = [{ id: 'mine', name: 'Mine' }, ...(queue ? [{ id: 'auto', name: 'Auto' }] : []), ...views];
   const head = configured ? (
     <>
       <div className="seg" role="tablist" aria-label="Inbox lists">
         {lists.map((v) => {
-          const count = v.id === 'mine' ? ready?.items.length : v.id === tab && viewList?.state === 'ready' ? viewList.data.items.length : undefined;
+          const count = v.id === 'mine' ? ready?.items.length : v.id === 'auto' ? (queue ? autoTicketsShown(queue).length : 0) : v.id === tab && viewList?.state === 'ready' ? viewList.data.items.length : undefined;
           return (
             <button
               key={v.id}
@@ -425,7 +440,7 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
               className="tab seg-tab"
               aria-selected={tab === v.id}
               onClick={() => setTab(v.id)}
-              title={v.id === 'mine' ? 'Open tickets assigned to you.' : `Your saved view on Orbit: ${v.name}.`}
+              title={v.id === 'mine' ? 'Open tickets assigned to you.' : v.id === 'auto' ? 'Your tagged tickets: what Auto starts next, works on, or set aside.' : `Your saved view on Orbit: ${v.name}.`}
             >
               <span className="seg-name">{v.name}</span>
               {count !== undefined && <span className="seg-count" aria-hidden="true">{count > 99 ? '99+' : count}</span>}
@@ -442,6 +457,12 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
   ) : null;
 
   const auto = isHosted ? hosted?.autoStart ?? null : ready?.autoStart ?? null;
+  const autoMax = typeof auto?.max === 'number' ? auto.max : AUTO_MAX.default;
+  // Why Auto start is paused: the laptop's Inbox answer says; on the site, the snapshot's queue. One we have no words for: not paused.
+  const paused = isHosted ? queue?.paused : ready?.autoStart?.paused;
+  const pausedWhy = paused && Object.hasOwn(AUTO_PAUSED, paused) ? paused : null;
+  // Mine marks the tickets whose job Auto is working on (the server's group, never worked out here).
+  const autoWorking = useMemo(() => new Set((queue?.tickets ?? []).filter((t) => t.group === 'working').map((t) => t.key)), [queue]);
   const todo = items.filter(toStart);
   const started = items.filter((i) => !toStart(i));
   const order = [...todo, ...started].map((i) => i.key);
@@ -461,6 +482,7 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
       onFocusRow={(item) => { focused.current = item; }}
       hosted={hosted}
       auto={auto}
+      autoWorking={autoWorking}
     />
   );
 
@@ -475,12 +497,13 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
           {hosted?.notice && <p className="field-problem" role="alert">{hosted.notice}</p>}
           {tab === 'mine' && auto?.on && auto.tag.trim() && (
             <p className="muted inbox-auto-line" role="status">
-              {isHosted || !ready?.autoStart?.paused ? autoStartLine(auto.tag.trim()) : AUTO_PAUSED[ready.autoStart.paused]}
+              {pausedWhy ? AUTO_PAUSED[pausedWhy] : autoStartLine(auto.tag.trim(), autoMax)}
             </p>
           )}
           {tab === 'mine' && <p className="muted">{SCOPE_LINE}</p>}
           {notApplied && <p className="field-problem" role="alert">{NOT_APPLIED}</p>}
-          {shown.state === 'ready' && !notApplied && (pick ? (
+          {onAuto && queue && <InboxAuto queue={queue} />}
+          {!onAuto && shown.state === 'ready' && !notApplied && (pick ? (
             <NextBar
               tone="stop"
               icon={SEVERITY_ICON[pick.severity ?? ''] ?? 'inbox'}
@@ -503,10 +526,10 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
           ) : items.length > 0 ? (
             <NextBar tone="quiet" icon="circle-check" say={isHosted ? 'Every ticket here has a job, or is on its way to your laptop' : 'Every ticket here already has a job'} sub="Open a job from its row to see where it is." />
           ) : null)}
-          {shown.state === 'ready' && !notApplied && <p className="muted inbox-note" role="status">{suggestNote(suggest, items, picks.length, now, isHosted)}</p>}
-          {shown.state === 'loading' && showListLoading && <p className="muted" role="status">Reading the list…</p>}
-          {shown.state === 'error' && <p className="field-problem" role="alert">{shown.message}</p>}
-          {shown.state === 'ready' && !notApplied && (items.length ? (
+          {!onAuto && shown.state === 'ready' && !notApplied && <p className="muted inbox-note" role="status">{suggestNote(suggest, items, picks.length, now, isHosted)}</p>}
+          {!onAuto && shown.state === 'loading' && showListLoading && <p className="muted" role="status">Reading the list…</p>}
+          {!onAuto && shown.state === 'error' && <p className="field-problem" role="alert">{shown.message}</p>}
+          {!onAuto && shown.state === 'ready' && !notApplied && (items.length ? (
             <>
               <section className="inbox-group" aria-labelledby="inbox-decide">
                 <h3 className="inbox-group-head" id="inbox-decide">
@@ -670,12 +693,71 @@ function HostedStatusLine({ status, now, settingsHref }: { status: OrbitStatus; 
   );
 }
 
-function TicketTable({ items, caption, jobs, pick, suggested, showQueue, now, peeked, onOpen, onStart, onStartStack, onFocusRow, hosted, auto }: {
+/** The Auto tab's groups (design section 3), in this order, each only when it has rows. */
+const AUTO_TICKET_GROUPS: readonly { id: AutoTicket['group']; heading: string; icon: IconName }[] = [
+  { id: 'next', heading: 'Next up', icon: 'clock' },
+  { id: 'working', heading: 'Auto is working on these', icon: 'activity' },
+  { id: 'too-big', heading: TOO_BIG, icon: 'layers' },
+  { id: 'failed', heading: 'Couldn’t start', icon: 'warn' },
+];
+
+/** The words when the tab shows no row (not in the design or the plan: Task 16's words). */
+export const AUTO_NONE = 'No tickets for Auto right now.';
+
+/** The queue's tickets the tab shows: those in one of its four groups. The tab's count is these rows. */
+const autoTicketsShown = (queue: AutoQueue) => (queue.tickets ?? []).filter((t) => AUTO_TICKET_GROUPS.some((g) => g.id === t.group));
+
+/**
+ * The Inbox's Auto tab: the queue's tickets as the server grouped them, in Inbox order, with why Auto
+ * is paused at the top as on Jobs. A working or too-big ticket links to its job; too big and
+ * couldn't start say why. The same simple list on a phone.
+ */
+function InboxAuto({ queue }: { queue: AutoQueue }) {
+  const tickets = autoTicketsShown(queue);
+  const paused = autoPausedLine(queue.paused);
+  return (
+    <div className="sb-inbox-auto">
+      {paused && <p className="sb-auto-paused" role="status"><Icon name="pause" size={16} />{paused}</p>}
+      {!tickets.length && <p className="muted">{AUTO_NONE}</p>}
+      {AUTO_TICKET_GROUPS.map((g) => {
+        const rows = tickets.filter((t) => t.group === g.id);
+        if (!rows.length) return null;
+        const linked = g.id === 'working' || g.id === 'too-big';
+        const why = g.id === 'too-big' || g.id === 'failed';
+        return (
+          <section key={g.id} className="inbox-group sb-inbox-auto-group" aria-label={g.heading}>
+            <div className="inbox-group-head">
+              <Icon name={g.icon} size={16} className="inbox-group-icon" />
+              <h3 className="sb-inbox-auto-head">{g.heading}</h3>
+              <span className="inbox-group-count num">{rows.length}</span>
+            </div>
+            <ul className="sb-inbox-auto-rows">
+              {/* A ticket the server sends twice (one per job) still gets its own key. */}
+              {rows.map((t, i) => (
+                <li key={`${t.key}:${i}`} className="sb-inbox-auto-row" data-ticket={t.key}>
+                  <span className="num ticket-key">{t.key}</span>
+                  {linked && t.slug
+                    ? <a className="ticket-title" href={jobHref(t.slug)} title={`Open the job on ${t.key}.`}>{t.title}</a>
+                    : <span className="ticket-title">{t.title}</span>}
+                  {why && t.reason && <span className="sb-inbox-auto-reason">{t.reason}</span>}
+                </li>
+              ))}
+            </ul>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+function TicketTable({ items, caption, jobs, pick, suggested, showQueue, now, peeked, onOpen, onStart, onStartStack, onFocusRow, hosted, auto, autoWorking }: {
   items: InboxItem[]; caption: string; jobs: readonly Job[]; pick: InboxItem | null; /** The reason for each suggested ticket, by key. */ suggested: ReadonlyMap<string, string>; /** Some row has a queue number: the Queue column shows. */ showQueue: boolean; now: Date; peeked: string | null;
   onOpen: (item: InboxItem) => void; onStart: (item: InboxItem) => void; onStartStack: (item: InboxItem) => void; onFocusRow: (item: InboxItem | null) => void;
   hosted?: HostedInbox;
   /** Auto start's setting, to mark the rows that start by themselves. */
   auto?: { on: boolean; tag: string } | null;
+  /** The tickets whose job Auto is working on (the queue's working group), by key. */
+  autoWorking?: ReadonlySet<string>;
 }) {
   return (
     <div className="data-table inbox-table">
@@ -722,6 +804,7 @@ function TicketTable({ items, caption, jobs, pick, suggested, showQueue, now, pe
                     <span className="num ticket-key">{i.key}</span>
                     {suggested.has(i.key) && <Chip tone="accent" title={SUGGESTED_HOVER}>Suggested</Chip>}
                     {startsByItself(i, auto) && <Chip tone="accent" title={`It has the tag "${auto!.tag.trim()}", so ${BRAND.name} starts it by itself when it is its turn.`}>{STARTS_BY_ITSELF}</Chip>}
+                    {autoWorking?.has(i.key) && <Chip tone="accent" icon="activity">{AUTO_WORKING}</Chip>}
                     <span className="ticket-title">{i.title}</span>
                   </button>
                   {suggested.has(i.key) && <span className="muted ticket-reason">{suggested.get(i.key)}</span>}

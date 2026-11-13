@@ -1,5 +1,7 @@
 // Home (the flow map, the Table and the Desk): what each view shows, worked out from the snapshot's
-// jobs and permissions and the flow map (GET /api/flow, dashboard/lib/flow.js). Pure: no React.
+// jobs and permissions and the flow map (GET /api/flow, dashboard/lib/flow.js). Pure functions, with no
+// components or hooks of their own; React still comes in through autoTab.ts (imported for inAuto), which
+// holds a hook beside its pure helpers.
 //
 // The map is rows (Light, round 3): one row per job with its ship track (worktree · fork · Moxie
 // branch · staging · main), one line of words, the counts as a muted suffix and one "what to do
@@ -9,6 +11,7 @@ import { DEFAULT_FINISH_LINE, type FinishLine, type FlowLane, type FlowPosition,
 import { relativeTime } from '../lib/time';
 import { jobStatus } from '../panes/Jobs/jobStatus';
 import { stageLabel } from '../panes/Jobs/stages';
+import { inAuto } from './autoTab';
 
 export type HomeView = 'map' | 'table' | 'desk';
 
@@ -408,7 +411,8 @@ export function sortRows(rows: readonly TableRow[], key: SortKey, dir: 'asc' | '
 // ---------- the Desk ----------
 
 export type DeskItem =
-  | { kind: 'gate'; key: string; slug: string; title: string; what: string; since: string | null; waitingFor: string }
+  /** auto: the job is in Auto's tab (a stopped Auto job, say): its row is marked Auto. */
+  | { kind: 'gate'; key: string; slug: string; title: string; what: string; since: string | null; waitingFor: string; auto: boolean }
   | { kind: 'permission' | 'question'; key: string; slug: string; title: string; what: string; since: string | null; permission: Permission };
 
 /**
@@ -420,7 +424,7 @@ export function deskQueue(jobs: readonly Job[], permissions: readonly Permission
   for (const j of jobs) {
     if (j.group !== 'needs-you' || j.waitingFor === 'permission' || !j.waitingFor) continue;
     const what = j.waitingFor === 'answers' ? 'Answer the Foreman’s questions' : j.waitingFor === 'approval' ? `Go-ahead${j.stage ? ` on ${stageLabel(j.stage)}` : ''}` : 'Reply to the Foreman';
-    items.push({ kind: 'gate', key: `gate:${j.slug}`, slug: j.slug, title: j.title || j.slug, what, since: typeof j.waitingSince === 'string' ? j.waitingSince : null, waitingFor: j.waitingFor });
+    items.push({ kind: 'gate', key: `gate:${j.slug}`, slug: j.slug, title: j.title || j.slug, what, since: typeof j.waitingSince === 'string' ? j.waitingSince : null, waitingFor: j.waitingFor, auto: inAuto(j) });
   }
   for (const p of permissions) {
     const job = jobs.find((j) => j.slug === p.slug);

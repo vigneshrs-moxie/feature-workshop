@@ -31,3 +31,13 @@ describe('the one-line next-step bar on a phone', () => {
     expect(phoneRule('.next-bar.is-line .next-actions .btn')).toMatch(/flex: none/);
   });
 });
+
+// Task 16 fix round 1 (M8 e): the Inbox Auto tab's job links get the tap room the other links get.
+describe('the Inbox Auto tab on a phone', () => {
+  it('gives its job links the same tap padding as the other links, given back by a margin', () => {
+    const link = phoneRule('.sb-inbox-auto-row a.ticket-title');
+    expect(link).toMatch(/padding-block: 11px/);
+    expect(link).toMatch(/margin-block: -11px/);
+    expect(phoneRule('.link-button')).toMatch(/padding-block: 11px/);
+  });
+});
