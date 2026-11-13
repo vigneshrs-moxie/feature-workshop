@@ -1,0 +1,121 @@
+/* The new job page (JobPage2.tsx). Sizes from the prototype's page.css (rev 3); theme tokens only.
+   One tree in every layout: data-layout on .jp2 is wide (1100 px and up), mid (over 760, under
+   1100) or phone (760 and under); data-covered says the reader is over the left pane (mid, phone). */
+
+.jp2 { height: 100%; min-height: 0; display: flex; flex-direction: column; background: var(--bg-0); color: var(--text-1); font-size: 14px; }
+.jp2-dim { color: var(--text-3); }
+
+/* Header: one row */
+.jp2-head { flex: none; display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px 0 24px; border-bottom: 1px solid var(--border-1); background: var(--surface-0); white-space: nowrap; }
+.jp2-head-main { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.jp2-jobs { display: none; }
+.jp2-key { flex: none; font-family: var(--font-mono); font-size: 13px; color: var(--text-2); text-decoration: none; }
+a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-underline-offset: 2px; }
+.jp2-title { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; font-size: 15px; line-height: 20px; font-weight: 600; }
+.jp2-state { flex: none; display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border: 1px solid var(--border-2); border-radius: 6px; font-size: 12px; font-weight: 600; color: var(--text-1); }
+.jp2-spacer { flex: 1 1 0; min-width: 8px; }
+.jp2-facts { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text-3); font-size: 13px; font-variant-numeric: tabular-nums; }
+.jp2-menu { flex: none; }
+
+/* Panes */
+.jp2-panes { position: relative; flex: 1; min-height: 0; display: flex; }
+.jp2-left { width: 440px; flex: none; min-height: 0; display: flex; flex-direction: column; border-right: 1px solid var(--border-1); background: var(--surface-0); }
+.jp2-lscroll { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; }
+.jp2-reader { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--bg-0); }
+.jp2-reader:focus { outline: none; }
+.jp2-reader:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.jp2-back { display: none; }
+
+/* Your move */
+.jp2-ym { padding: 10px 14px 8px; border-bottom: 1px solid var(--border-1); }
+.jp2-card { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px 10px 15px; border-radius: var(--card-radius); background: var(--lane-needs-you-bg); box-shadow: inset 3px 0 0 var(--needs-solid); }
+.jp2-card-label { margin: 0; font-size: 11px; line-height: 14px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--lane-needs-you-fg); }
+.jp2-card-ask { margin: 0; font-size: 16px; line-height: 22px; font-weight: 600; text-wrap: balance; }
+.jp2-ym-one { margin: 0; padding: 4px 6px; font-size: 13px; line-height: 18px; }
+
+/* Rows on the left: the steps, a step's outputs, the job's rows */
+.jp2-row { display: flex; align-items: center; gap: 10px; width: 100%; margin: 0; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.jp2-row:hover { background: var(--hover-bg); }
+.jp2-row:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.jp2-row.is-cursor { box-shadow: inset 0 0 0 1px var(--border-3); }
+.jp2-row.is-sel, .jp2-row.is-sel:hover { background: var(--bg-3); }
+.jp2-st { padding: 4px 8px; border-bottom: 1px solid var(--border-1); }
+.jp2-st-row { height: 26px; }
+.jp2-st-mark { width: 16px; flex: none; display: inline-grid; place-items: center; color: var(--text-3); }
+.jp2-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-1); }
+.jp2-ring { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--border-3); }
+.jp2-st-name { font-weight: 500; }
+.jp2-st-row.is-current .jp2-st-name { font-weight: 650; }
+.jp2-st-word { margin-left: auto; font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.jp2-st-row.is-current .jp2-st-word { color: var(--text-1); font-weight: 600; }
+.jp2-st-outs { margin: 0; padding: 0 0 2px 26px; list-style: none; }
+.jp2-st-out { gap: 8px; height: 24px; }
+.jp2-out-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jp2-out-meta { margin-left: auto; font-size: 12px; color: var(--text-3); white-space: nowrap; }
+.jp2-jrs { padding: 4px 8px; border-bottom: 1px solid var(--border-1); }
+.jp2-jr { gap: 8px; height: 26px; font-weight: 500; }
+.jp2-jr .jp2-dim { font-weight: 400; }
+
+/* The message box, docked at the foot of the left pane */
+.jp2-mb { flex: none; display: flex; align-items: flex-end; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--border-1); background: var(--surface-0); }
+.jp2-mb-ta { flex: 1; min-width: 0; height: 32px; max-height: 184px; padding: 5px 10px; border: 1px solid var(--border-2); border-radius: var(--radius-md); background: var(--surface-1); color: var(--text-1); font: inherit; font-size: 14px; line-height: 20px; resize: none; overflow-y: auto; }
+.jp2-mb-ta::placeholder { color: var(--text-3); }
+.jp2-mb-ta:focus { outline: 2px solid var(--focus-ring); outline-offset: -1px; }
+
+/* The reader: one thing, a thin title row, prose at most 80 characters */
+.jp2-rv-top { flex: none; display: flex; align-items: baseline; gap: 10px; height: 44px; padding: 13px 12px 0 40px; border-bottom: 1px solid var(--border-1); white-space: nowrap; overflow: hidden; }
+.jp2-rv-title { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; font-size: 14px; line-height: 18px; font-weight: 600; }
+.jp2-rv-meta { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 12px; color: var(--text-3); }
+.jp2-rv-body { flex: 1; min-height: 0; overflow: auto; padding: 22px 24px 48px 40px; scrollbar-width: thin; }
+.jp2-plain { max-width: 610px; font-size: 15px; line-height: 24px; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.jp2-cv-tools { flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 12px 8px 40px; border-bottom: 1px solid var(--border-1); }
+.jp2-cv-sbox { display: inline-flex; align-items: center; gap: 6px; width: 300px; max-width: 100%; height: 30px; padding: 0 8px; border: 1px solid var(--border-2); border-radius: var(--radius-md); background: var(--surface-1); color: var(--text-3); }
+.jp2-cv-sbox:focus-within { outline: 2px solid var(--focus-ring); outline-offset: -1px; }
+.jp2-cv-search { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text-1); font: inherit; font-size: 13px; }
+.jp2-cv-count { font-size: 12px; }
+.jp2-cv-body { padding-top: 8px; }
+.jp2-cv-lines { max-width: 720px; margin: 0; padding: 0; list-style: none; }
+.jp2-cv-line { display: flex; align-items: center; gap: 12px; height: 28px; padding: 0 10px; border-radius: 6px; font-size: 14px; }
+.jp2-cv-line.is-you { margin-left: 56px; background: var(--bg-2); }
+.jp2-cv-h { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jp2-cv-line time { flex: none; font-size: 12px; font-variant-numeric: tabular-nums; }
+
+/* Under 1100 px: the left pane takes the width; the reader comes over it with a back row */
+.jp2[data-layout="mid"] .jp2-left, .jp2[data-layout="phone"] .jp2-left { width: 100%; border-right: 0; }
+.jp2[data-layout="mid"] .jp2-reader, .jp2[data-layout="phone"] .jp2-reader { position: absolute; inset: 0; z-index: 2; visibility: hidden; transform: translateX(24px); opacity: 0; transition: transform 120ms ease-out, opacity 120ms ease-out, visibility 0s linear 120ms; }
+.jp2[data-covered][data-layout="mid"] .jp2-reader, .jp2[data-covered][data-layout="phone"] .jp2-reader { visibility: visible; transform: none; opacity: 1; transition: transform 120ms ease-out, opacity 120ms ease-out, visibility 0s; }
+.jp2[data-layout="mid"] .jp2-back, .jp2[data-layout="phone"] .jp2-back { flex: none; display: flex; align-items: center; height: 40px; padding: 0 12px 0 28px; border-bottom: 1px solid var(--border-1); background: var(--surface-0); }
+.jp2[data-layout="mid"] .jp2-left .jp2-lscroll > *, .jp2[data-layout="mid"] .jp2-mb { width: 100%; max-width: 640px; margin-left: auto; margin-right: auto; }
+@media (prefers-reduced-motion: reduce) {
+  .jp2-reader { transition: none !important; }
+}
+
+/* 760 px and under: phone sizes (Task 15 gives the phone its own screens) */
+.jp2[data-layout="phone"] .jp2-head { flex-wrap: wrap; align-items: flex-start; gap: 4px 8px; height: auto; padding: 8px 8px 10px 16px; white-space: normal; }
+.jp2[data-layout="phone"] .jp2-jobs { display: inline-flex; align-items: center; gap: 2px; flex-basis: 100%; min-height: 32px; margin-left: -4px; color: var(--text-2); font-size: 14px; text-decoration: none; }
+.jp2[data-layout="phone"] .jp2-head-main { flex: 1 1 0; flex-wrap: wrap; gap: 6px 8px; }
+.jp2[data-layout="phone"] .jp2-title { flex-basis: 100%; overflow: visible; font-size: 19px; line-height: 25px; font-weight: 650; text-wrap: balance; }
+.jp2[data-layout="phone"] .jp2-key { order: 2; }
+.jp2[data-layout="phone"] .jp2-state { order: 1; }
+.jp2[data-layout="phone"] .jp2-spacer { display: none; }
+.jp2[data-layout="phone"] .jp2-facts { order: 3; flex-basis: 100%; font-size: 13px; }
+.jp2[data-layout="phone"] .jp2-menu { order: 0; margin-left: auto; }
+.jp2[data-layout="phone"] .jp2-ym { padding: 12px; }
+.jp2[data-layout="phone"] .jp2-ym-one { padding: 12px 6px; font-size: 15px; }
+.jp2[data-layout="phone"] .jp2-st { padding: 0 8px 6px; border-bottom: 0; }
+.jp2[data-layout="phone"] .jp2-st-row, .jp2[data-layout="phone"] .jp2-jr { height: 52px; font-size: 15px; border-radius: 0; }
+.jp2[data-layout="phone"] .jp2-step + .jp2-step .jp2-st-row, .jp2[data-layout="phone"] .jp2-jr + .jp2-jr { border-top: 1px solid var(--border-1); }
+.jp2[data-layout="phone"] .jp2-st-word { font-size: 13px; }
+.jp2[data-layout="phone"] .jp2-st-out { height: 44px; font-size: 15px; }
+.jp2[data-layout="phone"] .jp2-jrs { padding: 0 8px 12px; border-bottom: 0; }
+.jp2[data-layout="phone"] .jp2-mb { padding: 8px 18px 30px; }
+.jp2[data-layout="phone"] .jp2-mb-ta { height: 40px; font-size: 16px; line-height: 22px; padding: 8px 10px; }
+.jp2[data-layout="phone"] .jp2-back { padding: 0 8px; }
+.jp2[data-layout="phone"] .jp2-rv-top { height: auto; padding: 10px 16px; white-space: normal; flex-wrap: wrap; }
+.jp2[data-layout="phone"] .jp2-rv-title { font-size: 18px; line-height: 24px; font-weight: 650; overflow: visible; }
+.jp2[data-layout="phone"] .jp2-rv-body { padding: 6px 16px 40px; }
+.jp2[data-layout="phone"] .jp2-plain { max-width: none; }
+.jp2[data-layout="phone"] .jp2-cv-tools { padding: 8px 16px; }
+.jp2[data-layout="phone"] .jp2-cv-sbox { flex: 1; width: auto; height: 36px; }
+.jp2[data-layout="phone"] .jp2-cv-line { height: 40px; }
+.jp2[data-layout="phone"] .jp2-cv-line.is-you { margin-left: 28px; }

@@ -34,6 +34,8 @@ import { InboxView } from '../views/Inbox';
 import { DeskPage } from '../home/DeskPage';
 import { JobsPage } from '../home/JobsPage';
 import { JobPage } from '../job/page/JobPage';
+import { JobPage2 } from '../jobpage/JobPage2';
+import { useNewJobPage } from '../jobpage/switch';
 import { TelemetryView } from '../views/Telemetry';
 import { PlayLedgerProvider } from '../play/PlayLedger';
 import { PlayEggs, usePaletteEggs } from '../play/PlayEggs';
@@ -169,6 +171,7 @@ function Shell({ onRetry }: { onRetry: () => void }) {
   const post = useMemo(() => (path: string, body: unknown) => api.post(path, body), [api]);
   const slug = route.name === 'job' || route.name === 'stage' || route.name === 'screens' || route.name === 'stack' ? route.slug : null;
   const job = jobBySlug(state, slug);
+  const newPage = useNewJobPage();
   const jobTitle = job ? job.title || job.slug : slug;
   useAlerts(state, pageTitle(pageName(route, jobTitle)));
   usePresence(post);
@@ -206,6 +209,9 @@ function Shell({ onRetry }: { onRetry: () => void }) {
   // a link to another step never draws the page again from scratch.
   const page = route.name === 'gallery' ? <GalleryView />
     : route.name === 'screens' ? <ScreensView key={route.slug} slug={route.slug} />
+    // The new job page while the switch is on (jobpage/switch.ts), first painted from the snapshot row.
+    : route.name === 'job' && newPage ? <JobPage2 key={route.slug} slug={route.slug} job={job} view={route.view} read={route.read} />
+    : route.name === 'stage' && newPage ? <JobPage2 key={route.slug} slug={route.slug} job={job} step={route.stop} />
     : route.name === 'job' ? <JobPage key={route.slug} slug={route.slug} view={route.view} />
       : route.name === 'stage' ? <JobPage key={route.slug} slug={route.slug} step={route.stop} />
       : route.name === 'stacks' ? <StacksPage />

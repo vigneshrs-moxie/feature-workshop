@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { classicHref, hrefFor, jobHref, jobViewHref, openFromHash, pageName, parseHash, peekFromHash, replaceHash, screensHref, stageHref, useRoute, withPeek } from './router';
+import { classicHref, hrefFor, jobHref, jobViewHref, openFromHash, pageName, parseHash, peekFromHash, readHref, replaceHash, screensHref, stageHref, useRoute, withPeek } from './router';
 
 describe('hash router', () => {
   it.each([
@@ -164,5 +164,31 @@ describe('hash router', () => {
       window.location.hash = '';
       await settle();
     }
+  });
+});
+
+describe('the new job page’s reader address (#/job/<slug>/read/<kind>/<id>)', () => {
+  it('round-trips a reader target, the id escaped (ids carry : and /)', () => {
+    const route = { name: 'job', slug: 'orbit-905-crew', read: { kind: 'brief', id: 'brief:briefs/015-review.md' } } as const;
+    const href = hrefFor(route);
+    expect(href).toBe('#/job/orbit-905-crew/read/brief/brief%3Abriefs%2F015-review.md');
+    expect(parseHash(href)).toEqual(route);
+    expect(readHref('orbit-905-crew', { kind: 'conversation', id: 'conversation' })).toBe('#/job/orbit-905-crew/read/conversation/conversation');
+    expect(parseHash('#/job/a/read/doc/docs%2Fplan.md/')).toEqual({ name: 'job', slug: 'a', read: { kind: 'doc', id: 'docs/plan.md' } });
+    expect(parseHash('#/job/a/read/doc/docs%2Fplan.md?theme=x')).toEqual({ name: 'job', slug: 'a', read: { kind: 'doc', id: 'docs/plan.md' } });
+  });
+
+  it('an unknown kind, a missing id or a bad escape is not a page', () => {
+    expect(parseHash('#/job/a/read/nonsense/x').name).toBe('not-found');
+    expect(parseHash('#/job/a/read/doc').name).toBe('not-found');
+    expect(parseHash('#/job/a/read/doc/%E0%A4%A').name).toBe('not-found');
+  });
+
+  it('the old addresses stay as they were', () => {
+    expect(parseHash('#/job/a')).toEqual({ name: 'job', slug: 'a' });
+    expect(parseHash('#/job/a/stage/review')).toEqual({ name: 'stage', slug: 'a', stop: 'review' });
+    expect(parseHash('#/job/a/conversation')).toEqual({ name: 'job', slug: 'a', view: 'conversation' });
+    expect(parseHash('#/job/a/overview')).toEqual({ name: 'job', slug: 'a', view: 'overview' });
+    expect(parseHash('#/job/a/id/FR-001')).toEqual({ name: 'job', slug: 'a' });
   });
 });

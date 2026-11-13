@@ -2,7 +2,7 @@
 //
 // A view registers the keys it answers for with useKeyScope(scope, handlers, active) while it is
 // mounted; App installs the single document listener (useKeyListener). A key goes to the
-// highest-priority active scope that binds it (desk > alert > review > gate > stage > stack > job > floor > jobs > inbox >
+// highest-priority active scope that binds it (desk > jobpage > alert > review > gate > stage > stack > job > floor > jobs > inbox >
 // map > rows > table > settings > sheet > global), so the Desk's j and k win over the page's, and
 // the Map's over the Jobs list's. Rules, the same everywhere:
 //   - single-letter keys never fire while you type in a field, or while a dialog is open;
@@ -17,16 +17,17 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react';
 import { readKeysSetting } from './keysSetting';
 
-export type KeyScope = 'global' | 'rows' | 'floor' | 'job' | 'stage' | 'stack' | 'alert' | 'review' | 'gate' | 'desk' | 'jobs' | 'inbox' | 'map' | 'table' | 'settings' | 'sheet';
+export type KeyScope = 'jobpage' | 'global' | 'rows' | 'floor' | 'job' | 'stage' | 'stack' | 'alert' | 'review' | 'gate' | 'desk' | 'jobs' | 'inbox' | 'map' | 'table' | 'settings' | 'sheet';
 
 /** Highest priority first: the scope that gets the key when several bind it. */
-export const SCOPE_PRIORITY: readonly KeyScope[] = ['desk', 'alert', 'review', 'gate', 'stage', 'stack', 'job', 'floor', 'jobs', 'inbox', 'map', 'rows', 'table', 'settings', 'sheet', 'global'];
+export const SCOPE_PRIORITY: readonly KeyScope[] = ['desk', 'jobpage', 'alert', 'review', 'gate', 'stage', 'stack', 'job', 'floor', 'jobs', 'inbox', 'map', 'rows', 'table', 'settings', 'sheet', 'global'];
 
 /** Each scope in the ? sheet: its title and where its keys work, in plain words. */
 export const SCOPES: Record<KeyScope, { title: string; where: string }> = {
   global: { title: 'Everywhere', where: 'On every page, outside a text box.' },
   rows: { title: 'Jobs', where: 'On every page but the Desk; the order is the Jobs list’s.' },
   job: { title: 'The open job', where: 'On a job’s page.' },
+  jobpage: { title: 'The new job page', where: 'On a job’s page while the new page is switched on; there its keys win over the others.' },
   stage: { title: 'The open step', where: 'On a job’s page.' },
   stack: { title: 'Stacks', where: 'On Stacks, a stack’s page and a part’s page.' },
   alert: { title: 'The permission alert', where: 'While a permission waits at the top of a job.' },
@@ -84,6 +85,18 @@ export const KEYS = {
   'screens-focus': { keys: ['Enter'], label: 'Step into the screens (the page’s own keys then work)', scope: 'job', where: 'With the Screens tab showing and nothing else focused.' },
   'screens-leave': { keys: ['Escape'], label: 'Step out of the screens, back to the page', scope: 'job', where: 'Inside the screens.', listOnly: true },
   'send': { keys: ['Mod+Enter'], label: 'In the message box: preview and send, or steer a reply in progress', scope: 'job', always: true, listOnly: true },
+  // The new job page (jobpage/JobPage2.tsx, behind the switch): while it is mounted these win; the
+  // keys' other meanings (j k next job, g t the Table, c New job, n Notes and options) come back after.
+  'jp-step-prev': { keys: ['['], label: 'Open the step before', scope: 'jobpage' },
+  'jp-step-next': { keys: [']'], label: 'Open the step after', scope: 'jobpage' },
+  'jp-line-next': { keys: ['j'], label: 'Move to the next line', scope: 'jobpage', where: 'The steps and the job’s rows on the left.' },
+  'jp-line-prev': { keys: ['k'], label: 'Move to the line before', scope: 'jobpage', where: 'The steps and the job’s rows on the left.' },
+  'jp-open': { keys: ['Enter'], label: 'Open that line in the reader', scope: 'jobpage', where: 'After j or k picked a line.' },
+  'jp-search': { keys: ['/'], label: 'Search the conversation', scope: 'jobpage' },
+  'jp-convo': { keys: ['g c'], label: 'Open the conversation', scope: 'jobpage' },
+  'jp-ticket': { keys: ['g t'], label: 'Open the ticket and goal', scope: 'jobpage' },
+  'jp-write': { keys: ['c', 'i'], label: 'Put the cursor in the message box', scope: 'jobpage' },
+  'jp-note': { keys: ['n'], label: 'Kept for a note on the part under the pointer (not built yet)', scope: 'jobpage', where: 'Notes and options are in ⌘K for now.' },
   // The job page's steps: [ and ] move the open step
   'stage-prev': { keys: ['['], label: 'The step before this one', scope: 'stage' },
   'stage-next': { keys: [']'], label: 'The step after this one', scope: 'stage' },

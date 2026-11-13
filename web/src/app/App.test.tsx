@@ -515,3 +515,71 @@ describe('Keys through the registry', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 });
+
+// Task 7: the new job page behind the switch (sb.jobPage = 'new'), with its own keys while it is mounted.
+describe('the new job page’s switch', () => {
+  async function renderSwitchable() {
+    const { longJob } = await import('../jobpage/fixtures/longJob');
+    const base = serverGet();
+    const api = {
+      snapshot: vi.fn(async () => snapshot({ jobs: [job('alpha', 'needs-you'), job('beta', 'running'), job('gamma', 'idle')] })),
+      setToken: vi.fn(),
+      get: vi.fn(async (path: string) => {
+        if (/^\/api\/job\/beta\/page/.test(path)) return { ...JSON.parse(JSON.stringify(longJob.payload)), slug: 'beta', title: 'Beta, from its page' };
+        if (/^\/api\/job\/beta\/item/.test(path)) throw new Error('Starbase answered 404.');
+        return base(path);
+      }),
+    } as unknown as ApiClient;
+    render(<App api={api} openStream={() => new FakeStream()} />);
+  }
+  const hop = () => act(() => { window.dispatchEvent(new HashChangeEvent('hashchange')); });
+
+  it('mounts the new page only when sb.jobPage is new; each page’s menu switches to the other at the same address', async () => {
+    window.location.hash = '#/job/beta/stage/plan';
+    await renderSwitchable();
+    const old = await screen.findByRole('main', { name: 'Job' });
+    expect(old).toHaveClass('sb-job-page');
+    expect(old).not.toHaveClass('jp2');
+    fireEvent.click(screen.getByRole('button', { name: /Job menu/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Try the new job page' }));
+    expect(localStorage.getItem('sb.jobPage')).toBe('new');
+    const fresh = await screen.findByRole('main', { name: 'Job' });
+    expect(fresh).toHaveClass('jp2');
+    expect(window.location.hash).toBe('#/job/beta/stage/plan');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Beta, from its page' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'More for this job' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Back to the old job page' }));
+    expect(localStorage.getItem('sb.jobPage')).toBeNull();
+    expect(await screen.findByRole('main', { name: 'Job' })).toHaveClass('sb-job-page');
+  });
+
+  it('while the new page is mounted its keys win (j k, g t, c); ? lists them; the old meanings come back when it goes', async () => {
+    localStorage.setItem('sb.jobPage', 'new');
+    window.location.hash = '#/job/beta';
+    await renderSwitchable();
+    expect(await screen.findByRole('main', { name: 'Job' })).toHaveClass('jp2');
+    await screen.findByRole('heading', { level: 1, name: 'Beta, from its page' });
+    fireEvent.keyDown(document.body, { key: 'j' });
+    expect(window.location.hash).toBe('#/job/beta');
+    fireEvent.keyDown(document.body, { key: 'g' });
+    fireEvent.keyDown(document.body, { key: 't' });
+    expect(window.location.hash).toBe('#/job/beta/read/ticket/ticket');
+    fireEvent.keyDown(document.body, { key: 'c' });
+    expect(screen.queryByRole('dialog', { name: /new job/i })).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Message to the Foreman' }));
+    act(() => { (document.activeElement as HTMLElement).blur(); });
+    fireEvent.keyDown(document.body, { key: '?' });
+    const sheet = screen.getByRole('dialog', { name: 'Keyboard shortcuts' });
+    const group = within(sheet).getByRole('region', { name: 'The new job page' });
+    expect(group).not.toHaveTextContent('(not on this page)');
+    expect(group).toHaveTextContent('Open the ticket and goal');
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Close' }));
+    // Back to the old page: j is the next job again.
+    act(() => { localStorage.removeItem('sb.jobPage'); window.dispatchEvent(new StorageEvent('storage', { key: 'sb.jobPage' })); });
+    expect(await screen.findByRole('main', { name: 'Job' })).toHaveClass('sb-job-page');
+    hop();
+    fireEvent.keyDown(document.body, { key: 'j' });
+    expect(window.location.hash).not.toMatch(/^#\/job\/beta/);
+    expect(window.location.hash).toMatch(/^#\/job\//);
+  });
+});

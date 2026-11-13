@@ -12,8 +12,11 @@ export type { StopId };
 
 export type JobState = 'needs-you' | 'working' | 'waiting-github' | 'paused' | 'done';
 
-export type ReaderKind = 'message' | 'brief' | 'permission' | 'doc' | 'changes' | 'checks' | 'findings'
-  | 'walkthrough' | 'ship' | 'pr' | 'ticket' | 'conversation' | 'decisions' | 'details' | 'not-yet';
+/** What the reader can show; also the <kind> of the page's reader address (app/router.ts). */
+export const READER_KINDS = ['message', 'brief', 'permission', 'doc', 'changes', 'checks', 'findings',
+  'walkthrough', 'ship', 'pr', 'ticket', 'conversation', 'decisions', 'details', 'not-yet'] as const;
+export type ReaderKind = (typeof READER_KINDS)[number];
+export const isReaderKind = (v: unknown): v is ReaderKind => (READER_KINDS as readonly unknown[]).includes(v);
 
 /** What the reader shows: a kind and the id of the thing in it. */
 export interface ReaderTarget { kind: ReaderKind; id: string }
