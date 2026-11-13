@@ -94,7 +94,9 @@ function moveLabel(permission: boolean, at: string | null | undefined): string {
 function Card({ label, ask, children }: { label: string; ask: string; children?: ReactNode }) {
   const askRef = useRef<HTMLParagraphElement>(null);
   const [cut, setCut] = useState(false);
-  const [whole, setWhole] = useState(false);
+  // Opened for this ask only: a new ask arrives on its one line again.
+  const [opened, setOpened] = useState<string | null>(null);
+  const whole = opened === ask;
   useLayoutEffect(() => {
     const el = askRef.current;
     if (!el || whole) return undefined;
@@ -111,7 +113,7 @@ function Card({ label, ask, children }: { label: string; ask: string; children?:
       <div className="jp2-card-askrow">
         <p ref={askRef} className={`jp2-card-ask${whole ? ' is-whole' : ''}`}>{ask}</p>
         {(cut || whole) && (
-          <button type="button" className="link-button jp2-card-more" aria-expanded={whole} onClick={() => setWhole((w) => !w)} title={whole ? 'Show the ask on one line again.' : 'Show the whole ask here.'}>
+          <button type="button" className="link-button jp2-card-more" aria-expanded={whole} onClick={() => setOpened(whole ? null : ask)} title={whole ? 'Show the ask on one line again.' : 'Show the whole ask here.'}>
             {whole ? 'Less' : 'More'}
           </button>
         )}

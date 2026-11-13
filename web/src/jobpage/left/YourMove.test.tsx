@@ -647,3 +647,22 @@ describe('Task 10 fix round 1: the compact card', () => {
     expect(within(card()).queryByRole('button', { name: 'More' })).toBeNull();
   });
 });
+
+describe('Task 12 carry-forward: More is for this ask', () => {
+  it('a new ask arrives folded to its line, with More, though the last one was opened', async () => {
+    const sw = vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockImplementation(function (this: HTMLElement) { return this.classList.contains('jp2-card-ask') ? 600 : 0; });
+    const cw = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function (this: HTMLElement) { return this.classList.contains('jp2-card-ask') ? 300 : 0; });
+    try {
+      const o = open();
+      fireEvent.click(within(card()).getByRole('button', { name: 'More' }));
+      expect(card().querySelector('.jp2-card-ask')).toHaveClass('is-whole');
+      const next = { ...payload(), v: payload().v + 1, move: { ...GATE(), ask: 'Crew schedule export · review 5 is ready: the totals row is back' } };
+      o.serve(next);
+      await act(async () => { await o.store.loadPage(); });
+      const ask = card().querySelector('.jp2-card-ask')!;
+      expect(ask).toHaveTextContent('review 5 is ready');
+      expect(ask).not.toHaveClass('is-whole');
+      expect(within(card()).getByRole('button', { name: 'More' })).toHaveAttribute('aria-expanded', 'false');
+    } finally { sw.mockRestore(); cw.mockRestore(); }
+  });
+});
