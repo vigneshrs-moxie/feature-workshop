@@ -352,8 +352,10 @@ const STATUS_COL = /^(status|resolution|outcome)\b/;
 // A Fix / Fixed in / Commit column, and a cell in it that starts with a commit (7 to 40 hex, a digit among them): a fix made.
 const FIX_COL = /^(fix(ed)?|commit)\b/;
 const FIX_COMMIT = /^[\s*_`]*(?=[0-9a-f]*\d)[0-9a-f]{7,40}\b/i;
-// A heading that says the findings under it were fixed ("## Fixed in fix round 1", "## Resolved"), not that they are still to fix.
-const FIXED_HEADING = /\b(fixed|resolved)\b/i;
+// A heading that says the findings under it were fixed: its words start with Fixed or Resolved ("## Fixed in round 1",
+// "## Resolved"), and say nothing of what is still to fix. One that only mentions a fix ("## Findings on the fixed code") is not.
+const MD_HEADING = /^\s{0,3}#{1,6}\s/;
+const FIXED_HEADING = /^\s{0,3}#{1,6}\s+(fixed|resolved)\b/i;
 const NOT_FIXED_HEADING = /\b(not|never)\s+(yet\s+)?(been\s+)?(fixed|resolved)\b|\bto be (fixed|resolved)\b|\b(open|remaining|still)\b/i;
 const fixedHeading = (line) => FIXED_HEADING.test(line) && !NOT_FIXED_HEADING.test(line);
 const RULE_CELL = /^:?-+:?$/;
@@ -443,7 +445,7 @@ function findingRows(lines) {
   let header = true;
   let underFixed = false; // the latest heading says the findings under it were fixed
   for (const line of lines) {
-    if (/^\s*#/.test(line)) underFixed = fixedHeading(line);
+    if (MD_HEADING.test(line)) underFixed = fixedHeading(line);
     if (!line.trim().startsWith('|')) { header = true; continue; }
     const cells = tableCells(line);
     if (header) { cols = findingColumns(cells); header = false; continue; }
@@ -466,8 +468,8 @@ function findingRows(lines) {
  * blocker, high, major or important a major, anything else a minor. Status fixed or resolved is
  * fixed; a Status of deferred, won't fix or not doing, or a row marked dropped or false positive
  * in any cell, is not-doing; with the Status cell empty or no Status column, a row under a heading
- * that says its findings were fixed ("## Fixed in fix round 1", not one that also says open or not
- * yet), or whose Fix / Fixed in / Commit cell starts with a commit, is fixed; the rest open. A later round ("## Round 2") replaces the earlier
+ * whose words start with Fixed or Resolved ("## Fixed in round 1", not one that also says open or
+ * not yet), or whose Fix / Fixed in / Commit cell starts with a commit, is fixed; the rest open. A later round ("## Round 2") replaces the earlier
  * ones, and one that says nothing was found has no rows. The words are cut at FINDING_TEXT_MAX
  * and the first FINDING_ROWS_MAX rows kept. No findings table: []. Pure.
  */

@@ -1241,7 +1241,7 @@ test('reviewRows: a table under a heading that says the findings were fixed read
   const text = [
     '# Review v2',
     '',
-    '## Fixed in fix round 1 (confirmed, re-reviewed clean)',
+    '## Fixed in the first fix round (looked at again)',
     '',
     '| Id | Severity | Finding | Fix | Re-review |',
     '|---|---|---|---|---|',
@@ -1271,4 +1271,22 @@ test('reviewRows: a heading that says some findings are fixed and some open leav
   const table = '| Severity | Finding | Status |\n|---|---|---|\n| Major | Saves twice | |\n| Minor | A typo | Fixed |\n';
   assert.deepEqual(reviewRows(`## Findings (1 fixed, 1 open)\n${table}`).map((r) => r.status), ['open', 'fixed']);
   assert.deepEqual(reviewRows(`## Still to be resolved\n${table}`).map((r) => r.status), ['open', 'fixed']);
+});
+
+test('reviewRows: only a heading that starts with Fixed or Resolved marks its table fixed; a heading that only mentions a fix does not', () => {
+  const table = '| Severity | Finding |\n|---|---|\n| Major | A new leak in the export |\n';
+  for (const heading of [
+    '## Round 2: re-review of the fixed branch',
+    '## Findings on the fixed code',
+    '## Review v3 (after the brief 14 fixes were resolved)',
+    '### What was fixed vs what is new',
+  ]) {
+    assert.deepEqual(reviewRows(`${heading}\n${table}`).map((r) => r.status), ['open'], heading);
+  }
+  // A line that starts with # but is not a markdown heading ("#14 fixed …") is not a heading.
+  assert.deepEqual(reviewRows(`#14 fixed the total, see below.\n${table}`).map((r) => r.status), ['open']);
+  assert.deepEqual(reviewRows(`## Resolved\n#14 is new.\n${table}`).map((r) => r.status), ['fixed']);
+  // The headings that do say so still do.
+  assert.deepEqual(reviewRows(`### Fixed in round 1\n${table}`).map((r) => r.status), ['fixed']);
+  assert.deepEqual(reviewRows(`## Resolved findings\n${table}`).map((r) => r.status), ['fixed']);
 });
