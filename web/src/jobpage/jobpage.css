@@ -119,8 +119,13 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2-jr-new { color: var(--text-1); font-weight: 600; }
 
 /* The message box, docked at the foot of the left pane */
-.jp2-mb { flex: none; display: flex; align-items: flex-end; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--border-1); background: var(--surface-0); }
-.jp2-mb-ta { position: relative; flex: 1; min-width: 0; height: 32px; max-height: 184px; padding: 5px 10px; border: 1px solid var(--border-2); border-radius: var(--radius-md); background: var(--surface-1); color: var(--text-1); font: inherit; font-size: 14px; line-height: 20px; resize: none; overflow-y: auto; }
+.jp2-mbw { flex: none; border-top: 1px solid var(--border-1); background: var(--surface-0); }
+.jp2-mb { display: flex; align-items: flex-end; gap: 6px; padding: 8px 12px; }
+/* One line high, growing with the words to eight lines (8 × 20 + 10 + 2), then it scrolls */
+.jp2-mb-ta { position: relative; flex: 1; min-width: 0; field-sizing: content; min-height: 32px; max-height: 172px; padding: 5px 10px; border: 1px solid var(--border-2); border-radius: var(--radius-md); background: var(--surface-1); color: var(--text-1); font: inherit; font-size: 14px; line-height: 20px; resize: none; overflow-y: auto; scrollbar-width: thin; }
+.jp2-mb-send, .jp2-mb-stop { flex: none; }
+.jp2-mb-line { display: flex; align-items: flex-start; gap: 6px; margin: 0; padding: 8px 12px 0; font-size: 12.5px; line-height: 18px; color: var(--text-2); }
+.jp2-mb-line.is-problem { color: var(--text-1); font-weight: 500; }
 .jp2-mb-ta::placeholder { color: var(--text-3); }
 .jp2-mb-ta:focus { outline: 2px solid var(--focus-ring); outline-offset: -1px; }
 
@@ -147,7 +152,7 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2[data-layout="mid"] .jp2-reader, .jp2[data-layout="phone"] .jp2-reader { position: absolute; inset: 0; z-index: 2; visibility: hidden; transform: translateX(24px); opacity: 0; transition: transform 120ms ease-out, opacity 120ms ease-out, visibility 0s linear 120ms; }
 .jp2[data-covered][data-layout="mid"] .jp2-reader, .jp2[data-covered][data-layout="phone"] .jp2-reader { visibility: visible; transform: none; opacity: 1; transition: transform 120ms ease-out, opacity 120ms ease-out, visibility 0s; }
 .jp2[data-layout="mid"] .jp2-back, .jp2[data-layout="phone"] .jp2-back { flex: none; display: flex; align-items: center; height: 40px; padding: 0 12px 0 28px; border-bottom: 1px solid var(--border-1); background: var(--surface-0); }
-.jp2[data-layout="mid"] .jp2-left .jp2-lscroll > *, .jp2[data-layout="mid"] .jp2-mb { width: 100%; max-width: 640px; margin-left: auto; margin-right: auto; }
+.jp2[data-layout="mid"] .jp2-left .jp2-lscroll > *, .jp2[data-layout="mid"] .jp2-mbw { width: 100%; max-width: 640px; margin-left: auto; margin-right: auto; }
 @media (prefers-reduced-motion: reduce) {
   .jp2-reader { transition: none !important; }
 }
@@ -181,7 +186,10 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2[data-layout="phone"] .jp2-jr-more { font-size: 13px; }
 .jp2[data-layout="phone"] .jp2-jrs { padding: 0 8px 12px; border-bottom: 0; }
 .jp2[data-layout="phone"] .jp2-mb { padding: 8px 18px 30px; }
-.jp2[data-layout="phone"] .jp2-mb-ta { height: 40px; font-size: 16px; line-height: 22px; padding: 8px 10px; }
+.jp2[data-layout="phone"] .jp2-mb-ta { min-height: 40px; max-height: 194px; font-size: 16px; line-height: 22px; padding: 8px 10px; }
+.jp2[data-layout="phone"] .jp2-mb { flex-wrap: wrap; }
+.jp2[data-layout="phone"] .jp2-mb-stop { order: -1; flex-basis: 100%; justify-content: flex-start; }
+.jp2[data-layout="phone"] .jp2-mb-line { padding: 10px 18px 0; font-size: 14px; line-height: 20px; }
 .jp2[data-layout="phone"] .jp2-back { padding: 0 8px; }
 .jp2[data-layout="phone"] .jp2-rv-top { height: auto; padding: 10px 16px; white-space: normal; flex-wrap: wrap; }
 .jp2[data-layout="phone"] .jp2-rv-title { font-size: 18px; line-height: 24px; font-weight: 650; overflow: visible; }

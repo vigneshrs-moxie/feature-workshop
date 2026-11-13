@@ -19,10 +19,16 @@
 //   outputs and the newest 30 other lines; the rest load when he picks them.
 // - A failed fetch keeps the last good data and sets the one error line; the next good fetch of the
 //   same kind clears it (a body that lands never hides that the job itself failed to load).
+// - The message box's draft is kept in this browser under the old page's key, fw.draft.<slug>
+//   (panes/Foreman/Composer.tsx draftKey), when the store is given `drafts` (the page gives it
+//   browserDrafts): a reload, and the old page, find the same words. Emptying it also forgets the
+//   old page's note that the draft answers a brief (fw.draftGate.<slug>), as the old page does.
 
 import type { ApiClient } from '../api/client';
 import { createApi } from '../api/client';
 import type { LiveEvent } from '../api/types';
+import { gateDraftKey } from '../lib/gateCard';
+import { readStored, writeStored } from '../lib/stored';
 import { liveViewer, onLiveEvent } from '../state/live';
 import { isSame, jobApi, type JobApi } from './api';
 import type { JobBody, JobPagePayload, ReaderTarget, StopId } from './types';
@@ -98,7 +104,21 @@ export interface JobStoreOptions {
   /** A payload already held (a job opened lately, or fetched ahead from Jobs): painted at once, then
    *  checked by the first load with its v. */
   initial?: JobPagePayload | null;
+  /** Where the draft is kept between visits (browserDrafts on the page); kept in the store only when left out. */
+  drafts?: DraftStorage | null;
 }
+
+/** A place that keeps short strings by key (this browser's storage on the page). */
+export interface DraftStorage {
+  read(key: string): string | null;
+  write(key: string, value: string | null): void;
+}
+
+/** This browser's storage, shared with every other place that reads the same key (lib/stored.ts). */
+export const browserDrafts: DraftStorage = { read: readStored, write: writeStored };
+
+/** The old page's key for a job's unsent draft (panes/Foreman/Composer.tsx draftKey). */
+export const draftKey = (slug: string) => `fw.draft.${slug}`;
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 const PAGE_ERROR = 'Couldn’t load this job: ';
@@ -206,10 +226,11 @@ const DECISIONS = 'decisions';
 const EMPTY_UI: JobUi = { step: null, reader: null, picksFor: null, picks: {}, own: {}, notes: [], draft: '' };
 const sameTarget = (a: ReaderTarget | null, b: ReaderTarget | null) => a === b || (!!a && !!b && a.kind === b.kind && a.id === b.id);
 
-export function createJobStore(slug: string, { api = createApi(), events = onLiveEvent, viewer = liveViewer, initial = null }: JobStoreOptions = {}): JobStore {
+export function createJobStore(slug: string, { api = createApi(), events = onLiveEvent, viewer = liveViewer, initial = null, drafts = null }: JobStoreOptions = {}): JobStore {
   const reads: JobApi = 'page' in api ? api : jobApi(api);
   const client = 'page' in api ? null : api;
-  let state: JobPageState = { slug, payload: initial && initial.slug === slug ? initial : null, bodies: {}, error: null, ui: EMPTY_UI };
+  const keptDraft = drafts?.read(draftKey(slug)) ?? '';
+  let state: JobPageState = { slug, payload: initial && initial.slug === slug ? initial : null, bodies: {}, error: null, ui: keptDraft ? { ...EMPTY_UI, draft: keptDraft } : EMPTY_UI };
   const listeners = new Set<() => void>();
   const bodyFetches = new Map<string, Promise<JobBody>>();
   let pageFetch: Promise<void> | null = null;
@@ -386,7 +407,14 @@ export function createJobStore(slug: string, { api = createApi(), events = onLiv
     forGate(key) { if (state.ui.picksFor !== key) setUi({ picksFor: key, picks: {}, own: {} }); },
     setOwn(questionId, words) { if (state.ui.own[questionId] !== words) setUi({ own: { ...state.ui.own, [questionId]: words } }); },
     setNotes(notes) { if (state.ui.notes !== notes) setUi({ notes }); },
-    setDraft(draft) { if (state.ui.draft !== draft) setUi({ draft }); },
+    setDraft(draft) {
+      if (state.ui.draft === draft) return;
+      if (drafts) {
+        drafts.write(draftKey(slug), draft === '' ? null : draft);
+        if (draft === '' && drafts.read(gateDraftKey(slug)) !== null) drafts.write(gateDraftKey(slug), null);
+      }
+      setUi({ draft });
+    },
     destroy() {
       destroyed = true;
       unsubscribe?.();

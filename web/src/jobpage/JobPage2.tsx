@@ -35,12 +35,13 @@ import { Button } from '../components/Button';
 import { Icon } from '../components/Icon';
 import { useMinWidth, useNarrow } from '../components/page/Page';
 import { useWorkshop } from '../state/store';
-import { createJobStore, type JobPageState, type JobStore } from './jobStore';
+import { browserDrafts, createJobStore, type JobPageState, type JobStore } from './jobStore';
 import { recentPage, rememberPage } from './recent';
 import { CONVERSATION, DECISIONS, DETAILS, readerOf, sameTarget, TICKET } from './targets';
 import type { JobPagePayload, ReaderKind, ReaderTarget, StopId } from './types';
 import { Header } from './left/Header';
 import { JobRows } from './left/JobRows';
+import { MessageBox } from './left/MessageBox';
 import { Steps, stepsFromRow } from './left/Steps';
 import { sinceWords, YourMove } from './left/YourMove';
 import { JobStoreContext, useJob, useJobStore } from './useJob';
@@ -85,7 +86,7 @@ function usePageStore(slug: string, given: JobStore | undefined, first: (s: JobS
   const { api } = useWorkshop();
   const made = useRef<{ store: JobStore; ended: boolean } | null>(null);
   // A job opened lately (or fetched ahead from Jobs) paints complete at once; the first load checks it.
-  const make = () => { const store = createJobStore(slug, { api, initial: recentPage(slug) }); first(store); return { store, ended: false }; };
+  const make = () => { const store = createJobStore(slug, { api, initial: recentPage(slug), drafts: browserDrafts }); first(store); return { store, ended: false }; };
   if (!given && !made.current) made.current = make();
   const [store, setStore] = useState<JobStore>(() => given ?? made.current!.store);
   useEffect(() => {
@@ -301,27 +302,6 @@ interface Line { step?: StopId; target?: ReaderTarget }
 function leftLines(payload: JobPagePayload | null, job: Job | null): Line[] {
   return [...stepIds(payload, job).map((step) => ({ step })), ...[TICKET, CONVERSATION, DECISIONS, DETAILS].map((target) => ({ target }))];
 }
-
-// ---------- The left pane's message box (Task 11 fills it) ----------
-
-const MessageBox = memo(function MessageBox({ boxRef }: { boxRef: React.RefObject<HTMLTextAreaElement | null> }) {
-  const store = useJobStore();
-  const draft = useJob((s) => s.ui.draft);
-  return (
-    <div className="jp2-mb">
-      <textarea
-        ref={boxRef}
-        className="jp2-mb-ta"
-        aria-label="Message to the Foreman"
-        placeholder="Write to the Foreman…"
-        rows={1}
-        value={draft}
-        onChange={(e) => store.setDraft(e.target.value)}
-      />
-      <Button kind="primary" size="sm" disabled title="Sending from the new page comes in a later build. The old job page (⋯ menu) sends for now.">Send</Button>
-    </div>
-  );
-});
 
 // ---------- The reader (Tasks 12 to 14 fill it) ----------
 

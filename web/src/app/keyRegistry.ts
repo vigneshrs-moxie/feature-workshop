@@ -102,6 +102,7 @@ export const KEYS = {
   // Your move (jobpage/left/YourMove.tsx)
   'jp-go': { keys: ['Mod+Enter'], label: 'Go: send the picks shown', scope: 'jobpage', where: 'While Your move waits for your yes; from anywhere on the page, the message box too.', always: true },
   'jp-yes': { keys: ['a'], label: 'Go, or Allow once', scope: 'jobpage', where: 'While Your move waits for your yes. Never allows a hard line or a risky step.' },
+  'jp-back': { keys: ['r'], label: 'Send back: the words in the message box are the change', scope: 'jobpage', where: 'While Your move waits for a go-ahead. With an empty box it puts the cursor there.' },
   'jp-opt-next': { keys: ['ArrowDown'], label: 'Move to the next option in Your move', scope: 'jobpage', where: 'While Your move asks questions, outside the reader.' },
   'jp-opt-prev': { keys: ['ArrowUp'], label: 'Move to the option before', scope: 'jobpage', where: 'While Your move asks questions, outside the reader.' },
   'jp-opt-pick': { keys: [' '], label: 'Pick that option', scope: 'jobpage', where: 'On the option ↑ or ↓ moved to.' },

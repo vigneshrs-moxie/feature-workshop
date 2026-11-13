@@ -622,3 +622,57 @@ describe('job store: Task 9, the gate’s picks', () => {
     expect(told).toBe(1);
   });
 });
+
+describe('job store: Task 11, the message box’s draft', () => {
+  /** This browser's storage, faked: the keys and what each holds. */
+  function drafts(start: Record<string, string> = {}) {
+    const kept = new Map(Object.entries(start));
+    const writes: Array<[string, string | null]> = [];
+    return {
+      kept, writes,
+      read: (key: string) => kept.get(key) ?? null,
+      write: (key: string, v: string | null) => { writes.push([key, v]); if (v === null) kept.delete(key); else kept.set(key, v); },
+    };
+  }
+
+  it('starts from the old page’s draft (fw.draft.<slug>), keeps every change there, and emptying it forgets the old page’s gate memo too', () => {
+    const d = drafts({ [`fw.draft.${SLUG}`]: 'Typed on the old page', [`fw.draftGate.${SLUG}`]: '{"brief":15,"kind":"changes"}' });
+    const store = createJobStore(SLUG, { api: server().api, events: stream().events, drafts: d });
+    expect(store.getState().ui.draft).toBe('Typed on the old page');
+    store.setDraft('Typed on the old page, and here');
+    expect(d.kept.get(`fw.draft.${SLUG}`)).toBe('Typed on the old page, and here');
+    store.setDraft('');
+    expect(d.kept.has(`fw.draft.${SLUG}`)).toBe(false);
+    expect(d.kept.has(`fw.draftGate.${SLUG}`)).toBe(false);
+    // A store made again (a reload) starts from what was kept.
+    store.setDraft('After the reload');
+    const again = createJobStore(SLUG, { api: server().api, events: stream().events, drafts: d });
+    expect(again.getState().ui.draft).toBe('After the reload');
+  });
+
+  it('a payload that lands, a step pick and a reader pick leave the draft as it is, and write nothing', async () => {
+    const d = drafts();
+    const s = server();
+    const store = createJobStore(SLUG, { api: s.api, events: stream().events, drafts: d });
+    store.setDraft('Mind the totals');
+    const writes = d.writes.length;
+    await store.loadPage();
+    const next = base();
+    next.v = 2;
+    next.move = { kind: 'permission', id: 'p1', card: 'permission', what: 'Run the tests', command: 'npm test', questions: null, risk: null, since: null, canAllowForRun: false, hardLine: false, defaultToNo: false, canAlwaysAllow: false };
+    s.set(next);
+    await store.loadPage();
+    store.setStep('build');
+    store.setReader({ kind: 'conversation', id: 'conversation' });
+    expect(store.getState().payload?.move?.kind).toBe('permission');
+    expect(store.getState().ui.draft).toBe('Mind the totals');
+    expect(d.writes.length).toBe(writes);
+  });
+
+  it('without a storage (a store made outside the page) the draft lives in the store only', () => {
+    const store = createJobStore(SLUG, { api: server().api, events: stream().events });
+    store.setDraft('only here');
+    const again = createJobStore(SLUG, { api: server().api, events: stream().events });
+    expect(again.getState().ui.draft).toBe('');
+  });
+});

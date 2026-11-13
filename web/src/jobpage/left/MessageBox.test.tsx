@@ -1,0 +1,385 @@
+// The message box (Task 11, R8): one box, docked at the foot of the left pane. Words with Go are the
+// approval's note, words with Send back are the change, words alone are a message; no Reply mode and
+// no Steer. The draft is kept under the old page's key (fw.draft.<slug>). Built on the made-up long job.
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { useEffect } from 'react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ApiError, type ApiClient } from '../../api/client';
+import type { Job, Run } from '../../api/types';
+import { installKeyListener, resetChord } from '../../app/keyRegistry';
+import { UiProvider } from '../../app/ui';
+import { clearAllSent } from '../../lib/sentState';
+import { draftKey as composerDraftKey } from '../../panes/Foreman/Composer';
+import { clearGateSent, useGateSent } from '../../panes/Foreman/gateSent';
+import { createStore, WorkshopContext, type Store } from '../../state/store';
+import { LEVELS, snapshot } from '../../state/test-fixtures';
+import { longJob } from '../fixtures/longJob';
+import { browserDrafts, createJobStore, draftKey, type JobStore } from '../jobStore';
+import { JobPage2 } from '../JobPage2';
+import { forgetRecentPages } from '../recent';
+import type { GateMove, JobBody, JobPagePayload, Move, PermissionMove } from '../types';
+import { gateBody } from './gateBody';
+import { forgetSentGo } from './YourMove';
+
+const SLUG = longJob.payload.slug;
+const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
+const payload = () => clone(longJob.payload) as unknown as JobPagePayload;
+const GATE = () => payload().move as GateMove;
+const RUNNING = { id: 'run-now', status: 'running', startedAt: '2026-11-04T15:00:00.000Z', lastAction: null };
+const PERMISSION: PermissionMove = {
+  kind: 'permission', id: 'perm-1', card: 'permission', what: 'Run the unit tests', command: 'npm test', questions: null, risk: null,
+  since: '2026-11-04T15:01:00.000Z', canAllowForRun: false, hardLine: false, defaultToNo: false, canAlwaysAllow: false,
+};
+
+const media = { width: 1512, heard: new Set<() => void>() };
+function windowWidth(px: number) {
+  media.width = px;
+  vi.stubGlobal('matchMedia', (q: string) => {
+    const min = /min-width:\s*(\d+)px/.exec(q);
+    const max = /max-width:\s*(\d+)px/.exec(q);
+    return {
+      get matches() { return (!min || media.width >= Number(min[1])) && (!max || media.width <= Number(max[1])); },
+      media: q,
+      addEventListener(_: string, fn: () => void) { media.heard.add(fn); },
+      removeEventListener(_: string, fn: () => void) { media.heard.delete(fn); },
+    };
+  });
+}
+const resizeTo = (px: number) => act(() => { media.width = px; for (const fn of [...media.heard]) fn(); });
+
+type Post = ReturnType<typeof vi.fn>;
+interface Opened { store: JobStore | null; app: Store; post: Post; serve(p: JobPagePayload): void; unmount(): void }
+
+const okPost = () => vi.fn(async (path: string): Promise<unknown> => (path.endsWith('/gate') ? { ok: true, sent: true, text: 'ok', run: { id: 'r1' } } : { run: { id: 'r1' } }));
+
+/**
+ * The page with the long job (with `move` and `patch`), and a client whose post is `post`. `own`: the
+ * page makes its own store (as App does), reading the payload through the client.
+ */
+function open({ move, patch = {}, post = okPost(), own = false, beside = null }: {
+  move?: Move | null; patch?: Partial<JobPagePayload>; post?: Post; own?: boolean; beside?: React.ReactNode;
+} = {}): Opened {
+  let current = { ...payload(), ...patch };
+  if (move !== undefined) current.move = move;
+  window.history.replaceState(null, '', `/#/job/${SLUG}`);
+  let served: JobPagePayload | null = null;
+  const get = vi.fn(async (path: string): Promise<unknown> => {
+    if (path.includes('/page')) return served ?? current;
+    const id = decodeURIComponent(/[?&]id=([^&]+)/.exec(path)?.[1] ?? '');
+    const b = longJob.bodies[id];
+    if (!b) throw new Error('Starbase answered 404.');
+    return { ...b, version: String(b.meta.hash ?? b.id) } satisfies JobBody;
+  });
+  const store = own ? null : createJobStore(SLUG, {
+    api: { page: async () => served ?? { same: true as const, v: current.v }, item: async (_slug, id) => { const b = longJob.bodies[id]; if (!b) throw new Error('Starbase answered 404.'); return { ...b, version: String(b.meta.hash ?? b.id) }; } },
+    events: () => () => {}, viewer: () => null, initial: current, drafts: browserDrafts,
+  });
+  const app = createStore();
+  app.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [], permissions: [], meta: { token: 't', levels: LEVELS } }) });
+  const api = { get, post, hosted: () => false } as unknown as ApiClient;
+  const utils = render(
+    <WorkshopContext.Provider value={{ api, store: app }}>
+      <UiProvider><JobPage2 slug={SLUG} job={null} store={store ?? undefined} />{beside}</UiProvider>
+    </WorkshopContext.Provider>,
+  );
+  return {
+    store, app, post, unmount: utils.unmount,
+    serve: (next) => { served = next; current = next; },
+  };
+}
+
+const box = () => screen.getByRole('textbox', { name: 'Message to the Foreman', hidden: true }) as HTMLTextAreaElement;
+const type = (words: string) => act(() => { fireEvent.change(box(), { target: { value: words } }); });
+const send = () => screen.getByRole('button', { name: /^(Send|Sent)$/ });
+const foot = () => within(document.querySelector<HTMLElement>('.jp2-mbw')!);
+const card = () => document.querySelector<HTMLElement>('.jp2-ym')!;
+const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+const key = (k: string, target: Element = document.body, mods: { metaKey?: boolean } = {}) => act(() => { fireEvent.keyDown(target, { key: k, ...mods }); });
+const callsTo = (post: Post, end: string) => post.mock.calls.filter((c) => String(c[0]).endsWith(end));
+/** A page fetch with the payload as it now is (a refresh). */
+async function refresh(o: Opened, next: JobPagePayload) {
+  o.serve(next);
+  await act(async () => { await o.store!.loadPage(); });
+}
+
+let offKeys: () => void = () => {};
+beforeEach(() => { windowWidth(1512); localStorage.clear(); forgetRecentPages(); forgetSentGo(); offKeys = installKeyListener(); resetChord(); });
+afterEach(() => { offKeys(); vi.unstubAllGlobals(); localStorage.clear(); clearAllSent(); clearGateSent(); window.history.replaceState(null, '', '/'); });
+
+describe('the draft', () => {
+  it('is kept under the old page’s key: the old page’s words show, every change is kept, and a reload finds them', async () => {
+    expect(draftKey(SLUG)).toBe(composerDraftKey(SLUG));
+    localStorage.setItem(`fw.draft.${SLUG}`, 'Typed on the old page');
+    const first = open({ own: true, move: null });
+    await settle();
+    expect(box()).toHaveValue('Typed on the old page');
+    type('Typed on the old page, then here');
+    expect(localStorage.getItem(`fw.draft.${SLUG}`)).toBe('Typed on the old page, then here');
+    first.unmount();
+    open({ own: true, move: null });
+    await settle();
+    expect(box()).toHaveValue('Typed on the old page, then here');
+  });
+
+  it('survives a refresh, a step pick, a permission card and a width change, in the same box', async () => {
+    const o = open();
+    type('Keep the week picker as it is.');
+    const el = box();
+    const next = payload();
+    next.v = 2;
+    next.stateLine = 'Something else';
+    await refresh(o, next);
+    expect(box()).toBe(el);
+    fireEvent.click([...document.querySelectorAll<HTMLButtonElement>('.jp2-st-row')].find((b) => b.textContent?.includes('Build'))!);
+    expect(box()).toBe(el);
+    const asked = payload();
+    asked.v = 3;
+    asked.move = PERMISSION;
+    asked.run = { ...RUNNING, status: 'waiting_permission' };
+    await refresh(o, asked);
+    expect(within(card()).getByText('npm test')).toBeInTheDocument();
+    for (const w of [900, 390, 1512]) {
+      resizeTo(w);
+      expect(box()).toBe(el);
+    }
+    expect(el).toHaveValue('Keep the week picker as it is.');
+    expect(localStorage.getItem(`fw.draft.${SLUG}`)).toBe('Keep the week picker as it is.');
+  });
+
+  it('grows to eight lines, then scrolls (the stylesheet sizes it to its words)', () => {
+    // vitest runs from web/ (jsdom gives import.meta.url an http scheme).
+    const css = readFileSync(path.join(process.cwd(), 'src/jobpage/jobpage.css'), 'utf8');
+    const rule = /\.jp2-mb-ta \{([^}]*)\}/.exec(css)?.[1] ?? '';
+    expect(rule).toMatch(/field-sizing: content/);
+    // Eight 20 px lines, the padding (5 + 5) and the edge (1 + 1).
+    expect(rule).toMatch(/max-height: 172px/);
+    expect(rule).toMatch(/overflow-y: auto/);
+    open({ move: null });
+    expect(box()).toHaveAttribute('rows', '1');
+    expect(box()).toHaveClass('jp2-mb-ta');
+  });
+});
+
+describe('words alone go as a message', () => {
+  it('Send posts the words to /send, shows Sent at once and empties the box (and its kept copy)', async () => {
+    let answer: (v: unknown) => void = () => {};
+    const post = vi.fn((_path: string, _body?: unknown) => new Promise((r) => { answer = r; }));
+    const o = open({ move: null, post });
+    type('  Please also check the totals row.  ');
+    fireEvent.click(send());
+    expect(send()).toHaveTextContent('Sent');
+    expect(box()).toHaveValue('');
+    expect(localStorage.getItem(`fw.draft.${SLUG}`)).toBeNull();
+    expect(callsTo(o.post, '/send').map((c) => [c[0], JSON.stringify(c[1])])).toEqual([
+      [`/api/job/${SLUG}/send`, '{"kind":"message","text":"Please also check the totals row.","confirmNoTerminal":false}'],
+    ]);
+    // Once, however fast he clicks.
+    fireEvent.click(send());
+    await act(async () => { answer({ run: { id: 'r2' } }); });
+    expect(callsTo(o.post, '/send')).toHaveLength(1);
+    expect(send()).toHaveTextContent('Sent');
+    expect(foot().queryByRole('alert')).toBeNull();
+    // Typing again: Send is Send again.
+    type('One more thing');
+    expect(send()).toHaveTextContent(/^Send$/);
+  });
+
+  it('⌘↵ in the box sends when nothing waits for a Go', async () => {
+    const o = open({ move: null });
+    type('Carry on.');
+    key('Enter', box(), { metaKey: true });
+    await settle();
+    expect(callsTo(o.post, '/send')).toHaveLength(1);
+    expect(JSON.stringify(callsTo(o.post, '/send')[0][1])).toBe('{"kind":"message","text":"Carry on.","confirmNoTerminal":false}');
+  });
+
+  it.each([
+    ['limited', new ApiError(409, 'Claude’s usage limit is reached.', { code: 'limited' }), /usage limit is reached/],
+    ['terminal', new ApiError(409, 'This job’s Foreman was last used in a terminal.', { code: 'terminal' }), /last used in your terminal/],
+    ['busy', new ApiError(409, 'The Foreman is still working on your last message. Wait for it to finish, or stop it.'), /Foreman is still working/],
+    ['locked', new ApiError(409, 'Held.', { code: 'job-locked', lock: { owner: 'terminal' } }), /Another place is working on this job/],
+    ['unreachable', new TypeError('Failed to fetch'), /Couldn’t reach Starbase/],
+  ])('a refusal (%s) puts the words back with the reason in plain words', async (_name, err, words) => {
+    let refuse: (e: unknown) => void = () => {};
+    const post = vi.fn(() => new Promise((_r, j) => { refuse = j; }));
+    open({ move: null, post });
+    type('Please also check the totals row.');
+    fireEvent.click(send());
+    expect(box()).toHaveValue('');
+    // Typed while it was out: kept, under the words that come back.
+    type('And the header.');
+    await act(async () => { refuse(err); });
+    expect(box()).toHaveValue('Please also check the totals row.\n\nAnd the header.');
+    expect(foot().getByRole('alert')).toHaveTextContent(words);
+    expect(foot().getByRole('alert')).toHaveTextContent(/^(Not sent|Couldn’t reach)/);
+    expect(send()).toHaveTextContent(/^Send$/);
+    expect(localStorage.getItem(`fw.draft.${SLUG}`)).toBe('Please also check the totals row.\n\nAnd the header.');
+  });
+
+  it('Claude Code open in a terminal: the box asks him to confirm none is this job’s Foreman, then sends with it', async () => {
+    const post = vi.fn()
+      .mockRejectedValueOnce(new ApiError(409, 'Claude Code is open in a terminal.', { code: 'terminal-open', terminals: [] }))
+      .mockResolvedValueOnce({ run: { id: 'r2' } });
+    open({ move: null, post });
+    type('Carry on.');
+    fireEvent.click(send());
+    await settle();
+    fireEvent.click(screen.getByRole('checkbox', { name: /None of the open terminals is this job’s Foreman/ }));
+    fireEvent.click(send());
+    await settle();
+    expect(post.mock.calls.map((c) => JSON.stringify(c[1]))).toEqual([
+      '{"kind":"message","text":"Carry on.","confirmNoTerminal":false}',
+      '{"kind":"message","text":"Carry on.","confirmNoTerminal":true}',
+    ]);
+  });
+
+  it('an empty box: Send puts the cursor in it and sends nothing', () => {
+    const o = open({ move: null });
+    fireEvent.click(send());
+    expect(document.activeElement).toBe(box());
+    expect(o.post).not.toHaveBeenCalled();
+  });
+
+  it('has no Reply mode and no Steer', () => {
+    open({ patch: { run: RUNNING } });
+    expect(screen.queryByRole('button', { name: /^Reply/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Steer/ })).toBeNull();
+  });
+});
+
+describe('words with Go and with Send back', () => {
+  it('words typed in the box go with Go as the approval’s note; the box empties once Go is accepted', async () => {
+    const o = open();
+    type('Mind the totals row.');
+    fireEvent.click(within(card()).getByRole('button', { name: /^Go/ }));
+    await settle();
+    const bodies = callsTo(o.post, '/gate').map((c) => JSON.stringify(c[1]));
+    expect(bodies).toEqual([JSON.stringify(gateBody('approve', GATE(), { picks: {}, own: {} }, { note: 'Mind the totals row.' }))]);
+    expect(JSON.parse(bodies[0]).note).toBe('Mind the totals row.');
+    expect(box()).toHaveValue('');
+    expect(localStorage.getItem(`fw.draft.${SLUG}`)).toBeNull();
+    expect(callsTo(o.post, '/send')).toHaveLength(0);
+  });
+
+  it('Send back with an empty box sends nothing: the cursor goes to the box with a hint', () => {
+    const o = open();
+    fireEvent.click(within(card()).getByRole('button', { name: /^Send back/ }));
+    expect(document.activeElement).toBe(box());
+    expect(within(card()).getByRole('status')).toHaveTextContent('Write what should change in the message box, then press Send back.');
+    expect(o.post).not.toHaveBeenCalled();
+  });
+
+  it('words with Send back are the change: the gate route gets kind changes with the words as the note; Sent at once', async () => {
+    let answer: (v: unknown) => void = () => {};
+    const post = vi.fn((_path: string, _body?: unknown) => new Promise((r) => { answer = r; }));
+    open({ post });
+    fireEvent.click(within(within(card()).getByRole('group', { name: /^2\./ })).getAllByRole('radio')[1]);
+    type('Split the export into two files.');
+    fireEvent.click(within(card()).getByRole('button', { name: /^Send back/ }));
+    expect(card()).toHaveTextContent('Sent back · the Foreman is revising');
+    expect(box()).toHaveValue('');
+    expect(post.mock.calls.map((c) => [c[0], JSON.stringify(c[1])])).toEqual([
+      [`/api/job/${SLUG}/gate`, JSON.stringify(gateBody('changes', GATE(), { picks: { 2: 'b' }, own: {} }, { note: 'Split the export into two files.' }))],
+    ]);
+    expect(JSON.parse(JSON.stringify(post.mock.calls[0][1]))).toMatchObject({ kind: 'changes', note: 'Split the export into two files.', verdicts: {} });
+    await act(async () => { answer({ ok: true, sent: true, text: 'ok', run: { id: 'r1' } }); });
+    expect(card()).toHaveTextContent('Sent back · the Foreman is revising');
+  });
+
+  it('r is Send back (not while typing); a refusal puts the words back with the reason', async () => {
+    const post = vi.fn(async (_path: string, _body?: unknown) => { throw new ApiError(409, 'Limited.', { code: 'limited' }); });
+    open({ post });
+    type('Split the export into two files.');
+    key('r', box());
+    expect(post).not.toHaveBeenCalled();
+    act(() => { box().blur(); });
+    key('r');
+    await settle();
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(JSON.stringify(post.mock.calls[0][1])).kind).toBe('changes');
+    expect(box()).toHaveValue('Split the export into two files.');
+    expect(within(card()).getByRole('alert')).toHaveTextContent(/usage limit is reached/);
+    expect(within(card()).getByRole('button', { name: /^Send back/ })).toBeInTheDocument();
+  });
+
+  it('a Go or Send back already on its way from another place keeps Go and Send back off; pressing them sends nothing and leaves that send alone', async () => {
+    // Today's card (or the Desk) for the same job, as the job stands on the page: it sends through the shared send.
+    let other: ReturnType<typeof useGateSent> | null = null;
+    const RUN = payload().run!;
+    function Other() {
+      const s = useGateSent({ slug: SLUG, waitingFor: null, stage: null } as unknown as Job, { id: RUN.id } as Run);
+      useEffect(() => { other = s; });
+      return <span data-testid="other">{s.state}</span>;
+    }
+    let answer: (v: unknown) => void = () => {};
+    const theirs = { post: vi.fn(() => new Promise((r) => { answer = r; })) } as unknown as ApiClient;
+    const o = open({ beside: <Other /> });
+    let out: Promise<unknown> = Promise.resolve();
+    act(() => { out = other!.send(theirs, gateBody('approve', GATE(), { picks: {}, own: {} })); });
+    const goBtn = () => within(card()).getByRole('button', { name: /^Go/ });
+    const backBtn = () => within(card()).getByRole('button', { name: /^Send back/ });
+    expect(goBtn()).toBeDisabled();
+    expect(backBtn()).toBeDisabled();
+    expect(goBtn()).toHaveAttribute('title', expect.stringMatching(/already on its way/));
+    key('Enter', document.body, { metaKey: true });
+    key('a');
+    type('Split it.');
+    act(() => { box().blur(); });
+    key('r');
+    await settle();
+    expect(callsTo(o.post, '/gate')).toHaveLength(0);
+    expect(screen.getByTestId('other')).toHaveTextContent('sending');
+    await act(async () => { answer({ ok: true, sent: true, text: 'ok', run: { id: 'r9' } }); await out; });
+    expect(screen.getByTestId('other')).toHaveTextContent('sent');
+    expect(goBtn()).toBeDisabled();
+    expect(callsTo(o.post, '/gate')).toHaveLength(0);
+    expect(box()).toHaveValue('Split it.');
+  });
+});
+
+describe('while a reply runs', () => {
+  it('the box says Sends when the Foreman finishes, with Stop it and send now beside it; Send keeps the words and sends nothing', async () => {
+    const o = open({ move: null, patch: { run: RUNNING } });
+    expect(box()).toHaveAttribute('placeholder', 'Sends when the Foreman finishes');
+    expect(screen.getByRole('button', { name: 'Stop it and send now' })).toBeInTheDocument();
+    type('Also the header.');
+    fireEvent.click(send());
+    await settle();
+    expect(o.post).not.toHaveBeenCalled();
+    expect(box()).toHaveValue('Also the header.');
+    expect(document.querySelector('.jp2-mb-line')).toHaveTextContent(/Press Send again when the Foreman finishes/);
+  });
+
+  it('Stop it and send now stops the reply, then sends the words once it has stopped', async () => {
+    const o = open({ move: null, patch: { run: RUNNING } });
+    type('Stop, and use the old header.');
+    fireEvent.click(screen.getByRole('button', { name: 'Stop it and send now' }));
+    await settle();
+    expect(o.post.mock.calls.map((c) => [c[0], JSON.stringify(c[1])])).toEqual([['/api/runs/run-now/stop', '{}']]);
+    expect(box()).toHaveValue('Stop, and use the old header.');
+    const stopped = payload();
+    stopped.v = 2;
+    stopped.move = null;
+    stopped.run = { ...RUNNING, status: 'stopped' };
+    await refresh(o, stopped);
+    await settle();
+    expect(callsTo(o.post, '/send').map((c) => JSON.stringify(c[1]))).toEqual(['{"kind":"message","text":"Stop, and use the old header.","confirmNoTerminal":false}']);
+    expect(box()).toHaveValue('');
+  });
+
+  it('Stop it and send now with an empty box puts the cursor in it and stops nothing', () => {
+    const o = open({ move: null, patch: { run: RUNNING } });
+    fireEvent.click(screen.getByRole('button', { name: 'Stop it and send now' }));
+    expect(document.activeElement).toBe(box());
+    expect(o.post).not.toHaveBeenCalled();
+  });
+
+  it('the app’s live run counts first: a run event that ends the reply wakes Send at once', async () => {
+    const o = open({ move: null, patch: { run: RUNNING } });
+    act(() => { o.app.dispatch({ type: 'event', event: { v: 2, type: 'run', job: SLUG, seq: 999999, data: { id: 'run-now', slug: SLUG, status: 'done' } } } as never); });
+    expect(box()).toHaveAttribute('placeholder', 'Write to the Foreman…');
+    expect(screen.queryByRole('button', { name: 'Stop it and send now' })).toBeNull();
+  });
+});
