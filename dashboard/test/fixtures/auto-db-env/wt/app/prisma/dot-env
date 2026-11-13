@@ -1,0 +1,1 @@
+PRISMA_DIRECT_URL=postgres://u:p@localhost:5432/app

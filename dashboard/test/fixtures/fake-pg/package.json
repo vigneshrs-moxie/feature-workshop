@@ -1,0 +1,5 @@
+{
+  "private": true,
+  "description": "Fake Postgres tools for the tests: extensionless scripts here are CommonJS.",
+  "type": "commonjs"
+}

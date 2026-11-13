@@ -230,7 +230,7 @@ export function withoutMark(text) {
  * limit), a status fix, PR feedback, a review round, a stack's start and its own news (ready, merged, stuck, checks failed).
  * A stack's messages that carry the person's own note or go (stack-plan, -plan-change, -push, -push-no, -sendback) are theirs.
  */
-export const OWN_SENDS = new Set(['nudge', 'resume', 'resume-after-restart', 'status-fix', 'pr-feedback', 'review-round', 'stack-section', 'stack-ready', 'stack-merged', 'stack-stuck', 'stack-checks-failed']);
+export const OWN_SENDS = new Set(['nudge', 'resume', 'resume-after-restart', 'status-fix', 'pr-feedback', 'review-round', 'stack-section', 'stack-ready', 'stack-merged', 'stack-stuck', 'stack-checks-failed', 'auto-migration']);
 
 /** Auto's stop when the person wrote to a job while its step waited (I5). The board's lane says it from the moment they write. */
 export const YOURS_NOW = 'you wrote to this job while this step waited, so it is yours to decide.';

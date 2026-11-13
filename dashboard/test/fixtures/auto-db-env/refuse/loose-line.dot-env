@@ -1,0 +1,2 @@
+NOTE=1
+postgres://u:p@localhost:5432/app

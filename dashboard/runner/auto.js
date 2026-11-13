@@ -997,5 +997,5 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
   /** The slug of the job that holds the test place, or null. */
   function testHolder() { return testPlace?.slug ?? null; }
 
-  return { pass, onPermission, cardGone, leftCard, handlingCard, waitingToTest, testHolder };
+  return { pass, onPermission, cardGone, leftCard, handlingCard, waitingToTest, testHolder, stopWith: (job, hit) => stop(job, hit) };
 }

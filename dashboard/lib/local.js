@@ -20,6 +20,8 @@ import { GENERAL, GENERAL_FILE_RULE, devCommand, fillPattern, tryItRules } from 
 import { openRegistry } from './repos.js';
 import { guessedWorktree, guessWords } from './locate.js';
 import { PRODUCT } from './brand.js';
+import { autoDbEnvParts, dbHint, leftover, readSettings } from './db-settings.js';
+import { openDoor, sandboxProfile, sandboxed, sandboxWorks } from './db-door.js';
 
 const OUTPUT_MAX = 200_000; // characters kept per output box
 const PRESETS = [
@@ -46,7 +48,7 @@ const PG_DIRS = {
 const exists = (p) => fs.existsSync(p);
 const readJson = async (file) => { try { return JSON.parse(await fsp.readFile(file, 'utf8')); } catch { return null; } };
 const sh = (file, args, opts = {}) => new Promise((resolve) => {
-  execFile(file, args, { timeout: 120_000, maxBuffer: 8 * 1024 * 1024, ...opts }, (err, stdout, stderr) => resolve({ ok: !err, code: err ? err.code ?? 1 : 0, stdout: String(stdout), stderr: String(stderr) }));
+  execFile(file, args, { timeout: 120_000, maxBuffer: 8 * 1024 * 1024, ...opts }, (err, stdout, stderr) => resolve({ ok: !err, code: err ? err.code ?? 1 : 0, killed: Boolean(err?.killed), stdout: String(stdout), stderr: String(stderr) }));
 });
 
 // ---------- Settings files ----------
@@ -164,6 +166,100 @@ function pgEnv(url) {
   };
 }
 
+/**
+ * createdb's arguments for a copy of `from` named `to`. fileCopy (Postgres 15 or later): copy the
+ * files instead of the default, row by row (on the owner's 6.9 GB database, 11 s instead of 99 s).
+ */
+export function createdbArgs(from, to, { fileCopy }) {
+  return ['-T', from, ...(fileCopy ? ['--strategy=file_copy'] : []), to];
+}
+
+const ADDRESS = /postgres(?:ql)?:(?:\\?\/){2}[^\s'"`<>]+/gi; // also as JSON writes it (postgres:\/\/…)
+const PASSWORD_SETTING = /(^|[^A-Za-z])((?:pg)?password"?\s*[=:]\s*)("[^"]*"|'[^']*'|[^\s,;}]+)/gi;
+
+/**
+ * Text with every database address blanked (`<database address>`), and each of `secrets` (the
+ * passwords in the addresses, as written and decoded) too: what a tool printed may go to the
+ * Foreman and the job page, and no address leaves the laptop. A secret under 4 characters isn't
+ * blanked alone (it would blank parts of words); the address it was in still is, and so is any
+ * `PGPASSWORD=…` or `password: …` / `password=…` printed, whatever its length.
+ */
+export function blankAddresses(text, secrets = []) {
+  let out = String(text ?? '').replace(ADDRESS, '<database address>').replace(PASSWORD_SETTING, '$1$2<password>');
+  for (const s of secrets) if (typeof s === 'string' && s.length >= 4) out = out.split(s).join('<password>');
+  return out;
+}
+
+/**
+ * Why Auto's database couldn't be made. code: 'no-original' (no saved original, and it can't be
+ * saved now), 'busy' (another switch didn't end in time), 'copy' (dropping or copying failed this
+ * time), 'no-database' (this app has no database Starbase can copy: it never will, as it is),
+ * 'migration' (a migration failed: migration names it, tail is its last 20 lines), 'not-landed' (a
+ * migration ended well but isn't in __auto's ledger: it went somewhere else; migration names it).
+ * Database addresses are blanked from the message and the tail (blankAddresses).
+ */
+export class AutoDbError extends Error {
+  constructor(code, message, { migration = null, tail = null } = {}) {
+    super(blankAddresses(message));
+    this.name = 'AutoDbError';
+    this.code = code;
+    this.migration = migration;
+    this.tail = tail === null ? null : blankAddresses(tail);
+  }
+}
+
+/** Try it's server for a job is running, so Auto's recording of it can't start on Auto's database (plan's words). */
+export const AUTO_TRY_IT_RUNNING = 'Try it is running for this job, so Auto can\'t record it on its own database. Stop Try it, then press Record.';
+
+/** His Try it Start while an Auto recording runs the job's app on Auto's database (lead's words). */
+export const AUTO_RECORDING_APP = 'Auto is recording this job on its own copy of the database. Start Try it when the recording ends.';
+
+/** This computer can't fence a program off from his database (lib/db-door.js sandboxWorks), so nothing of Auto's is copied, started or run (lead's words). */
+export const AUTO_NO_FENCE = 'Auto could not fence its app off from your database on this computer, so it made no recording.';
+
+/** His Postgres server as db.env names it, for the door: a PGHOST that starts with / is a socket folder. */
+const hisServer = (db) => (db.env.PGHOST.startsWith('/') ? { socket: `${db.env.PGHOST}/.s.PGSQL.${db.env.PGPORT}` } : { host: db.env.PGHOST, port: Number(db.env.PGPORT) });
+
+const pgPort = (u) => u.port || '5432';
+const sameServer = (a, b) => (isLocalHost(a.hostname) ? isLocalHost(b.hostname) : a.hostname.toLowerCase() === b.hostname.toLowerCase()) && pgPort(a) === pgPort(b);
+
+const AUTO_DB_WAIT_MS = 120_000; // how long Auto waits for another database switch to end
+const AUTO_STEP_MS = 600_000; // how long one of Auto's database steps may run before it is stopped
+const PSQL_MS = 30_000; // how long a psql read may run (Try it's and Auto's)
+const HOLD_MAX_MS = 600_000; // the longest an Auto recording holds his database's reads (holdHisReads), if its finally never runs
+const lastLines = (text, n) => String(text).replace(/\s+$/, '').split('\n').slice(-n).join('\n');
+/** A time limit in words: "10 minutes", "30 seconds", "1 second", "200 milliseconds". */
+const spanWords = (ms) => {
+  const [n, unit] = ms >= 60_000 ? [Math.round(ms / 60_000), 'minute'] : ms >= 1000 ? [Math.round(ms / 1000), 'second'] : [ms, 'millisecond'];
+  return `${n} ${unit}${n === 1 ? '' : 's'}`;
+};
+
+// Auto's database steps running now: stopAll ends them (they run in their own group, so they'd outlive Starbase).
+const autoChildren = new Set();
+
+// A fixed program with fixed arguments (no shell), its output kept, not streamed: Auto's database steps.
+// exactEnv: the whole environment, as given (autoDbEnv's); else Starbase's own with env added.
+// timeoutMs: past it, the program and everything it started are killed and the result is
+// { ok: false, code: 'timeout', timedOut: true } at once, so a hung step never holds the lock.
+function capture(file, args, { env, cwd, exactEnv = null, timeoutMs = 0 } = {}) {
+  return new Promise((resolve) => {
+    let output = '';
+    let timer = null;
+    const add = (b) => { output = clip(output + String(b).replace(ANSI, '')); };
+    const end = (r) => { clearTimeout(timer); resolve({ ...r, output }); };
+    // Its own process group (macOS, Linux), so killTree reaches what it started (npm's shell, the script).
+    const child = spawn(file, args, { cwd, env: exactEnv ?? childEnv(env), stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32' });
+    autoChildren.add(child);
+    child.on('close', () => autoChildren.delete(child));
+    child.on('error', () => autoChildren.delete(child));
+    child.stdout.on('data', add);
+    child.stderr.on('data', add);
+    child.on('error', (err) => { add(`${err.message}\n`); end({ ok: false, code: err.code }); });
+    child.on('close', (code) => end({ ok: code === 0, code }));
+    if (timeoutMs > 0) timer = setTimeout(() => { killTree(child, 'SIGKILL'); end({ ok: false, code: 'timeout', timedOut: true }); }, timeoutMs);
+  });
+}
+
 /** Migrations on disk in an app folder: names like 0134_something, in order. */
 async function diskMigrations(appDir) {
   try {
@@ -175,9 +271,28 @@ async function diskMigrations(appDir) {
 // ---------- The service ----------
 
 export class LocalRunner extends EventEmitter {
-  /** state: State (settings key "local"). demo: nothing real runs. registry: lib/repos.js's (the state folder's by default). */
-  constructor({ state, demo = false, registry = null }) {
+  #pgTool;
+  #autoStepMs;
+  #canFence;
+  #doors = new Set(); // the doors open now (lib/db-door.js): one per app on Auto's database, one per migrate loop
+  #starts = new Map(); // slug -> the start under way (startServer)
+  #hisHeld = new Map(); // his database's name -> { promise }: Starbase's own reads of it wait (holdHisReads)
+  #lastFacts = new Map(); // his database's name -> the last facts read (#dbFacts), answered while it is held
+  #fileCopy = new Map(); // server and createdb -> a promise: whether createdb's file copy can be used (read once)
+
+  /**
+   * state: State (settings key "local"). demo: nothing real runs. registry: lib/repos.js's (the state
+   * folder's by default). pgTool: where a Postgres tool is, by name (tests point it at fakes).
+   * autoStepMs: how long each program autoDatabase starts may run before it is stopped (Try it's
+   * own switch has no such limit: a copy of his database is never killed half way).
+   * sandboxWorks: whether this computer can fence a program off from his database (lib/db-door.js's;
+   * tests answer for it).
+   */
+  constructor({ state, demo = false, registry = null, pgTool: findPgTool = pgTool, autoStepMs = AUTO_STEP_MS, sandboxWorks: canFence = sandboxWorks }) {
     super();
+    this.#pgTool = findPgTool;
+    this.#autoStepMs = autoStepMs;
+    this.#canFence = canFence;
     this.state = state;
     this.demo = demo;
     this.jobs = new Map(); // slug -> { server, cmd }
@@ -327,17 +442,56 @@ export class LocalRunner extends EventEmitter {
 
   // ----- dev server -----
 
-  async startServer(f) {
+  /**
+   * Start the job's dev server. databaseUrl: Auto's database (its recording): the app is fenced off
+   * from his database (#autoFence: it runs inside the sandbox, and its settings name a door that
+   * passes on only sessions for Auto's copy; the door closes when the app stops, exits or fails to
+   * start), and the server's view says db: 'auto'. His Try it server already running for the job is
+   * never stopped for it: that is refused (AUTO_TRY_IT_RUNNING). His own Try it app (no databaseUrl)
+   * starts as ever: no sandbox, no door.
+   */
+  startServer(f, opts = {}) {
+    // One start at a time per job: a second start (his Try it while the recorder starts the app) waits
+    // for the first, then finds its server, so two apps are never spawned for one job.
+    const before = this.#starts.get(f.slug) ?? Promise.resolve();
+    const mine = before.catch(() => {}).then(() => this.#startServer(f, opts));
+    this.#starts.set(f.slug, mine);
+    mine.finally(() => { if (this.#starts.get(f.slug) === mine) this.#starts.delete(f.slug); }).catch(() => {});
+    return mine;
+  }
+
+  async #startServer(f, { databaseUrl = null } = {}) {
     const w = await this.where(f);
     if (!w.app) throw new Error(w.reason ?? 'No app folder (a package.json with a "dev" script) in this job’s worktree.');
     const slot = this.#slot(f.slug);
-    if (slot.server && ['starting', 'running'].includes(slot.server.status)) return this.#serverView(slot.server);
+    if (slot.server && ['starting', 'running'].includes(slot.server.status)) {
+      if (databaseUrl && slot.server.db !== 'auto') throw new Error(AUTO_TRY_IT_RUNNING);
+      // His Try it Start while the app runs on Auto's database (a recording): never his to take over.
+      if (!databaseUrl && slot.server.db === 'auto') throw new Error(AUTO_RECORDING_APP);
+      return this.#serverView(slot.server);
+    }
+    let autoEnv = null;
+    if (databaseUrl && !this.demo) {
+      const db = await this.#database(w);
+      if (!db.url) throw new Error(db.reason ?? `This job’s app has no database ${PRODUCT} can copy for Auto.`);
+      // Only Auto's own copy, on his database's server: anything else is refused.
+      let u = null;
+      try { u = new URL(databaseUrl); } catch { u = null; }
+      let name = null;
+      try { name = u ? decodeURIComponent(u.pathname.slice(1)) : null; } catch { name = null; }
+      if (!u || name !== db.auto || !sameServer(u, new URL(db.url))) throw new Error(`That isn’t the address of Auto’s copy of the database, so the app wasn’t started.`);
+      autoEnv = { ...db, autoUrl: databaseUrl, auto: name };
+    }
     const port = await this.portFor(f.slug);
     if (!this.demo && await portInUse(port)) throw new Error(`Something else is already using port ${port}. Stop it, or close the other app, and try again.`);
     // The profile's command, or the app's dev script (only on this computer for a Next.js app: with
     // the sign-in skip on, the app must not be reachable from the network).
     const command = devCommand(w.tryIt, w.app.scripts.dev, port);
-    const server = { status: 'starting', port, url: fillPattern(w.tryIt.url, { port }), command, startedAt: new Date().toISOString(), output: '', child: null, exitCode: null };
+    const base = childEnv({ PORT: String(port), HOSTNAME: '127.0.0.1', HOST: '127.0.0.1' });
+    // On Auto's database: refused (nothing starts) where this computer has no sandbox or a settings file can't be read.
+    const fence = autoEnv ? await this.#autoFence(autoEnv, await this.#autoGate(w, (m) => new Error(m)), base) : null;
+    // door, hint: the fence's, kept for the recording's note (autoRefusal). profile: the fence's, kept for the recording's browser run (autoProfile).
+    const server = { status: 'starting', port, url: fillPattern(w.tryIt.url, { port }), command, startedAt: new Date().toISOString(), output: '', child: null, exitCode: null, db: databaseUrl ? 'auto' : null, door: fence?.door ?? null, hint: fence?.hint ?? null, profile: fence?.profile ?? null };
     slot.server = server;
     if (this.demo) {
       server.output = `$ ${command}\nDemo mode: nothing real runs.\n`;
@@ -347,7 +501,11 @@ export class LocalRunner extends EventEmitter {
     }
     server.output = `$ ${command}   (in ${w.app.dir})\n`;
     const shell = shellFor(command);
-    const child = spawn(shell.file, shell.args, { cwd: w.app.dir, env: childEnv({ PORT: String(port), HOSTNAME: '127.0.0.1', HOST: '127.0.0.1' }), ...shell.options, stdio: ['ignore', 'pipe', 'pipe'] });
+    // Auto's app: the same shell and command inside the sandbox (sandbox-exec becomes the shell, so the
+    // process group is the app's as ever). His own: as it is.
+    const run = fence ? sandboxed(shell.file, shell.args, fence.profile) : shell;
+    let child;
+    try { child = spawn(run.file, run.args, { cwd: w.app.dir, env: fence?.env ?? base, ...shell.options, stdio: ['ignore', 'pipe', 'pipe'] }); } catch (err) { fence?.close(); throw err; }
     server.child = child;
     const onData = (buf) => {
       const chunk = String(buf).replace(ANSI, '');
@@ -356,8 +514,9 @@ export class LocalRunner extends EventEmitter {
     };
     child.stdout.on('data', onData);
     child.stderr.on('data', onData);
-    child.on('error', (err) => onData(`\n${err.message}\n`));
+    child.on('error', (err) => { fence?.close(); onData(`\n${err.message}\n`); });
     child.on('exit', (code, signal) => {
+      fence?.close();
       server.status = server.stopRequested ? 'stopped' : 'exited';
       server.exitCode = code ?? signal;
       onData(`\n[The app stopped${server.stopRequested ? '' : ` by itself (${code ?? signal})`}.]\n`);
@@ -403,7 +562,7 @@ export class LocalRunner extends EventEmitter {
   }
 
   #serverView(s) {
-    return s ? { status: s.status, port: s.port, url: s.url, command: s.command, startedAt: s.startedAt, exitCode: s.exitCode } : null;
+    return s ? { status: s.status, port: s.port, url: s.url, command: s.command, startedAt: s.startedAt, exitCode: s.exitCode, ...(s.db ? { db: s.db } : {}) } : null;
   }
 
   // ----- commands -----
@@ -525,23 +684,146 @@ export class LocalRunner extends EventEmitter {
     let env;
     try { name = decodeURIComponent(u.pathname.slice(1)); env = pgEnv(url); } catch { return { reason: `${key} has characters ${PRODUCT} can’t read.` }; }
     if (!/^[A-Za-z0-9_]{1,50}$/.test(name)) return { reason: `The database name has characters ${PRODUCT} won’t risk.` };
-    return { url, name, original: `${name}__original`, incoming: `${name}__incoming`, env };
+    // Auto's own database, beside his: autoUrl is his address with that name, and never leaves the server.
+    const auto = `${name}__auto`;
+    u.pathname = `/${auto}`;
+    return { url, name, key, original: `${name}__original`, incoming: `${name}__incoming`, auto, autoUrl: u.toString(), env };
   }
 
-  async #psql(db, sql) {
-    const r = await sh(await pgTool('psql'), ['-X', '-A', '-t', '-q', '-v', 'ON_ERROR_STOP=1', '-d', db.dbName ?? db.name, '-c', sql], { env: childEnv(db.env), timeout: 30_000 });
+  /**
+   * Every settings file of both checkouts (the job's worktree and his main folder) and the profile's
+   * files to copy (each from in the main folder, each to in the worktree, whatever their names), as
+   * lib/db-settings.js reads them: { files, unreadable }. The text stays on the server.
+   */
+  async #settingsFiles(w) {
+    const extra = (w.files ?? []).flatMap((r) => [w.mainRoot && path.join(w.mainRoot, r.from), w.root && path.join(w.root, r.to)]).filter(Boolean);
+    return readSettings({ job: w.root, main: w.mainRoot && w.mainRoot !== w.root ? w.mainRoot : null, extra });
+  }
+
+  /**
+   * R1: whether the job's app may use a database, so an Auto job takes Auto's copy or nothing. True
+   * when the profile names a database key, any settings file has a line that looks like a database
+   * setting (lib/db-settings.js looksLikeDb) or can't be read, or env (Starbase's own, by default)
+   * has one. Only a repository with none records as Try it does today.
+   */
+  async namesADatabase(f, env = process.env) {
+    const w = await this.where(f);
+    if (!w.root) return false;
+    if (w.profile && w.tryIt?.dbUrlKey) return true;
+    return Boolean(dbHint(await this.#settingsFiles(w), env));
+  }
+
+  /**
+   * The gate before anything of Auto's is copied, started or run: this computer can fence a program
+   * off from his database (lib/db-door.js sandboxWorks), and every settings file can be read. Each
+   * refuses with its words. Returns the settings (lib/db-settings.js readSettings).
+   */
+  async #autoGate(w, refuse) {
+    if (!(await this.#canFence())) throw refuse(AUTO_NO_FENCE);
+    const settings = await this.#settingsFiles(w);
+    if (settings.unreadable.length) throw refuse(`Auto could not read ${settings.unreadable[0]}, so it made no recording.`);
+    return settings;
+  }
+
+  /**
+   * The fence around one app or one migrate loop of Auto's (lib/db-door.js). What keeps the child
+   * off his database is these two, and no settings file:
+   *   profile  the sandbox profile it is started with: his Postgres server is denied to it and to
+   *            everything it starts (migrate: everything outside this laptop too);
+   *   door     Starbase's relay to his server, which passes on only a session that names Auto's copy.
+   * env is the child's environment, its database settings naming the door (lib/db-settings.js
+   * autoDbEnvParts: function only). hint: a setting that holds his database's name and that Starbase
+   * couldn't point at the door ({ file, key }, leftover), or null; it stops nothing. The caller
+   * closes the door with close().
+   */
+  async #autoFence(db, settings, base, { migrate = false } = {}) {
+    const profile = sandboxProfile({ port: Number(db.env.PGPORT), migrate });
+    const door = await openDoor({ target: hisServer(db), database: db.auto });
+    this.#doors.add(door);
+    const close = () => { this.#doors.delete(door); return door.close(); };
+    try {
+      const { env, set } = autoDbEnvParts(db, settings, base, { port: door.port });
+      return { door, profile, env, hint: leftover(settings, set, db, base), close };
+    } catch (err) { await close(); throw err; }
+  }
+
+  /**
+   * What the door refused for the job's app on Auto's database: { asked, hint } for the latest
+   * refusal (asked: the database's name as the door keeps it; hint: a setting that may be what names
+   * it, { file, key }, or null), or null when it refused nothing. For the recording's note.
+   */
+  autoRefusal(slug) {
+    const server = this.jobs.get(slug)?.server;
+    const last = server?.door?.refused.at(-1);
+    return last ? { asked: last.database, hint: server.hint } : null;
+  }
+
+  /**
+   * The sandbox profile the job's app on Auto's database was started under (lib/db-door.js), or null
+   * (no app, or his own Try it app, which has none). For what else an Auto recording starts that
+   * runs the job's code: its browser run goes under the same fence.
+   */
+  autoProfile(slug) {
+    const server = this.jobs.get(slug)?.server;
+    return server?.db === 'auto' ? server.profile ?? null : null;
+  }
+
+  /**
+   * Whether createdb can use the file copy here: the server (db's host and port) and the createdb
+   * program both Postgres 15 or later. Asked once per server and program; a failed read of the
+   * server is asked again next time, and a createdb that can't say its version means no.
+   */
+  #canFileCopy(db, createdb) {
+    const key = `${db.env.PGHOST}:${db.env.PGPORT} ${createdb}`;
+    if (!this.#fileCopy.has(key)) {
+      const client = sh(createdb, ['--version'], { timeout: PSQL_MS }).then((r) => (r.ok ? Number(/(\d+)\.\d+/.exec(r.stdout)?.[1] ?? 0) : 0)); // "createdb (PostgreSQL) 17.11"
+      const server = this.#psql({ ...db, dbName: 'postgres' }, 'show server_version_num').then(Number);
+      this.#fileCopy.set(key, Promise.all([server, client])
+        .then(([s, c]) => s >= 150000 && c >= 15)
+        .catch((err) => { this.#fileCopy.delete(key); throw err; }));
+    }
+    return this.#fileCopy.get(key);
+  }
+
+  // timeout: Auto's reads pass the lower of this and its step limit. A read stopped by it throws with timedOut.
+  async #psql(db, sql, { timeout = PSQL_MS, held = 'wait' } = {}) {
+    // A read of his database waits while an Auto recording watches it for new sessions (holdHisReads),
+    // or, for Try it's panel (held: 'fail'), doesn't go at all.
+    const target = db.dbName ?? db.name;
+    while (target !== 'postgres' && this.#hisHeld.has(target)) {
+      if (held === 'fail') throw Object.assign(new Error('held'), { held: true });
+      await this.#hisHeld.get(target).promise;
+    }
+    const r = await sh(await this.#pgTool('psql'), ['-X', '-A', '-t', '-q', '-v', 'ON_ERROR_STOP=1', '-d', db.dbName ?? db.name, '-c', sql], { env: childEnv(db.env), timeout });
+    if (r.killed) throw Object.assign(new Error(`psql took longer than ${spanWords(timeout)} and was stopped.`), { timedOut: true });
     if (!r.ok) throw new Error(r.stderr.trim().split('\n')[0] || 'psql failed');
     return r.stdout.trim();
   }
 
-  async #dbFacts(db) {
+  /**
+   * cached: a read for Try it's panel or the stage (dbView). While an Auto recording holds his
+   * database (holdHisReads) it never waits: the last facts read, else it fails as a read does.
+   */
+  async #dbFacts(db, { cached = false } = {}) {
+    const fromLast = () => {
+      const last = this.#lastFacts.get(db.name);
+      if (last) return last;
+      throw new Error(`Auto is recording, so ${PRODUCT} is not reading your database right now. This fills in when the recording ends.`);
+    };
+    let facts;
+    try { facts = await this.#dbFactsNow(db, cached ? 'fail' : 'wait'); } catch (err) { if (err.held) return fromLast(); throw err; }
+    this.#lastFacts.set(db.name, facts);
+    return facts;
+  }
+
+  async #dbFactsNow(db, held) {
     const onAdmin = { ...db, dbName: 'postgres' };
     const rows = (await this.#psql(onAdmin, `select datname from pg_database where datname in ('${db.name}', '${db.original}')`)).split('\n').filter(Boolean);
     const facts = { exists: rows.includes(db.name), originalExists: rows.includes(db.original), ledger: null, connections: 0 };
     if (!facts.exists) return facts;
     facts.connections = Number(await this.#psql(onAdmin, `select count(*) from pg_stat_activity where datname = '${db.name}' and pid <> pg_backend_pid()`)) || 0;
-    const hasLedger = (await this.#psql(db, "select to_regclass('public.applied_migrations') is not null")) === 't';
-    facts.ledger = hasLedger ? (await this.#psql(db, 'select name from applied_migrations order by name')).split('\n').filter(Boolean) : null;
+    const hasLedger = (await this.#psql(db, "select to_regclass('public.applied_migrations') is not null", { held })) === 't';
+    facts.ledger = hasLedger ? (await this.#psql(db, 'select name from applied_migrations order by name', { held })).split('\n').filter(Boolean) : null;
     return facts;
   }
 
@@ -560,7 +842,7 @@ export class LocalRunner extends EventEmitter {
     const db = await this.#database(w);
     if (!db.url) return db.reason ? { available: false, reason: db.reason } : null;
     let facts;
-    try { facts = await this.#dbFacts(db); } catch (err) { return { available: false, name: db.name, reason: `Couldn’t read the local database: ${err.message}` }; }
+    try { facts = await this.#dbFacts(db, { cached: true }); } catch (err) { return { available: false, name: db.name, reason: `Couldn’t read the local database: ${err.message}` }; }
     const saved0 = (await this.#settings()).db?.[db.name] ?? {};
     if (!facts.exists && facts.originalExists) return { available: true, gone: true, name: db.name, busy: this.dbBusy, original: { exists: true, savedAt: saved0.originalAt ?? null }, matches: saved0.matches ?? null, missing: [], extra: [], connections: 0 };
     if (!facts.exists) return { available: false, name: db.name, reason: `The database ${db.name} doesn’t exist on this computer.` };
@@ -581,7 +863,8 @@ export class LocalRunner extends EventEmitter {
   // Stop our own dev servers (they hold database connections), then make sure nothing else is connected.
   async #needQuietDb(slug, db) {
     for (const [s, slot] of this.jobs) {
-      if (slot.server && ['starting', 'running'].includes(slot.server.status)) {
+      // An app on Auto's database (a recording) isn't connected to his: his switch leaves it alone.
+      if (slot.server && ['starting', 'running'].includes(slot.server.status) && slot.server.db !== 'auto') {
         this.#note(slug, `Stopping the app for ${s} (it’s connected to the database)…\n`);
         this.stopServer(s);
       }
@@ -630,6 +913,7 @@ export class LocalRunner extends EventEmitter {
     if (!['match', 'original', 'save-original'].includes(action)) throw new Error('Unknown database action.');
     const slot = this.#slot(f.slug);
     if (slot.cmd?.status === 'running') throw new Error('A command is still running here. Stop it first, or wait for it.');
+    if (this.dbBusy) throw new Error('The database is already being switched. Wait for it to finish.'); // Auto may have begun meanwhile
     this.dbBusy = true;
     const labels = { match: 'Matching the database to this job', original: 'Putting the original database back', 'save-original': 'Saving the database as the new original' };
     slot.cmd = { id: Date.now().toString(36), label: labels[action], command: labels[action], cwd: null, output: '', status: 'running', startedAt: new Date().toISOString(), endedAt: null, exitCode: null, stoppable: false };
@@ -638,15 +922,16 @@ export class LocalRunner extends EventEmitter {
       const dbs = (await this.#settings()).db ?? {};
       const saved = dbs[db.name] ?? {};
       const save = async (patch) => { Object.assign(saved, patch); await this.#saveSettings({ db: { ...dbs, [db.name]: saved } }); };
-      const [createdb, dropdb] = [await pgTool('createdb'), await pgTool('dropdb')];
+      const [createdb, dropdb] = [await this.#pgTool('createdb'), await this.#pgTool('dropdb')];
       const step = async (file, args) => { const r = await this.#run(f.slug, file, args, db.env); if (!r.ok) throw new Error(`${path.basename(file)} failed (exit ${r.code}).`); };
       await this.#needQuietDb(f.slug, db);
       let facts = await this.#dbFacts(db);
       const admin = { ...db, dbName: 'postgres' };
+      const fileCopy = await this.#canFileCopy(db, createdb).catch(() => false); // not known: the default copy, slower but never wrong
       // Build a copy under a temporary name, then swap it in: a failed copy never costs a database.
       const swapIn = async (from, to) => {
         await step(dropdb, ['--if-exists', db.incoming]);
-        await step(createdb, ['-T', from, db.incoming]);
+        await step(createdb, createdbArgs(from, db.incoming, { fileCopy }));
         await step(dropdb, ['--if-exists', to]);
         this.#note(f.slug, `$ rename ${db.incoming} to ${to}\n`);
         await this.#psql(admin, `alter database "${db.incoming}" rename to "${to}"`);
@@ -658,7 +943,7 @@ export class LocalRunner extends EventEmitter {
           await swapIn(db.name, db.original);
         } else {
           this.#note(f.slug, `First time: saving your database as it is now, as the original (${db.original}). This copy is never changed by switching.\n`);
-          await step(createdb, ['-T', db.name, db.original]);
+          await step(createdb, createdbArgs(db.name, db.original, { fileCopy }));
         }
         await save({ originalAt: new Date().toISOString(), matches: action === 'save-original' ? { kind: 'original' } : saved.matches ?? { kind: 'original' } });
         if (action === 'save-original') { this.#finish(f.slug, 'done', 'Saved. Switching back to the original now restores the database as it is at this moment.\n'); return; }
@@ -694,6 +979,181 @@ export class LocalRunner extends EventEmitter {
       this.dbCache.clear();
       this.#changed(f.slug);
     }
+  }
+
+  // ----- Auto's database -----
+
+  /**
+   * Make Auto's own database afresh for a job's turn: <name>__auto, copied from the saved original,
+   * then this branch's migrations added, each script fenced off from his database (#autoFence: inside
+   * the sandbox, its settings naming a door that passes on only sessions for Auto's copy) and
+   * checked in __auto's ledger after it ends (else 'not-landed', and nothing more). Returns
+   * { url, name, added }; url never leaves the server. His database and the saved original appear
+   * only as a copy's source: Auto never changes them, never connects to them, and never stops a Try
+   * it app. The one exception: with no saved original, Auto saves one, and only while nothing is
+   * connected to his database and no Try it app runs (createdb never overwrites a database).
+   * One switch at a time: it waits up to waitMs for another to end. Throws AutoDbError.
+   */
+  async autoDatabase(f, { waitMs = AUTO_DB_WAIT_MS, env: ownEnv = process.env } = {}) {
+    if (this.demo) throw new Error('Demo mode: nothing real runs.');
+    const until = Date.now() + waitMs;
+    while (this.dbBusy) {
+      if (Date.now() >= until) throw new AutoDbError('busy', 'Another switch of the local database didn’t end in time, so Auto’s database wasn’t made.');
+      await new Promise((r) => setTimeout(r, Math.min(250, waitMs)));
+    }
+    this.dbBusy = true; // held from the same moment it was seen free
+    this.dbCache.clear();
+    this.#changed(f.slug); // Try it's panel shows the switch as busy
+    try {
+      const w = await this.where(f);
+      const db = w.app ? await this.#database(w) : { reason: w.reason };
+      if (!db.url) {
+        // The profile names no database key, but the app looks like it uses one: say where (a file and a key, never a value).
+        const hint = !(w.profile && w.tryIt?.dbUrlKey) && w.root ? dbHint(await this.#settingsFiles(w), ownEnv) : null;
+        if (hint?.unreadable) throw new AutoDbError('no-database', `Auto could not read ${hint.file}, so it made no recording.`);
+        if (hint) throw new AutoDbError('no-database', `This job’s app looks like it uses a database (${hint.file ?? `${PRODUCT}’s own environment`}, ${hint.key}), but ${PRODUCT} does not know which one, so Auto made no recording.`);
+        throw new AutoDbError('no-database', db.reason ?? `This job’s app has no database ${PRODUCT} can copy for Auto.`);
+      }
+      // His database named postgres: Starbase's own reads go there, so its sessions can't be watched (S8, lead's words).
+      if (db.name === 'postgres') throw new AutoDbError('no-database', `Your database is named postgres, which ${PRODUCT}'s own reads use, so Auto made no recording.`);
+      // Every error's words with the addresses and the password blanked (no address leaves the laptop).
+      const secrets = (() => { const p = new URL(db.url).password; try { return [p, decodeURIComponent(p)]; } catch { return [p]; } })();
+      const fail = (code, message, extra = {}) => new AutoDbError(code, blankAddresses(message, secrets), { ...extra, ...(extra.tail ? { tail: blankAddresses(extra.tail, secrets) } : {}) });
+      // No sandbox on this computer, or a settings file that can't be read: refused before anything is copied or run.
+      const settings = await this.#autoGate(w, (m) => fail('no-database', m));
+      const admin = { ...db, dbName: 'postgres' };
+      // Every program started here has a time limit (autoStepMs; psql's reads keep their lower one).
+      const limit = spanWords(this.#autoStepMs);
+      const ask = (on, sql) => this.#psql(on, sql, { timeout: Math.min(PSQL_MS, this.#autoStepMs) }).catch((err) => { throw fail('copy', `Couldn’t read the local database: ${err.message}`); });
+      const [createdb, dropdb] = [await this.#pgTool('createdb'), await this.#pgTool('dropdb')];
+      const fileCopy = await this.#canFileCopy(db, createdb).catch((err) => { throw fail('copy', `Couldn’t read the local database: ${err.message}`); });
+      const step = async (file, args) => {
+        const r = await capture(file, args, { env: db.env, timeoutMs: this.#autoStepMs });
+        if (r.timedOut) throw fail('copy', `Making Auto’s database ${db.auto} took longer than ${limit}, so ${path.basename(file)} was stopped. Your database and the saved original weren’t changed.`);
+        if (!r.ok) throw fail('copy', `Making Auto’s database ${db.auto} failed: ${path.basename(file)} ended with exit ${r.code} (${lastLines(r.output, 1)}). Your database and the saved original weren’t changed.`);
+      };
+
+      const names = (await ask(admin, `select datname from pg_database where datname in ('${db.name}', '${db.original}')`)).split('\n').filter(Boolean);
+      if (!names.includes(db.original)) {
+        if (!names.includes(db.name)) throw new AutoDbError('no-original', `There’s no saved original of ${db.name}, and ${db.name} isn’t there to save one from.`);
+        const connections = Number(await ask(admin, `select count(*) from pg_stat_activity where datname = '${db.name}' and pid <> pg_backend_pid()`)) || 0;
+        const tryItRuns = [...this.jobs.values()].some((s) => s.server && ['starting', 'running'].includes(s.server.status));
+        const waiting = `There’s no saved original of ${db.name} yet. Auto saves one when nothing is connected to ${db.name} and no Try it app is running.`;
+        if (connections || tryItRuns) throw fail('no-original', waiting);
+        // While Postgres copies it (about 11 s), a new connection to his database waits; nothing is ended or changed.
+        const r = await capture(createdb, createdbArgs(db.name, db.original, { fileCopy }), { env: db.env, timeoutMs: this.#autoStepMs });
+        if (r.timedOut) throw fail('copy', `Saving ${db.name} as the original took longer than ${limit}, so createdb was stopped. Your database wasn’t changed.`);
+        if (!r.ok) throw fail('no-original', `${waiting} Saving it didn’t work this time (${lastLines(r.output, 1)}).`);
+        const dbs = (await this.#settings()).db ?? {};
+        const saved = dbs[db.name] ?? {};
+        await this.#saveSettings({ db: { ...dbs, [db.name]: { ...saved, originalAt: new Date().toISOString(), matches: saved.matches ?? { kind: 'original' } } } });
+      }
+
+      await step(dropdb, ['--if-exists', '--force', db.auto]);
+      await step(createdb, createdbArgs(db.original, db.auto, { fileCopy }));
+      const onAuto = { ...db, dbName: db.auto };
+      // No ledger in the original: which changes it has can't be told (Try it's panel refuses it too).
+      if ((await ask(onAuto, "select to_regclass('public.applied_migrations') is not null")) !== 't') {
+        throw fail('no-database', `The saved original of ${db.name} has no applied_migrations table, so ${PRODUCT} can’t tell which changes Auto’s copy needs.`);
+      }
+      // __auto's ledger, read from __auto only.
+      const ledgerNow = async () => {
+        const hasLedger = (await ask(onAuto, "select to_regclass('public.applied_migrations') is not null")) === 't';
+        return hasLedger ? (await ask(onAuto, 'select name from applied_migrations order by name')).split('\n').filter(Boolean) : [];
+      };
+      const ledger = await ledgerNow();
+      const toAdd = (await diskMigrations(w.app.dir)).filter((n) => !ledger.includes(n));
+      const added = [];
+      if (toAdd.length) {
+        // The migrate scripts are fenced off from his database (#autoFence): each runs inside the sandbox
+        // (his server and everything outside this laptop denied), with the server's own settings (db.env)
+        // and its database settings naming one door for the loop, closed however the loop ends.
+        const fence = await this.#autoFence(db, settings, childEnv(db.env), { migrate: true });
+        try {
+          for (const name of toAdd) {
+            const refusedBefore = fence.door.refused.at(-1);
+            const run = sandboxed('npm', ['run', 'db:migrate', '--', name], fence.profile);
+            const r = await capture(run.file, run.args, { exactEnv: fence.env, cwd: w.app.dir, timeoutMs: this.#autoStepMs });
+            if (r.timedOut) throw fail('migration', `Adding ${name} to Auto’s database took longer than ${limit}, so it was stopped.`, { migration: name, tail: lastLines(r.output, 20) || null });
+            if (!r.ok) {
+              // The door refused a session while the script ran: say which database it asked for.
+              const refused = fence.door.refused.at(-1);
+              const why = refused && refused !== refusedBefore ? `: the script asked for the database ${refused.database}, and ${PRODUCT} refused it.` : ` (exit ${r.code}).`;
+              throw fail('migration', `Adding ${name} to Auto’s database failed${why}`, { migration: name, tail: lastLines(r.output, 20) });
+            }
+            // Ended well but not in __auto's ledger: the script went somewhere else. Nothing more is applied.
+            if (!(await ledgerNow()).includes(name)) throw fail('not-landed', `${name} did not land on Auto's copy of the database, so nothing more was applied.`, { migration: name });
+            added.push(name);
+          }
+        } finally { await fence.close(); }
+      }
+      return { url: db.autoUrl, name: db.auto, added };
+    } finally {
+      this.dbBusy = false;
+      this.dbCache.clear();
+      this.#changed(f.slug);
+    }
+  }
+
+  /** How many connections Auto's database has, not counting the one asking. */
+  async autoConnections(f) {
+    if (this.demo) throw new Error('Demo mode: nothing real runs.');
+    const w = await this.where(f);
+    const db = w.app ? await this.#database(w) : { reason: w.reason };
+    if (!db.url) throw new Error(db.reason ?? `This job’s app has no database ${PRODUCT} can copy for Auto.`);
+    return Number(await this.#psql({ ...db, dbName: 'postgres' }, `select count(*) from pg_stat_activity where datname = '${db.auto}' and pid <> pg_backend_pid()`)) || 0;
+  }
+
+  /**
+   * The backends on HIS database now (their process ids), read through the admin database only:
+   * Auto never connects to his database. The recording compares them before and after its app starts.
+   */
+  async hisBackends(f) {
+    if (this.demo) throw new Error('Demo mode: nothing real runs.');
+    const w = await this.where(f);
+    const db = w.app ? await this.#database(w) : { reason: w.reason };
+    if (!db.url) throw new Error(db.reason ?? `This job’s app has no database ${PRODUCT} can copy for Auto.`);
+    return (await this.#psql({ ...db, dbName: 'postgres' }, `select pid from pg_stat_activity where datname = '${db.name}' and backend_type = 'client backend' and pid <> pg_backend_pid()`)).split('\n').filter(Boolean);
+  }
+
+  /**
+   * How many sessions his database has had (pg_stat_database's sessions, Postgres 14 or later), read
+   * through the admin database: a session that opened and closed between two looks still counts.
+   * null when the server has no such column.
+   */
+  async hisSessions(f) {
+    if (this.demo) throw new Error('Demo mode: nothing real runs.');
+    const w = await this.where(f);
+    const db = w.app ? await this.#database(w) : { reason: w.reason };
+    if (!db.url) throw new Error(db.reason ?? `This job’s app has no database ${PRODUCT} can copy for Auto.`);
+    try {
+      const v = await this.#psql({ ...db, dbName: 'postgres' }, `select sessions from pg_stat_database where datname = '${db.name}'`);
+      return Number(v) || 0;
+    } catch (err) {
+      if (/column .*sessions.* does not exist/i.test(err.message)) return null;
+      throw err;
+    }
+  }
+
+  /**
+   * While an Auto recording watches his database for new sessions, Starbase's own reads of it never
+   * reach it: Try it's panel and the stage answer from the last facts (#dbFacts), his own switch waits.
+   * Returns the release, which the recording's finally calls; a safety cap of maxMs (10 minutes) for
+   * a finally that never runs.
+   */
+  async holdHisReads(f, maxMs = HOLD_MAX_MS) {
+    const w = await this.where(f);
+    const db = w.app ? await this.#database(w) : {};
+    if (!db.name) return () => {};
+    let release;
+    const promise = new Promise((r) => { release = r; });
+    const held = { promise };
+    this.#hisHeld.set(db.name, held);
+    // At its end the answers kept from the hold go (a failed view is cached for 10 s), and the page hears it.
+    const end = () => { clearTimeout(timer); if (this.#hisHeld.get(db.name) === held) this.#hisHeld.delete(db.name); release(); this.dbCache.clear(); this.#changed(f.slug); };
+    const timer = setTimeout(end, maxMs);
+    timer.unref?.();
+    return end;
   }
 
   #finish(slug, status, text) {
@@ -741,6 +1201,8 @@ export class LocalRunner extends EventEmitter {
 
   /** On shutdown: stop every dev server and command we started. */
   stopAll() {
+    for (const child of autoChildren) killTree(child, 'SIGKILL'); // Auto's database steps run in their own group
+    for (const door of this.#doors) door.close(); // and the doors they and Auto's apps went through
     for (const slot of this.jobs.values()) {
       if (slot.server?.child && ['starting', 'running'].includes(slot.server.status)) killTree(slot.server.child);
       if (slot.cmd?.child && slot.cmd.status === 'running') killTree(slot.cmd.child);

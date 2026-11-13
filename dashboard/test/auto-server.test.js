@@ -6281,3 +6281,26 @@ test('a recorded name that is not a name is not used', { timeout: 60_000 }, asyn
     }
   } finally { await w.stop(); }
 });
+
+// ---------- Task 9: Starbase's message about a migration that failed on Auto's database ----------
+
+test('Starbase\'s migration message is not his: the step is still Auto\'s', { timeout: 30_000 }, async () => {
+  const { autoMigrationMessage } = await import('../runner/evidence.js');
+  const text = autoMigrationMessage({ migration: '0002_b', tail: 'error: column "x" already exists' });
+  const u = unit({ decide: () => {}, auditLines: [{ action: 'send', kind: 'auto-migration', at: new Date(Date.now() - 1000).toISOString(), text }] });
+  await u.auto.pass();
+  assert.equal(u.record().stopped, null);
+  assert.equal(u.decides.length, 1, 'Auto still decides the step');
+});
+
+test('a migration that did not land on Auto\'s copy stops Auto on the job through its own stop: the reason, the line and the notice', { timeout: 30_000 }, async () => {
+  const { AUTO_NOT_LANDED_STOP } = await import('../runner/evidence.js');
+  const u = unit({ decide: () => {} });
+  const job = { dir: unitDir, slug: 'visit-audit', title: 'Visit audit', stage: 'test' };
+  assert.equal(await u.auto.stopWith(job, { rule: 'blocked', reason: AUTO_NOT_LANDED_STOP }), true);
+  assert.equal(u.record().stopped.reason, AUTO_NOT_LANDED_STOP);
+  assert.equal(u.record().on, true, 'stopped, not switched off: the job shows under Needs you');
+  assert.ok(u.lines.some((l) => l.action === 'auto' && l.what === 'stop' && l.reason === AUTO_NOT_LANDED_STOP), 'the stop is logged');
+  assert.equal(u.notes.length, 1);
+  assert.match(u.notes[0].body, /did not land on Auto's copy/);
+});

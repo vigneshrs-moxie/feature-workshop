@@ -33,6 +33,7 @@ const EXCEPTIONS = [
   { file: 'lib/policy.js', has: 'ORG_REFS_PATH', rule: 'the org on GitHub (moxie…) in a pattern', why: 'the same hard line for the GitHub connection’s calls: not J’s to change; under Needs from others' },
   { file: 'lib/decisions.js', has: '/^orbit-(\\d+)', rule: 'the ticket folder pattern orbit-…', why: 'reads an Orbit ticket number back out of a job’s folder name: not J’s to change; under Needs from others' },
   { file: 'lib/orbit.js', has: '/^orbit-(\\d{1,9})', rule: 'the ticket folder pattern orbit-…', why: 'the Orbit inbox reads a ticket number back out of a job’s folder name: not J’s to change; under Needs from others' },
+  { file: 'lib/db-settings.js', has: "const LOAD_ORDER = ['.env.development.local', '.env.local'", rule: 'the settings file .env.local', why: 'the order Next.js and dotenv load settings files in, which Auto’s database check follows to pick a key’s value (Task 9 fix round 3, S3.4): not a guess about a repository' },
 ];
 
 /**

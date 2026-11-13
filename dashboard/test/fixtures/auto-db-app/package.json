@@ -1,0 +1,9 @@
+{
+  "name": "auto-db-app",
+  "private": true,
+  "description": "A stand-in app for the tests of Auto's database (lib/local.js, runner/evidence.js). It never connects to a real database.",
+  "scripts": {
+    "dev": "node dev.mjs",
+    "db:migrate": "node migrate.mjs"
+  }
+}
