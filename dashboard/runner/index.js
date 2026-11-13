@@ -3624,8 +3624,10 @@ export async function createRunner(config) {
   // goes to the Foreman as Starbase's own message; one that didn't land on Auto's copy stops Auto on the job.
   // Auto's own stop on a job, with a reason of Starbase's (runner/auto.js stopWith): true when it wrote the stop.
   const stopAutoFor = (f, reason) => auto.stopWith({ dir: f.dir, slug: f.slug, title: f.title, stage: f.stage }, { rule: 'blocked', reason });
-  const onAutoDbProblem = (await import('./auto-db-problems.js')).autoDbProblems({
-    driver, state, autoOn: async (f) => (await state.sessionFor(f.dir))?.auto?.on === true, stopAuto: stopAutoFor, notify: autoNotify,
+  // The message goes only while the job's Auto is on and not stopped: a stopped job is his, and nothing is written to its Foreman.
+  const autoDb = await import('./auto-db-problems.js');
+  const onAutoDbProblem = autoDb.autoDbProblems({
+    driver, state, ...autoDb.autoQuestions((dir) => state.sessionFor(dir)), stopAuto: stopAutoFor, notify: autoNotify,
   });
 
   // ---------- Local mode only: what this computer's own page uses beyond jobs ----------

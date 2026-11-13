@@ -1137,3 +1137,42 @@ test('a worktree found only through a guessed branch is not the job\'s own: a wr
   const named = await verifiedJobContext({ ...base, f: { worktree: GUESSED, statusWorktree: GUESSED, locate: { branchGuessed: true, worktree: GUESSED } } });
   assert.deepEqual(named.worktrees, [GUESSED]);
 });
+
+// ---------- Part B fix round 1, F7: PR #1's own command is covered only as the workflow writes it ----------
+
+test('F7: gh pr create that sets an assignee, a label, a milestone or a project is not PR #1\'s own call', async () => {
+  const { prCreateProblem } = await import('../lib/policy.js');
+  const WHY = 'a pull request that sets an assignee, a label, a milestone or a project';
+  const own = ['--repo', 'moxie-org/orbit', '--head', `test:${BRANCH}`, '--base', BRANCH, '--title', 'Thing', '--body-file', 'pr1-body.md'];
+  const problem = (extra) => prCreateProblem([...own, ...extra], { branches: [BRANCH], forkOwner: 'test' });
+  assert.equal(problem([]), null, 'the workflow\'s own words');
+  for (const extra of [
+    ['--assignee', 'bob'], ['--assignee=bob'], ['-a', 'bob'], ['-abob'], ['-a', '@me'],
+    ['--label', 'bug'], ['--label=bug'], ['-l', 'bug'], ['-lbug'],
+    ['--milestone', 'v1'], ['--milestone=v1'], ['-m', 'v1'], ['-mv1'],
+    ['--project', 'Roadmap'], ['--project=Roadmap'], ['-p', 'Roadmap'], ['-pRoadmap'],
+    // behind gh's short options that take no value (-d draft, -e editor, -f fill, -w web), joined as gh reads them
+    ['-da', 'bob'], ['-dlbug'], ['-fm', 'v1'], ['-dfp', 'Roadmap'], ['-wa', 'bob'], ['-el', 'bug'],
+  ]) assert.equal(problem(extra), WHY, extra.join(' '));
+  // In front of the other words too, and the reviewer's reason stays the first.
+  assert.equal(prCreateProblem(['--label', 'bug', ...own], { branches: [BRANCH], forkOwner: 'test' }), WHY);
+  assert.equal(problem(['--label', 'bug', '--reviewer', 'bob']), 'a pull request that asks someone to review it');
+  assert.equal(problem(['-dr', 'bob']), 'a pull request that asks someone to review it', 'a reviewer behind -d');
+  // Options that set none of them are as they were.
+  for (const extra of [['--draft'], ['-d'], ['--fill'], ['-f'], ['-df'], ['--no-maintainer-edit'], ['--web'], ['--dry-run']]) assert.equal(problem(extra), null, extra.join(' '));
+  // A word that is the value of --base or --head is not an option.
+  assert.equal(prCreateProblem(['--base', '-a', '--title', 'T'], { branches: [BRANCH] }), 'a pull request into a branch that is not the job\'s');
+
+  const o = orbitWorld();
+  try {
+    const ctx = orbitCtx(o);
+    const pr1 = `gh pr create --repo moxie-org/orbit --head test:${BRANCH} --base ${BRANCH} --title "Thing" --body-file ${o.wt}/pr1-body.md`;
+    const cover = (c) => goAheadCovers('Bash', { command: c }, { mode: 'auto', stage: 'pr1', worktrees: [o.wt], featureDir: JOB, cwd: o.wt, branches: [BRANCH], forkOwner: 'test' });
+    assert.equal(bash(pr1, ctx), null);
+    assert.notEqual(cover(pr1), null, 'the workflow\'s own call is covered at the PR stage');
+    for (const extra of ['--assignee bob', '-a @me', '--label bug', '-l bug', '--label=bug', '--milestone v1', '-m v1', '--project Roadmap', '-p Roadmap', '-da bob']) {
+      assert.equal(cover(`${pr1} ${extra}`), null, `not covered: ${extra}`);
+      assert.equal(bash(`${pr1} ${extra}`, ctx), 'ask', `a card, which Auto refuses as the hard line: ${extra}`);
+    }
+  } finally { o.done(); }
+});

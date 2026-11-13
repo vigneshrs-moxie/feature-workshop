@@ -379,7 +379,91 @@ test('neither cut leaves half of an emoji', () => {
 test('a line with no step starts with Step, so the caller\'s words never begin the list item', () => {
   for (const stage of [null, undefined, '']) {
     const [, line] = prDecisions([riskyCall({ stage, asked: '<!-- x' })]);
-    assert.equal(line, '- Step: <!-- x. In doubt: Stop: The review found a gap. Auto chose: I kept the old column.');
+    assert.equal(line, '- Step: \\<!-- x. In doubt: Stop: The review found a gap. Auto chose: I kept the old column.');
   }
   assert.ok(prDecisions([riskyCall({ stage: 'deploy' })])[1].startsWith('- deploy: '), 'an unknown stage keeps its own name');
+});
+
+// ---------- Part B fix round 1, F6: the block is plain text on GitHub ----------
+
+// A character GitHub builds something from, left live: < or [ or a # before a digit with no backslash of its own in
+// front (an even run of backslashes in front is pairs that show as backslashes, so it is none).
+const LIVE = /(?<!\\)(?:\\\\)*(?:[<[]|#\d)/;
+// A backslash on its own just before the cut's mark or at the line's end.
+const LONE_END = /(?<!\\)(?:\\\\)*\\(?:…|$)/;
+
+test('words from a card, a brief or the Approver cannot become markup in PR #1\'s description', () => {
+  const headline = 'Review <!-- hidden <details> ![x](https://e.example/x.png) [text](https://e.example) fixes #123';
+  const [, line] = prDecisions([riskyCall({ asked: headline, first: 'Stop: see <b>#45</b> [here](https://e.example).', why: 'Kept [it](https://e.example) as in #7 <!--' })]);
+  assert.equal(line, '- Review: Review \\<!-- hidden \\<details> !\\[x](https://e.example/x.png) \\[text](https://e.example) fixes \\#123. In doubt: Stop: see \\<b>\\#45\\</b> \\[here](https://e.example). Auto chose: Kept \\[it](https://e.example) as in \\#7 \\<!--');
+  assert.ok(!LIVE.test(line), line);
+  // Each of them alone, in each part of the line, and in the call being sent now.
+  for (const s of ['<!--', '<details>', '![x](https://e.example/x.png)', '[text](https://e.example)', '#123']) {
+    const [, one] = prDecisions([riskyCall({ asked: `a ${s} b`, first: `Stop: ${s}`, why: s })]);
+    assert.ok(!LIVE.test(one), one);
+    assert.equal(one.split(`\\${s.replace(/^!/, '')}`).length, 4, `${s} is in all three parts, with its backslash: ${one}`);
+    const [, now] = prDecisions([], { extra: { stage: 'review', asked: s, first: `Stop: ${s}`, why: s } });
+    assert.ok(!LIVE.test(now), now);
+  }
+  // A plain line is unchanged, and so is what GitHub builds nothing from: a # with no digit after it, > ] ( ) and a backslash elsewhere.
+  assert.equal(prDecisions([riskyCall()])[1], '- Review: Review brief 2. In doubt: Stop: The review found a gap. Auto chose: I kept the old column.');
+  const [, kept] = prDecisions([riskyCall({ asked: 'C# and a # b, a\\b, x > y, f(x) ]', why: 'ok' })]);
+  assert.equal(kept, '- Review: C# and a # b, a\\b, x > y, f(x) ]. In doubt: Stop: The review found a gap. Auto chose: ok');
+  // Backslashes already in front of one show as they were, and cannot undo the one added.
+  const [, slashed] = prDecisions([riskyCall({ asked: 'a \\<b> c', first: 'Stop: \\\\[t](u)', why: '\\\\\\#12' })]);
+  assert.equal(slashed, '- Review: a \\\\\\<b> c. In doubt: Stop: \\\\\\\\\\[t](u). Auto chose: \\\\\\\\\\\\\\#12');
+  assert.ok(!LIVE.test(slashed), slashed);
+  // The character references for # become one first (Markdown turns them into #), as those for @ do.
+  for (const ref of ['&#35;', '&#035;', '&#x23;', '&#X0023;', '&num;', '&NUM;']) {
+    const [, l] = prDecisions([riskyCall({ why: `see ${ref}123` })]);
+    assert.ok(l.endsWith('Auto chose: see \\#123'), `${ref}: ${l}`);
+  }
+  // The step's own name, when it is a stage Starbase does not know.
+  const [, step] = prDecisions([riskyCall({ stage: '<b>#1' })]);
+  assert.ok(step.startsWith('- \\<b>\\#1: '), step);
+  // Every line of the block is the heading or a list item, as before.
+  for (const row of prDecisions([riskyCall({ asked: headline })], { extra: riskyCall({ why: '[x](y)' }) })) assert.ok(row === 'Decisions Auto made' || (row.startsWith('- ') && !LIVE.test(row)), row);
+});
+
+test('the cuts count the escaped text and never end in a lone backslash', () => {
+  // The line's cut at 300 falls on each side of a backslash and its character.
+  for (let n = 0; n < 8; n++) {
+    const first = `Stop: ${'d'.repeat(244 + n)}${'<'.repeat(60)}`;
+    const [, line] = prDecisions([riskyCall({ first })]);
+    assert.ok(line.length <= 300 && line.length >= 299, `${n}: ${line.length} characters`);
+    assert.ok(line.endsWith('…'), line.slice(-8));
+    assert.ok(!LONE_END.test(line), `${n}: ${line.slice(-8)}`);
+    assert.ok(!LIVE.test(line), `${n}: ${line.slice(-8)}`);
+    // With the ending that is never cut.
+    const [, ending] = prDecisions([riskyCall({ first, open: 2 })]);
+    assert.ok(ending.length <= 300 && ending.endsWith('… 2 decided items on this step are left for you in Starbase.'), ending.slice(-70));
+    assert.ok(!/(?<!\\)(?:\\\\)*\\… 2 decided/.test(ending) && !LIVE.test(ending), ending.slice(-70));
+  }
+  // The question's cut at 80, the same.
+  for (let n = 0; n < 4; n++) {
+    const [, line] = prDecisions([riskyCall({ asked: `${'q'.repeat(76 + n)}${'['.repeat(30)}`, why: 'w'.repeat(300) })]);
+    const asked = line.slice('- Review: '.length, line.indexOf(' In doubt:'));
+    assert.ok(asked.length <= 81 && asked.endsWith('…'), `${n}: ${asked}`);
+    assert.ok(!LONE_END.test(asked) && !LIVE.test(line), `${n}: ${asked}`);
+  }
+  // The count is of the text as it is written: 200 characters that each take a backslash are a line of at most 300.
+  const [, many] = prDecisions([riskyCall({ first: `Stop: ${'<'.repeat(200)}` })]);
+  assert.ok(many.length <= 300 && !LIVE.test(many) && !LONE_END.test(many), `${many.length} characters`);
+  // A backslash of the words' own at the cut goes too.
+  for (let n = 0; n < 5; n++) {
+    const [, own] = prDecisions([riskyCall({ first: `Stop: ${'d'.repeat(252 + n)}${'\\'.repeat(9)}` })]);
+    assert.ok(own.length <= 300 && own.endsWith('…') && !LONE_END.test(own), `${n}: ${own.slice(-8)}`);
+  }
+});
+
+test('unclosed backticks are taken out of the words before the line is written, so taking them out cannot join a backslash to the character after it', () => {
+  // The words are a\`<b> : without the backtick the backslash would stand in front of the escape's own.
+  const [, line] = prDecisions([riskyCall({ asked: 'a\\`<b>', why: 'x' })]);
+  assert.equal(line, '- Review: a\\\\\\<b>. In doubt: Stop: The review found a gap. Auto chose: x');
+  assert.ok(!line.includes('`') && !LIVE.test(line), line);
+  const [, hash] = prDecisions([riskyCall({ asked: 'see \\`#12 and x', why: '`y`' })]);
+  assert.equal(hash, '- Review: see \\\\\\#12 and x. In doubt: Stop: The review found a gap. Auto chose: y');
+  // An even count stays, with what stands between them escaped like the rest.
+  const [, even] = prDecisions([riskyCall({ asked: 'Run `a <b>`' })]);
+  assert.ok(even.includes('Run `a \\<b>`'), even);
 });

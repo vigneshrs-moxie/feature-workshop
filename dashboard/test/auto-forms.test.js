@@ -169,6 +169,7 @@ test('F2: with the hard lines seeing nothing, Auto\'s own steps still refuse eac
     // outside: a pull request that is not PR #1's own
     ['gh pr create --base main --title t --body b', 'outside'], ['gh pr create --fill', 'outside'], ['gh pr create --base feature/x --head someone:feature/x --title t --body b', 'outside'],
     ['gh pr create --base feature/x --title t --body b --reviewer bob', 'outside'], ['gh pr edit 1 --base main', 'outside'],
+    ['gh pr create --base feature/x --title t --body b --label bug', 'outside'], ['gh pr create --base feature/x --title t --body b -a bob', 'outside'], // F7's options
     // database: a package script, a tool
     ['npm run db:migrate', 'database'], ['pnpm db:push', 'database'], ['yarn workspace api db:reset', 'database'], ['npm --prefix app run migrate', 'database'],
     ['npx prisma migrate deploy', 'database'], ['npx prisma db push', 'database'], ['npx drizzle-kit push', 'database'], ['supabase db reset', 'database'], ['npx knex migrate:latest', 'database'],

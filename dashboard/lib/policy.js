@@ -92,12 +92,16 @@ export function orgRefWrite(args) {
 /**
  * gh pr create's words (after "create"): null when it opens a pull request into one of the job's branches
  * (--base given and one of `branches`), from the job's branch (--head absent, or a job branch, with the fork's
- * owner in front if any) and asks nobody to review it; else the reason in plain words (I7).
+ * owner in front if any), asks nobody to review it and sets no assignee, label, milestone or project (the workflow's
+ * own PR #1 call sets none); else the reason in plain words (I7). A short option also counts joined behind gh's short
+ * options that take no value (-d, -e, -f, -w), as gh reads -dr <name>. A title or body that begins like one of these
+ * options is read as the option: over-refusing is accepted.
  */
 export function prCreateProblem(words, { branches = [], forkOwner = null } = {}) {
   let base = null;
   let head = null;
   let reviewer = false;
+  let sets = false;
   for (let k = 0; k < words.length; k++) {
     const x = String(words[k]);
     let m;
@@ -105,10 +109,12 @@ export function prCreateProblem(words, { branches = [], forkOwner = null } = {})
     else if ((m = /^(?:--base=|-B)(.+)$/.exec(x))) base = m[1];
     else if (x === '--head' || x === '-H') head = String(words[++k] ?? '');
     else if ((m = /^(?:--head=|-H)(.+)$/.exec(x))) head = m[1];
-    else if (/^(--reviewer|-r)(=|$)/.test(x) || /^-r./.test(x)) reviewer = true;
+    else if (/^--reviewer(=|$)/.test(x) || /^-[defw]*r/.test(x)) reviewer = true;
+    else if (/^--(assignee|label|milestone|project)(=|$)/.test(x) || /^-[defw]*[almp]/.test(x)) sets = true;
   }
   const own = (branches ?? []).filter(Boolean);
   if (reviewer) return 'a pull request that asks someone to review it';
+  if (sets) return 'a pull request that sets an assignee, a label, a milestone or a project';
   if (!base) return 'a pull request with no --base';
   if (!own.includes(base)) return 'a pull request into a branch that is not the job\'s';
   if (head !== null) {

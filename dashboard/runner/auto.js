@@ -632,7 +632,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
   /** The Approver's words as the worker is told them when Auto says no: one line, no copy of the mark. */
   const NO = (why) => `Auto said no: ${oneLine(why)}`;
   /** A card the Approver called high risk on both looks (an allow): Auto denies it. The worker's note, and the line's why. */
-  const BOTH_HIGH_NOTE = 'Auto denied this: it looked high risk on both looks. Find another way inside the job\'s folders, or leave it for after PR #1.';
+  const BOTH_HIGH_NOTE = 'Auto denied this: it looked high risk on both looks. Don\'t try the same thing another way. Carry on without it inside the job\'s folders, or leave it for after PR #1.';
   const BOTH_HIGH_WHY = 'High risk on both looks, so Auto denied it.';
 
   /**

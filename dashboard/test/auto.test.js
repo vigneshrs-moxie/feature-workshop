@@ -239,7 +239,7 @@ test('every refusal reason is one of the frozen sentences', async () => {
   for (const line of ['gh-pr-merge', 'database', 'something-new', '']) assert.equal(refuseReason({ rule: 'blocked', hardLine: line }), CREW['hard-line'], line || 'no id');
   // The notes: the database row keeps its own ending; every other row has the one frame.
   assert.equal(autoLib.refuseNote('database', refuseReason({ rule: 'database' })), 'Auto refused this: Starbase applies this job\'s migrations to Auto\'s own copy of the database when the job\'s turn to test comes. Don\'t run database commands. Carry on without it.');
-  assert.equal(autoLib.refuseNote('merge', refuseReason({ rule: 'merge' })), 'Auto refused this: Auto never merges a pull request. Find another way inside the job\'s folders, or leave it for after PR #1.');
+  assert.equal(autoLib.refuseNote('merge', refuseReason({ rule: 'merge' })), 'Auto refused this: Auto never merges a pull request. Don\'t try the same thing another way. Carry on without it inside the job\'s folders, or leave it for after PR #1.');
 });
 
 test('no refusal note tells the crew that someone is needed', () => {

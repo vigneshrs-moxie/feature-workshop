@@ -1080,7 +1080,7 @@ const clear = async (w) => { for (const p of await waiting(w)) await w.runner.ha
 /** A job mid-reply with no gate waiting: nothing but the card can reach the Approver. */
 const MID_REPLY = status(1, { stage_state: 'working', waiting_for: null });
 const DB_NOTE = 'Auto refused this: Starbase applies this job\'s migrations to Auto\'s own copy of the database when the job\'s turn to test comes. Don\'t run database commands. Carry on without it.';
-const refusedNote = (reason) => `Auto refused this: ${reason} Find another way inside the job's folders, or leave it for after PR #1.`;
+const refusedNote = (reason) => `Auto refused this: ${reason} Don't try the same thing another way. Carry on without it inside the job's folders, or leave it for after PR #1.`;
 /** Auto refused the first card on the card: denied with the note, Auto not stopped, the Approver never asked, one refuse line, no notification. */
 const refusedOnCard = async (w, outcomes, note, rule) => {
   await w.until(() => outcomes.length >= 1, 'the refusal');
@@ -4560,7 +4560,7 @@ test('K6b: a safer go after a stop on a decided item leaves it not confirmed', {
   assert.equal(u.record().risky, 1);
 });
 
-const BOTH_HIGH = 'Auto denied this: it looked high risk on both looks. Find another way inside the job\'s folders, or leave it for after PR #1.';
+const BOTH_HIGH = 'Auto denied this: it looked high risk on both looks. Don\'t try the same thing another way. Carry on without it inside the job\'s folders, or leave it for after PR #1.';
 
 test('a card called high risk on both looks is denied, and the job carries on', { timeout: 30_000 }, async () => {
   const outcomes = [];

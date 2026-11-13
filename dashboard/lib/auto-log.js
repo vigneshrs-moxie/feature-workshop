@@ -183,8 +183,11 @@ const PR_CALLS = 30;
 // (&#64;, &#x40;, &commat;) become one first: Markdown turns them into @.
 const MENTION = /(^|[^A-Za-z0-9])@(?=[A-Za-z0-9])/g;
 const AT_REF = /&(?:#0*64|#x0*40|commat);/gi;
-// A cut never leaves half of a character written as two UTF-16 units (an emoji).
-const cutAt = (s, n) => s.slice(0, n).replace(/[\uD800-\uDBFF]$/, '');
+// The character references for # (&#35;, &#x23;, &num;) become one too, so the escape below sees it.
+const HASH_REF = /&(?:#0*35|#x0*23|num);/gi;
+// A cut never leaves half of a character written as two UTF-16 units (an emoji), nor a backslash on its own at its end
+// (half of an escape: an even run of them is pairs, each a backslash that shows).
+const cutAt = (s, n) => s.slice(0, n).replace(/[\uD800-\uDBFF]$/, '').replace(/(?<!\\)((?:\\\\)*)\\$/, '$1');
 
 // Words for PR #1's description: on one line, with no copy of the mark and no mention. Each step only shortens the
 // words, so it is done again until nothing changes (taking a copy out can join the rest into another).
@@ -193,23 +196,31 @@ function prText(s) {
   for (let before = null; t !== before;) {
     before = t;
     t = t.replace(/[\u0000-\u001F\u007F-\u009F\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim();
-    t = t.split(AUTO_MARK).join(' ').replace(AT_REF, '@').replace(MENTION, '$1');
+    t = t.split(AUTO_MARK).join(' ').replace(AT_REF, '@').replace(HASH_REF, '#').replace(MENTION, '$1');
   }
   return t;
 }
+// The cleaned words as plain text on GitHub: a backslash in front of each < (HTML, or a comment that hides the rest),
+// each [ (a link, an image) and each # before a digit (a reference to an issue or a pull request), so GitHub shows the
+// character and builds nothing from it. Backslashes already in front of one are doubled first: they show as they were,
+// and cannot undo the one added. Done once, on cleaned words: the words are never cleaned again after it.
+const prEscape = (t) => t.replace(/(\\*)([<[]|#(?=\d))/g, (m, run, c) => `${run}${run}\\${c}`);
 // A part that ends a sentence of the line: a full stop after it, unless it ends in one already.
 const ended = (s) => (/[.!?…]$/.test(s) ? s : `${s}.`);
 
 // One risky call as a line: `- <step>: <asked>. In doubt: <first>. Auto chose: <why>`, at most PR_LINE characters. Over that,
 // the question is cut to PR_ASKED first, then the choice, and only then what was in doubt, which is why the line exists.
 // open: the decided items the go left for the person, said at the end, which is never cut.
-function prLine(l) {
+// The words are cleaned and then escaped (prEscape), and the cuts count the escaped text. ticks false: every backtick is
+// taken out of the words first.
+function prLine(l, ticks = true) {
+  const words = (s) => prEscape(prText(ticks ? s : text(s).replace(/`/g, '')));
   const stop = typeof l.stage === 'string' ? stopOf(l.stage) : null;
   // A fixed label when there is no stage: the caller's words never begin the list item.
-  const step = prText(STOPS.find((s) => s.id === stop)?.label ?? (l.stage ? stageLabel(l.stage) : '')) || 'Step';
-  let asked = prText(l.asked);
-  const first = prText(l.first);
-  const why = prText(l.why);
+  const step = words(STOPS.find((s) => s.id === stop)?.label ?? (l.stage ? stageLabel(l.stage) : '')) || 'Step';
+  let asked = words(l.asked);
+  const first = words(l.first);
+  const why = words(l.why);
   const n = Number.isInteger(l.open) && l.open > 0 ? l.open : 0;
   const end = n ? ` ${n} decided item${n === 1 ? '' : 's'} on this step ${n === 1 ? 'is' : 'are'} left for you in ${PRODUCT}.` : '';
   const room = PR_LINE - end.length;
@@ -219,9 +230,10 @@ function prLine(l) {
   // Cut from the end: the choice is the last part, so it goes before what was in doubt.
   if (line.length > room) line = `${cutAt(line, room - 1)}…`;
   line += end;
-  // An odd number of backticks would turn the rest of the description into code: they all go. Then once more for a mark or
-  // a mention that taking them out made.
-  if ((line.match(/`/g) ?? []).length % 2) line = prText(line.replace(/`/g, ''));
+  // An odd number of backticks would turn the rest of the description into code: they all go, out of the words themselves,
+  // and the line is written again from them (so a mark or a mention that taking them out made is cleaned, and a backslash
+  // is never joined to the escape after it, which taking them out of the written line could do).
+  if (ticks && (line.match(/`/g) ?? []).length % 2) return prLine(l, false);
   return line;
 }
 
@@ -235,7 +247,7 @@ export function prDecisions(lines, { extra = null } = {}) {
   const calls = (Array.isArray(lines) ? lines : []).filter((l) => isAuto(l) && l.risky === true && DECISIONS.has(l.what) && l.what !== 'refuse');
   if (extra && typeof extra === 'object') calls.push(extra);
   if (!calls.length) return [];
-  const out = [DECISIONS_HEADING, ...calls.slice(0, PR_CALLS).map(prLine)];
+  const out = [DECISIONS_HEADING, ...calls.slice(0, PR_CALLS).map((l) => prLine(l))];
   if (calls.length > PR_CALLS) out.push(`- And ${calls.length - PR_CALLS} more, listed in ${PRODUCT}.`);
   return out;
 }

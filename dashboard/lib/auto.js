@@ -92,7 +92,7 @@ export function refuseReason({ rule, outside = null, hardLine = null, hidden = f
 /** What the crew is told when Auto refuses a call on its card: reason is refuseReason's (the database row has its own ending). */
 export function refuseNote(rule, reason) {
   if (rule === 'database') return `Auto refused this: ${REFUSE_REASONS.database} Don't run database commands. Carry on without it.`;
-  return ['Auto refused this:', String(reason ?? '').trim(), "Find another way inside the job's folders, or leave it for after PR #1."].filter(Boolean).join(' ');
+  return ['Auto refused this:', String(reason ?? '').trim(), "Don't try the same thing another way. Carry on without it inside the job's folders, or leave it for after PR #1."].filter(Boolean).join(' ');
 }
 
 const isLevel = (v) => Number.isInteger(v) && v >= 0 && v <= 3;
