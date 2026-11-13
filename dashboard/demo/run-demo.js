@@ -1294,8 +1294,10 @@ async function demoUsage() {
 }
 
 // Three jobs in Auto, all L1 at their quick-plan gate (Auto's design, Part 2): "Auto demo" runs to PR #1
-// with no click (its Approver is the stand-in, demo/fake-approver.js), and "Auto demo: migrate" stops
-// at once, because its description (demo: migrate) is a database change. "Ticket count in the tab"
+// with no click (its Approver is the stand-in, demo/fake-approver.js). So does "Auto demo: migrate": its
+// description (demo: migrate) makes its build ask to run npm run db:migrate, which Auto refuses on the
+// card with the database note, without asking the Approver; the job carries on and ends under Ready for
+// you to try, the refusal listed in What Auto decided. "Ticket count in the tab"
 // (auto-yours) has a message of his own, written after its brief and after Auto was switched on, so
 // Auto's first pass leaves the step to him (lib/auto.js YOURS_NOW), before any Approver is asked.
 // Its title has no "Auto demo" in it: web/e2e/autoRun.mjs finds the other two cards by theirs.

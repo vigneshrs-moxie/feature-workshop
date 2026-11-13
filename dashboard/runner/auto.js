@@ -389,7 +389,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
   const stopFor = (job, rec, gate) => {
     const again = rec.step?.stage === job.stage ? rec.step.count : 0;
     return fixedStop({
-      kind: 'job', level: job.level, suggestedLevel: job.suggestedLevel, triggers: job.triggers, stageState: job.stageState, statusCard: job.statusCard,
+      kind: 'job', level: job.level, suggestedLevel: job.suggestedLevel, stageState: job.stageState, statusCard: job.statusCard,
       step: gate ? { stage: job.stage, count: again + 1 } : null, failures: rec.failures ?? 0, problem: rec.problem ? String(rec.problem).replace(/\.$/, '') : null,
     });
   };

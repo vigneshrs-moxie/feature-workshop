@@ -1,8 +1,9 @@
-// Auto runs a demo job to PR #1 with no click, and stops on a database change, checked in a real browser.
+// Auto runs a demo job to PR #1 with no click, and refuses a database command without stopping, checked in a real browser.
 //
 // The demo seeds three jobs in Auto at their quick-plan gate (dashboard/demo/run-demo.js):
 //   "Auto demo"               Auto answers every step and card with the demo's stand-in Approver until PR #1 is open.
-//   "Auto demo: migrate"      its description is a database change, so Auto stops at once.
+//   "Auto demo: migrate"      its build asks to run npm run db:migrate: Auto refuses that card with the database
+//                             note, and the job still runs to PR #1.
 //   "Ticket count in the tab" (auto-yours) he wrote to it while the step waited, so Auto leaves the
 //                             step to him. This script does not check it; its title never matches
 //                             "Auto demo", so there is still exactly one "Auto demo" card.
@@ -12,8 +13,10 @@
 //      and its job page has the Auto switch and "What Auto decided" in its header (.sb-job-top);
 //   2. "What Auto decided" on its card lists one entry per approval (the summary counts them), each
 //      with the Approver's reason, and says Auto finished;
-//   3. "Auto demo: migrate" is in the Needs you group with "Auto stopped: a database change needs you."
-//      (AUTO_STOP_REASONS.database in dashboard/lib/auto-rules.js).
+//   3. "Auto demo: migrate", on the Jobs page's Auto tab, is a row in Ready for you to try (within 120 s)
+//      and not in Needs you; on its job page, "What Auto decided" lists a refusal (an entry with
+//      data-kind="refuse", chose "Refused: …") whose Why: is the database note's reason
+//      (REFUSE_REASONS.database in dashboard/lib/auto.js), and says Auto finished.
 //
 // Run it against a running demo (a minute or so after it starts; the demo runs the jobs on its own):
 //   PORT=4493 STARBASE_DEMO=1 node dashboard/demo/run-demo.js      # in one terminal
@@ -27,7 +30,8 @@ const BASE = process.env.BASE || 'http://127.0.0.1:4493/next/';
 const WIDTH = Number(process.env.WIDTH) || 1512;
 const THEME = process.env.THEME || 'light';
 const WAIT_MS = 120_000;
-const STOP = 'Auto stopped: a database change needs you.';
+// The database row of REFUSE_REASONS (dashboard/lib/auto.js), less the product's name at its start.
+const DB_WHY = /applies this job's migrations to Auto's own copy of the database when the job's turn to test comes\./;
 const WHYS = ['The recommended answer, as the brief proposes.', 'An ordinary step of this job.'];
 
 const problems = [];
@@ -98,16 +102,30 @@ try {
     await page.keyboard.press('Escape');
   }
 
-  // 3. The migrate job: stopped, and waiting in Needs you.
-  const migrate = page.locator('.job-card', { hasText: 'Auto demo: migrate' });
-  if ((await migrate.count()) !== 1) fail(`expected one "Auto demo: migrate" card, found ${await migrate.count()}`);
+  // 3. The migrate job: its database card refused, and still at PR #1, under Ready for you to try.
+  await page.getByRole('tab', { name: 'Auto', exact: true }).click();
+  const readyRow = page.locator('section.lane-ready .sb-auto-row', { hasText: 'Auto demo: migrate' });
+  const readyFrom = Date.now();
+  while (Date.now() - readyFrom < WAIT_MS && (await readyRow.count()) === 0) await page.waitForTimeout(1000);
+  if ((await readyRow.count()) !== 1) fail(`expected one "Auto demo: migrate" row in Ready for you to try, found ${await readyRow.count()}`);
+  else ok('the migrate job is in Ready for you to try');
+  const needsRow = page.locator('section.lane-needs-you .sb-auto-row', { hasText: 'Auto demo: migrate' });
+  if ((await needsRow.count()) !== 0) fail('the migrate job is also in Needs you');
+  else ok('the migrate job is not in Needs you');
+  await page.goto(`${BASE}#/job/auto-demo-migrate`, { waitUntil: 'networkidle' });
+  const migrateWhat = page.locator('main .sb-job-top').getByRole('button', { name: 'What Auto decided' });
+  if ((await migrateWhat.count()) !== 1) fail(`the migrate job page has ${await migrateWhat.count()} "What Auto decided" buttons in its header, expected 1`);
   else {
-    const text = (await migrate.innerText()).replace(/\s+/g, ' ');
-    const cls = (await migrate.getAttribute('class')) ?? '';
-    if (!text.includes(STOP)) fail(`the migrate card does not say "${STOP}" (it says: ${text.slice(0, 200)})`);
-    else ok(`the migrate card says "${STOP}"`);
-    if (!cls.includes('lane-needs-you')) fail(`the migrate card is not in Needs you (its class: ${cls})`);
-    else ok('the migrate card is in Needs you');
+    await migrateWhat.click();
+    await page.locator('.auto-entry').first().waitFor({ timeout: 10_000 }).catch(() => {});
+    const refusals = await page.locator('.auto-entry[data-kind="refuse"]').allInnerTexts();
+    const summary = (await page.locator('.auto-summary').innerText().catch(() => '')).replace(/\s+/g, ' ');
+    if (refusals.length !== 1) fail(`What Auto decided on the migrate job lists ${refusals.length} refusals, expected 1`);
+    else if (!/Refused: /.test(refusals[0]) || !DB_WHY.test(refusals[0].replace(/\s+/g, ' '))) fail(`the refusal does not say Refused: with the database reason (it says: ${refusals[0].replace(/\s+/g, ' ').slice(0, 300)})`);
+    else ok('What Auto decided on the migrate job lists the database refusal');
+    if (!/Auto finished: PR #1 is open\./.test(summary)) fail(`the migrate job's summary does not say Auto finished (it says: ${summary})`);
+    else ok('the migrate job\'s summary says Auto finished: PR #1 is open.');
+    await page.keyboard.press('Escape');
   }
   if (refused) fail(`${refused} request(s) that change something were refused: ${refusedWhat.join(', ')}`);
 } catch (err) {
@@ -120,4 +138,4 @@ if (problems.length) {
   console.log(`\nautoRun: ${problems.length} problem(s)`);
   process.exit(1);
 }
-console.log('\nautoRun: Auto ran "Auto demo" to PR #1 with no click, and stopped "Auto demo: migrate" on a database change.');
+console.log('\nautoRun: Auto ran "Auto demo" to PR #1 with no click, and ran "Auto demo: migrate" to PR #1 with its database command refused.');

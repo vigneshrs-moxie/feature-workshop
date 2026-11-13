@@ -16,7 +16,7 @@ import { stagesFor } from '../lib/stages.js';
 import { makeFakeQuery, readReply } from '../demo/fake-query.js';
 import { parseReviewFindings } from '../lib/play.js';
 import { createRunner } from '../runner/index.js';
-import { autoRecord, YOURS_NOW } from '../lib/auto.js';
+import { autoRecord, refuseNote, refuseReason, YOURS_NOW } from '../lib/auto.js';
 import { answerSchema, approverOptions, askApprover, checkAnswer } from '../lib/approver.js';
 import { makeFakeApprover } from '../demo/fake-approver.js';
 import { execFileSync } from 'node:child_process';
@@ -330,8 +330,9 @@ test('the stand-in Approver with fail answers a shape checkAnswer refuses, and t
   assert.ok(answerSchema('gate'));
 });
 
-// A real runner on temp folders in demo mode: the pretend Foreman, the demo's own stand-in Approver.
-async function demoWorld(jobs) {
+// A real runner on temp folders in demo mode: the pretend Foreman, the demo's own stand-in Approver
+// (approverQuery: a query in its place, to see what the Approver was asked).
+async function demoWorld(jobs, { approverQuery = null } = {}) {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'workshop-demo-auto-')));
   const dirs = Object.fromEntries(['claude', 'features', 'projects', 'agents', 'skills', 'state', 'repo'].map((n) => [n, path.join(root, n)]));
   for (const d of Object.values(dirs)) await fs.mkdir(d);
@@ -364,6 +365,7 @@ async function demoWorld(jobs) {
     claudeSettingsFile: path.join(root, 'claude.json'), legacySettingsFile: null, planUsage: false, orbitStore: 'file',
     integrateDir: dirs.state, integrateRoot: path.join(DASH, '..'), siteLink: false, env: {},
     queryFn: makeFakeQuery({ featuresDir: dirs.features, pace: PACE }),
+    ...(approverQuery ? { approverQuery } : {}),
   });
   runner.auto.pass(); // what start() does: jobs in Auto that waited carry on
   const lines = async () => (await fs.readFile(path.join(dirs.state, 'audit.jsonl'), 'utf8').catch(() => '')).split('\n').filter(Boolean).map((l) => JSON.parse(l));
@@ -396,19 +398,31 @@ test('the demo\'s Auto job reaches PR #1 with the stand-in Approver', async () =
   }
 });
 
-test('the demo\'s migrate job stops on a database change before the Approver is asked anything', async () => {
-  const w = await demoWorld([['auto-demo-migrate', 'Add a copy link button to the job card (demo: migrate)']]);
+test('the demo\'s migrate job has its database card refused before the Approver is asked anything, and still reaches PR #1', async () => {
+  // The demo's own stand-in Approver, with every prompt it is given kept.
+  const prompts = [];
+  const fake = makeFakeApprover();
+  const w = await demoWorld([['auto-demo-migrate', 'Add a copy link button to the job card (demo: migrate)']], { approverQuery: (args) => { prompts.push(String(args.prompt)); return fake(args); } });
   try {
     const dir = w.made['auto-demo-migrate'];
-    const stop = await w.until(async () => (await w.lines()).find((l) => l.action === 'auto' && l.what === 'stop'), 'Auto to stop');
-    assert.equal(stop.rule, 'database');
-    assert.equal(stop.reason, 'a database change needs you.');
+    await w.until(async () => (await w.lines()).some((l) => l.action === 'auto' && l.what === 'finished'), 'Auto to finish');
+    const lines = await w.lines();
+    // The pretend Foreman's npm run db:migrate card is refused with the product's database note, by Auto.
+    const denied = lines.filter((l) => l.action === 'permission' && l.decision === 'deny');
+    assert.deepEqual(denied.map((l) => [l.by, l.tool, l.note]), [['auto', 'Bash', refuseNote('database', refuseReason({ rule: 'database' }))]]);
+    const mine = lines.filter((l) => l.action === 'auto');
+    assert.deepEqual(mine.filter((l) => l.what === 'refuse').map((l) => l.rule), ['database'], 'one refuse line');
+    // The Approver was asked about the gates and the other cards, never about that one.
+    assert.ok(prompts.some((p) => /^A worker on this job asks permission/.test(p) && p.includes('npm run ')), 'the Approver was asked about other cards, and their commands are in what it reads');
+    assert.equal(prompts.some((p) => p.includes('db:migrate')), false, 'the Approver was never asked about the database card');
+    // No stop: the job carries on to PR #1, and Auto finished it.
+    assert.equal(mine.some((l) => l.what === 'stop'), false, JSON.stringify(mine.filter((l) => l.what === 'stop')));
     const rec = await w.record(dir);
-    assert.equal(rec.on, true);
-    assert.equal(rec.stopped.rule, 'database');
-    const mine = (await w.lines()).filter((l) => l.action === 'auto');
-    // The words "(demo: migrate)" trip the migrations trigger in the description (level-rules), so Auto stops at the plan gate, before any approval.
-    assert.equal(mine.some((l) => l.what === 'gate' || l.what === 'permission' || l.what === 'finished'), false, 'nothing was approved, and nothing was put to the Approver');
+    assert.deepEqual([rec.on, rec.stopped ?? null], [false, null]);
+    assert.ok(rec.finished);
+    const status = JSON.parse(await fs.readFile(path.join(dir, 'status.json'), 'utf8'));
+    assert.equal(status.stage, 'pr1');
+    assert.equal(status.prs[0].state, 'open');
   } finally {
     w.runner.stop();
     await fs.rm(w.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }).catch(() => {});
@@ -585,9 +599,19 @@ test('the demo has a job with an overview and plan steps, one with a recording u
     assert.equal(mine.some((l) => ['gate', 'permission', 'finished'].includes(l.what)), false, 'nothing was approved for it');
     const after = await w.cardOf('auto-yours');
     assert.deepEqual({ lane: after.lane, laneReason: after.laneReason }, { lane: 'needs-you', laneReason: `Auto stopped: ${YOURS_NOW}` });
-    // The other job that waits for him stops on its database change, as before.
-    const migrate = await w.until(async () => (await w.lines()).find((l) => l.action === 'auto' && l.what === 'stop' && l.slug === 'auto-demo-migrate'), 'Auto to stop auto-demo-migrate');
-    assert.equal(migrate.rule, 'database');
+    // The migrate job's database card is refused with the product's database note, and the job still reaches PR #1: no stop,
+    // one refuse line, finished, under Ready for you to try.
+    await w.until(async () => (await w.lines()).some((l) => l.action === 'auto' && l.what === 'finished' && l.slug === 'auto-demo-migrate'), 'Auto to finish auto-demo-migrate');
+    const migrateLines = (await w.lines()).filter((l) => l.slug === 'auto-demo-migrate');
+    assert.deepEqual(migrateLines.filter((l) => l.action === 'permission' && l.decision === 'deny').map((l) => [l.by, l.tool, l.note]), [['auto', 'Bash', refuseNote('database', refuseReason({ rule: 'database' }))]]);
+    assert.deepEqual(migrateLines.filter((l) => l.action === 'auto' && l.what === 'refuse').map((l) => l.rule), ['database'], 'one refuse line');
+    assert.equal(migrateLines.some((l) => l.action === 'auto' && l.what === 'stop'), false, 'Auto never stopped it');
+    const migrateRec = await w.record('auto-demo-migrate');
+    assert.deepEqual([migrateRec.on, migrateRec.stopped ?? null, Boolean(migrateRec.finished)], [false, null, true]);
+    const migrateStatus = JSON.parse(await fs.readFile(path.join(w.demo.features, 'auto-demo-migrate', 'status.json'), 'utf8'));
+    assert.deepEqual([migrateStatus.stage, migrateStatus.prs?.[0]?.state], ['pr1', 'open']);
+    await new Promise((r) => setTimeout(r, 1600)); // the job list is cached for 1.5 seconds
+    assert.equal((await w.cardOf('auto-demo-migrate')).auto?.group, 'ready', 'under Ready for you to try');
     // And nothing holds the Approver back: the demo's Auto job still runs to PR #1 with no click.
     await w.until(async () => (await w.lines()).some((l) => l.action === 'auto' && l.what === 'finished' && l.slug === 'auto-demo'), 'Auto to finish auto-demo');
     const autoDemo = JSON.parse(await fs.readFile(path.join(w.demo.features, 'auto-demo', 'status.json'), 'utf8'));

@@ -2,8 +2,8 @@
 // It checks it was handed the Approver's two read-only tools and nothing else, reads the question
 // ids out of the prompt, and answers each with the recommendation (the first option when there is
 // none), the way the real Approver's system text says to. A permission card it allows as an
-// ordinary step. Auto's fixed stops (a database change, a push elsewhere) come first, in
-// runner/auto.js, so this is never asked about those.
+// ordinary step. A call Auto may never allow (a database command, a push elsewhere) is refused on its
+// card first, in runner/auto.js, and the job carries on, so this is never asked about those.
 //
 // With `fail` (STARBASE_DEMO_APPROVER=fail) it answers in a shape checkAnswer refuses, so the demo
 // can show Auto stopping when the Approver fails twice.

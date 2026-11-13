@@ -324,7 +324,7 @@ export function readReply(text = '') {
 // ---------- The job's records ----------
 
 const DB_TESTS = { command: 'npm run test:db', description: 'Run the database tests (demo)', passed: 'Database tests pass (12 of 12).' };
-// A job whose description says "(demo: migrate)" asks to change the database when it builds: Auto's fixed stop.
+// A job whose description says "(demo: migrate)" asks to change the database when it builds: Auto refuses that card with the database note, and the job carries on.
 const MIGRATE = { command: 'npm run db:migrate', description: 'Run the database migration (demo)', passed: 'The migration ran.' };
 const CHECKS = { command: 'npm run check', description: 'Run the checks: typecheck and lint (demo)', passed: 'npm run check and npm run build pass.' };
 
