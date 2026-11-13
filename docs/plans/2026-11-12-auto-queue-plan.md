@@ -605,3 +605,48 @@ Added by the lead on 2026-11-12 after Task 15's review found that the website's 
 19. **Words not in the design** (marked "plan's words" in their tasks): the two refusal notes, `APPROVER_SAFER`, `The Approver first said:`, `No risky calls`, the three empty-group lines, the migration message to the Foreman, the waiting-for-a-copy line, `AUTO_DB_NOT_USED`, the Try it refusal line, the setting's 400 message, the Auto start hint, and the block's line format and its `And n more` line. From the build (Task 15): the tabs' hover titles `The jobs you run yourself, in the layout you chose.` and `The jobs Auto runs to PR #1: working, needing you, and ready for you to try.`, and the Auto row's title `Open <name>. Space, or a click on the row, takes a quick look instead.`
 20. **The website's Jobs page is its own page** (added in the build). It lists jobs from the site's own table, with no Auto facts, so the tabs there come from Task 19: the page also reads the laptop's snapshot and joins the two by slug. An older laptop, or a snapshot that will not load, shows today's list with no tabs.
 21. **One bar on both Jobs tabs** (added in the build). The bar that points at the next job needing him counts his jobs and Auto's `Needs you` together, picks his own first, and says `This one has waited longest.` only when that is true.
+
+## Rulings made during the build
+
+Decisions the lead made while the tasks were built and reviewed, where the plan or the design did not decide. The sentences named by a constant are the lead's own words and can be changed in that one place.
+
+**Order**
+
+22. Tasks 8 and 9 ran in their own worktree beside the server track, and were merged before Task 10. Two tasks were added: Task 19 (the website's tabs) and Task 20 (a branch name from the ticket's title and number, with a `Branch` field on the New job form).
+23. The laptop is never rebuilt from this branch before the web track is merged: an L3 job in Auto needs the web's switch.
+
+**No questions before PR #1 (Part B)**
+
+24. **His level stands.** Auto's raise to L3 is skipped once he has changed a level Starbase set by itself. A job whose levels were all set by hand is still raised by a later suggestion, and if he then lowers it, that stands.
+25. **What a refused call is told.** One frozen table, `REFUSE_REASONS` (`dashboard/lib/auto.js`). A refusal comes before the check for his own message, on purpose: the call is one Auto may never allow, and he can switch Auto off to take a card himself. There is no notification for a refused read of a place that holds secrets or a refused write outside the job (the design's three notifications stand).
+26. **The safer second ask.** A safer go confirms none of the Foreman's decided items; the reply says `Not confirmed yet: …` and each item keeps its Override. On a card, a second answer of allow that is again high risk is sent as a deny. The first answer is kept across a failed second ask, so the dead end is three asks.
+27. **No fixed rule for the crew starting a server.** The skills tell the crew under Auto not to start servers or run checks that write data; a command that starts the app is judged by the Approver, not refused by a rule. See the known gaps in the final report.
+28. **The record-check rule stays**: a failed record check still waits for his own words. A rare stop before PR #1.
+29. **A brief at the PR #1 step before PR #1 exists is answered** (it used to be stopped by the merge rule): only while PR #1 is not open and the next stage is PR #2 or none. Its note gains one fixed line, `PR1_ONLY_LINE` (`dashboard/lib/auto-log.js`).
+30. **`Decisions Auto made`**: refusals are not in it (the design); no `@` mention reaches the PR text; a long line is cut in what was asked first, then the why, and what the Approver first said last; a risky go that left decided items open ends its line with the count.
+31. **Auto never leaves a card silently.** While Auto is on and not stopped, a card is answered or Auto stops with a reason and he is told. One Approver failure on a card is asked again at once. A card that arrives after Auto stopped is told as on any job.
+32. **Parking and reminders.** A job whose Auto is on and not stopped is never parked and never reminded. A job Auto stopped is reminded four hours after the stop, not four hours after an old brief.
+33. **The test place.** A job whose go into Test has been sent holds the place. His message to a job that is waiting for the place stops Auto on it at the next pass.
+34. **Too big** is decided on the first brief only, after the fixed stops and before the Approver is asked. Once he has acted on a set-aside job it is never set aside again.
+35. **Migrations.** `jobStop` has no migrations line and Auto no longer reads a job's changed paths. The demo's migrate job has its database command refused on the card and still reaches PR #1.
+
+**Testing and the database (Part C)**
+
+36. **The guarantee does not rest on reading settings files.** Auto's app, Auto's migrate scripts and the recording's browser run are started under the macOS sandbox (`sandboxProfile`, `dashboard/lib/local.js`): no connection to any `.s.PGSQL.` socket (and no rename or link of one), to port 5432 or to his server's port; a migrate script may also reach nothing outside the laptop. They reach Postgres only through a relay, `dashboard/lib/db-door.js`, which passes on only a session whose database is exactly `<name>__auto`. Every Auto recording runs under the fence, whether its app names a database or not. With no sandbox (not macOS, or its self-test fails) Auto makes no recording and says so (`AUTO_NO_FENCE`).
+37. **After each migration** Starbase reads `__auto`'s ledger again. A migration that ended well but is not there stops Auto on the job (`AUTO_NOT_LANDED_STOP`); it is not sent to the Foreman.
+38. **Which database the app really uses** is checked, not assumed: `__auto` has no connection before the app starts, has one within 30 seconds, and nothing new connected to his database meanwhile; otherwise nothing is recorded (`AUTO_DB_NOT_USED`, `AUTO_DB_HIS_NEW`, `AUTO_DB_TAKEN`), and three such refusals for one commit stop Auto on the job.
+39. Database addresses and passwords are blanked from every error text before it is shown or sent to the Foreman.
+40. His Try it Start is refused while an Auto recording holds the job's app (`AUTO_RECORDING_APP`); an Auto recording is refused while his Try it app for the job runs (`AUTO_TRY_IT_RUNNING`). His app is never stopped.
+41. Every Postgres tool Auto's copy starts has a 10 minute limit. Try it's own copy of his database has none: it is never killed half way.
+42. **A recording's notes** (what Auto's app asked the relay for and was refused) show under the evidence on the job page, and never go to the website.
+
+**The app and the website**
+
+43. The number box in Settings saves on leaving it and on Enter; only the box sends the number, so switching Auto start on or off keeps it.
+44. The website's Jobs page reads the laptop's snapshot on its own 15 second tick, with no stream. On the first load the list waits at most 600 ms for it, so the list is drawn once, already split. On the site a stack part Auto works on is its own row.
+45. **Protocol 7.** The laptop's board says its protocol; the site sends the number of places only to a laptop that says 7 or more. The queue's title and reason lose tokens, database addresses and home-folder paths before they go up.
+46. **Branch names (Task 20).** The Branch field only ever holds a name the model suggested or one he typed; a suggestion fills only an empty field. A second start on a ticket whose job is still starting is refused.
+
+**Tests**
+
+47. Tests that need a recording or a copy under the sandbox skip off macOS; one test proves the refusal with a pretend platform. Nothing has run on Windows yet: the first push is the first Windows run.
