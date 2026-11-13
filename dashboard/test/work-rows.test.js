@@ -509,3 +509,24 @@ test('the first Details reads at most READS_AT_ONCE logs at a time, and every on
   assert.equal(most, READS_AT_ONCE);
   assert.equal(view.rows[0].task, 'Task a29');
 });
+
+// ---------- Fix round 2 ----------
+
+test('a heading or a bare label is never the task: “## Task”, “Task:”, “## Your task” name the next line; “## Context” is skipped with its list', () => {
+  assert.equal(firstInstruction('Stage: implement\n\n## Task\n\nBuild the customer notes table.\nThen run the checks.'), 'Build the customer notes table.');
+  assert.equal(firstInstruction('Job: notes-on-customers\nTask:\nAdd the export button to the notes page.'), 'Add the export button to the notes page.');
+  assert.equal(firstInstruction('### Your task\n- Fix the date filter on the notes list.'), 'Fix the date filter on the notes list.');
+  assert.equal(firstInstruction('## Context\n- The notes page exists.\n- Managers use it daily.\n\n## Task\nAdd the export button.'), 'Add the export button.');
+  assert.equal(firstInstruction('## Context\nTask:'), null, 'labels only: no task line');
+  for (const t of ['## Task', 'Task:', '## Your task', '## Context']) assert.notEqual(firstInstruction(`${t}\nDo the thing well.`), t.replace(/^#+ /, ''));
+});
+
+test('the opening skip is loose: a role line keeps what follows it; long “Use …” and “Report: …” sentences are not boilerplate', () => {
+  assert.equal(firstInstruction('You are the implementer for this job: build the notes table and its migration.'), 'Build the notes table and its migration.');
+  assert.equal(firstInstruction('You are the Builder for this job.\nAdd the export button.'), 'Add the export button.', 'a role line alone is still skipped');
+  const use = 'Use the existing customer service to load the notes, and add a paged list with a search box on top of it.';
+  assert.equal(firstInstruction(`Stage: implement\n${use}`), use);
+  const report = 'Report: write what changed, why, and which checks you ran into implementation-log.md before you hand back.';
+  assert.equal(firstInstruction(`Stage: implement\n${report}`), report);
+  assert.equal(firstInstruction('Use ~/.claude/skills/workflow-common/worker-rules.md.\nReport: as usual.\nFix the login page.'), 'Fix the login page.', 'short ones are still skipped');
+});

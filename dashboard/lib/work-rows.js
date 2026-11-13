@@ -85,22 +85,37 @@ function oneLine(text) {
 // "Every dispatch prompt contains: the stage; the exact artifact paths and versions; the private folder;
 // the repository path (and the worktree); the human's authorization verbatim; the human's answers; the job
 // options …; and 'Return the report described in your agent definition.'", in the conductor's own words.
-// So: a "Label: value" line for one of those, a role line ("You are the Builder for this job"), a line
-// that names files to read or the rules to follow, a path alone, a marker line, and a label line ending in
-// ":" ("Read first:") with the list under it. A "Task: …" line gives its value.
-const KEYS = 'stage|level|job|slug|ticket|title|kind|(?:private |job |feature )?folder|repo(?:sitory)?|worktree|(?:feature |base )?branch|base(?: commit)?|commit|range|diff(?: range)?|model|effort|spec|plan|(?:implementation |test |quick )?plan|findings|diagnosis|reproduction|artifacts?|paths?|inputs?|(?:job )?options|gates? file|(?:the human\'?s )?(?:authori[sz]ation|answers?)|scope|checklists?|layer(?: tags)?|skipped(?: stages)?|provided(?: documents)?|stand-?ins?|facts|round|versions?|rules|worker rules|report|private';
-const KEY_LINE = new RegExp(`^(?:the )?(?:${KEYS})(?: (?:path|paths|file|files|folder|version|versions|name))?\\s*(?::|=|—|–| - )`, 'i');
-const TASK_LINE = /^(?:your |the )?(?:task|goal|job to do|what to do|assignment)\s*(?::|—|–| - )\s*(.+)$/i;
-const LABEL_ONLY = /^(?:read(?: first| now| these| this)?|inputs?|context|background|files|paths|artifacts|rules|notes?|approved checks|checks|options|facts|what you have|you have|where things are)\s*:$/i;
+// So, skipped:
+//   - a "Label: value" line for one of those (KEYS); for the looser labels (SHORT_KEYS) only a short one
+//   - a label with no value: a markdown heading or a short line ending in ":" ("## Context", "Read first:",
+//     "Inputs:"), with the list under it; a heading or "Task:" that names the task ("## Task", "Your task:")
+//     makes the next line the task
+//   - a role line ("You are the Builder for this job"); anything after it on the line is the task
+//     ("You are the implementer for this job: build the notes table" → "Build the notes table")
+//   - a short "Read / Follow / Use / Load / See … .md (first, rules, skill …)" line, "Return the report …",
+//     "This is a bug job …", a path alone, a marker line
+// A "Task: …" line gives its value. A long sentence is never skipped as boilerplate.
+const KEYS = 'stage|level|job|slug|ticket|(?:private |job |feature )?folder|repo(?:sitory)?|worktree|(?:feature |base )?branch|base(?: commit)?|commit|range|diff(?: range)?|spec|plan|(?:implementation |test |quick )?plan|findings|diagnosis|reproduction|artifacts?|paths?|inputs?|(?:job )?options|gates? file|(?:the human\'?s )?(?:authori[sz]ation|answers?)|checklists?|layer(?: tags)?|skipped(?: stages)?|provided(?: documents)?|stand-?ins?|facts|versions?|private';
+const SHORT_KEYS = 'title|kind|model|effort|scope|round|rules|worker rules|report|note|notes';
+const keyLine = (keys) => new RegExp(`^(?:the )?(?:${keys})(?: (?:path|paths|file|files|folder|version|versions|name))?\\s*(?::|=|—|–| - )`, 'i');
+const KEY_LINE = keyLine(KEYS);
+const SHORT_KEY_LINE = keyLine(SHORT_KEYS);
+const TASK_WORDS = '(?:your |the )?(?:task|goal|job to do|what to do|assignment)';
+const TASK_LINE = new RegExp(`^${TASK_WORDS}\\s*(?::|—|–| - )\\s*(.+)$`, 'i');
+const TASK_LABEL = new RegExp(`^${TASK_WORDS}\\s*:?$`, 'i');
+const ROLE = /^you(?: are|'re|’re) (?:the|a|an) .{1,60}? (?:for|on|in|of) (?:the |this |a )?(?:job|feature|bug|stage|ticket|repo|repository|step)\b/i;
 const OPENING = [
-  /^you(?: are|'re|’re) (?:the|a|an) .{1,60}? (?:for|on|in|of) (?:the |this |a )?(?:job|feature|bug|stage|ticket|repo|repository|step)\b/i,
   /^(?:read|follow|use|load|see)\b.*(?:\.md\b|\bfirst\b|\bbelow\b|\brules\b|\bskill\b|\bchecklists?\b|\bagent definition\b)/i,
   /^return (?:the|your) report\b/i,
   /^this is a (?:bug|feature) job\b/i,
-  /^[~/.][^\s]*$/,
-  /^[=\-#*_~<>]{3,}/,
 ];
 const LIST_ITEM = /^(?:[-*•]|\d+[.)])\s/;
+/** A line of at most this many words can be boilerplate; a longer one is a sentence that says something. */
+const SHORT_WORDS = 10;
+/** A label with no value: at most this many words. */
+const LABEL_WORDS = 4;
+const words = (l) => l.split(' ').filter(Boolean).length;
+const capital = (l) => l.charAt(0).toUpperCase() + l.slice(1);
 
 /**
  * The task in one line, from the text of a crew member's first instruction: the first line past the
@@ -111,21 +126,34 @@ export function firstInstruction(text) {
   if (typeof text !== 'string') return null;
   const body = scrub(text.slice(0, 16 * 1024)).replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '\n');
   let underLabel = false;
+  let next = false; // the line before named the task ("## Task"): this line is it
   let seen = 0;
   for (const raw of body.split('\n')) {
     const t = raw.trim();
     if (!t) continue;
     if (++seen > 60) break;
-    if (underLabel && LIST_ITEM.test(t)) continue;
-    underLabel = false;
-    if (/^<\/?[\w-]+(\s[^>]*)?>$/.test(t)) continue;
+    if (/^<\/?[\w-]+(\s[^>]*)?>$/.test(t) || /^(?:[=\-*_~<>]{3,}|#{7,})/.test(t)) continue; // a lone tag, a marker line (not a heading)
     const l = plain(t);
     if (!l) continue;
+    if (next) return cut(l.replace(/:$/, ''));
+    if (underLabel && LIST_ITEM.test(t)) continue;
+    underLabel = false;
+    const heading = /^#{1,6}\s/.test(t);
+    const bare = l.replace(/\s*:$/, '');
+    if (TASK_LABEL.test(l)) { next = true; continue; } // "Task:", "## Your task", "**Task**"
     const task = TASK_LINE.exec(l);
-    if (task) return cut(plain(task[1])) || null;
-    if (LABEL_ONLY.test(l)) { underLabel = true; continue; }
-    if (KEY_LINE.test(l) || OPENING.some((re) => re.test(l))) continue;
-    return cut(l);
+    if (task) return cut(capital(plain(task[1]))) || null;
+    if ((heading || /:$/.test(l)) && words(bare) <= LABEL_WORDS) { underLabel = true; continue; } // "## Context", "Read first:"
+    const role = ROLE.exec(l);
+    if (role) {
+      const rest = l.slice(role[0].length).replace(/^[\s:.,;—–-]+/, '');
+      if (words(rest) >= 2) return cut(capital(rest));
+      continue;
+    }
+    const short = words(l) <= SHORT_WORDS;
+    if (KEY_LINE.test(l) || (short && SHORT_KEY_LINE.test(l))) continue;
+    if (short && (OPENING.some((re) => re.test(l)) || /^[~/.][^\s]*$/.test(l))) continue;
+    return cut(l.replace(/:$/, ''));
   }
   return null;
 }
