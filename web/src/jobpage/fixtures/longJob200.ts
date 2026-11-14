@@ -2754,6 +2754,7 @@ export const longJob200: LongJobFixture = {
       }
     ],
     "github": null,
+    "prMove": null,
     "hosted": false
   },
   bodies: {
