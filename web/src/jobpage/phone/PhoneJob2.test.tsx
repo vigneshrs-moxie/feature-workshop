@@ -222,3 +222,33 @@ describe('Task 15 fix round 1', () => {
     expect(window.location.hash).toBe(`#/job/${SLUG}/read/ticket/ticket`);
   });
 });
+
+describe('Phase 2 fixes: the cover follows the address between 760 and 1100 px', () => {
+  it('an address changed while the page is open (a link, a typed address) puts its reader target over the left pane', async () => {
+    windowWidth(900);
+    openAt(`#/job/${SLUG}/stage/review`);
+    await settle();
+    expect(page()).toHaveAttribute('data-layout', 'mid');
+    expect(page()).not.toHaveAttribute('data-covered');
+    await act(async () => { window.location.hash = `#/job/${SLUG}/conversation`; await new Promise((r) => setTimeout(r, 0)); });
+    await settle();
+    expect(page()).toHaveAttribute('data-covered');
+    expect(reader()).not.toHaveAttribute('aria-hidden');
+    expect(within(reader()).getByRole('heading', { level: 2 })).toHaveTextContent('Conversation');
+  });
+
+  it('Back to the job writes the job’s address, so narrowing to a phone shows the job screen', async () => {
+    windowWidth(900);
+    openAt(`#/job/${SLUG}`);
+    await settle();
+    fireEvent.click(screen.getByRole('button', { name: 'Ticket and goal' }));
+    expect(page()).toHaveAttribute('data-covered');
+    fireEvent.click(within(reader()).getByRole('button', { name: 'Back to the job' }));
+    await settle();
+    expect(window.location.hash).toBe(`#/job/${SLUG}`);
+    expect(page()).not.toHaveAttribute('data-covered');
+    resizeTo(390);
+    expect(page()).toHaveAttribute('data-screen', 'job');
+    expect(reader()).toHaveAttribute('aria-hidden', 'true');
+  });
+});

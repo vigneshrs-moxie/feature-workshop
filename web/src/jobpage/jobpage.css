@@ -2,7 +2,8 @@
    One tree in every layout: data-layout on .jp2 is wide (1100 px and up), mid (over 760, under
    1100) or phone (760 and under); data-covered says the reader is over the left pane (mid, phone). */
 
-.jp2 { height: 100%; min-height: 0; display: flex; flex-direction: column; background: var(--bg-0); color: var(--text-1); font-size: 14px; }
+/* min-width 0: the page is a grid item in the app's shell, so a long title never makes it wider than the window */
+.jp2 { height: 100%; min-height: 0; min-width: 0; display: flex; flex-direction: column; background: var(--bg-0); color: var(--text-1); font-size: 14px; }
 .jp2-dim { color: var(--text-3); }
 
 /* Header: one row */
@@ -18,7 +19,8 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2-menu { flex: none; }
 /* The header sits over the panes, so its menu and its one-line notes are never under the reader. */
 .jp2-head { position: relative; z-index: 3; }
-/* Auto, the switch, its word (prototype .sj-auto): the shared AutoSwitch, drawn small. */
+/* Auto, the switch, its word (prototype .sj-auto): the shared AutoSwitch, drawn small. The off track
+   is --text-3 and the knob the solid float, so the switch shows against the header in every theme. */
 .jp2-auto { flex: 0 1 auto; min-width: 0; }
 .jp2-auto .auto-switch.is-inline { display: flex; flex-wrap: nowrap; align-items: center; gap: 6px; min-width: 0; }
 .jp2-auto .auto-switch-row { flex: none; width: auto; display: inline-flex; align-items: center; gap: 6px; height: 28px; min-height: 0; padding: 0 6px; border-radius: 6px; font-size: 13px; color: var(--text-2); cursor: pointer; }
@@ -26,8 +28,8 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2-auto .auto-switch-row:hover { background: var(--hover-bg); }
 .jp2-auto .auto-switch-row .option-body { order: 0; }
 .jp2-auto .auto-switch-label { font-weight: 400; }
-.jp2-auto .auto-switch-row > .choice { order: 1; width: 26px; height: 16px; margin: 0; padding: 2px; border-color: transparent; border-radius: 8px; background-color: var(--bg-4); place-content: center start; }
-.jp2-auto .auto-switch-row > .choice::before { content: ''; width: 12px; height: 12px; border-radius: 50%; background: var(--surface-1); box-shadow: var(--elev-xs); }
+.jp2-auto .auto-switch-row > .choice { order: 1; width: 26px; height: 16px; margin: 0; padding: 2px; border-color: transparent; border-radius: 8px; background-color: var(--text-3); place-content: center start; }
+.jp2-auto .auto-switch-row > .choice::before { content: ''; width: 12px; height: 12px; border-radius: 50%; background: var(--surface-float); box-shadow: var(--elev-xs); }
 .jp2-auto .auto-switch-row > .choice:checked { border-color: transparent; background-color: var(--btn-primary-bg); place-content: center end; }
 .jp2-auto .auto-switch-row > .choice:checked::before { width: 12px; height: 12px; border: 0; transform: none; background: var(--surface-1); }
 .jp2-auto .sb-auto-switch-word { order: 2; font-weight: 400; }
@@ -103,6 +105,8 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2-row:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .jp2-row.is-cursor { box-shadow: inset 0 0 0 1px var(--border-3); }
 .jp2-row.is-sel, .jp2-row.is-sel:hover { background: var(--bg-3); }
+/* Dim words on a picked or tinted row read a step darker (light's --text-3 is 4.47:1 on the tint) */
+.jp2-row.is-sel :is(.jp2-st-word, .jp2-st-dur, .jp2-out-meta, .jp2-jr-more) { color: var(--text-2); }
 .jp2-st { padding: 4px 8px; border-bottom: 1px solid var(--border-1); }
 .jp2-st-row { height: 26px; }
 .jp2-st-mark { width: 16px; flex: none; display: inline-grid; place-items: center; color: var(--text-3); }
@@ -228,6 +232,7 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2-cv-item.is-you { margin-left: 56px; }
 .jp2-cv-item.is-you > .jp2-cv-line { background: var(--bg-2); }
 .jp2-cv-item.is-you > .jp2-cv-line:hover { background: var(--bg-3); }
+.jp2-cv-item.is-you > .jp2-cv-line time { color: var(--text-2); }
 .jp2-cv-item.is-brief > .jp2-cv-line { color: var(--text-2); }
 .jp2-cv-item.is-brief b { font-weight: 600; color: var(--text-1); }
 .jp2-cv-item.is-problem > .jp2-cv-line { box-shadow: inset 2px 0 0 var(--status-error); }
@@ -353,6 +358,9 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
    step or reader. The job screen is the left pane, the header at the top of its scroll area and the
    box below it; a step's screen and the reader each take the whole page with a back row. */
 .jp2-chev { display: none; }
+/* The step and reader screens own the whole screen: the job screen behind them (its header too) is not
+   drawn, so nothing of it shows over their back row and title */
+.jp2[data-layout="phone"]:not([data-screen="job"]) .jp2-left { visibility: hidden; }
 /* No selection mark on the phone's rows: what the reader shows is a screen away (prototype: no data-on on the phone) */
 .jp2[data-layout="phone"] .jp2-row.is-sel { background: none; }
 .jp2[data-layout="phone"] .jp2-row.is-sel:hover { background: var(--hover-bg); }
@@ -382,6 +390,8 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2-ps { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; background: var(--surface-0); }
 .jp2-ps:focus { outline: none; }
 .jp2-ps:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+/* A phone's screen takes the focus when it opens (for a screen reader); no ring round the whole screen there */
+.jp2[data-layout="phone"] :is(.jp2-reader, .jp2-ps):focus-visible { outline: none; }
 .jp2-ps-scroll { position: relative; flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 24px; }
 .jp2-ps-head { padding: 2px 16px 4px; }
 .jp2-ps-title { margin: 0; font-size: 19px; line-height: 25px; font-weight: 650; text-wrap: balance; }

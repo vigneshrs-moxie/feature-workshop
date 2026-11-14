@@ -418,6 +418,9 @@ html[data-theme="glass"] .home-head { background: var(--glass-float); }
 /* The job header stays still while the conversation scrolls under it (app.css): the same solid float. */
 /* The stuck job header: the float tint over a solid base, so no word of the thread shows through it. */
 html[data-theme="glass"] .pane-foreman .job-header { --job-header-line: var(--glass-edge); background: linear-gradient(var(--glass-float), var(--glass-float)), oklch(.2 .03 272); }
+/* The new job page's screens that cover the job (the reader under 1100 px, the phone's step screen):
+   the same solid float, so the aurora never shows through their small words. */
+html[data-theme="glass"] .jp2:not([data-layout="wide"]) :is(.jp2-reader, .jp2-ps) { background: linear-gradient(var(--glass-float), var(--glass-float)), oklch(.2 .03 272); }
 
 /* The redesign (packet M): the lanes of Jobs, hover, the go / no go console grid, the stop-dot
    tooltip, and the eight chart series (each also has a pattern, --chart-pattern-<n>, in tokens.css). */

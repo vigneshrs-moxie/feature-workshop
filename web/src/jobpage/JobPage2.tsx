@@ -35,7 +35,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { flushSync } from 'react-dom';
 import type { Job } from '../api/types';
 import { useKeyScope } from '../app/keyRegistry';
-import { readHref, replaceHash, stageHref, type JobView } from '../app/router';
+import { jobHref, readHref, replaceHash, stageHref, type JobView } from '../app/router';
 import { Button } from '../components/Button';
 import { useMinWidth, useNarrow } from '../components/page/Page';
 import { PhoneReader } from './phone/PhoneReader';
@@ -162,16 +162,23 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
   const leavingJob = useCallback((from?: HTMLElement | null) => {
     if (screenRef.current === 'job') phoneOpener.current = from ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
   }, []);
-  // While on the phone the cover follows the screen, so turning a phone sideways (or a tablet, 760 to
-  // 1100 px) shows what the address names: the reader over the left pane on a reader screen, the left
-  // pane after Back.
-  useLayoutEffect(() => { if (phone) setCovered(screenNow === 'reader'); }, [phone, screenNow]);
 
   // A later change of the address (a link, Back) is a pick of what it names; the page's own picks
   // write the address first, so this finds them already done.
   useEffect(() => { if (step) { store.setStep(step); store.setReader(null); } }, [store, step]);
   const named = addressTarget(view, read);
   useEffect(() => { if (named) store.setReader(named); }, [store, named?.kind, named?.id]);
+  // The cover follows the address. On the phone it is the screen, so turning a phone sideways (or a
+  // tablet, 760 to 1100 px) shows what the address names: the reader over the left pane on a reader
+  // screen, the left pane after Back. Wider, an address that names a reader target (a link, a typed
+  // address, Back and Forward) puts the reader over the pane, and the job's own address takes it off;
+  // a step's address leaves it as it is (a step pick shows the reader itself).
+  const namedKey = named ? `${named.kind}:${named.id}` : null;
+  useLayoutEffect(() => {
+    if (phone) { setCovered(screenNow === 'reader'); return; }
+    if (namedKey) setCovered(true);
+    else if (!step) setCovered(false);
+  }, [phone, screenNow, namedKey, step]);
 
   // A step pick opens the step and shows its main output (targets.ts readerOf): his own reader pick
   // goes, so the address /stage/<stop> brings the same view back on a reload.
@@ -209,11 +216,14 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
     if (!phone) showReader(from);
   }, [pickStep, showReader, phone, leavingJob]);
 
+  // The back row (760 to 1100 px): the reader goes, and the address is the job's again, so a reload or
+  // a narrowing to the phone shows the job, not the thing that was open.
   const back = useCallback(() => {
     flushSync(() => setCovered(false));
+    replaceHash(jobHref(slug));
     const to = opener.current;
     if (to && to.isConnected) to.focus();
-  }, []);
+  }, [slug]);
 
   const lines = useMemo(() => leftLines(store.getState().payload, job), [store, job, hasPayload]);
   const openLine = useCallback((i: number) => {
