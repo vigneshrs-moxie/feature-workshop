@@ -53,7 +53,7 @@ import { JobRows } from './left/JobRows';
 import { AsksRow, useAskRunner } from './left/AsksRow';
 import { MessageBox } from './left/MessageBox';
 import { Steps, stepsFromRow } from './left/Steps';
-import { usePrLead, usePrOpeningRead } from './left/PrLines';
+import { PhonePrLines, usePrLead, usePrOpeningRead } from './left/PrLines';
 import { YourMove } from './left/YourMove';
 import { branchOf, loadCommits, loadDiff } from './reader/branch';
 import { stepLine } from './reader/ConversationView';
@@ -360,7 +360,8 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
             {phone && <Header job={job} />}
             <YourMove job={job} onOpen={pickReader} />
             <Steps job={job} cursor={cursor} onStep={openStep} onOpen={pickReader} phone={phone} />
-            {/* Tasks 20 and 21: the phone's PR line goes here, ending in `Comments · 3 new` (it opens the PR view). */}
+            {/* Task 21: the phone's PR line, ending in `Comments · 3 new` (it opens the PR view). */}
+            {phone && <PhonePrLines onOpen={pickReader} />}
             <JobRows cursor={cursor} first={lines.findIndex((l) => l.target)} onOpen={pickReader} />
           </div>
           <AsksRow runner={asks} job={job} phone={phone} lead={prLead.lead} onLead={prLead.onLead} />

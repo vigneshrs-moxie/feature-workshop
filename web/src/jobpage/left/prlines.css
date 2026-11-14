@@ -23,3 +23,10 @@
 .jp2-rv-body .jp2-prl { max-width: 720px; padding: 0; }
 .jp2-rv-body .jp2-prl-l { font-size: 14px; }
 .jp2[data-layout="phone"] .jp2-prl-l { min-height: 44px; font-size: 15px; }
+/* Task 21: the PR comments' one line under Your move, and the phone's PR line ending in `Comments · 3 new` */
+.jp2-ym-pr { display: block; margin: 4px 6px 2px; font-size: 13px; line-height: 18px; text-align: left; }
+.jp2-prl-phone { display: flex; flex-direction: column; padding: 0 12px; }
+.jp2-prl-ph { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0; border: 0; border-bottom: 1px solid var(--border-1); background: none; color: var(--text-1); font: inherit; font-size: 15px; text-align: left; cursor: pointer; }
+.jp2-prl-ph:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.jp2-prl-ph .jp2-prl-s { flex: 1; }
+.jp2-prl-ph .jp2-prl-c { flex: none; font-weight: 600; color: var(--text-1); }

@@ -111,7 +111,7 @@ export type Move = GateMove | QuestionMove | PermissionMove;
 
 /** A PR line's one next action (R2, dashboard/lib/pr-lines.js): what its yes sends to the Foreman and what will go. */
 export interface PrNext {
-  id: 'push-open' | 'open-pr1' | 'push-update' | 'open-pr2' | 'request-review';
+  id: 'push-open' | 'open-pr1' | 'push-update' | 'push-fixes' | 'open-pr2' | 'request-review';
   /** The line's button: `Push and open PR #1`, `Push update (2 commits)`, `Open PR #2`, `Request review`. */
   label: string;
   /** The yes button, under what will go: `Push and open`, `Push`. */
@@ -122,6 +122,8 @@ export interface PrNext {
   sends: string;
   /** The server sends only while the line still gives this (12 hex). */
   check: string;
+  /** Task 21: `Push the fixes` while a review round is ready: Starbase runs the round's Send back itself (no sentence). */
+  round?: boolean;
 }
 
 export interface PrLine {
@@ -137,7 +139,45 @@ export interface PrLine {
   next: null | PrNext;
   /** Why the line has no button, or what it waits for (`after PR #1 is merged`, `Sent to the Foreman`). */
   why?: string | null;
-  comments: null | { fresh: number; total: number };
+  /** Task 21: the PR's comments as last read: new ones, all, fixed ones, failing checks, and the rows' version. */
+  comments: null | { fresh: number; total: number; fixed?: number; failing?: number; v?: string | null };
+}
+
+/** One PR comment (Task 21, dashboard/lib/pr-comments.js): a line-comment thread, a review's text or a conversation comment. */
+export interface PrRow {
+  id: string;
+  kind: 'line' | 'review' | 'conversation';
+  author: string;
+  mine: boolean;
+  file: string | null;
+  line: number | null;
+  outdated?: boolean;
+  body: string;
+  /** The three code lines it sits on, and the first one's number. */
+  context: string[] | null;
+  contextAt?: number | null;
+  link: string | null;
+  at: string | null;
+  replies?: { author: string; mine: boolean; body: string; at: string | null }[];
+  state: 'new' | 'fixing' | 'fixed' | 'answered' | 'left';
+  commit: string | null;
+  why?: string | null;
+  reply: null | { draft: string; posted: string | null };
+}
+/** A failed check on the PR's newest commit, with the end of its log. */
+export interface PrCheck { name: string; link: string | null; runId: string | null; head: string | null; log: string | null; state: 'failed' | 'fixing' }
+/** GET /api/job/:slug/pr/:n (Task 21). */
+export interface PrView {
+  n: number;
+  line: PrLine;
+  github: GithubRead | null;
+  rows: PrRow[];
+  checks?: PrCheck[];
+  verdict: null | { by: string | null; state: 'changes_requested' | 'approved' | 'commented' | string; at: string | null };
+  readAt?: string | null;
+  problem?: string | null;
+  number?: number | null;
+  reading?: boolean;
 }
 
 /** When GitHub was last read for the PR lines (the flow map's read), and why it could not be. */
@@ -207,6 +247,8 @@ export interface JobPagePayload {
   prs: PrLine[];
   /** R2 (Task 20): the GitHub read the PR lines come from; null when none is known (the website). Absent from an older Starbase. */
   github?: GithubRead | null;
+  /** Task 21: the PR comments not answered yet, one line under Your move (`PR #1 · 3 new comments`). Absent from an older Starbase. */
+  prMove?: null | { n: number; fresh: number; since: string | null };
   hosted: boolean;
   /** The hashes of the bodies no line or output names (the ticket and goal, the decisions list): a kept
    *  copy whose hash moved on is dropped. Absent from an older Starbase. */

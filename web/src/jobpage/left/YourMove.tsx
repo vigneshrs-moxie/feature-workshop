@@ -72,7 +72,10 @@ export const YourMove = memo(function YourMove({ job, onOpen }: YourMoveProps) {
   const line = useJob((s) => s.payload?.stateLine);
   // What you asked (R5, Asked.tsx): in the slot when nothing else waits, else under the card.
   const asked = useAsked();
-  const answers = asked ? <AskedList asked={asked} onOpen={onOpen} /> : null;
+  // Task 21: the PR comments not answered yet are one line here (not a card each), opening that PR's view.
+  const prLine = <PrMoveLine onOpen={onOpen} />;
+  const answers = asked ? <><AskedList asked={asked} onOpen={onOpen} />{prLine}</> : prLine;
+  const hasPr = useJob((s) => Boolean(s.payload?.prMove));
   if (move === undefined) {
     // Before the payload: the snapshot row's words.
     if (!job) return <div className="jp2-ym" />;
@@ -83,9 +86,22 @@ export const YourMove = memo(function YourMove({ job, onOpen }: YourMoveProps) {
   if (move?.kind === 'gate') return <div className="jp2-ym"><GateCard key={gateKeyOf(move)} move={move} onOpen={onOpen} />{answers}</div>;
   if (move?.kind === 'question') return <div className="jp2-ym"><AskCard move={move} />{answers}</div>;
   if (move?.kind === 'permission') return <div className="jp2-ym"><PermissionCard key={move.id} move={move} />{answers}</div>;
-  if (answers) return <div className="jp2-ym">{answers}</div>;
+  if (asked) return <div className="jp2-ym">{answers}</div>;
+  if (hasPr) return <div className="jp2-ym"><p className="jp2-ym-one">{state ? STATE_WORDS[state] : ''}{line ? ` · ${line}` : ''}</p>{prLine}</div>;
   return <div className="jp2-ym"><p className="jp2-ym-one">{state ? STATE_WORDS[state] : ''}{line ? ` · ${line}` : ''}</p></div>;
 });
+
+/** `PR #1 · 3 new comments` (Task 21): opens that PR's view in the reader. Nothing when none are new. */
+function PrMoveLine({ onOpen }: { onOpen?: YourMoveProps['onOpen'] }) {
+  const pr = useJob((s) => s.payload?.prMove ?? null);
+  if (!pr) return null;
+  const since = sinceWords(pr.since);
+  return (
+    <button type="button" className="link-button jp2-ym-pr" onClick={(e) => onOpen?.({ kind: 'pr', id: String(pr.n) }, e.currentTarget)} title={`Opens PR #${pr.n}’s comments${since ? `, the oldest new one from ${since}` : ''}.`}>
+      PR #{pr.n} · {pr.fresh} new comment{pr.fresh === 1 ? '' : 's'}
+    </button>
+  );
+}
 
 /** Your move's label, the same from the snapshot row (waitingFor, waitingSince) and from the payload, so it does not change when the payload lands. */
 function moveLabel(permission: boolean, at: string | null | undefined): string {

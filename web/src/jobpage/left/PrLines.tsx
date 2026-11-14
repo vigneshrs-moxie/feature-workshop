@@ -30,10 +30,13 @@ const SENT_WORDS: Record<PrNext['id'], string> = {
   'push-open': 'Sent · the Foreman pushes to your fork and opens PR #1',
   'open-pr1': 'Sent · the Foreman opens PR #1',
   'push-update': 'Sent · the Foreman pushes to your fork; PR #1 updates',
+  'push-fixes': 'Sent · the Foreman pushes the fixes to your fork; PR #1 updates',
   'open-pr2': 'Sent · the Foreman opens PR #2',
   'request-review': 'Sent · the Foreman asks Raj to review PR #2',
 };
 const UNREACHABLE = `Not sent: ${BRAND.name} didn’t answer. Try again.`;
+/** Push the fixes while a review round is ready: Starbase sends the round back itself. */
+const SENT_BACK = `Sending back · ${BRAND.name} pushes, posts the replies and asks for a review again`;
 export const SHIP: ReaderTarget = { kind: 'ship', id: 'ship' };
 
 /** `2:02 pm` today, `Tue 2:02 pm` on another day. */
@@ -66,18 +69,26 @@ export interface PrLinesProps {
   only?: 1 | 2 | 3;
   /** The reader's Ship view: the note on how the lines come to be. */
   note?: boolean;
+  /** Task 21, the PR view: the line without this action's button (it is in the view's bar instead). */
+  skip?: PrNext['id'];
+  /** Task 21, the PR view's bar: only this action (its button, what will go, the yes), no line and no read line. */
+  action?: PrNext['id'];
 }
 
-export const PrLines = memo(function PrLines({ only, note = false }: PrLinesProps) {
+export const PrLines = memo(function PrLines({ only, note = false, skip, action }: PrLinesProps) {
   const slug = useJob((s) => s.slug);
   const prs = useJob((s) => s.payload?.prs ?? null);
   const github = useJob((s) => s.payload?.github ?? null);
   const hosted = useJob((s) => s.payload?.hosted === true);
   if (!prs) return null;
   const lines = prs.filter((l) => !only || l.n === only);
+  if (action) {
+    const l = lines.find((x) => x.next?.id === action);
+    return l && !hosted ? <div className="jp2-prl jp2-prl-bar"><Line slug={slug} line={l} hosted={hosted} bare /></div> : null;
+  }
   return (
     <div className="jp2-prl">
-      {lines.map((l) => <Line key={l.n} slug={slug} line={l} hosted={hosted} />)}
+      {lines.map((l) => <Line key={l.n} slug={slug} line={l} hosted={hosted} skip={skip} />)}
       {!hosted && github && <ReadLine slug={slug} github={github} />}
       {note && <p className="jp2-prl-note">{READ_NOTE}</p>}
     </div>
@@ -86,10 +97,10 @@ export const PrLines = memo(function PrLines({ only, note = false }: PrLinesProp
 
 type Sending = null | { check: string; words: string };
 
-function Line({ slug, line, hosted }: { slug: string; line: PrLine; hosted: boolean }) {
+function Line({ slug, line, hosted, skip, bare = false }: { slug: string; line: PrLine; hosted: boolean; skip?: PrNext['id']; bare?: boolean }) {
   // No app around it (a part drawn on its own): the lines show, with no button.
   const api = useContext(WorkshopContext)?.api ?? null;
-  const next = hosted || !api ? null : line.next;
+  const next = hosted || !api || (skip && line.next?.id === skip) ? null : line.next;
   const [open, setOpen] = useState(false);
   const [sent, setSent] = useState<Sending>(null);
   const [problem, setProblem] = useState<string | null>(null);
@@ -112,7 +123,7 @@ function Line({ slug, line, hosted }: { slug: string; line: PrLine; hosted: bool
     setOpen(false);
     setProblem(null);
     setTerminal(false);
-    setSent({ check: next.check, words: SENT_WORDS[next.id] ?? 'Sent to the Foreman' });
+    setSent({ check: next.check, words: next.round ? SENT_BACK : SENT_WORDS[next.id] ?? 'Sent to the Foreman' });
     try {
       await api!.post(`/api/job/${encodeURIComponent(slug)}/pr/${line.n}/go`, { id: next.id, check: next.check, ...(confirmNoTerminal ? { confirmNoTerminal: true } : {}) });
     } catch (err) {
@@ -128,12 +139,12 @@ function Line({ slug, line, hosted }: { slug: string; line: PrLine; hosted: bool
   return (
     <div className={`jp2-prl-line${open ? ' is-open' : ''}`}>
       <div className="jp2-prl-l">
-        <b className="jp2-prl-n">PR #{line.n}</b>
-        <span className="jp2-prl-s">{line.word}{when}{why ? ` · ${why}` : ''}</span>
+        {!bare && <b className="jp2-prl-n">PR #{line.n}</b>}
+        {!bare && <span className="jp2-prl-s">{line.word}{when}{why ? ` · ${why}` : ''}</span>}
         {next && !open && !showSent && (
           <Button size="sm" className="jp2-prl-b" onClick={() => { setOpen(true); setProblem(null); }} title={`Shows what will go first. Sends the Foreman: “${next.sends}”`}>{next.label}</Button>
         )}
-        {!next && line.url && <Button kind="quiet" size="sm" className="jp2-prl-b" href={line.url} target="_blank" rel="noreferrer">Open on GitHub</Button>}
+        {!next && !bare && line.url && <Button kind="quiet" size="sm" className="jp2-prl-b" href={line.url} target="_blank" rel="noreferrer">Open on GitHub</Button>}
       </div>
       {next && open && (
         <div ref={panelRef} tabIndex={-1} className="jp2-prl-x" role="group" aria-label={`What ${next.label} will do`}>
@@ -169,11 +180,38 @@ function ReadLine({ slug, github }: { slug: string; github: GithubRead }) {
     <div className="jp2-prl-read">
       {github.problem
         ? <span className="jp2-prl-gh is-problem" role="alert">{github.problem}{github.at ? ` Last read ${clockWords(github.at)}.` : ''}</span>
-        : <span className="jp2-prl-gh">{reading ? 'Reading GitHub…' : github.at ? `read from GitHub ${clockWords(github.at)}` : 'not read from GitHub yet'}</span>}
+        : <span className="jp2-prl-gh">{reading ? 'Reading GitHub…' : github.at ? readWords(github.at) : 'not read from GitHub yet'}</span>}
       {!reading && api && <Button kind="quiet" size="sm" onClick={() => { void pull(); }} title="Reads the pull requests from GitHub now.">Pull now</Button>}
     </div>
   );
 }
+
+/** `read just now` within a minute of the read (Pull now's answer), else `read from GitHub 2:04 pm`. Drawn when the line is; no timer. */
+export function readWords(at: string, now: number = Date.now()): string {
+  const t = Date.parse(at);
+  return Number.isFinite(t) && now - t < 60_000 && now >= t - 5_000 ? 'read just now' : `read from GitHub ${clockWords(at)}`;
+}
+
+/**
+ * The phone's PR line on the job screen (Task 21; plan "Open with the owner"): each PR with comments, ending in
+ * `Comments · 3 new` (or `Comments · 4` when none is new), which opens the PR view.
+ */
+export const PhonePrLines = memo(function PhonePrLines({ onOpen }: { onOpen(t: ReaderTarget, from?: HTMLElement | null): void }) {
+  const lines = useJob((s) => s.payload?.prs ?? null);
+  const shown = (lines ?? []).filter((l) => (l.comments?.total ?? 0) > 0);
+  if (!shown.length) return null;
+  return (
+    <div className="jp2-prl-phone">
+      {shown.map((l) => (
+        <button key={l.n} type="button" className="jp2-prl-ph" onClick={(e) => onOpen({ kind: 'pr', id: String(l.n) }, e.currentTarget)}>
+          <b className="jp2-prl-n">PR #{l.n}</b>
+          <span className="jp2-prl-s">{l.word}</span>
+          <span className="jp2-prl-c">Comments · {l.comments!.fresh > 0 ? `${l.comments!.fresh} new` : l.comments!.total}</span>
+        </button>
+      ))}
+    </div>
+  );
+});
 
 // ---------- The page's part ----------
 

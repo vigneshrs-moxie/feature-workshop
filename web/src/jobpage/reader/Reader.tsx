@@ -6,7 +6,7 @@
 // Decisions (DecisionsView), a step with nothing written yet (NotYet), the conversation
 // (ConversationView: one line per item, folded), Changes (ChangesView: commits, files, the diff),
 // Findings, Checks and recording with Your hand test, and Details (Task 14). Ship (its PR lines) and a
-// PR (its line) are Task 20's (left/PrLines.tsx); the walkthrough comes later.
+// PR (its line) are Task 20's (left/PrLines.tsx), and a PR's comments Task 21's (PrView); the walkthrough comes later.
 //
 // Each view is drawn fresh for each thing read (keyed by it) inside ReaderBody, which keeps every
 // thing's own scroll place. A body held in the store paints in the same frame as the pick; one not held
@@ -26,6 +26,7 @@ import { FindingsView } from './FindingsView';
 import { MessageView } from './MessageView';
 import { PictureView } from '../notes/Pins';
 import { PrLines } from '../left/PrLines';
+import { PrView } from './PrView';
 import { ReaderBody } from './ReaderBody';
 import { TicketView } from './TicketView';
 import { placeKey, TitleRow } from './TitleRow';
@@ -76,8 +77,9 @@ function View({ target, searchRef, onOpen }: { target: ReaderTarget } & Pick<Rea
     // Task 20 (R2): Ship is its PR lines; a PR's own view is its line (Task 21 adds its comments).
     case 'ship':
       return <ReaderBody view="ship" place={placeKey(target)}><PrLines note /></ReaderBody>;
+    // Task 21 (R3): a PR's view is its line, its verdict, its failed checks and its comments.
     case 'pr':
-      return <ReaderBody view="pr" place={placeKey(target)}><PrLines only={prOf(target.id)} /></ReaderBody>;
+      return <PrView n={prOf(target.id)} onOpen={onOpen} />;
     default:
       return <ReaderBody view={target.kind} place={placeKey(target)}><p className="jp2-dim">This view comes in a later build of the new page.</p></ReaderBody>;
   }

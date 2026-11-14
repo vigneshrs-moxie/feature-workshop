@@ -4,7 +4,7 @@ import { act, fireEvent, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { installKeyListener, resetChord } from '../../app/keyRegistry';
 import { forgetRecentPages } from '../recent';
-import { afterHistory, openAt, page, resizeTo, settle, SLUG, stepRow, windowWidth } from '../fixtures/phonePage';
+import { afterHistory, openAt, page, payload, resizeTo, settle, SLUG, stepRow, windowWidth } from '../fixtures/phonePage';
 import { phoneScreenOf } from './PhoneJob2';
 
 let offKeys: () => void = () => {};
@@ -251,5 +251,30 @@ describe('Phase 2 fixes: the cover follows the address between 760 and 1100 px',
     resizeTo(390);
     expect(page()).toHaveAttribute('data-screen', 'job');
     expect(reader()).toHaveAttribute('aria-hidden', 'true');
+  });
+});
+
+describe('Task 21: the phone’s PR line', () => {
+  it('ends in `Comments · 3 new` under the steps, and opens the PR view', async () => {
+    const withComments = () => {
+      const p = payload();
+      p.prs = [
+        { n: 1, number: 247, url: null, title: null, state: 'open', word: 'open · checks passed', at: null, next: null, why: null, comments: { fresh: 3, total: 4, fixed: 0, failing: 0, v: 'v1' } },
+        { n: 2, number: null, url: null, title: null, state: 'not-started', word: 'not open', at: null, next: null, why: null, comments: null },
+        { n: 3, number: null, url: null, title: null, state: 'not-started', word: 'not open', at: null, next: null, why: null, comments: null },
+      ];
+      return p;
+    };
+    openAt(`#/job/${SLUG}`, withComments);
+    await settle();
+    const line = await screen.findByRole('button', { name: /^PR #1/ });
+    expect(line.textContent).toBe('PR #1open · checks passedComments · 3 new');
+    expect(line.querySelector('.jp2-prl-c')!.textContent).toBe('Comments · 3 new');
+    expect(before(document.querySelector('.jp2-st')!, line)).toBe(true);
+    expect(screen.queryByRole('button', { name: /^PR #2/ })).toBeNull();
+    fireEvent.click(line);
+    await afterHistory(`#/job/${SLUG}`);
+    expect(window.location.hash).toBe(`#/job/${SLUG}/read/pr/1`);
+    expect(page()).toHaveAttribute('data-screen', 'reader');
   });
 });
