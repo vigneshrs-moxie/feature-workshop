@@ -15,7 +15,7 @@ import { browserDrafts, createJobStore, type JobStore } from '../jobStore';
 import { JobPage2 } from '../JobPage2';
 import { forgetRecentPages } from '../recent';
 import type { JobBody, JobPagePayload, StopId } from '../types';
-import { ALREADY_FAST, BACK_TO_OWN, HOLD_MS } from './AsksRow';
+import { ALREADY_FAST, BACK_TO_OWN, HOLD_MS, KEPT, QUEUED } from './AsksRow';
 import { forgetSentGo } from './YourMove';
 
 const SLUG = longJob.payload.slug;
@@ -178,19 +178,38 @@ describe('an ask with nothing to fill in', () => {
     expect(sends(o.post)).toHaveLength(0);
   });
 
-  it('keeps one timer: a second ask sends the first one now and holds itself', async () => {
+  it('a second ask within the four seconds is held with the first on the one timer: Sent 2 · Undo, then both go as one message', async () => {
     const o = open();
     await settle();
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const before = vi.getTimerCount();
     fireEvent.click(row().getByRole('button', { name: 'Where are we?' }));
+    act(() => { vi.advanceTimersByTime(2000); });
     fireEvent.click(row().getByRole('button', { name: 'Fix the open findings' }));
     await flush();
+    expect(sends(o.post)).toHaveLength(0);
     expect(vi.getTimerCount() - before).toBe(1);
-    expect(sends(o.post).map((c) => (c[1] as { text: string }).text)).toEqual([askById('where')!.text]);
-    act(() => { vi.advanceTimersByTime(HOLD_MS); });
+    expect(document.querySelector('.jp2-asks-msg')).toHaveTextContent(/^Sent 2·Undo$/);
+    // The newest ask has its own four seconds.
+    act(() => { vi.advanceTimersByTime(HOLD_MS - 1); });
+    expect(sends(o.post)).toHaveLength(0);
+    act(() => { vi.advanceTimersByTime(1); });
     await flush();
-    expect(sends(o.post).map((c) => (c[1] as { text: string }).text)).toEqual([askById('where')!.text, askById('fixfind')!.text]);
+    expect(sends(o.post).map((c) => (c[1] as { text: string }).text)).toEqual([`${askById('where')!.text}\n\n${askById('fixfind')!.text}`]);
+    expect(vi.getTimerCount() - before).toBe(0);
+  });
+
+  it('Undo on Sent 2 takes back both', async () => {
+    const o = open();
+    await settle();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    fireEvent.click(row().getByRole('button', { name: 'Where are we?' }));
+    fireEvent.click(row().getByRole('button', { name: 'Explain this step' }));
+    fireEvent.click(row().getByRole('button', { name: 'Undo' }));
+    act(() => { vi.advanceTimersByTime(10_000); });
+    await flush();
+    expect(sends(o.post)).toHaveLength(0);
+    expect(document.querySelector('.jp2-asks-msg')).toBeNull();
   });
 
   it('while the Foreman works it waits for the reply like a typed message (the box shows it with Cancel)', async () => {
@@ -510,5 +529,181 @@ describe('the page’s other styles', () => {
     expect(asks.length).toBeGreaterThan(0);
     const drawn = selectors.filter((sel) => { try { return asks.some((b) => b.matches(sel)); } catch { return false; } });
     expect(drawn).toEqual([]);
+  });
+});
+
+// ---------- Fix round 1 (review I1–I3, ruling M1, minors) ----------
+
+const RUNNING_RUN = { id: 'run-now', status: 'running', startedAt: '2026-11-13T11:59:00.000Z', lastAction: null };
+
+describe('an ask clicked while Go faster runs (I1)', () => {
+  it('goes before Go faster’s line shows, and that line’s Undo puts back the options, not the ask', async () => {
+    const srv = server();
+    let answer: (v: unknown) => void = () => {};
+    const realGet = srv.get.getMockImplementation()!;
+    srv.get.mockImplementationOnce(() => new Promise((r) => { answer = r; }));
+    const o = open({ srv });
+    await settle();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const before = vi.getTimerCount();
+    fireEvent.click(row().getByRole('button', { name: 'Go faster' }));
+    fireEvent.click(row().getByRole('button', { name: 'Where are we?' }));
+    expect(document.querySelector('.jp2-asks-msg')).toHaveTextContent(/^Sent·Undo$/);
+    await act(async () => { answer(await realGet(`/api/job/${SLUG}`)); });
+    await flush();
+    // The ask went (once), and the line is Go faster's.
+    expect(sends(o.post).map((c) => (c[1] as { text: string }).text)).toEqual([askById('where')!.text]);
+    expect(document.querySelector('.jp2-asks-msg')).toHaveTextContent(`${FAST_SAYS}·Undo`);
+    expect(vi.getTimerCount() - before).toBe(1);
+    fireEvent.click(row().getByRole('button', { name: 'Undo' }));
+    await flush();
+    expect(optionPosts(o.post)).toHaveLength(2);
+    expect(optionPosts(o.post)[1][1]).toMatchObject({ options: OPTIONS });
+    act(() => { vi.advanceTimersByTime(HOLD_MS * 3); });
+    await flush();
+    expect(sends(o.post)).toHaveLength(1);
+  });
+});
+
+describe('on the phone (I2)', () => {
+  it('the line shows the exact words held, and a tap on them shows them whole', async () => {
+    windowWidth(390);
+    const o = open();
+    await settle();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    fireEvent.click(row().getByRole('button', { name: 'Where are we?' }));
+    const msg = document.querySelector<HTMLElement>('.jp2-asks-msg')!;
+    expect(msg).toHaveTextContent(`Sent:“${askById('where')!.text}”·Undo`);
+    const quote = within(msg).getByRole('button', { name: `“${askById('where')!.text}”` });
+    expect(quote).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(quote);
+    expect(document.querySelector('.jp2-asks-msg')).toHaveClass('is-whole');
+    expect(within(document.querySelector<HTMLElement>('.jp2-asks-msg')!).getByRole('button', { name: /^“/ })).toHaveAttribute('aria-expanded', 'true');
+    // Undo still works there; nothing went.
+    fireEvent.click(row().getByRole('button', { name: 'Undo' }));
+    act(() => { vi.advanceTimersByTime(HOLD_MS); });
+    await flush();
+    expect(sends(o.post)).toHaveLength(0);
+  });
+
+  it('two held asks show both', async () => {
+    windowWidth(390);
+    open();
+    await settle();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    fireEvent.click(row().getByRole('button', { name: 'Where are we?' }));
+    fireEvent.click(row().getByRole('button', { name: 'Go faster' }).parentElement!.querySelectorAll<HTMLButtonElement>('.jp2-askb')[0]);
+    expect(document.querySelector('.jp2-asks-msg')).toHaveTextContent(/^Sent 2:“.+ · .+”·Undo$/);
+  });
+
+  it('the laptop line stays Sent · Undo (the words are on hover there)', async () => {
+    open();
+    await settle();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    fireEvent.click(row().getByRole('button', { name: 'Where are we?' }));
+    expect(document.querySelector('.jp2-asks-quote')).toBeNull();
+  });
+});
+
+describe('on the website (I3)', () => {
+  it('an ask queued for the laptop says so, and is watched so its words come back if it never runs', async () => {
+    const srv = server();
+    srv.post.mockImplementation(async (path: string) => (path.endsWith('/send') ? { ok: true, queued: { id: 'q-77', status: 'queued' } } : { ok: true }));
+    const o = open({ srv, patch: { hosted: true } });
+    await settle();
+    const watch = vi.spyOn(o.store, 'watchQueued');
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    fireEvent.click(row().getByRole('button', { name: 'Where are we?' }));
+    act(() => { vi.advanceTimersByTime(HOLD_MS); });
+    await flush();
+    expect(sends(o.post)[0][1]).toEqual({ kind: 'message', text: askById('where')!.text });
+    expect(watch).toHaveBeenCalledWith('q-77', askById('where')!.text);
+    expect(document.querySelector('.jp2-asks-msg')).toHaveTextContent(QUEUED);
+    expect(document.querySelector('.jp2-asks-msg')).not.toHaveTextContent(/^Sent/);
+  });
+
+  it('while the Foreman works an ask is like a typed message there: its words stay in the box, nothing is sent', async () => {
+    const o = open({ patch: { hosted: true, run: RUNNING_RUN } });
+    await settle();
+    box().blur();
+    fireEvent.click(row().getByRole('button', { name: 'Where are we?' }));
+    await flush();
+    expect(sends(o.post)).toHaveLength(0);
+    expect(box()).toHaveValue(askById('where')!.text);
+    expect(document.querySelector('.jp2-asks-msg')).toHaveTextContent(KEPT);
+  });
+});
+
+describe('refusals that point at the box (minor)', () => {
+  it('Claude Code open in a terminal: no “tick the box below”, it says to press Send in the box', async () => {
+    const srv = server();
+    srv.post.mockImplementation(async () => { throw new ApiError(409, 'Claude Code is open', { code: 'terminal-open' }); });
+    open({ srv });
+    await settle();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    fireEvent.click(row().getByRole('button', { name: 'Where are we?' }));
+    act(() => { vi.advanceTimersByTime(HOLD_MS); });
+    await flush();
+    const alert = row().getByRole('alert');
+    expect(alert).not.toHaveTextContent(/tick the box/i);
+    expect(alert).toHaveTextContent('The ask’s words are in the box: press Send there');
+    expect(box()).toHaveValue(askById('where')!.text);
+  });
+
+  it('a message already waiting: it says so in plain words', async () => {
+    const srv = server();
+    srv.post.mockImplementation(async () => { throw new ApiError(409, 'raw server words', { code: 'waiting', waiting: { text: 'x' } }); });
+    open({ srv });
+    await settle();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    fireEvent.click(row().getByRole('button', { name: 'Where are we?' }));
+    act(() => { vi.advanceTimersByTime(HOLD_MS); });
+    await flush();
+    expect(row().getByRole('alert')).toHaveTextContent('Not sent: a message is already waiting for the Foreman.');
+    expect(row().getByRole('alert')).not.toHaveTextContent('raw server words');
+  });
+});
+
+describe('⌘K (minor)', () => {
+  it('Esc closes it from anywhere in the box, not only the search field', async () => {
+    open();
+    await settle();
+    cmdK();
+    const dlg = palette()!;
+    act(() => { dlg.focus(); });
+    expect(document.activeElement).toBe(dlg);
+    fireEvent.keyDown(dlg, { key: 'Escape' });
+    expect(palette()).toBeNull();
+  });
+
+  it('a long text can be read whole: the highlighted ask carries it in full', async () => {
+    open();
+    await settle();
+    cmdK();
+    const active = within(palette()!).getAllByRole('option').find((x) => x.getAttribute('aria-selected') === 'true')!;
+    const label = active.querySelector('.palette-label')!.textContent;
+    const a = ASKS.find((x) => x.label === label)!;
+    expect(active).toHaveAttribute('title', a.text);
+    expect(active).toHaveClass('is-active');
+  });
+});
+
+describe('Keep as an ask, a message with notes (minor)', () => {
+  it('keeps only his words, never the old notes block', async () => {
+    const id = 'you:a0d62ac173be';
+    const was = longJob.bodies[id].text;
+    longJob.bodies[id].text = '--- Notes (1) ---\n1. [drop] Plan v2 · step 4 "Add the filter"\n   > Add the filter\n--- End of notes ---\n\nAnd keep the export as it is.';
+    try {
+      const o = open();
+      await settle();
+      act(() => { o.store.setReader({ kind: 'conversation', id: 'conversation' }); });
+      await settle();
+      const mine = document.querySelector<HTMLElement>(`.jp2-cv-item.is-you[data-id="${id}"]`)!;
+      fireEvent.click(within(mine).getByRole('button', { name: 'Keep as an ask' }));
+      await flush();
+      expect(JSON.parse(localStorage.getItem(KEPT_KEY)!)).toEqual(['And keep the export as it is.']);
+    } finally {
+      longJob.bodies[id].text = was;
+    }
   });
 });

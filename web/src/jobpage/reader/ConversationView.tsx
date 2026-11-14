@@ -45,7 +45,7 @@ import { createContext, memo, useCallback, useContext, useDeferredValue, useEffe
 import { Button } from '../../components/Button';
 import { Icon } from '../../components/Icon';
 import { readStored, useStored, writeStored } from '../../lib/stored';
-import { keepAsk } from '../asks';
+import { keepAsk, keptWords } from '../asks';
 import { freshCount, seenKey } from '../left/JobRows';
 import type { ReaderTarget, StepRow, StopId, ThreadLine } from '../types';
 import { useJob, useJobStore } from '../useJob';
@@ -581,10 +581,12 @@ const Item = memo(function Item({ line: l, open, onToggle, onOpen }: ItemProps) 
 /** Keep a message he sent as an ask (R6): its full words, or its line when the body cannot be read. */
 function KeepAsk({ line }: { line: ThreadLine }) {
   const store = useJobStore();
-  const [kept, setKept] = useState<null | 'kept' | 'already'>(null);
+  const [kept, setKept] = useState<null | 'kept' | 'already' | 'notes'>(null);
   async function keep() {
     const body = store.getState().bodies[line.id] ?? await store.loadBody(line.id).catch(() => null);
-    const text = body?.text?.trim() || line.headline;
+    // His own words only: a notes block quotes places in that day's documents.
+    const text = body?.text ? keptWords(body.text) : line.headline;
+    if (!text) { setKept('notes'); return; }
     setKept(keepAsk(text) ? 'kept' : 'already');
   }
   return (
@@ -595,7 +597,7 @@ function KeepAsk({ line }: { line: ThreadLine }) {
       onClick={() => void keep()}
       title="Keep this message as an ask: ⌘K lists it under Yours, and one click sends the same words again."
     >
-      {kept === 'kept' ? 'Kept: in ⌘K under Yours' : kept === 'already' ? 'Already kept' : 'Keep as an ask'}
+      {kept === 'kept' ? 'Kept: in ⌘K under Yours' : kept === 'already' ? 'Already kept' : kept === 'notes' ? 'Only notes: nothing to keep' : 'Keep as an ask'}
     </Button>
   );
 }

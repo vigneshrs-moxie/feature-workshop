@@ -171,6 +171,15 @@ export function keptAsks(): string[] {
   }
 }
 
+/**
+ * The words of a sent message worth keeping: his own, without a notes block (R4's `--- Notes (n) ---`
+ * … `--- End of notes ---`), whose places and quotes belong to that day's documents. Empty when the
+ * message was only notes.
+ */
+export function keptWords(text: string): string {
+  return text.replace(/^[ \t]*--- Notes \(\d+\) ---[\s\S]*?^[ \t]*--- End of notes ---[ \t]*$/gm, '').trim();
+}
+
 /** Keep a message he sent as an ask; false when it is kept already. */
 export function keepAsk(text: string): boolean {
   const words = text.trim();

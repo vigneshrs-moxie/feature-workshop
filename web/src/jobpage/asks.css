@@ -15,6 +15,11 @@
 .jp2-asks-msg { position: absolute; inset: 0; display: flex; align-items: center; gap: 8px; padding: 0 12px; background: var(--surface-0); font-size: 12.5px; line-height: 18px; color: var(--text-1); }
 .jp2-asks-mt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .jp2-asks-undo, .jp2-asks-hide { flex: none; }
+/* The phone: the held words in the line, cut to one line; a tap shows them whole (under the row's own height) */
+.jp2-asks-quote { flex: 0 1 auto; min-width: 0; margin: 0; padding: 0; overflow: hidden; border: 0; background: none; color: var(--text-2); font: inherit; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.jp2-asks-quote:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.jp2-asks-msg.is-whole { position: static; flex-wrap: wrap; align-items: baseline; padding-top: 8px; padding-bottom: 10px; }
+.jp2-asks-msg.is-whole .jp2-asks-quote { white-space: normal; overflow-wrap: anywhere; }
 /* Why something did not go: under the row, in full */
 .jp2-asks-msg.is-problem { position: static; align-items: flex-start; padding: 0 12px 8px; font-weight: 500; }
 .jp2-asks-msg.is-problem .jp2-asks-mt { flex: 1; white-space: normal; padding-top: 5px; }
@@ -36,6 +41,7 @@
 .jp2-pal-main { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 1px; padding: 6px 0; }
 .jp2-pal-main .palette-label { flex: none; }
 .jp2-pal-says { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-xs); color: var(--text-3); }
+.jp2-pal-opt.is-active .jp2-pal-says { white-space: normal; overflow-wrap: anywhere; }
 .jp2-pal-empty { margin: 0; padding: 2px 10px 8px; font-size: var(--text-xs); color: var(--text-3); }
 
 /* Keep as an ask: over the line's time while the pointer is on his message (or the focus on the button) */

@@ -8,9 +8,15 @@
 //     (POST /api/job/:slug/send). On this computer it goes with `queue: true`, so while the Foreman
 //     works it waits for the reply to end like a typed message (Task 16; the box shows it with
 //     Cancel), and with nothing running it goes at once. The website sends it as a message (the
-//     laptop picks it up there). A refusal puts its words in the box and says why.
-//     One timer only, and only while an ask is pending: a second ask sends the first one now.
-//     Leaving the page sends a pending ask now (he asked for it).
+//     laptop picks it up there: the row says `Queued for your laptop` and the store watches it, so
+//     its words come back to the box if it ends without running). On the website while the Foreman
+//     works, an ask is like a typed message there: its words stay in the box. A refusal puts its
+//     words in the box and says why.
+//     One timer only: a second ask within the four seconds is held with the first (`Sent 2 · Undo`,
+//     the timer starts again) and Undo takes back both; held asks go together, as one message.
+//     Leaving the page sends held asks now (he asked for them). Go faster's line sends held asks
+//     first, so its Undo is only ever the options'.
+//     On the phone (no hover) the line shows the held words: `Sent: “…” · Undo`.
 //   - needs a word: its text goes in the box with the cursor in the gap; nothing is sent.
 //   - Go faster: not a message. It reads the job's options (GET /api/job/:slug), posts them back with
 //     one reviewer a round and no second looks (POST …/options, from the next step), and says what
@@ -27,7 +33,7 @@ import type { Job, JobDetail, JobOptions, OptionsResult } from '../../api/types'
 import { BRAND } from '../../app/brand';
 import { paletteKeyLabel, pressKey } from '../../app/keyRegistry';
 import { Button } from '../../components/Button';
-import { useWorkshop } from '../../state/store';
+import { useWorkshop, type Store } from '../../state/store';
 import { askSays, fastOptions, fillGap, rowFor, type Ask } from '../asks';
 import { withWordsBack, type JobStore } from '../jobStore';
 import { useJob, useJobStore } from '../useJob';
@@ -38,8 +44,11 @@ import '../asks.css';
 /** How long an ask is held (and its line shown) before it goes. */
 export const HOLD_MS = 4000;
 
-/** What the row says over itself: Sent · Undo, what Go faster switched, or why something did not go. */
-export interface AskLine { words: string; undo: boolean; problem: boolean }
+/**
+ * What the row says over itself: Sent · Undo (with the held words, `held`), what Go faster switched,
+ * or why something did not go. `undo`: what Undo takes back ('held' asks, or Go faster's 'options').
+ */
+export interface AskLine { words: string; undo: 'held' | 'options' | null; problem: boolean; held?: string[] }
 
 export interface AskRunner {
   getState(): AskLine | null;
@@ -50,7 +59,7 @@ export interface AskRunner {
   undo(): void;
   /** Take a problem line away. */
   dismiss(): void;
-  /** The page goes: a pending ask goes now; the timer ends. */
+  /** The page goes: held asks go now; the timer ends. */
   destroy(): void;
 }
 
@@ -59,74 +68,100 @@ const LOCKED = `Not sent: another place is working on this job (a terminal, or a
 export const SENT = 'Sent';
 export const BACK_TO_OWN = 'Back to the job’s own options';
 export const ALREADY_FAST = 'Already fast: 1 reviewer, no second looks';
+/** The website: the ask waits for the laptop (the message box's words). */
+export const QUEUED = 'Queued for your laptop: it goes to the Foreman when the laptop picks it up.';
+/** The website while the Foreman works: like a typed message there, the words stay in the box. */
+export const KEPT = 'Kept in the box, not sent: the Foreman is working. Press Send when it finishes.';
+/** The run statuses that mean the Foreman is replying right now (as MessageBox's ACTIVE). */
+const ACTIVE = new Set(['starting', 'running', 'waiting_permission', 'stopping']);
 
 const failure = (err: unknown) => (err instanceof TypeError ? UNREACHABLE : err instanceof Error ? err.message : String(err));
+
+/** Why an ask did not go, in the box's words; the two that point at the box's own controls say what to do instead. */
+export function askRefusal(err: unknown): string {
+  const code = err instanceof ApiError ? err.body.code : null;
+  if (code === 'terminal-open') return 'Not sent: Claude Code is open in this repository in a terminal. The ask’s words are in the box: press Send there to say whether one of those windows is this job’s Foreman.';
+  if (code === 'waiting') return 'Not sent: a message is already waiting for the Foreman. The ask’s words are in the box: send them once it has gone, or cancel the waiting one.';
+  return sendRefusal(err);
+}
 
 export interface AskRunnerDeps {
   api: ApiClient;
   store: JobStore;
   /** The message box: an ask that needs a word fills it. */
   box: RefObject<HTMLTextAreaElement | null>;
+  /** Whether the Foreman is replying now (the app's live run, else the payload's). */
+  running?: () => boolean;
 }
 
-export function createAskRunner({ api, store, box }: AskRunnerDeps): AskRunner {
+export function createAskRunner({ api, store, box, running = () => false }: AskRunnerDeps): AskRunner {
   let line: AskLine | null = null;
   const listeners = new Set<() => void>();
   const say = (next: AskLine | null) => { line = next; for (const l of [...listeners]) l(); };
-  /** The one timer: an ask held before it goes, or Go faster's line before it goes away. */
+  /** The one timer: the asks held before they go, or a short line before it goes away. */
   let timer: ReturnType<typeof setTimeout> | null = null;
-  /** The ask held now, or null. */
-  let held: string | null = null;
-  /** What Undo does now (Go faster: put the options back). */
+  /** The asks held now, in the order he clicked them (they go together, as one message). */
+  let held: string[] = [];
+  /** What Undo does for Go faster's line (put the options back). */
   let undoFast: (() => void) | null = null;
   let ended = false;
   const slug = () => store.getState().slug;
   const path = (tail: string) => `/api/job/${encodeURIComponent(slug())}${tail}`;
+  const hosted = () => store.getState().payload?.hosted === true;
 
   const clear = () => { if (timer !== null) clearTimeout(timer); timer = null; };
 
   /** The words go now. */
   async function post(text: string) {
-    const hosted = store.getState().payload?.hosted === true;
+    let r: { queued?: unknown } | null;
     try {
-      await api.post(path('/send'), { kind: 'message', text, ...(hosted ? {} : { queue: true }) });
+      r = await api.post<{ queued?: unknown }>(path('/send'), { kind: 'message', text, ...(hosted() ? {} : { queue: true }) });
     } catch (err) {
-      if (ended) return;
+      // Words never lost, even after the page went: they are the box's kept draft.
       store.setDraft(withWordsBack(store.getState().ui.draft, text));
-      say({ words: sendRefusal(err), problem: true, undo: false });
+      if (!ended) say({ words: askRefusal(err), problem: true, undo: null });
+      return;
+    }
+    // The website: it waits for the laptop. Watched, so its words come back if it ends without running.
+    const q = r && typeof r === 'object' ? (r.queued as { id?: unknown } | undefined) : undefined;
+    if (q) {
+      if (typeof q === 'object' && typeof q.id === 'string') store.watchQueued(q.id, text);
+      if (!ended && held.length === 0) brief({ words: QUEUED, undo: null, problem: false });
     }
   }
 
-  /** A held ask goes now (a second ask, or the page going). */
+  /** Held asks go now (Go faster's line, or the page going): one message. */
   function flush() {
-    const text = held;
-    held = null;
+    const texts = held;
+    held = [];
     clear();
-    if (text !== null) void post(text);
+    if (texts.length) void post(texts.join('\n\n'));
   }
 
   function hold(text: string) {
-    flush();
+    clear();
     undoFast = null;
-    held = text;
-    say({ words: SENT, undo: true, problem: false });
+    held = [...held, text];
+    say({ words: held.length > 1 ? `${SENT} ${held.length}` : SENT, undo: 'held', problem: false, held: [...held] });
+    // One timer: the newest ask restarts it, so each has its four seconds of Undo.
     timer = setTimeout(() => {
       timer = null;
-      const t = held;
-      held = null;
+      const texts = held;
+      held = [];
       say(null);
-      if (t !== null) void post(t);
+      if (texts.length) void post(texts.join('\n\n'));
     }, HOLD_MS);
   }
 
-  /** A line that goes away by itself after HOLD_MS, on the same timer. */
+  /** A line that goes away by itself after HOLD_MS, on the same timer (never while asks are held). */
   function brief(next: AskLine) {
+    if (held.length) return;
     clear();
     say(next);
-    timer = setTimeout(() => { timer = null; undoFast = null; say(null); }, HOLD_MS);
+    timer = setTimeout(() => { timer = null; undoFast = null; if (line === next) say(null); }, HOLD_MS);
   }
 
-  function fill(text: string) {
+  function fill(text: string, cursorAt?: number) {
     const { draft, cursor } = fillGap(store.getState().ui.draft, text);
     flushSync(() => store.setDraft(draft));
     // c and i: under 1100 px it takes the reader off the left pane; the box takes the focus.
@@ -134,7 +169,8 @@ export function createAskRunner({ api, store, box }: AskRunnerDeps): AskRunner {
     const el = box.current;
     if (!el) return;
     if (document.activeElement !== el) el.focus();
-    el.setSelectionRange(cursor, cursor);
+    const at = cursorAt === undefined ? cursor : draft.length;
+    el.setSelectionRange(at, at);
   }
 
   async function goFaster() {
@@ -145,35 +181,38 @@ export function createAskRunner({ api, store, box }: AskRunnerDeps): AskRunner {
     let at: string | null;
     try {
       const detail = await api.get<JobDetail>(path(''));
-      if (!detail?.options) { say({ words: 'Not switched: this job has no options yet.', problem: true, undo: false }); return; }
+      if (!detail?.options) { if (!ended) { flush(); say({ words: 'Not switched: this job has no options yet.', problem: true, undo: null }); } return; }
       was = detail.options;
       at = typeof was.updated_at === 'string' ? was.updated_at : null;
     } catch (err) {
-      if (!ended) say({ words: `Not switched: ${failure(err)}`, problem: true, undo: false });
+      if (!ended) { flush(); say({ words: `Not switched: ${failure(err)}`, problem: true, undo: null }); }
       return;
     }
     if (ended) return;
     const fast = fastOptions(was, kind);
-    if (!fast.says) { brief({ words: ALREADY_FAST, undo: false, problem: false }); return; }
+    // An ask clicked while this ran goes now: the line is Go faster's, and so is its Undo.
+    if (!fast.says) { flush(); brief({ words: ALREADY_FAST, undo: null, problem: false }); return; }
     let r: OptionsResult;
     try {
       r = await api.post<OptionsResult>(path('/options'), { options: fast.options, updated_at: at });
     } catch (err) {
       if (ended) return;
-      say({ words: err instanceof ApiError && err.body.code === 'options-changed' ? 'Not switched: the options changed elsewhere just now. Try again.' : `Not switched: ${failure(err)}`, problem: true, undo: false });
+      flush();
+      say({ words: err instanceof ApiError && err.body.code === 'options-changed' ? 'Not switched: the options changed elsewhere just now. Try again.' : `Not switched: ${failure(err)}`, problem: true, undo: null });
       return;
     }
     if (ended) return;
+    flush();
     const now = typeof r?.updated_at === 'string' ? r.updated_at : null;
-    brief({ words: fast.says, undo: true, problem: false });
     undoFast = () => {
       clear();
       say(null);
       void api.post<OptionsResult>(path('/options'), { options: was, updated_at: now }).then(
-        () => { if (!ended) brief({ words: BACK_TO_OWN, undo: false, problem: false }); },
-        (err) => { if (!ended) say({ words: `Not put back: ${failure(err)}`, problem: true, undo: false }); },
+        () => { if (!ended) brief({ words: BACK_TO_OWN, undo: null, problem: false }); },
+        (err) => { if (!ended) say({ words: `Not put back: ${failure(err)}`, problem: true, undo: null }); },
       );
     };
+    brief({ words: fast.says, undo: 'options', problem: false });
   }
 
   return {
@@ -183,14 +222,14 @@ export function createAskRunner({ api, store, box }: AskRunnerDeps): AskRunner {
       if (a.needsWord) { fill(a.text); return; }
       // Go faster changes the options, which another place working on the job does not stop.
       if (a.kind === 'fast') { void goFaster(); return; }
-      if (store.getState().payload?.lock) { flush(); say({ words: LOCKED, problem: true, undo: false }); return; }
+      if (store.getState().payload?.lock) { say({ words: LOCKED, problem: true, undo: null }); return; }
+      // The website can't keep a message waiting: while the Foreman works the words stay in the box, as typed ones do.
+      if (hosted() && running()) { fill(a.text, -1); brief({ words: KEPT, undo: null, problem: false }); return; }
       hold(a.text);
     },
     undo() {
-      if (held !== null) { held = null; clear(); say(null); return; }
-      const u = undoFast;
-      undoFast = null;
-      u?.();
+      if (line?.undo === 'held' && held.length) { held = []; clear(); say(null); return; }
+      if (line?.undo === 'options') { const u = undoFast; undoFast = null; u?.(); }
     },
     dismiss() { if (line?.problem) say(null); },
     destroy() {
@@ -202,16 +241,26 @@ export function createAskRunner({ api, store, box }: AskRunnerDeps): AskRunner {
   };
 }
 
-/** The page's runner: made once, ended (a pending ask sent) when the page goes. */
+/** Whether the Foreman is replying now: the app's live run when it is the payload's (or the payload names none), else the payload's. */
+function runningNow(app: Store, store: JobStore): boolean {
+  const s = store.getState();
+  const live = app.getState().runs[s.slug] ?? null;
+  const p = s.payload?.run ?? null;
+  const run = live && (!p || !p.id || live.id === p.id) ? live : p ?? live;
+  return Boolean(run && ACTIVE.has(run.status ?? ''));
+}
+
+/** The page's runner: made once, ended (held asks sent) when the page goes. */
 export function useAskRunner(box: RefObject<HTMLTextAreaElement | null>): AskRunner {
-  const { api } = useWorkshop();
+  const { api, store: app } = useWorkshop();
   const store = useJobStore();
+  const make = () => createAskRunner({ api, store, box, running: () => runningNow(app, store) });
   const made = useRef<AskRunner | null>(null);
-  if (!made.current) made.current = createAskRunner({ api, store, box });
+  if (!made.current) made.current = make();
   const [runner, setRunner] = useState(made.current);
   useEffect(() => {
     // StrictMode's test unmount ended it: a new one.
-    if (made.current === null) { made.current = createAskRunner({ api, store, box }); setRunner(made.current); }
+    if (made.current === null) { made.current = make(); setRunner(made.current); }
     const mine = made.current;
     return () => { mine.destroy(); made.current = null; };
   }, []);
@@ -244,18 +293,7 @@ export const AsksRow = memo(function AsksRow({ runner, job, phone = false, lead 
           </Button>
         )}
       </div>
-      {line && (
-        <div className={`jp2-asks-msg${line.problem ? ' is-problem' : ''}`} role={line.problem ? 'alert' : 'status'}>
-          <span className="jp2-asks-mt" title={line.words}>{line.words}</span>
-          {line.undo && (
-            <>
-              <span aria-hidden="true">·</span>
-              <Button kind="quiet" size="sm" className="jp2-asks-undo" onClick={() => runner.undo()} title={line.words === SENT ? 'Take it back before it goes: nothing is sent.' : 'Put back the options it replaced.'}>Undo</Button>
-            </>
-          )}
-          {line.problem && <Button kind="quiet" size="sm" className="jp2-asks-hide" onClick={() => runner.dismiss()} title="Hide this line.">Hide</Button>}
-        </div>
-      )}
+      {line && <AskLineView key={`${line.words}|${(line.held ?? []).join('|')}`} line={line} phone={phone} runner={runner} />}
       {tip && (
         <div className="jp2-asks-tip" role="tooltip" id={tipId}>
           <span className="jp2-asks-says">{askSays(tip)}</span> {tip.text}
@@ -264,6 +302,32 @@ export const AsksRow = memo(function AsksRow({ runner, job, phone = false, lead 
     </div>
   );
 });
+
+/**
+ * The row's line. On the phone (no hover) a held ask's exact words are in it: `Sent: “…” · Undo`,
+ * cut to one line; a tap on them shows them whole.
+ */
+function AskLineView({ line, phone, runner }: { line: AskLine; phone: boolean; runner: AskRunner }) {
+  const [whole, setWhole] = useState(false);
+  const quote = phone && line.held?.length ? line.held.join(' · ') : null;
+  return (
+    <div className={`jp2-asks-msg${line.problem ? ' is-problem' : ''}${whole ? ' is-whole' : ''}`} role={line.problem ? 'alert' : 'status'}>
+      <span className="jp2-asks-mt" title={quote ? undefined : line.words}>{line.words}{quote ? ':' : ''}</span>
+      {quote && (
+        <button type="button" className="jp2-asks-quote" aria-expanded={whole} onClick={() => setWhole((w) => !w)} title="Show the whole text this sends.">
+          “{quote}”
+        </button>
+      )}
+      {line.undo && (
+        <>
+          <span aria-hidden="true">·</span>
+          <Button kind="quiet" size="sm" className="jp2-asks-undo" onClick={() => runner.undo()} title={line.undo === 'held' ? 'Take it back before it goes: nothing is sent.' : 'Put back the options it replaced.'}>Undo</Button>
+        </>
+      )}
+      {line.problem && <Button kind="quiet" size="sm" className="jp2-asks-hide" onClick={() => runner.dismiss()} title="Hide this line.">Hide</Button>}
+    </div>
+  );
+}
 
 interface AskButtonsProps {
   row: Ask[];

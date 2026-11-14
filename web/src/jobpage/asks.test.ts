@@ -119,3 +119,14 @@ describe('kept asks', () => {
     expect(keptAsks()).toEqual(['ok']);
   });
 });
+
+describe('what a kept message keeps (fix round 1)', () => {
+  it('drops a notes block and keeps his words; nothing when it was only notes', async () => {
+    const { keptWords } = await import('./asks');
+    const block = '--- Notes (2) ---\n1. [drop] Plan v2 · step 4 "x"\n2. [explain] Spec v3 · line 6\n--- End of notes ---';
+    expect(keptWords(`${block}\n\nPush to my fork.`)).toBe('Push to my fork.');
+    expect(keptWords(block)).toBe('');
+    expect(keptWords('check ok')).toBe('check ok');
+    expect(keptWords('Mind the --- Notes (1) --- words in a sentence.')).toBe('Mind the --- Notes (1) --- words in a sentence.');
+  });
+});

@@ -8,7 +8,8 @@
 // sb.asks.kept), Places (`Go to: Plan`, `Go to: Changes`, the job's rows), Other steps, then the
 // app's palette. No hidden prompts: each ask shows the exact text it sends under its label.
 // Type to narrow it (every word must match the label, the text or the group), ↑ ↓ to move, Enter to
-// run, Esc to close; picking closes the box first, so an ask that needs a word takes the focus to
+// run, Esc to close (from anywhere in it). The highlighted ask shows its whole text. Picking closes
+// the box first, so an ask that needs a word takes the focus to
 // the message box.
 
 import { memo, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
@@ -139,10 +140,14 @@ function PaletteBox({ job, onClose, onPick }: { job: Job | null; onClose(): void
       case 'ArrowDown': e.preventDefault(); if (n) setActive((at + 1) % n); break;
       case 'ArrowUp': e.preventDefault(); if (n) setActive((at - 1 + n) % n); break;
       case 'Enter': e.preventDefault(); if (at >= 0) onPick(shown[at]); break;
-      case 'Escape': e.preventDefault(); e.stopPropagation(); onClose(); break;
-      case 'Tab': e.preventDefault(); break;
       default: break;
     }
+  }
+
+  /** Esc closes it, and Tab stays in it, wherever the focus is inside the box. */
+  function onBoxKey(e: KeyboardEvent<HTMLDivElement>) {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onClose(); return; }
+    if (e.key === 'Tab') e.preventDefault();
   }
 
   const runs: { group: string; items: { item: Item; i: number }[] }[] = [];
@@ -159,7 +164,8 @@ function PaletteBox({ job, onClose, onPick }: { job: Job | null; onClose(): void
 
   return (
     <div className="sheet-backdrop palette-backdrop jp2-pal" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="palette" role="dialog" aria-modal="true" aria-label="Asks and places">
+      {/* tabIndex -1: a click on its words keeps the focus in the box, so Esc still closes it. */}
+      <div className="palette" role="dialog" aria-modal="true" aria-label="Asks and places" tabIndex={-1} onKeyDown={onBoxKey}>
         <div className="palette-search">
           <Icon name="search" size={18} className="palette-search-icon" />
           <input
@@ -194,6 +200,7 @@ function PaletteBox({ job, onClose, onPick }: { job: Job | null; onClose(): void
                     role="option"
                     aria-selected={i === at}
                     className={`palette-option jp2-pal-opt${i === at ? ' is-active' : ''}`}
+                    title={item.kind === 'ask' ? item.ask.text : undefined}
                     onMouseMove={() => { if (i !== at) setActive(i); }}
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => onPick(item)}
