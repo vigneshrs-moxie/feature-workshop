@@ -3054,7 +3054,13 @@ export async function createRunner(config) {
       // Never in a worktree found only through a guessed branch (ownCodeDir): the repository instead.
       const codeDir = ownCodeDir(f);
       if (!codeDir) throw new HttpError(404, 'No repository for this job.');
-      return { dir: codeDir, ...(await git.show(codeDir, body.commit)) };
+      try {
+        return { dir: codeDir, ...(await git.show(codeDir, body.commit)) };
+      } catch (err) {
+        // A sha git does not know (mistyped, or gone in a rebase): said plainly, for Changes to show (Task 18).
+        if (/unknown revision|bad object|bad revision|not a valid object|ambiguous argument/i.test(String(err?.message ?? ''))) throw new HttpError(404, `Commit ${body.commit} is not on this branch.`, { code: 'no-commit' });
+        throw err;
+      }
     },
 
     // POST /api/runs/:id/steer: add a message to a reply in progress (see lib/driver.js). Its states arrive as 'steer' events.
@@ -3843,7 +3849,8 @@ export async function createRunner(config) {
           commits = await git.commitsWithFiles(codeDir, { base: f.baseSha ?? null, head: branch });
           if (head) keepLatest(commitsWithFilesCache, key, { head, commits }, BRANCH_COMMITS_KEPT);
         }
-        return { dir: codeDir, base: f.baseSha ?? null, head: branch, commits };
+        // cut: the list stopped at its limit, so a commit not in it may still be on the branch (What you asked).
+        return { dir: codeDir, base: f.baseSha ?? null, head: branch, commits, cut: commits.length >= git.COMMITS_LISTED };
       } catch (err) {
         return { dir: codeDir, commits: [], note: `Couldn’t read the branch: ${String(err.message).split('\n')[0]}` };
       }

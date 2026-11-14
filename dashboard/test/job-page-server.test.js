@@ -650,3 +650,38 @@ test('This is the job\'s branch tells every open page the job changed, and the j
     req.destroy();
   }
 });
+
+test('Task 18 fix round 2: the commit list says when it is cut at its limit, and a commit not in the repository is a plain 404', { timeout: 120_000 }, async () => {
+  const longRepo = path.join(root, 'long-repo');
+  await fs.mkdir(longRepo, { recursive: true });
+  const env = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
+  const sh = (...args) => execFileSync('git', ['-c', 'commit.gpgsign=false', ...args], { cwd: longRepo, stdio: ['ignore', 'pipe', 'ignore'], env }).toString().trim();
+  sh('init', '-q', '-b', 'main');
+  sh('commit', '-q', '--allow-empty', '-m', 'base');
+  const baseSha = sh('rev-parse', 'HEAD');
+  sh('switch', '-q', '-c', 'feature/long');
+  sh('commit', '-q', '--allow-empty', '-m', '[S1] the first');
+  const first = sh('rev-parse', 'HEAD');
+  for (let i = 0; i < 100; i++) sh('commit', '-q', '--allow-empty', '-m', `[S2] step ${i}`);
+  const slug = 'long-branch';
+  await writeJob(slug, { files: { 'status.json': { schema_version: 1, slug, title: `Job ${slug}`, route: 'small', stage: 'implement', stage_state: 'working', branch: 'feature/long', repo: { path: longRepo, base_branch: 'main' }, updated_at: OLD } } });
+  await foundJob(slug);
+  const list = await (await fetch(`${base}/api/job/${slug}/commits`)).json();
+  assert.equal(list.commits.length, 100);
+  assert.equal(list.cut, true, 'the list stops at its limit');
+  assert.ok(!list.commits.some((c) => c.sha === first), 'the oldest is past the list');
+  // The commit past the list is still read by its own route; one that is not in the repository is a 404 that says so.
+  const old = await fetch(`${base}/api/job/${slug}/commit/${first.slice(0, 7)}`);
+  assert.equal(old.status, 200);
+  const gone = await fetch(`${base}/api/job/${slug}/commit/deadbee`);
+  assert.equal(gone.status, 404);
+  assert.deepEqual(await gone.json(), { error: 'Commit deadbee is not on this branch.', code: 'no-commit' });
+  // A short branch is not cut.
+  sh('switch', '-q', '-c', 'feature/short', baseSha);
+  sh('commit', '-q', '--allow-empty', '-m', '[S1] only one');
+  const shortSlug = 'short-branch';
+  await writeJob(shortSlug, { files: { 'status.json': { schema_version: 1, slug: shortSlug, title: `Job ${shortSlug}`, route: 'small', stage: 'implement', stage_state: 'working', branch: 'feature/short', repo: { path: longRepo, base_branch: 'main' }, updated_at: OLD } } });
+  await foundJob(shortSlug);
+  const short = await (await fetch(`${base}/api/job/${shortSlug}/commits`)).json();
+  assert.equal(short.cut, false);
+});

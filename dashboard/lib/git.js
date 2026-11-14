@@ -186,7 +186,10 @@ const LOG_LIMIT_MAX = 1000;
  * renames read as a new file and a removed one.
  * Throws as commits() does (a bad name, no repository, a ref that isn't there).
  */
-export async function commitsWithFiles(dir, { base, head = 'HEAD', limit = 100 } = {}) {
+/** How many commits a job's list shows (newest first); a branch with more is cut there. */
+export const COMMITS_LISTED = 100;
+
+export async function commitsWithFiles(dir, { base, head = 'HEAD', limit = COMMITS_LISTED } = {}) {
   if (!REF.test(head) || (base && !REF.test(base))) throw new Error('Unexpected branch or commit name');
   const max = Number.isInteger(limit) && limit > 0 ? Math.min(limit, LOG_LIMIT_MAX) : 100;
   const range = base ? `${base}..${head}` : head;
