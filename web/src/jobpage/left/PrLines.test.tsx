@@ -240,3 +240,12 @@ describe('fix round 1', () => {
     expect(document.activeElement).toBe(leftLines().getByRole('group', { name: 'What Push and open PR #1 will do' }));
   });
 });
+
+describe('Task 21: Pull now’s answer', () => {
+  it('a read within the last minute says `read just now`; an older one its time', async () => {
+    const { readWords } = await import('./PrLines');
+    const now = Date.parse('2026-11-14T14:05:00.000Z');
+    expect(readWords('2026-11-14T14:04:30.000Z', now)).toBe('read just now');
+    expect(readWords('2026-11-14T14:02:00.000Z', now)).toBe(`read from GitHub ${clockWords('2026-11-14T14:02:00.000Z')}`);
+  });
+});
