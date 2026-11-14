@@ -20,7 +20,10 @@
 //      main has no text (a blank page or a crashed route never passes), or it still says it is
 //      loading 10 s after it opened (each screen is checked only once it has finished loading);
 //   6. on the new job page, the message box lies over the left pane's last row (on the phone, the job
-//      screen's last row) with the pane scrolled to its end.
+//      screen's last row) with the pane scrolled to its end;
+//   7. on the new job page, something else lies over the shown screen's own top: the back row and the
+//      title of the phone's step screen or the reader (and the reader's title row at any width) must
+//      be the topmost thing where they are.
 // NEW_PAGE=1 checks the new job page (jobpage/JobPage2.tsx: the switch sb.jobPage is set to new
 // before every screen) instead of the old one, and adds its reader addresses for the first job (the
 // conversation, the ticket and goal, the decisions, the details) and, when the app has the made-up
@@ -282,6 +285,24 @@ function check() {
     const boxTop = mbw.getBoundingClientRect().top;
     if (last && lastBottom > boxTop + 0.5) out.push(`the message box lies over the last row ("${last.textContent.trim().slice(0, 30)}"): its top at ${Math.round(boxTop)}, the row's bottom at ${Math.round(lastBottom)}`);
     left.scrollTop = was;
+  }
+
+  // 7. The new job page: the shown screen's back row and title are not under the job's header (on
+  // the phone the header once lay over the step and reader screens). Hit testing cannot see it (the
+  // job screen is inert under the others, so a point passes through it), so this compares boxes: a
+  // shown piece of the header with text that overlaps the screen's top.
+  const head = document.querySelector('.jp2-head');
+  for (const sel of ['.jp2-ps .jp2-pback', '.jp2-ps .jp2-ps-head', '.jp2-reader .jp2-pback', '.jp2-reader .jp2-back', '.jp2-reader .jp2-rv-top']) {
+    const el = document.querySelector(sel);
+    if (!head || !el || !shown(el) || el.closest('[inert]') || head.contains(el)) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width <= 1 || r.height <= 1) continue;
+    const over = [head, ...head.querySelectorAll('*')].find((n) => {
+      if (!shown(n) || ![...n.childNodes].some((c) => c.nodeType === 3 && c.textContent.trim())) return false;
+      const q = n.getBoundingClientRect();
+      return q.width > 1 && q.height > 1 && q.left < r.right && q.right > r.left && q.top < r.bottom && q.bottom > r.top;
+    });
+    if (over) out.push(`${sel} is under the job's header (${name(over)} "${over.textContent.trim().slice(0, 30)}")`);
   }
   return out;
 }
