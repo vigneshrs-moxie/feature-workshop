@@ -31,6 +31,10 @@ before(async () => {
   sh(repo, 'commit', '--allow-empty', '-q', '-m', 'Add the damage table');
   sh(repo, 'commit', '--allow-empty', '-q', '-m', 'Show the damage list');
   sh(repo, 'update-ref', 'refs/remotes/origin/feature/push-job', baseSha);
+  // feature/moved-job: one commit past the fork's copy (a commit lands on it between his look and his yes).
+  sh(repo, 'checkout', '-q', '-b', 'feature/moved-job', baseSha);
+  sh(repo, 'commit', '--allow-empty', '-q', '-m', 'Count the damages');
+  sh(repo, 'update-ref', 'refs/remotes/origin/feature/moved-job', baseSha);
   sh(repo, 'checkout', '-q', 'main');
   const job = async (slug, extra) => {
     await fs.mkdir(path.join(featuresDir, slug, 'briefs'), { recursive: true });
@@ -43,6 +47,9 @@ before(async () => {
   await job('push-job', { stage: 'pr1', prs: [{ number: 1, url: 'https://github.com/example/acme/pull/44', state: 'open' }] });
   // PR #1 merged, PR #2 open with no approval: Request review.
   await job('review-job', { stage: 'pr2', prs: [{ number: 1, state: 'merged' }, { number: 2, state: 'open' }] });
+  // The same, for a reply that ends in error (its folder is made read-only in that test).
+  await job('review-error', { stage: 'pr2', prs: [{ number: 1, state: 'merged' }, { number: 2, state: 'open' }] });
+  await job('moved-job', { stage: 'pr1', prs: [{ number: 1, url: 'https://github.com/example/acme/pull/45', state: 'open' }] });
   dashboard = await startDashboard({
     env: {
       HOME: dirs.home, STARBASE_DEMO: '1',
@@ -89,6 +96,9 @@ test('server: a PR line from GitHub with its one next action; a stale yes is ref
     `${sh(path.join(root, 'sample-repo'), 'rev-parse', '--short=7', 'feature/push-job~1')} Add the damage table`,
   ]);
   assert.ok(v.github.at, 'read from GitHub');
+  // The demo's jobs are not in auto mode: the PR steps' go-ahead won't cover the Foreman's push, and the line says so.
+  assert.equal(v.line.next.says.at(-1), 'Starbase will ask you once more when the Foreman pushes.');
+  assert.match(v.line.next.sends, new RegExp(`git push origin ${sh(path.join(root, 'sample-repo'), 'rev-parse', 'feature/push-job')}:refs/heads/feature/push-job`), 'exactly the commit he saw');
   assert.equal((await get('/api/job/push-job/pr/4')).status, 404);
   assert.equal((await post('/api/job/push-job/pr/1/go', { id: 'push-update', check: v.line.next.check }, { auth: false })).status, 403, 'a yes needs the page token');
   assert.equal((await post('/api/job/push-job/pr/1/go', { id: 'push-update' })).status, 400, 'no check: refused');
@@ -149,6 +159,55 @@ test('server: Pull now reads GitHub (the flow map’s read) and answers at once;
   assert.deepEqual(r.body, { reading: true });
   await waitFor(async () => { const g = (await get('/api/flow')).body.github; return g?.triedAt && g.triedAt !== was ? g : null; }, 'a new GitHub read');
   assert.equal((await post('/api/job/no-such-job/pr/1/pull')).status, 404);
+});
+
+const ACTIVE = ['starting', 'running', 'waiting_permission', 'stopping'];
+
+test('fix round 1: a commit that lands between his look and his yes: refused, nothing sent, and the line shows the new commit', { timeout: 60_000 }, async () => {
+  await get('/api/job/moved-job/page');
+  const v = await lineOnce('moved-job', 1, (b) => b.line.next);
+  assert.equal(v.line.next.label, 'Push update (1 commit)');
+  const repo = path.join(root, 'sample-repo');
+  const tree = sh(repo, 'rev-parse', 'feature/moved-job^{tree}');
+  const sha = sh(repo, 'commit-tree', tree, '-p', 'feature/moved-job', '-m', 'A late commit');
+  sh(repo, 'update-ref', 'refs/heads/feature/moved-job', sha);
+  const r = await post('/api/job/moved-job/pr/1/go', { id: v.line.next.id, check: v.line.next.check });
+  assert.equal(r.status, 409, JSON.stringify(r.body));
+  assert.equal(r.body.code, 'pr-moved');
+  const detail = (await get('/api/job/moved-job')).body;
+  assert.ok(!detail.audit.some((e) => e.action === 'pr-line'), 'nothing sent');
+  // A page that rebuilds the job sees the new commit (any change point does it; Pull now is one).
+  await post('/api/job/moved-job/pr/1/pull');
+  const after = await lineOnce('moved-job', 1, (b) => b.line.next?.label === 'Push update (2 commits)');
+  assert.equal(after.line.next.says[1], `${sha.slice(0, 7)} A late commit`);
+});
+
+test('fix round 1: a Request review whose reply ends in error gives the button back and the Desk its nudge', { timeout: 90_000 }, async () => {
+  await get('/api/job/review-error/page');
+  const v = await lineOnce('review-error', 2, (b) => b.line.next);
+  const dir = path.join(root, 'feature-work', 'review-error');
+  // Nothing in the job's folder can be written, so the pretend Foreman's first write fails and the reply ends in error.
+  await fs.chmod(path.join(dir, 'status.json'), 0o444);
+  await fs.chmod(path.join(dir, 'briefs'), 0o555);
+  await fs.chmod(dir, 0o555);
+  try {
+    const r = await post('/api/job/review-error/pr/2/go', { id: 'request-review', check: v.line.next.check });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const ended = await waitFor(async () => {
+      const { runs, permissions } = (await get('/api/runs')).body;
+      for (const p of permissions.filter((x) => x.slug === 'review-error')) await post(`/api/permissions/${p.id}`, { decision: 'allow' });
+      const run = runs.find((x) => x.id === r.body.run.id);
+      return run && !ACTIVE.includes(run.status) ? run : null;
+    }, 'the reply to end', 30000);
+    assert.equal(ended.status, 'error', JSON.stringify(ended));
+    await waitFor(async () => ((await get('/api/snapshot')).body.jobs.find((j) => j.slug === 'review-error')?.nudges ?? []).some((n) => n.id === 'pr2-review'), 'the Desk’s nudge back');
+    const back = await lineOnce('review-error', 2, (b) => b.line.next?.id === 'request-review');
+    assert.equal(back.line.why, null);
+  } finally {
+    await fs.chmod(dir, 0o755);
+    await fs.chmod(path.join(dir, 'briefs'), 0o755);
+    await fs.chmod(path.join(dir, 'status.json'), 0o644);
+  }
 });
 
 test('routes: on the website (no runner’s local part) the PR routes are a 404 in plain words', async () => {

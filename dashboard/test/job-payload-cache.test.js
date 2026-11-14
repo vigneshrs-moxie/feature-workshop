@@ -436,3 +436,23 @@ test('Task 14 fix round 1: the website’s findings say when the mirror kept onl
   const whole = findingsSource({ review: { at: null, rows } });
   assert.equal('cut' in whole.meta, false, 'nothing added when every row is there');
 });
+
+test('Task 20 fix round 1: watched(slug) is true only while a live page stream watches the job', async () => {
+  const s = store();
+  const cache = jobPageCache({ build: s.build });
+  try {
+    s.set('job-a', payloadOf('A'));
+    s.set('job-b', payloadOf('B', { slug: 'job-b' }));
+    await cache.page('job-a');
+    assert.equal(cache.has('job-a'), true);
+    assert.equal(cache.watched('job-a'), false, 'cached, but no page watches it');
+    cache.viewerOpen(V);
+    await cache.page('job-a', null, { viewer: V });
+    assert.equal(cache.watched('job-a'), true);
+    await cache.page('job-b', null, { viewer: V });
+    assert.equal(cache.watched('job-a'), false, 'the stream moved to another job');
+    assert.equal(cache.watched('job-b'), true);
+    cache.viewerGone(V);
+    assert.equal(cache.watched('job-b'), false, 'the page closed');
+  } finally { cache.close(); }
+});

@@ -74,7 +74,7 @@ import { parseStatusJson } from '../lib/status-json.js';
 import { autoModeEnvironment, remotesOf } from '../lib/auto-env.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { GIT_SETTING_CHANGE, goAheadCovers, ORG_REMOTES, setApiPort, setStateDir } from '../lib/hard-lines.js';
+import { GIT_SETTING_CHANGE, goAheadCovers, ORG_REMOTES, PR_STAGES, setApiPort, setStateDir } from '../lib/hard-lines.js';
 import { jobRepo, verifiedJobContext } from '../lib/auto-context.js';
 import { guessedWorktree, guessWords, jobTerminals, ownBranch, ownCodeDir, ownLane, ownWorktree } from '../lib/locate.js';
 import { autoGitFacts, gitIsAncestor, gitRemoteDefault, gitWorktrees } from '../lib/auto-git.js';
@@ -114,7 +114,7 @@ import { removeServiceFile, writeServiceFile } from './service-file.js';
 import { createStacks } from './stacks.js';
 import { itemSummary, lookAt, noteFeedback, readFeedback } from '../lib/pr-feedback.js';
 import { ReviewRefused, createReviewRounds, gitRead } from '../lib/review-round.js';
-import { ACTION_NUDGE, mergedToTell, prLines, readDue, unpushedOf } from '../lib/pr-lines.js';
+import { ACTION_NUDGE, prLines, readDue, tellMerges as tellMergesFor, unpushedOf } from '../lib/pr-lines.js';
 import { createGhWrite } from '../lib/gh-write.js';
 import { createSiteLink, siteTokenStore } from './site-link.js';
 import { PRODUCT } from '../lib/brand.js';
@@ -1350,7 +1350,7 @@ export async function createRunner(config) {
    * Start the reply sendPlan prepared. gateBrief: the brief a gate card's reply answers (audited).
    * by: 'auto' only from Auto's own code (gateDecision's third argument), never from a request.
    */
-  async function startSend(f, out, { kind, gateBrief = null, by = 'you' }) {
+  async function startSend(f, out, { kind, gateBrief = null, by = 'you', keepLimit = false }) {
     const additionalDirectories = await readDirs();
     const go = () => driver.start({ ...out, kind, gateBrief, by, additionalDirectories });
     let run;
@@ -1361,7 +1361,7 @@ export async function createRunner(config) {
     } else {
       run = await go();
     }
-    if (by !== 'auto') await limits.forget(f.dir); // you've picked it up yourself
+    if (by !== 'auto' && !keepLimit) await limits.forget(f.dir); // you've picked it up yourself (not Starbase's own tell)
     await reopenIfClosed(f);
     invalidate();
     return run;
@@ -1645,6 +1645,11 @@ export async function createRunner(config) {
     invalidate();
     broadcast('change', { at: Date.now() }); events.emit('change', null, { at: Date.now() });
   }
+  /** How a reply ended ('done', 'error', 'stopped', …), or null while it runs or isn't known. */
+  function runEnded(runId) {
+    const r = driver.list().find((x) => x.id === runId);
+    return r && !ACTIVE_RUN.has(r.status) ? r.status : null;
+  }
   /**
    * A nudge's sentence to the job's Foreman, exactly as a message from the box goes (sendPlan, startSend),
    * remembered as sent once the reply has started (see the nudge command), audited. by: 'starbase' when
@@ -1653,14 +1658,15 @@ export async function createRunner(config) {
   async function sendNudge(f, id, text, body = {}, { by = null } = {}) {
     const drive = await driveState(f);
     const out = sendPlan(f, drive, body, text);
-    const run = await startSend(f, out, { kind: 'nudge' });
-    const tracked = { featureDir: f.dir, nudge: id, failed: false };
+    const run = await startSend(f, out, { kind: 'nudge', keepLimit: by === 'starbase' });
+    const tracked = { featureDir: f.dir, nudge: id, failed: runEnded(run.id) === 'error' };
     nudgeRuns.set(run.id, tracked);
     const saved = await state.sessionFor(f.dir);
     const sent = Array.isArray(saved?.sentNudges) ? saved.sentNudges : [];
     await state.setSession(f.dir, { sentNudges: [...new Set([...sent, id])] });
     invalidate();
-    if (tracked.failed) await unsendNudge(f.dir, id); // the reply already ended in error (a spawn failure): not sent after all
+    // The reply already ended in error (a spawn failure, before or while it was tracked): not sent after all.
+    if (tracked.failed || runEnded(run.id) === 'error') { tracked.failed = true; await unsendNudge(f.dir, id); }
     await state.audit({ action: 'nudge', featureDir: f.dir, slug: f.slug, nudge: id, text, runId: run.id, ...(by ? { by } : {}) });
     return { run, tracked };
   }
@@ -2431,6 +2437,7 @@ export async function createRunner(config) {
   // the git work under the hard lines and the PR steps' go-ahead as they are: nothing here pushes or writes to GitHub.
   const prSent = new Map(); // slug -> Map(check -> { runId, endedAt }): PR sentences on their way to the Foreman
   const prAsked = new Set(); // jobs whose page asked for a read: rebuilt when it ends, so `read` moves
+  const prPushCache = new Map(); // what a push carries, kept while the branch and the fork's copy stay put (lib/pr-lines.js unpushedOf)
   /** The checks of the sentences still on their way: until the reply ends in error, or GitHub was read after it ended. */
   function prPending(slug) {
     const m = prSent.get(slug);
@@ -2447,13 +2454,15 @@ export async function createRunner(config) {
     const repo = lane ? view.repos.find((r) => r.lanes.some((l) => l.slug === f.slug)) ?? null : null;
     const fork = repo?.fork?.remote ?? null;
     const dir = fork ? ownCodeDir(f) : null;
-    const push = dir ? await unpushedOf({ dir, branch: ownBranch(f), base: f.baseSha ?? f.baseBranch ?? null, fork, git: gitRead }).catch(() => null) : null;
+    const push = dir ? await unpushedOf({ dir, branch: ownBranch(f), base: f.baseSha ?? f.baseBranch ?? null, fork, git: gitRead, cache: prPushCache }).catch(() => null) : null;
     const saved = await state.sessionFor(f.dir);
+    // The PR steps' go-ahead (lib/hard-lines.js goAheadCovers, as goAheadFor asks it): auto mode at a PR step.
+    const covered = (await state.policyFor(f.dir)) === 'auto' && PR_STAGES.has(f.stage);
     const list = (k) => (Array.isArray(saved?.[k]) ? saved[k] : []);
     return {
       lane, repo: repo ? { org: repo.org ?? null, fork: repo.fork ?? null } : null, github: view.github ?? null, push,
       job: { stage: f.stage ?? null, prs: f.prs ?? null, closed: closedOff(f) ? f.closed : null, title: f.title ?? null, key: slugTicketKey(f.slug) ?? null },
-      sent: list('sentNudges'), dismissed: list('dismissedNudges'), inRound: roundStateOf(f.slug) !== null, pending: prPending(f.slug),
+      sent: list('sentNudges'), dismissed: list('dismissedNudges'), inRound: roundStateOf(f.slug) !== null, pending: prPending(f.slug), covered,
     };
   }
   /** Read GitHub now for this job's page (the flow map's network refresh; one at a time, never waited on). */
@@ -2462,8 +2471,17 @@ export async function createRunner(config) {
     flow.refresh({ network: true }).catch(() => {});
     jobPages.touch(slug); // its line says GitHub is being read
   }
+  // The seam is lib/pr-lines.js tellMerges (its conditions are tested there): only jobs a live page stream watches.
+  const tellMerges = async () => {
+    const told = await tellMergesFor({
+      jobs: await featuresShared(), watched: (slug) => jobPages.watched(slug), sessionFor: (dir) => state.sessionFor(dir),
+      laneOf: (f) => ownLane(f, flowLanes), driveOf: (f) => driveState(f), limited: () => limits.isLimited(), closed: closedOff,
+      send: (f, t, o) => sendNudge(f, t.id, t.text, {}, o),
+    });
+    for (const t of told) jobPages.touch(t.slug);
+  };
   // A read ended: the pages that asked see it. A network read that worked: a merge by hand the Foreman hasn't
-  // seen is told with its nudge's own sentence, on a job the new page has open or cached (mergedToTell).
+  // seen is told with its nudge's own sentence, on a job a live page watches (lib/pr-lines.js tellMerges).
   let prToldAfter = null;
   flow.on('flow', (view) => {
     if (view.refreshing) return;
@@ -2472,20 +2490,6 @@ export async function createRunner(config) {
     prToldAfter = view.fetchedAt;
     tellMerges().catch((err) => console.error('pr lines:', err.message));
   });
-  async function tellMerges() {
-    for (const f of await featuresShared()) {
-      if (!jobPages.has(f.slug) || closedOff(f) || f.locate?.branchGuessed) continue;
-      const saved = await state.sessionFor(f.dir);
-      const list = (k) => (Array.isArray(saved?.[k]) ? saved[k] : []);
-      const tell = mergedToTell({ card: { stage: f.stage ?? null, prs: f.prs ?? null, closed: null }, lane: ownLane(f, flowLanes), sent: list('sentNudges'), dismissed: list('dismissedNudges') })[0];
-      if (!tell) continue;
-      // Only to a Foreman that has a session here and is free now: anything else waits for the next read (the Desk keeps the nudge).
-      const drive = await driveState(f);
-      if (drive.mode !== 'workshop' || !drive.sessionId || limits.isLimited()) continue;
-      try { await sendNudge(f, tell.id, tell.text, {}, { by: 'starbase' }); } catch { /* busy or refused: the next read tries again */ }
-      jobPages.touch(f.slug);
-    }
-  }
   // A PR sentence's reply ended: in error it never went, so its button comes back; else GitHub is read
   // again so the line shows what the Foreman did.
   driver.on('run', (run) => {
@@ -2534,13 +2538,26 @@ export async function createRunner(config) {
       const drive = await driveState(f);
       const out = sendPlan(f, drive, { confirmNoTerminal: body.confirmNoTerminal === true }, next.sends);
       const run = await startSend(f, out, { kind: 'nudge' });
+      // Tracked at once, and for a nudge's action (Open PR #2, Request review) as a nudge, so a reply that errors
+      // (even one that ended while startSend still ran) gives the button back and the Desk its nudge.
+      const entry = { runId: run.id, endedAt: null };
       if (!prSent.has(slug)) prSent.set(slug, new Map());
-      prSent.get(slug).set(next.check, { runId: run.id, endedAt: null });
+      prSent.get(slug).set(next.check, entry);
       const nudge = ACTION_NUDGE[next.id];
-      if (nudge) {
+      const tracked = nudge ? { featureDir: f.dir, nudge, failed: false } : null;
+      if (tracked) {
+        nudgeRuns.set(run.id, tracked);
         const saved = await state.sessionFor(f.dir);
         const sent = Array.isArray(saved?.sentNudges) ? saved.sentNudges : [];
         await state.setSession(f.dir, { sentNudges: [...new Set([...sent, nudge])] });
+      }
+      const ended = runEnded(run.id);
+      if (ended === 'error' || tracked?.failed) {
+        prSent.get(slug)?.delete(next.check);
+        if (tracked) { tracked.failed = true; await unsendNudge(f.dir, nudge); }
+      } else if (ended && !entry.endedAt) {
+        entry.endedAt = new Date().toISOString();
+        prRead(slug);
       }
       await state.audit({ action: 'pr-line', featureDir: f.dir, slug: f.slug, pr: n, id: next.id, text: next.sends, runId: run.id });
       await markActed(f.dir);

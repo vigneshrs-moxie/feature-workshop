@@ -17,6 +17,7 @@
 //   .viewerOpen(id), .viewerGone(id)   a page's event stream opened or closed (site/index.js)
 //   .touch(slug)           the job changed: rebuild it if a page has it open, else mark it stale
 //   .touchAll()            something changed that names no job: the same for every cached job
+//   .watched(slug)         a live page stream watches this job now
 //   .has(slug), .stats() → { builds, renders, jobs, viewers }, .close()
 //
 // Open means watched: a request that names a live event stream (viewer) puts that stream on this job
@@ -222,6 +223,8 @@ export function jobPageCache({ build, onVersion = () => {}, log = console.error,
     viewerOpen(id) { if (VIEWER_ID.test(String(id))) live.add(id); },
     viewerGone(id) { live.delete(id); watching.delete(id); },
     has: (slug) => entries.has(slug),
+    /** A live page stream watches this job now (Task 20: the automatic tell goes only to such a job). */
+    watched: (slug) => watched(slug),
     stats: () => ({ builds, renders, jobs: entries.size, viewers: watching.size }),
     close() { for (const e of entries.values()) clearTimeout(e.timer); },
   };
