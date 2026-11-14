@@ -45,6 +45,7 @@ import type { GateMove, PermissionMove, QuestionMove, ReaderTarget } from '../ty
 import { queuedById } from '../jobStore';
 import { backLabel, composeFor, goLabel, notesWord } from '../notes/chips';
 import { useJob, useJobStore } from '../useJob';
+import { AskedList, useAsked } from './Asked';
 import { notesBack } from './MessageBox';
 import { changedCount, gateBody, OWN, pickOf, unanswered, type GatePicks } from './gateBody';
 import { STATE_WORDS, stateFromRow } from './Header';
@@ -69,6 +70,9 @@ export const YourMove = memo(function YourMove({ job, onOpen }: YourMoveProps) {
   const move = useJob((s) => s.payload?.move);
   const state = useJob((s) => s.payload?.state);
   const line = useJob((s) => s.payload?.stateLine);
+  // What you asked (R5, Asked.tsx): in the slot when nothing else waits, else under the card.
+  const asked = useAsked();
+  const answers = asked ? <AskedList asked={asked} onOpen={onOpen} /> : null;
   if (move === undefined) {
     // Before the payload: the snapshot row's words.
     if (!job) return <div className="jp2-ym" />;
@@ -76,9 +80,10 @@ export const YourMove = memo(function YourMove({ job, onOpen }: YourMoveProps) {
     if (st === 'needs-you') return <div className="jp2-ym"><Card label={moveLabel(job.waitingFor === 'permission', job.waitingSince)} ask={job.headline || job.laneReason || 'This job waits for you.'} /></div>;
     return <div className="jp2-ym"><p className="jp2-ym-one">{STATE_WORDS[st]}{job.laneReason ? ` · ${job.laneReason}` : ''}</p></div>;
   }
-  if (move?.kind === 'gate') return <div className="jp2-ym"><GateCard key={gateKeyOf(move)} move={move} onOpen={onOpen} /></div>;
-  if (move?.kind === 'question') return <div className="jp2-ym"><AskCard move={move} /></div>;
-  if (move?.kind === 'permission') return <div className="jp2-ym"><PermissionCard key={move.id} move={move} /></div>;
+  if (move?.kind === 'gate') return <div className="jp2-ym"><GateCard key={gateKeyOf(move)} move={move} onOpen={onOpen} />{answers}</div>;
+  if (move?.kind === 'question') return <div className="jp2-ym"><AskCard move={move} />{answers}</div>;
+  if (move?.kind === 'permission') return <div className="jp2-ym"><PermissionCard key={move.id} move={move} />{answers}</div>;
+  if (answers) return <div className="jp2-ym">{answers}</div>;
   return <div className="jp2-ym"><p className="jp2-ym-one">{state ? STATE_WORDS[state] : ''}{line ? ` · ${line}` : ''}</p></div>;
 });
 

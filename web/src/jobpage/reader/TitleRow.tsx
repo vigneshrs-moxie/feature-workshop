@@ -10,6 +10,9 @@
 //     main output), then Ticket and goal, Conversation, Decisions, Details.
 // They stop at the ends (they do not wrap round).
 //
+// `What changed since v2` (Task 18, R5): on a document shown as it is now that has an older version;
+// pressed, the reader marks the lines added and removed since that version (DocView).
+//
 // `Older` (a short menu in groups, the one ticked is the one shown):
 //   - a document with older versions (the job's versions/ folder, lib/doc-versions.js): `Older
 //     versions`, the one now first, then its older ones newest first;
@@ -27,7 +30,8 @@ import { Icon } from '../../components/Icon';
 import { sinceWords } from '../left/YourMove';
 import { CONVERSATION, DECISIONS, DETAILS, OUTPUT_READER, outputTarget, sameTarget, TICKET } from '../targets';
 import type { JobPagePayload, Output, ReaderKind, ReaderTarget, StepRow, ThreadLine } from '../types';
-import { useJob } from '../useJob';
+import { useJob, useJobStore } from '../useJob';
+import { newestOlder, setShowChanges, useShowChanges } from './docDiff';
 
 export interface Head { title: string; meta: string | null }
 export interface Place { target: ReaderTarget; label: string; meta?: string | null }
@@ -195,6 +199,7 @@ export const TitleRow = memo(function TitleRow({ target, fallback, onOpen }: Tit
         <h2 className="jp2-rv-title">{head?.title ?? fallback}</h2>
         {head?.meta && <span className="jp2-rv-meta">{head.meta}</span>}
       </div>
+      {target?.kind === 'doc' && <SinceToggle id={target.id} />}
       {target && older && <Older key={placeKey(target)} list={older} current={target} onOpen={onOpen} />}
       {target && (
         <div className="jp2-rv-nav">
@@ -205,6 +210,19 @@ export const TitleRow = memo(function TitleRow({ target, fallback, onOpen }: Tit
     </div>
   );
 });
+
+/** `What changed since v2` (R5, Task 18): on a document shown as it is now that has an older version; pressed, the reader marks the lines added and removed since. */
+function SinceToggle({ id }: { id: string }) {
+  const store = useJobStore();
+  const older = useJob((s) => newestOlder(s.payload, id), (a, b) => a === b || (!!a && !!b && a.n === b.n && a.id === b.id));
+  const on = useShowChanges(store, id);
+  if (!older) return null;
+  return (
+    <Button kind="quiet" size="sm" className="jp2-rv-since" aria-pressed={on} title={on ? 'Show the document as it is now.' : `Mark the lines added and removed since v${older.n}.`} onClick={() => setShowChanges(store, id, !on)}>
+      What changed since v{older.n}
+    </Button>
+  );
+}
 
 const updatedOf = (meta: Record<string, unknown> | undefined): string | null => (typeof meta?.updatedAt === 'string' ? meta.updatedAt : null);
 

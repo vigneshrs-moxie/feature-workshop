@@ -26,6 +26,10 @@ export const DIFF_CHUNK = 200;
 export const DIFF_FIRST_LINES = 2 * DIFF_CHUNK;
 
 const nameOf = (p: string) => p.split('/').pop() ?? p;
+/** The picked commit: by its sha, or by a short sha as the Foreman writes it (What you asked, Task 18). */
+const pickedCommit = (commits: BranchCommit[], sha: string | null) => (sha ? commits.find((c) => c.sha === sha) ?? (sha.length >= 7 ? commits.find((c) => c.sha.startsWith(sha)) : undefined) : undefined);
+/** The picked file: by its path, or by the end of it (`EmployeesTable.tsx`, `src/EmployeesTable.tsx`). */
+const pickedFile = (files: BranchFile[], path: string | null) => (path ? files.find((f) => f.path === path) ?? files.find((f) => f.path.endsWith(`/${path}`)) : undefined);
 const folderOf = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
 
 export function ChangesView() {
@@ -39,7 +43,7 @@ export function ChangesView() {
   useEffect(() => { if (!hosted) void loadCommits(store, api, slug); }, [store, api, slug, hosted]);
 
   const commits = branch.commits ?? [];
-  const commit = commits.find((c) => c.sha === branch.pick.sha) ?? commits[0] ?? null;
+  const commit = pickedCommit(commits, branch.pick.sha) ?? commits[0] ?? null;
   // The newest commit's diff, fetched ahead of any pick.
   useEffect(() => { if (!hosted && commit) void loadDiff(store, api, slug, commit.sha); }, [store, api, slug, hosted, commit?.sha]);
   // The commit first shown stays shown: a newer one arriving on the list's re-read never replaces what he reads.
@@ -57,7 +61,7 @@ export function ChangesView() {
 
   const diff = commit ? branch.diffs.get(commit.sha) ?? null : null;
   const files: BranchFile[] = commit && commit.files.length ? commit.files : diff?.files.length ? diff.files : (diff?.patchFiles ?? []).map((f) => ({ path: f.path, added: null, removed: null }));
-  const path = files.find((f) => f.path === branch.pick.path)?.path ?? files[0]?.path ?? null;
+  const path = pickedFile(files, branch.pick.path)?.path ?? files[0]?.path ?? null;
   const pickCommit = (c: BranchCommit) => setPick(store, { sha: c.sha, path: null });
   const pickFile = (p: string) => setPick(store, { sha: commit?.sha ?? null, path: p });
 

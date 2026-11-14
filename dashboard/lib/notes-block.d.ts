@@ -20,7 +20,6 @@ export const QUOTE_MAX: number;
 export function cutQuote(s: string | null | undefined): string;
 export function pinPlace(picture: string, pin: { n: number; x: number; y: number }): string;
 export function composeNotes(o?: { notes?: BlockNote[]; words?: string | null }): string;
-export function explainedAnswer(reply: string | null | undefined): string | null;
 
 /** One line of the Foreman's `--- Notes answered ---` block (Task 18). */
 export interface AnsweredLine { n: number; done: boolean; explained: boolean; where: string | null; what: string }

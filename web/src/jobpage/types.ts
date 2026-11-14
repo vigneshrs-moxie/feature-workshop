@@ -119,7 +119,24 @@ export interface PrLine {
   comments: null | { fresh: number; total: number };
 }
 
-export interface NoteAnswer { n: number; note: string; done: boolean; what: string; target: ReaderTarget | null }
+/**
+ * The Foreman's answer to one note he sent (R5, dashboard/lib/job-payload.js askedOf).
+ * note: his note's words (or what it asked: `Drop this`, `Explain`); place: where he pointed, as sent
+ * (null when his message is not found); what: where the change is and what changed (`Plan v3 · step 4
+ * removed`), the answer to an Explain, or why it was not done; target: where a click opens (with
+ * `commit`: that commit and file in Changes); ask: the note as sent, for `Ask again`.
+ */
+export interface NoteAnswer {
+  n: number;
+  note: string;
+  place: string | null;
+  done: boolean;
+  what: string;
+  target: ReaderTarget | null;
+  explained?: true;
+  commit?: { sha: string; file: string | null };
+  ask: { kind: 'change' | 'drop' | 'explain' | 'pin'; place: string; quote: string | null; note: string | null } | null;
+}
 
 export interface JobPagePayload {
   v: number;
@@ -148,7 +165,7 @@ export interface JobPagePayload {
   skipped: string[];
   parked: boolean;
   move: Move | null;
-  /** R5 (Task 18); null until then. */
+  /** R5 (Task 18): the Foreman's answer to each note of his last notes block; null when its newest reply has none. */
   asked: null | { total: number; done: number; notes: NoteAnswer[] };
   steps: StepRow[];
   /** conversation.more: older items left out (the website keeps the newest 60). */

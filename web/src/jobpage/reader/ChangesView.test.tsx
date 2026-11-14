@@ -13,6 +13,7 @@ import { longJob } from '../fixtures/longJob';
 import { createJobStore, type JobStore } from '../jobStore';
 import type { JobPagePayload } from '../types';
 import { JobStoreContext } from '../useJob';
+import { setPick } from './branch';
 import { AHEAD_MS, ChangesView, DIFF_FIRST_LINES } from './ChangesView';
 
 const SLUG = longJob.payload.slug;
@@ -293,5 +294,18 @@ describe('Changes, fix round 1', () => {
 
   it('each kept or added line shows its line number in the new file', () => {
     expect(CSS).toMatch(/\.jp2-dl::before \{[^}]*content: attr\(data-ln\)/);
+  });
+});
+
+describe('Task 18: opened from What you asked', () => {
+  it('a short sha and a file name (as the Foreman writes them) pick that commit and that file', async () => {
+    const o = open();
+    act(() => { setPick(o.store, { sha: 'b81b49e', path: 'week.ts' }); });
+    await settle();
+    const on = qa('.jp2-ch-c').find((r) => r.getAttribute('aria-current') === 'true')!;
+    expect(on.querySelector('.jp2-ch-sha')!.textContent).toBe('b81b49e7');
+    const file = qa('.jp2-ch-f').find((r) => r.getAttribute('aria-current') === 'true')!;
+    expect(file.textContent).toContain('week.ts');
+    expect(file.getAttribute('title') ?? file.textContent).toMatch(/offices/);
   });
 });

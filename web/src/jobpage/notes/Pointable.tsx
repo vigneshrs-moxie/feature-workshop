@@ -27,7 +27,7 @@ import { useKeyScope } from '../../app/keyRegistry';
 import { readHref, replaceHash } from '../../app/router';
 import { Button } from '../../components/Button';
 import { useWorkshop } from '../../state/store';
-import { explainedAnswer } from '../../../../dashboard/lib/notes-block.js';
+import { parseAnswered } from '../../../../dashboard/lib/notes-block.js';
 import type { BlockAnchor, Explained, JobPageState } from '../jobStore';
 import { sendRefusal } from '../left/MessageBox';
 import { setPick } from '../reader/branch';
@@ -297,7 +297,8 @@ export function useExplainAnswers() {
           if (busy && i === thread.length - 1) break;
           const body = await store.loadBody(l.id);
           if (off || !body) return;
-          const answer = explainedAnswer(body.text);
+          // An Explain goes alone (Notes (1)): its answer is line 1 of the reply's answered block.
+          const answer = parseAnswered(body.text).find((a) => a.n === 1 && a.explained)?.what || null;
           store.setExplains(store.getState().explains.map((e) => (e.n === ex.n ? { ...e, answer, line: l.id } : e)));
           break;
         }

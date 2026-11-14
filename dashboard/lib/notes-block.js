@@ -60,27 +60,6 @@ export function composeNotes({ notes = [], words = '' } = {}) {
   return typed ? `${lines.join('\n')}\n\n${typed}` : lines.join('\n');
 }
 
-/**
- * The answer to an `explain` note sent alone (Notes (1)), from the end of the Foreman's reply:
- * `1. done · explained · <the answer>` inside its `--- Notes answered ---` block. null when the reply
- * has no such line. (Task 18's parser reads every line of that block; this reads only the one answer
- * the page shows beside the block he asked about.)
- * @param {string | null | undefined} reply
- */
-export function explainedAnswer(reply) {
-  const text = String(reply ?? '');
-  const start = text.lastIndexOf('--- Notes answered ---');
-  if (start < 0) return null;
-  const block = text.slice(start).split('\n').slice(1);
-  for (const raw of block) {
-    const line = raw.trim();
-    if (line === '--- End ---') break;
-    const m = /^1\.\s*done\s*·\s*explained\s*·\s*(.+)$/.exec(line);
-    if (m) return m[1].trim();
-  }
-  return null;
-}
-
 // ---------- The answer (Task 18, R5 "See the answer to each request") ----------
 //
 // The Foreman answers every note at the very end of its final message (notes-and-comments.md):

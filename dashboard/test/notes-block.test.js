@@ -4,7 +4,7 @@
 // shows it under `Show what will be sent` from the same module (web imports this file).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { composeNotes, cutQuote, explainedAnswer, NOTE_KINDS, pinPlace, QUOTE_MAX } from '../lib/notes-block.js';
+import { composeNotes, cutQuote, NOTE_KINDS, parseAnswered, pinPlace, QUOTE_MAX } from '../lib/notes-block.js';
 
 const SAMPLE = [
   { kind: 'change', place: 'Plan v2 · step 4 "Add the filter to the table"', quote: 'the words he pointed at, at most 300 characters', note: 'use the existing badge' },
@@ -86,7 +86,7 @@ test('the kinds are the four the Foreman knows; an unknown kind is refused, not 
   assert.throws(() => composeNotes({ notes: [{ kind: 'remove', place: 'x' }] }), /kind/);
 });
 
-test('explainedAnswer reads the answer of an explain note from the end of the Foreman’s reply', () => {
+test('the answer of an explain note is read from the end of the Foreman’s reply (Task 18’s parseAnswered)', () => {
   const reply = [
     'The filter lives in the table header because the office sorts first.',
     '',
@@ -94,8 +94,9 @@ test('explainedAnswer reads the answer of an explain note from the end of the Fo
     '1. done · explained · It sits there so the office can sort before it filters.',
     '--- End ---',
   ].join('\n');
-  assert.equal(explainedAnswer(reply), 'It sits there so the office can sort before it filters.');
-  assert.equal(explainedAnswer('A reply with no block.'), null);
-  assert.equal(explainedAnswer('--- Notes answered ---\n1. not done · step 4 is no longer in Plan v3\n--- End ---'), null);
-  assert.equal(explainedAnswer(null), null);
+  const answer = (r) => parseAnswered(r).find((a) => a.n === 1 && a.explained)?.what || null;
+  assert.equal(answer(reply), 'It sits there so the office can sort before it filters.');
+  assert.equal(answer('A reply with no block.'), null);
+  assert.equal(answer('--- Notes answered ---\n1. not done · step 4 is no longer in Plan v3\n--- End ---'), null);
+  assert.equal(answer(null), null);
 });
