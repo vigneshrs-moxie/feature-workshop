@@ -157,7 +157,9 @@ const ghGet = (gh, apiPath) => gh(['api', '--method', 'GET', apiPath]);
 
 /**
  * A PR's review comments (on a line of a file) and its reviews that have a body, oldest first:
- * [{ id, kind: 'line' | 'review', author, bot, file, line, body, link, at }]. From
+ * [{ id, kind: 'line' | 'review', author, bot, file, line, body, link, at }], a line comment also with
+ * replyTo ('c<id>' of its thread's first comment, or null), hunk (GitHub's diff_hunk) and outdated, a review
+ * with reviewState (APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED). From
  * `gh api repos/<repo>/pulls/<n>/comments` and `.../reviews`. Throws on a gh failure.
  */
 export async function prComments(repo, number, { gh = defaultGh } = {}) {
@@ -168,13 +170,28 @@ export async function prComments(repo, number, { gh = defaultGh } = {}) {
   const out = [];
   for (const c of Array.isArray(lineComments) ? lineComments : []) {
     if (!String(c?.body ?? '').trim()) continue;
-    out.push({ id: `c${c.id}`, kind: 'line', ...who(c.user), file: c.path ?? null, line: Number.isInteger(c.line) ? c.line : Number.isInteger(c.original_line) ? c.original_line : null, body: String(c.body), link: c.html_url ?? null, at: c.created_at ?? null });
+    out.push({ id: `c${c.id}`, kind: 'line', ...who(c.user), file: c.path ?? null, line: Number.isInteger(c.line) ? c.line : Number.isInteger(c.original_line) ? c.original_line : null, body: String(c.body), link: c.html_url ?? null, at: c.created_at ?? null,
+      replyTo: Number.isInteger(c.in_reply_to_id) ? `c${c.in_reply_to_id}` : null, hunk: typeof c.diff_hunk === 'string' ? c.diff_hunk : null, outdated: !Number.isInteger(c.line) });
   }
   for (const r of Array.isArray(reviews) ? reviews : []) {
     if (!String(r?.body ?? '').trim()) continue;
-    out.push({ id: `r${r.id}`, kind: 'review', ...who(r.user), file: null, line: null, body: String(r.body), link: r.html_url ?? null, at: r.submitted_at ?? null });
+    out.push({ id: `r${r.id}`, kind: 'review', ...who(r.user), file: null, line: null, body: String(r.body), link: r.html_url ?? null, at: r.submitted_at ?? null, reviewState: typeof r.state === 'string' ? r.state : null });
   }
   return out.sort((a, b) => String(a.at ?? '').localeCompare(String(b.at ?? '')));
+}
+
+/**
+ * A PR's conversation comments (the PR's own thread, not on a line), oldest first:
+ * [{ id: 'i<id>', kind: 'conversation', author, bot, file: null, line: null, body, link, at }]. From
+ * `gh api repos/<repo>/issues/<n>/comments` (lib/pr-comments.js). Throws on a gh failure.
+ */
+export async function prConversation(repo, number, { gh = defaultGh } = {}) {
+  checkRepo(repo, number);
+  const list = readJson(await ghGet(gh, `repos/${repo}/issues/${number}/comments?per_page=100`), 'gh api issue comments');
+  const who = (u) => ({ author: String(u?.login ?? 'someone'), bot: u?.type === 'Bot' || /\[bot\]$/i.test(String(u?.login ?? '')) });
+  return (Array.isArray(list) ? list : []).filter((c) => c?.id && String(c?.body ?? '').trim())
+    .map((c) => ({ id: `i${c.id}`, kind: 'conversation', ...who(c.user), file: null, line: null, body: String(c.body), link: c.html_url ?? null, at: c.created_at ?? null }))
+    .sort((a, b) => String(a.at ?? '').localeCompare(String(b.at ?? '')));
 }
 
 /** The last `lines` lines of a run's failed steps (`gh run view <id> --repo <repo> --log-failed`), as one string. Throws on a gh failure. */
