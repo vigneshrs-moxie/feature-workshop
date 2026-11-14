@@ -12,7 +12,7 @@
 //   freeze the reader.
 // - On the website the commits stay on the laptop (plan decision 8): one line, nothing asked.
 
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { BRAND } from '../../app/brand';
 import { Button } from '../../components/Button';
 import { useWorkshop } from '../../state/store';
@@ -42,6 +42,8 @@ export function ChangesView() {
   const commit = commits.find((c) => c.sha === branch.pick.sha) ?? commits[0] ?? null;
   // The newest commit's diff, fetched ahead of any pick.
   useEffect(() => { if (!hosted && commit) void loadDiff(store, api, slug, commit.sha); }, [store, api, slug, hosted, commit?.sha]);
+  // The commit first shown stays shown: a newer one arriving on the list's re-read never replaces what he reads.
+  useEffect(() => { if (!branch.pick.sha && commit) setPick(store, { sha: commit.sha, path: branch.pick.path }); }, [store, commit?.sha, branch.pick.sha]);
 
   if (hosted) return <ReaderBody view="changes" place="changes:changes"><p className="jp2-notyet">The commits show on your laptop.</p></ReaderBody>;
   if (!branch.commits) {
@@ -68,13 +70,23 @@ export function ChangesView() {
       </div>
       <div className="jp2-ch-p">
         <FileList files={files} on={path} onPick={pickFile} />
-        <div className="jp2-ch-diff">
+        <DiffColumn place={commit ? `${commit.sha}:${path ?? ''}` : ''}>
           {commit && <Diff sha={commit.sha} path={path} onAgain={() => void loadDiff(store, api, slug, commit.sha)} />}
-        </div>
+        </DiffColumn>
       </div>
     </ReaderBody>
   );
 }
+
+/** The diff's own scroll column: another file (or commit) starts at its top, not where the last one was left. */
+function DiffColumn({ place, children }: { place: string; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => { if (ref.current) ref.current.scrollTop = 0; }, [place]);
+  return <div ref={ref} className="jp2-ch-diff">{children}</div>;
+}
+
+/** How long the pointer (or the focus) rests on a commit before its diff is fetched ahead. */
+export const AHEAD_MS = 150;
 
 function Failed({ what, why, onAgain }: { what: string; why: string; onAgain(): void }) {
   return (
@@ -90,11 +102,16 @@ const Plus = ({ f }: { f: { added: number | null; removed: number | null } }) =>
 );
 
 const CommitRow = memo(function CommitRow({ c, on, onPick, onAhead }: { c: BranchCommit; on: boolean; onPick(c: BranchCommit): void; onAhead(c: BranchCommit): void }) {
+  // Fetched ahead only after a short rest, so running the pointer down the list asks for nothing.
+  const wait = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rest = () => { if (!wait.current) wait.current = setTimeout(() => { wait.current = null; onAhead(c); }, AHEAD_MS); };
+  const away = () => { if (wait.current) { clearTimeout(wait.current); wait.current = null; } };
+  useEffect(() => away, []);
   const added = c.files.reduce((n, f) => n + (f.added ?? 0), 0);
   const removed = c.files.reduce((n, f) => n + (f.removed ?? 0), 0);
   return (
     <div role="listitem">
-      <button type="button" className="jp2-ch-c" aria-current={on ? 'true' : undefined} onClick={() => onPick(c)} onMouseEnter={() => onAhead(c)} onFocus={() => onAhead(c)} title={c.subject}>
+      <button type="button" className="jp2-ch-c" aria-current={on ? 'true' : undefined} onClick={() => onPick(c)} onMouseEnter={rest} onMouseLeave={away} onFocus={rest} onBlur={away} title={c.subject}>
         <span className="jp2-ch-sha">{c.short}</span>
         <span className="jp2-ch-s">{c.subject}</span>
         {c.files.length > 0 && <Plus f={{ added, removed }} />}
@@ -176,9 +193,12 @@ function DiffLines({ lines }: { lines: string[] }) {
   useEffect(() => {
     const el = end.current;
     if (!el || typeof IntersectionObserver === 'undefined') return undefined;
+    // Its root is the column that scrolls the diff (the reader's body on the phone), so the next lines
+    // are drawn 600 px before the end comes into view.
+    const root = el.closest('.jp2[data-layout="phone"]') ? el.closest('.jp2-rv-body') : el.closest('.jp2-ch-diff');
     const io = new IntersectionObserver((seen) => {
       if (seen.some((e) => e.isIntersecting)) setShown((n) => Math.min(shaped.length, n + DIFF_FIRST_LINES));
-    }, { rootMargin: '600px 0px' });
+    }, { root, rootMargin: '600px 0px' });
     io.observe(el);
     return () => io.disconnect();
   }, [shaped.length, shown]);

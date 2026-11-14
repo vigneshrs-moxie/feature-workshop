@@ -4,7 +4,8 @@
 //
 // - The commit list is asked for when a view that shows it opens (shown at once from what is held,
 //   then read again, since the branch moves while the job builds).
-// - A commit's diff never changes: it is asked for once and kept for as long as the page is open.
+// - A commit's diff never changes: it is asked for once and kept while the page is open (the newest
+//   DIFFS_KEPT asked for, and always the one shown).
 // - Neither is asked for on the website: commits stay on the laptop (plan decision 8).
 // Components read it through useBranch, which redraws only when something here changed.
 
@@ -31,17 +32,26 @@ export interface Branch {
 
 interface Held {
   state: Branch;
+  /** useBranch's subscribe, one per held branch so React does not subscribe again on each render. */
+  subscribe: (l: () => void) => () => void;
   listAsk: Promise<void> | null;
   diffAsks: Map<string, Promise<CommitDiff | null>>;
   listeners: Set<() => void>;
 }
 
 const held = new WeakMap<JobStore, Held>();
+/** How many commits' diffs are kept while the page is open. */
+export const DIFFS_KEPT = 30;
 
 function heldOf(store: JobStore): Held {
   let h = held.get(store);
   if (!h) {
-    h = { state: { commits: null, note: null, error: null, diffs: new Map(), diffErrors: new Map(), pick: { sha: null, path: null } }, listAsk: null, diffAsks: new Map(), listeners: new Set() };
+    const listeners = new Set<() => void>();
+    h = {
+      state: { commits: null, note: null, error: null, diffs: new Map(), diffErrors: new Map(), pick: { sha: null, path: null } },
+      subscribe: (l) => { listeners.add(l); return () => { listeners.delete(l); }; },
+      listAsk: null, diffAsks: new Map(), listeners,
+    };
     held.set(store, h);
   }
   return h;
@@ -106,7 +116,10 @@ export function loadDiff(store: JobStore, api: ApiClient, slug: string, sha: str
       const diff: CommitDiff = { sha, patchFiles, files: filesOf(r?.files), truncated: r?.truncated === true };
       const errors = new Map(h.state.diffErrors);
       errors.delete(sha);
-      set(h, { diffs: new Map(h.state.diffs).set(sha, diff), diffErrors: errors });
+      const diffs = new Map(h.state.diffs).set(sha, diff);
+      // At most DIFFS_KEPT: the oldest asked for goes first, never the one shown.
+      for (const k of diffs.keys()) { if (diffs.size <= DIFFS_KEPT) break; if (k !== h.state.pick.sha && k !== sha) diffs.delete(k); }
+      set(h, { diffs, diffErrors: errors });
       return diff;
     } catch (err) {
       set(h, { diffErrors: new Map(h.state.diffErrors).set(sha, words(err)) });
@@ -128,9 +141,5 @@ export function setPick(store: JobStore, pick: Branch['pick']) {
 
 export function useBranch(store: JobStore): Branch {
   const h = heldOf(store);
-  return useSyncExternalStore(
-    (l) => { h.listeners.add(l); return () => { h.listeners.delete(l); }; },
-    () => h.state,
-    () => h.state,
-  );
+  return useSyncExternalStore(h.subscribe, () => h.state, () => h.state);
 }

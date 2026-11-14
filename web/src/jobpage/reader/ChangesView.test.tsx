@@ -13,7 +13,7 @@ import { longJob } from '../fixtures/longJob';
 import { createJobStore, type JobStore } from '../jobStore';
 import type { JobPagePayload } from '../types';
 import { JobStoreContext } from '../useJob';
-import { ChangesView, DIFF_FIRST_LINES } from './ChangesView';
+import { AHEAD_MS, ChangesView, DIFF_FIRST_LINES } from './ChangesView';
 
 const SLUG = longJob.payload.slug;
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
@@ -63,6 +63,8 @@ function open({ hosted = false, sizes = {}, hold = false, answer }: { hosted?: b
 }
 
 const settle = () => act(async () => { for (let i = 0; i < 4; i++) await new Promise((r) => setTimeout(r, 0)); });
+/** Longer than AHEAD_MS: the pointer rested. */
+const rest = () => act(async () => { await new Promise((r) => setTimeout(r, AHEAD_MS + 30)); });
 const q = <T extends Element = HTMLElement>(sel: string) => document.querySelector<T>(sel);
 const qa = (sel: string) => [...document.querySelectorAll<HTMLElement>(sel)];
 const diffAsks = (get: ReturnType<typeof vi.fn>) => get.mock.calls.map((c) => String(c[0])).filter((u) => u.includes('/commit/'));
@@ -122,7 +124,7 @@ describe('Changes', () => {
     await settle();
     const rows = qa('.jp2-ch-c');
     fireEvent.mouseEnter(rows[2]);
-    await settle();
+    await rest();
     expect(diffAsks(get)).toContain(`/api/job/${SLUG}/commit/${COMMITS[2].sha}`);
     fireEvent.click(rows[2]);
     expect(qa('.jp2-ch-f').map((f) => f.getAttribute('data-path'))).toEqual(COMMITS[2].files.map((f) => f.path));
@@ -205,5 +207,91 @@ describe('Changes', () => {
     expect(rule('.jp2-ch-diff')).toMatch(/overflow: auto/);
     expect(rule('.jp2-ch-p')).toMatch(/grid-template-columns: 250px minmax\(0, 1fr\)/);
     expect(rule('.jp2-dl')).toMatch(/white-space: pre/);
+  });
+});
+
+describe('Changes, fix round 1', () => {
+  it('another file starts at the top of the diff; the file list keeps its own place', async () => {
+    open();
+    await settle();
+    const diff = document.querySelector<HTMLElement>('.jp2-ch-diff')!;
+    const list = document.querySelector<HTMLElement>('.jp2-ch-files')!;
+    diff.scrollTop = 900;
+    list.scrollTop = 40;
+    fireEvent.click(qa('.jp2-ch-f')[1]);
+    expect(document.querySelector('.jp2-ch-diff')).toBe(diff);
+    expect(diff.scrollTop).toBe(0);
+    expect(list.scrollTop).toBe(40);
+    diff.scrollTop = 300;
+    fireEvent.click(qa('.jp2-ch-c')[1]);
+    expect(diff.scrollTop).toBe(0);
+  });
+
+  it('running the pointer over a commit fetches nothing; resting on it fetches its diff once', async () => {
+    const { get } = open();
+    await settle();
+    const rows = qa('.jp2-ch-c');
+    fireEvent.mouseEnter(rows[4]);
+    fireEvent.mouseLeave(rows[4]);
+    fireEvent.mouseEnter(rows[5]);
+    fireEvent.mouseLeave(rows[5]);
+    await rest();
+    expect(diffAsks(get)).toEqual([`/api/job/${SLUG}/commit/${COMMITS[0].sha}`]);
+    fireEvent.mouseEnter(rows[5]);
+    await rest();
+    expect(diffAsks(get)).toEqual([`/api/job/${SLUG}/commit/${COMMITS[0].sha}`, `/api/job/${SLUG}/commit/${COMMITS[5].sha}`]);
+  });
+
+  it('a newer commit arriving on the list’s re-read does not replace the one he reads', async () => {
+    const newer = { ...COMMITS[1], sha: 'f'.repeat(40), short: 'ffffffff', subject: 'feat(schedule): a newer commit [S6]' };
+    let list = COMMITS;
+    const { store } = open({ answer: async (url) => (url.endsWith('/commits') ? { commits: list } : diffOf(/\/commit\/([0-9a-f]+)$/.exec(url)![1])) });
+    await settle();
+    list = [newer, ...COMMITS];
+    const { loadCommits } = await import('./branch');
+    await act(async () => { await loadCommits(store, { get: async () => ({ commits: list }) } as unknown as ApiClient, SLUG); });
+    expect(qa('.jp2-ch-c')).toHaveLength(COMMITS.length + 1);
+    expect(document.querySelector('.jp2-ch-c[aria-current="true"]')!.textContent).toContain(COMMITS[0].short);
+  });
+
+  it('scrolling to the end of a 5,000-line diff draws every line, in order, by the read-ahead on the diff column', async () => {
+    const observers: { cb: IntersectionObserverCallback; root: Element | Document | null; el: Element | null }[] = [];
+    class FakeObserver {
+      cb: IntersectionObserverCallback;
+      rec: { cb: IntersectionObserverCallback; root: Element | Document | null; el: Element | null };
+      constructor(cb: IntersectionObserverCallback, o: IntersectionObserverInit = {}) { this.cb = cb; this.rec = { cb, root: o.root ?? null, el: null }; observers.push(this.rec); }
+      observe(el: Element) { this.rec.el = el; }
+      disconnect() { const i = observers.indexOf(this.rec); if (i >= 0) observers.splice(i, 1); }
+      unobserve() {}
+      takeRecords() { return []; }
+    }
+    vi.stubGlobal('IntersectionObserver', FakeObserver);
+    try {
+      const big = COMMITS[0].files[0].path;
+      open({ sizes: { [big]: 5000 } });
+      await settle();
+      const diff = document.querySelector('.jp2-ch-diff');
+      for (let i = 0; i < 20 && observers.length; i++) {
+        const o = observers[observers.length - 1];
+        expect(o.root).toBe(diff);
+        act(() => { o.cb([{ isIntersecting: true, target: o.el } as unknown as IntersectionObserverEntry], o as unknown as IntersectionObserver); });
+      }
+      const lines = qa('.jp2-dl');
+      expect(lines).toHaveLength(5001);
+      expect(lines.at(-1)!.textContent).toBe(`+export const ${big.replace(/\W/g, '_')}_4999 = 4999;`);
+      const ns = lines.slice(1).map((l) => Number(l.getAttribute('data-ln')));
+      expect(ns.every((n, i) => n === i + 1)).toBe(true);
+      expect(document.querySelector('.jp2-ch-more')).toBeNull();
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it('an undrawn chunk claims height only, never width (no wide empty sideways scroll)', () => {
+    const chunk = CSS.match(/\.jp2-dl-chunk \{([^}]*)\}/)![1];
+    expect(chunk).toMatch(/contain-intrinsic-block-size: auto 3600px/);
+    expect(chunk).not.toMatch(/contain-intrinsic-size:/);
+  });
+
+  it('each kept or added line shows its line number in the new file', () => {
+    expect(CSS).toMatch(/\.jp2-dl::before \{[^}]*content: attr\(data-ln\)/);
   });
 });
