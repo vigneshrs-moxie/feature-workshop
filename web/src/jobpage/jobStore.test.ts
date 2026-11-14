@@ -7,7 +7,8 @@ import type { ApiClient } from '../api/client';
 import type { LiveEvent } from '../api/types';
 import { longJob } from './fixtures/longJob';
 import type { JobApi } from './api';
-import { createJobStore, notesKey, prefetchOrder, type DraftStorage, type PageNote } from './jobStore';
+import { arrivalOf, createJobStore, notesKey, prefetchOrder, type DraftStorage, type PageNote } from './jobStore';
+import { readerOf } from './targets';
 import type { JobBody, JobPagePayload, SamePage } from './types';
 
 const SLUG = longJob.payload.slug;
@@ -825,5 +826,60 @@ describe('job store: notes survive a reload (Task 17, R4)', () => {
     expect(store.getState().seek).toEqual({ n: 3, at: first!.at + 1 });
     store.setSeek(null);
     expect(store.getState().seek).toBeNull();
+  });
+});
+
+describe('final fix W1: the reader stays where it was on arrival', () => {
+  it('a rebuild with another `open` does not move the reader while he has picked nothing; a pick still does', async () => {
+    const first = base();
+    first.open = { kind: 'changes', id: 'changes' };
+    const s = server(first);
+    const live = stream();
+    const store = createJobStore(SLUG, { api: s.api, events: live.events });
+    await store.loadPage();
+    expect(readerOf(store.getState())).toEqual({ kind: 'changes', id: 'changes' });
+    const next = clone(first);
+    next.v = first.v + 1;
+    next.open = { kind: 'checks', id: 'checks' };
+    s.set(next);
+    live.send('job-page', SLUG, { slug: SLUG, v: next.v });
+    await settle();
+    expect(store.getState().payload?.open).toEqual({ kind: 'checks', id: 'checks' });
+    expect(readerOf(store.getState())).toEqual({ kind: 'changes', id: 'changes' });
+    store.setReader({ kind: 'conversation', id: 'conversation' });
+    expect(readerOf(store.getState())).toEqual({ kind: 'conversation', id: 'conversation' });
+    store.destroy();
+  });
+
+  it('a kept payload paints its `open`, and the first answer from the server fixes the arrival; later ones never move it', async () => {
+    const kept = base();
+    kept.open = { kind: 'conversation', id: 'conversation' };
+    const fresh = clone(kept);
+    fresh.v = kept.v + 1;
+    fresh.open = { kind: 'changes', id: 'changes' };
+    const s = server(fresh);
+    const live = stream();
+    const store = createJobStore(SLUG, { api: s.api, events: live.events, initial: kept });
+    expect(readerOf(store.getState())).toEqual({ kind: 'conversation', id: 'conversation' });
+    await store.loadPage();
+    expect(readerOf(store.getState())).toEqual({ kind: 'changes', id: 'changes' });
+    const later = clone(fresh);
+    later.v = fresh.v + 1;
+    later.open = { kind: 'conversation', id: 'conversation' };
+    s.set(later);
+    live.send('job-page', SLUG, { slug: SLUG, v: later.v });
+    await settle();
+    expect(readerOf(store.getState())).toEqual({ kind: 'changes', id: 'changes' });
+    store.destroy();
+  });
+
+  it('a permission as `open` (an older Starbase) arrives on the current step’s main output, or the conversation', () => {
+    const p = base();
+    p.open = { kind: 'permission', id: 'p1' };
+    const current = p.steps.find((x) => x.state === 'current');
+    const want = current && current.main.kind !== 'not-yet' ? current.main : { kind: 'conversation', id: 'conversation' };
+    expect(arrivalOf(p)).toEqual(want);
+    for (const st of p.steps) if (st.state === 'current') st.main = { kind: 'not-yet', id: st.id };
+    expect(arrivalOf(p)).toEqual({ kind: 'conversation', id: 'conversation' });
   });
 });

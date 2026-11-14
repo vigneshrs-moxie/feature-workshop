@@ -32,7 +32,7 @@
 //   shown for the job (queuedDecisions), so a newer one never hides an older one still waiting.
 
 import type { ApiClient } from '../api/client';
-import { createApi } from '../api/client';
+import { ApiError, createApi } from '../api/client';
 import type { LiveEvent } from '../api/types';
 import { gateDraftKey } from '../lib/gateCard';
 import { readStored, writeStored } from '../lib/stored';
@@ -124,6 +124,12 @@ export interface JobPageState {
   explains: Explained[];
   /** A note's place the reader should show (a chip was clicked): its number and a count, so a second click seeks again. */
   seek: { n: number; at: number } | null;
+  /** What the reader showed on arrival (the payload's `open` when the page opened, arrivalOf): it stays
+   *  while he picks nothing, so a later rebuild with another `open` never moves the reader (speed rule 3). */
+  arrival: ReaderTarget | null;
+  /** The job itself failed to load (the last page fetch failed): the plain reason, shown on the page
+   *  while there is no payload (JobPage2 PageProblem); null once a page fetch answers. */
+  pageProblem: string | null;
 }
 
 export interface JobStore {
@@ -212,6 +218,15 @@ export function readNotes(drafts: DraftStorage | null, slug: string): { notes: P
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 const PAGE_ERROR = 'Couldn’t load this job: ';
+
+/** Why the job did not load, in plain words: no such job, Starbase not answering, or what it said. */
+export function pageProblemOf(err: unknown): string {
+  const status = err instanceof ApiError ? err.status : null;
+  if (status === 404) return 'Starbase has no job by this name. It may have been removed, or the address has a typo.';
+  if (status === null || status === 502 || status === 503 || status === 504) return 'Starbase isn’t answering. Check that it is running, then try again.';
+  const said = message(err).trim();
+  return `Starbase couldn’t load this job: ${/[.!?]$/.test(said) ? said : `${said}.`}`;
+}
 const BODY_ERROR = 'Couldn’t load that part of the job: ';
 
 // ---------- Keeping what did not change ----------
@@ -332,6 +347,19 @@ export function withWordsBack(draft: string, words: string): string {
   return `${draft.replace(/\s+$/, '')}\n${words}`;
 }
 
+// ---------- What the reader shows on arrival ----------
+
+/**
+ * The reader's default on arrival (decision 2): the payload's `open`. A waiting permission's card is
+ * Your move itself, so for one (an older Starbase sends `open` = the permission) it is the current
+ * step's main output, or the conversation when that step has none yet.
+ */
+export function arrivalOf(payload: JobPagePayload): ReaderTarget {
+  if (payload.open.kind !== 'permission') return payload.open;
+  const main = payload.steps.find((x) => x.state === 'current')?.main;
+  return main && main.kind !== 'not-yet' ? main : { kind: 'conversation', id: 'conversation' };
+}
+
 // ---------- The store ----------
 
 const DECISIONS = 'decisions';
@@ -344,7 +372,10 @@ export function createJobStore(slug: string, { api = createApi(), events = onLiv
   const keptDraft = drafts?.read(draftKey(slug)) ?? '';
   const kept = readNotes(drafts, slug);
   const ui0 = keptDraft || kept.notes.length ? { ...EMPTY_UI, draft: keptDraft, notes: kept.notes.length ? kept.notes : EMPTY_UI.notes } : EMPTY_UI;
-  let state: JobPageState = { slug, payload: initial && initial.slug === slug ? initial : null, bodies: {}, error: null, ui: ui0, gaveBack: null, explains: kept.explains, seek: null };
+  const held0 = initial && initial.slug === slug ? initial : null;
+  let state: JobPageState = { slug, payload: held0, bodies: {}, error: null, ui: ui0, gaveBack: null, explains: kept.explains, seek: null, arrival: held0 ? arrivalOf(held0) : null, pageProblem: null };
+  /** The arrival target is fixed by the first answer from the server (a kept payload's is only until then). */
+  let arrivalFixed = false;
   /** Decisions the website queued with his words, by id: the words, and whether the payload has shown it. */
   const watched = new Map<string, { words: string; seen: boolean }>();
   let gaveBackN = 0;
@@ -425,7 +456,7 @@ export function createJobStore(slug: string, { api = createApi(), events = onLiv
     try {
       answer = await (id ? reads.page(slug, held ? held.v : null, id) : reads.page(slug, held ? held.v : null));
     } catch (err) {
-      if (!destroyed) fail('page', PAGE_ERROR + message(err));
+      if (!destroyed) { errorFrom = 'page'; set({ ...state, error: PAGE_ERROR + message(err), pageProblem: pageProblemOf(err) }); }
       return;
     } finally {
       forgetting = false;
@@ -433,14 +464,23 @@ export function createJobStore(slug: string, { api = createApi(), events = onLiv
     if (destroyed) return;
     named = id;
     if (isSame(answer) || answer.slug !== slug) {
-      if (state.error !== null) set({ ...state, error: cleared('page') });
+      const arrival = fixArrival(state.payload);
+      if (state.error !== null || state.pageProblem !== null || arrival !== state.arrival) set({ ...state, error: cleared('page'), arrival, pageProblem: null });
       return;
     }
     // Fetches run one at a time, so an answer is never older than what is held; after a restart its
     // v can be lower, and it is still the truth.
     const now = state.payload;
     const payload = now ? keepSame(now, answer) : answer;
-    set({ ...state, payload, bodies: currentBodies(state.bodies, payload, now), error: cleared('page') });
+    set({ ...state, payload, bodies: currentBodies(state.bodies, payload, now), error: cleared('page'), arrival: fixArrival(payload), pageProblem: null });
+  }
+
+  /** The arrival target after an answer: fixed by the first one, never moved by a later one. */
+  function fixArrival(payload: JobPagePayload | null): ReaderTarget | null {
+    if (arrivalFixed || !payload) return state.arrival;
+    arrivalFixed = true;
+    const next = arrivalOf(payload);
+    return sameTarget(state.arrival, next) ? state.arrival : next;
   }
 
   function loadPage(): Promise<void> {

@@ -1,10 +1,11 @@
 // What the reader shows (plan "Decisions already made" 2), as the left pane and the reader read it:
 // his own pick (an output, a job row, a reader address); else the main output of the step he opened
 // (the `main` the server sends on the step's row; a step pick clears his own pick, so the step's main
-// output shows, and #/job/<slug>/stage/<stop> shows it again on a reload); else the payload's `open`
-// (the ask, the current step's main output, or the conversation).
+// output shows, and #/job/<slug>/stage/<stop> shows it again on a reload); else what the reader showed
+// on arrival: the payload's `open` (the ask, the current step's main output, or the conversation) as
+// the page opened (jobStore.ts `arrival`), so a later rebuild with another `open` never moves it.
 
-import type { JobPageState } from './jobStore';
+import { arrivalOf, type JobPageState } from './jobStore';
 import type { Output, ReaderKind, ReaderTarget } from './types';
 
 export const CONVERSATION: ReaderTarget = { kind: 'conversation', id: 'conversation' };
@@ -13,7 +14,7 @@ export const DECISIONS: ReaderTarget = { kind: 'decisions', id: 'decisions' };
 export const DETAILS: ReaderTarget = { kind: 'details', id: 'details' };
 
 export const OUTPUT_READER: Record<Output['kind'], ReaderKind> = {
-  doc: 'doc', screens: 'doc', changes: 'changes', checks: 'checks', recording: 'checks', 'hand-test': 'checks', findings: 'findings', walkthrough: 'walkthrough', pr: 'pr',
+  doc: 'doc', screens: 'screens', changes: 'changes', checks: 'checks', recording: 'checks', 'hand-test': 'checks', findings: 'findings', walkthrough: 'walkthrough', pr: 'pr',
 };
 
 export const outputTarget = (o: Output): ReaderTarget => ({ kind: OUTPUT_READER[o.kind], id: o.id });
@@ -22,8 +23,10 @@ export const sameTarget = (a: ReaderTarget | null, b: ReaderTarget | null): bool
 
 /** What the reader shows now (see the head of this file); null before the payload lands. */
 export function readerOf(s: JobPageState): ReaderTarget | null {
-  if (s.ui.reader) return s.ui.reader;
+  // A waiting permission's card is Your move itself, so it is never what the reader shows (an old
+  // address that names one): the arrival target stands in.
+  if (s.ui.reader && s.ui.reader.kind !== 'permission') return s.ui.reader;
   const step = s.ui.step ? s.payload?.steps.find((x) => x.id === s.ui.step) : undefined;
   if (step) return step.main;
-  return s.payload?.open ?? null;
+  return s.arrival ?? (s.payload ? arrivalOf(s.payload) : null);
 }
