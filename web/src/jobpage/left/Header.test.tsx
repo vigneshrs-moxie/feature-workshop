@@ -285,3 +285,10 @@ describe('the header’s lines (fix round 1)', () => {
     await act(async () => { finish(); });
   });
 });
+
+describe('final W8: the guide’s words', () => {
+  it('no longer name a Reply (R8 took it away)', async () => {
+    const { JOB_PAGE_GUIDE } = await import('./Header');
+    for (const c of JOB_PAGE_GUIDE.cards) expect(c.say).not.toMatch(/\bReply\b/);
+  });
+});

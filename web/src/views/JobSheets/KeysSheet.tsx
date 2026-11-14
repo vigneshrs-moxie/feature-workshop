@@ -2,6 +2,7 @@
 // works, the groups not on this page marked, and a note when keys are off (Settings → Keys).
 import { KEY_IDS, KEYS, keyDef, keyLabel, SCOPES, useKeyRegistry, type KeyId, type KeyScope } from '../../app/keyRegistry';
 import { useKeysSetting } from '../../app/keysSetting';
+import { useNewJobPage } from '../../jobpage/switch';
 import { Sheet } from '../../components/Sheet';
 import { Button } from '../../components/Button';
 import './jobSheets.css';
@@ -30,10 +31,14 @@ export function KeysSheet({ onClose }: { onClose: () => void }) {
   );
 }
 
-/** Every key in the registry, grouped by where it works; groups not on this page are marked. Also in Settings → Keys. */
+/** Every key in the registry, grouped by where it works; groups not on this page are marked (the new
+ *  job page's only while its switch is on). Also in Settings → Keys. */
 export function KeyGroups() {
   const { active } = useKeyRegistry();
-  const groups = GROUP_ORDER.map((scope) => ({ scope, ids: KEY_IDS.filter((id) => KEYS[id].scope === scope && !keyDef(id).hidden) })).filter((g) => g.ids.length);
+  // The new job page's keys only while that page is switched on (jobpage/switch.ts).
+  const newPage = useNewJobPage();
+  const groups = GROUP_ORDER.filter((scope) => scope !== 'jobpage' || newPage)
+    .map((scope) => ({ scope, ids: KEY_IDS.filter((id) => KEYS[id].scope === scope && !keyDef(id).hidden) })).filter((g) => g.ids.length);
   return (
     <>
       {groups.map(({ scope, ids }) => (

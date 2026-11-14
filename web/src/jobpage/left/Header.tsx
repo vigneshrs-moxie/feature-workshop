@@ -74,7 +74,7 @@ export const JOB_PAGE_GUIDE: GuideSpec = {
   title: 'How this job page works',
   done: 'Got it',
   cards: [
-    { icons: ['hand'], title: 'Your move is at the top', say: 'When the job waits for you, the card on the left says what it needs, with Go, Reply and Send back.' },
+    { icons: ['hand'], title: 'Your move is at the top', say: 'When the job waits for you, the card on the left says what it needs: Go or Send back at the end of a step, Allow once or Deny for a permission, or your answer in the box below.' },
     { icons: ['list'], title: 'Seven steps, one line each', say: 'Click a step to see what it made. Whatever you open shows on the right, and [ and ] move between steps.' },
     { icons: ['message'], title: 'The conversation is one click away', say: 'Conversation lists every message, one line each. / searches it; g then c opens it.' },
   ],
