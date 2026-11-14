@@ -473,7 +473,7 @@ export const longJob: LongJobFixture = {
           }
         ],
         "main": {
-          "kind": "not-yet",
+          "kind": "ship",
           "id": "ship"
         },
         "more": []

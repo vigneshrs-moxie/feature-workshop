@@ -834,7 +834,7 @@ export const longJob200: LongJobFixture = {
           }
         ],
         "main": {
-          "kind": "not-yet",
+          "kind": "ship",
           "id": "ship"
         },
         "more": []

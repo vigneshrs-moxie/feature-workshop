@@ -22,6 +22,9 @@ export const OLD_NAMES = Object.freeze({
   STARBASE_DEMO: 'WORKSHOP_DEMO',
   STARBASE_DEMO_NO_AUTO: 'WORKSHOP_DEMO_NO_AUTO',
   STARBASE_DEMO_APPROVER: 'WORKSHOP_DEMO_APPROVER',
+  // The demo's GitHub-down switch (web/e2e/prPath.mjs, demo/fake-flow.js): new with the Phase 4 checks; its old-style
+  // name is listed only so every name the code reads is in this one table.
+  STARBASE_DEMO_GH_DOWN: 'WORKSHOP_DEMO_GH_DOWN',
   STARBASE_FEATURES_DIR: 'WORKSHOP_FEATURES_DIR',
   STARBASE_PROJECTS_DIR: 'WORKSHOP_PROJECTS_DIR',
   STARBASE_AGENTS_DIR: 'WORKSHOP_AGENTS_DIR',
