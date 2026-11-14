@@ -38,6 +38,8 @@
 // nightly-export (working) and tag-colours (a permission card). It also lists, per theme, the worst
 // ratio of the words asked about by name: the ask's More and Look, Changes' +N and −N, the
 // conversation's tinted lines (his, a brief's, Auto's, the New mark) and the steps' result words.
+// PR_JOB=<slug> adds the PR lines, the lines opened, the PR view (its rows, its bar's Push the fixes opened) and
+// PR #2's round on that job (web/e2e/prPath.mjs KEEP=1 leaves bulk-archive so); SCREENS="PR lines,PR view" alone.
 // WIDTHS (comma list, default 1512) sets the window's widths (945 px tall; 844 under 600 px wide):
 // at 760 px and under the new page is the phone's screens.
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -77,6 +79,14 @@ const NEW_SCREENS = [
   ['Findings', `#/job/${LONG_JOB}/read/findings/findings`],
   ['Working', '#/job/nightly-export'],
   ['Permission', '#/job/tag-colours'],
+  // The PR parts (PR_JOB: a job web/e2e/prPath.mjs KEEP=1 leaves at PR #1 with its comment rows).
+  ...(process.env.PR_JOB ? [
+    ['PR lines', `#/job/${process.env.PR_JOB}`],
+    ['PR lines open', `#/job/${process.env.PR_JOB}/read/ship/ship`, '.jp2-prl-b'],
+    ['PR view', `#/job/${process.env.PR_JOB}/read/pr/1`],
+    ['PR view push open', `#/job/${process.env.PR_JOB}/read/pr/1`, '.jp2-prc-bar .jp2-prl-b'],
+    ['PR view round', `#/job/${process.env.PR_JOB}/read/pr/2`],
+  ] : []),
 ];
 /** The words asked about by name on the new page: [label, the closest ancestor (or itself) to match]. */
 const NAMED = [

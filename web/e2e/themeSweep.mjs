@@ -53,6 +53,8 @@
 //   JOBS      themes run side by side (default 3)
 //   FOCUS=0   skip the focus-ring check; SHEETS=0 skip the contact sheets
 //   RESUME=1  keep each theme, width and Play mode already checked in OUT/runs (a stopped sweep goes on)
+//   PR_JOB    a job with PR lines and comment rows (web/e2e/prPath.mjs KEEP=1 leaves bulk-archive so): adds the
+//             PR lines, the lines opened, the PR view, its bar's Push the fixes opened and PR #2's round
 //   PLAYWRIGHT  the path to playwright's index.mjs, when it isn't installed here
 // It exits 1 when anything fails. Nothing it does reaches GitHub or a model: the demo is pretend.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -95,6 +97,8 @@ const GUIDES = ['jobs', 'desk', 'stage', 'job', 'inbox', 'telemetry', 'stack', '
 /** The new job page's switch, and the demo's made-up long job (its fixture job). */
 const NEW = { 'sb.jobPage': 'new' };
 const LONG_JOB = 'orbit-905-crew-schedule-export';
+/** A job with PR lines and comment rows (web/e2e/prPath.mjs KEEP=1 leaves bulk-archive so): adds the PR visits. */
+const PR_JOB = process.env.PR_JOB || null;
 
 // ---------- What to visit ----------
 const click = (sel) => async (page) => { await page.locator(sel).filter({ visible: true }).first().click(); };
@@ -145,6 +149,14 @@ const SCREEN_VISITS = [
   { name: 'New page, Findings', hash: `#/job/${LONG_JOB}/read/findings/findings`, store: NEW },
   { name: 'New page, working', hash: '#/job/nightly-export', store: NEW, focus: true },
   { name: 'New page, permission card', hash: '#/job/tag-colours', store: NEW },
+  // The PR parts, on the job web/e2e/prPath.mjs leaves at PR #1 with its comment rows (KEEP=1): PR_JOB names it.
+  ...(PR_JOB ? [
+    { name: 'New page, PR lines', hash: `#/job/${PR_JOB}`, store: NEW, focus: true },
+    { name: 'New page, PR lines open', hash: `#/job/${PR_JOB}/read/ship/ship`, store: NEW, act: click('.jp2-prl-b') },
+    { name: 'New page, PR view', hash: `#/job/${PR_JOB}/read/pr/1`, store: NEW, wait: 1200, scrolls: 2, focus: true },
+    { name: 'New page, PR view push open', hash: `#/job/${PR_JOB}/read/pr/1`, store: NEW, wait: 1200, act: click('.jp2-prc-bar .jp2-prl-b') },
+    { name: 'New page, PR view round', hash: `#/job/${PR_JOB}/read/pr/2`, store: NEW, wait: 1200, scrolls: 1 },
+  ] : []),
 ];
 
 /** Overlays: opened by a click or a key; only the overlay's own words are measured. */

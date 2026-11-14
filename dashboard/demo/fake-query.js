@@ -41,7 +41,9 @@
 // Like Claude Code it says when it has gone idle; it ends once the dashboard closes its input.
 
 import { randomUUID } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { suggestLevel } from '../lib/level-rules.js';
 import { parseReviewFindings } from '../lib/play.js';
@@ -150,6 +152,17 @@ export function makeFakeQuery({ featuresDir, autoAvailable = !process.env.STARBA
       // The job's folder: named in the message (new jobs), else the job whose status.json has this session.
       const folder = slugMatch ? slugMatch[1] : await folderForSession(featuresDir, options.resume);
       const dir = folder && folder.startsWith(featuresDir + path.sep) ? folder : null;
+      // The PR view's Fix these (web/e2e/prPath.mjs): each comment fixed on the job's branch, one commit each, and the
+      // answer in the `--- Comments answered ---` block with a drafted reply, as the skill asks. Nothing is pushed.
+      if (dir && /Please fix (?:this review comment|these \d+ review comments) on /.test(text)) {
+        yield say('Fixing the review comments on the branch, one commit each.', [], first.value?.uuid ? [first.value.uuid] : null);
+        await nap(800);
+        const lines = await fixComments(dir, text);
+        const answer = ['Done: one commit per comment. Nothing is pushed and nothing is posted on GitHub.', '', '--- Comments answered ---', ...lines, '--- End ---'].join('\n');
+        yield say(answer);
+        yield result(sessionId, false, answer, denials);
+        return;
+      }
       const reply = readReply(text);
       const pushing = /\bpush\b/i.test(text);
       // What this reply does to the job: its stages, checks and brief (null outside the demo's jobs).
@@ -330,6 +343,40 @@ const CHECKS = { command: 'npm run check', description: 'Run the checks: typeche
 
 async function readJson(file) {
   try { return JSON.parse(await fs.readFile(file, 'utf8')); } catch { return null; }
+}
+
+/**
+ * Fix these, pretend (web/e2e/prPath.mjs): for each comment quoted between `--- PR comments (n) ---` and
+ * `--- End of PR comments ---`, one commit in the job's worktree (a line added to a notes file; only a worktree
+ * inside the system's temp folder, which the demo's is) and one answer line; a conversation comment is answered
+ * in words. Returns the block's lines.
+ */
+async function fixComments(dir, text) {
+  const s = await readJson(path.join(dir, 'status.json'));
+  const wt = typeof s?.worktree === 'string' && path.isAbsolute(s.worktree) ? s.worktree : null;
+  const block = /--- PR comments \(\d+\) ---\n([\s\S]*?)\n--- End of PR comments ---/.exec(text)?.[1] ?? '';
+  const asked = [...block.matchAll(/^([cri]\d+) · (.+) · (.+)$/gm)].map((m) => ({ id: m[1], where: m[2], who: m[3] }));
+  const tmp = await fs.realpath(os.tmpdir()).catch(() => null);
+  const real = wt ? await fs.realpath(wt).catch(() => null) : null;
+  const canCommit = Boolean(tmp && real && real.startsWith(tmp + path.sep));
+  const git = (args) => execFileSync('git', ['-C', real, ...args], { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, GIT_AUTHOR_NAME: 'Demo Foreman', GIT_AUTHOR_EMAIL: 'foreman@example.com', GIT_COMMITTER_NAME: 'Demo Foreman', GIT_COMMITTER_EMAIL: 'foreman@example.com' } }).toString().trim();
+  const out = [];
+  for (const a of asked) {
+    if (a.id.startsWith('i') || !canCommit) {
+      out.push(`${a.id} · answered · reply: Thanks ${a.who}: it stays as it is for now, and the PR text says why.`);
+      continue;
+    }
+    try {
+      await fs.appendFile(path.join(real, 'REVIEW-FIXES.md'), `- ${a.id} (${a.where}, ${a.who}): fixed\n`);
+      git(['add', 'REVIEW-FIXES.md']);
+      git(['commit', '-q', '-m', `fix: ${a.who}'s review comment ${a.id} (${a.where})`]);
+      const sha = git(['rev-parse', '--short=7', 'HEAD']);
+      out.push(`${a.id} · fixed in ${sha} · reply: Fixed in ${sha}: done as you asked, ${a.who}.`);
+    } catch {
+      out.push(`${a.id} · left · the demo couldn't commit here · reply: Not changed yet.`);
+    }
+  }
+  return out;
 }
 
 async function writeStatus(dir, s) {

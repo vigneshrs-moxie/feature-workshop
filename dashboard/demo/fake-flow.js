@@ -2,6 +2,7 @@
 // real. Each job's place follows its stage, and its counts come from its name, so the map looks
 // the same every time. jobs: the jobs FlowWatch maps, with their stage and title.
 
+import fs from 'node:fs';
 import path from 'node:path';
 
 const hash = (s) => [...String(s)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
@@ -50,6 +51,18 @@ export async function fakeFlow({ repo, jobs }) {
     fork: { remote: 'origin', url: `https://github.com/you/${name}.git`, owner: 'you' },
     main: { ref: 'moxie/main', tip: { sha: sha(`${name}main`), at: ago(26 * 60), subject: 'Release 2026.10.20 (#139)' } },
     staging: { ref: 'moxie/staging', tip: { sha: sha(`${name}staging`), at: ago(95), subject: 'Merge feature/dark-mode-toggle (#158)' }, vsMain: { ahead: 14, behind: 0 } },
-    prs, inMain, jobs: facts, errors: [],
+    prs, inMain, jobs: facts, errors: ghDown(),
   };
+}
+
+/**
+ * The PR path check (web/e2e/prPath.mjs): STARBASE_DEMO_GH_DOWN names a file; while it holds words (gh's own
+ * error, e.g. signed out or offline), the map's GitHub read fails with them, as lib/flow.js gatherRepo's would.
+ */
+function ghDown() {
+  const file = process.env.STARBASE_DEMO_GH_DOWN;
+  if (!file) return [];
+  let words = '';
+  try { words = fs.readFileSync(file, 'utf8').trim(); } catch { return []; }
+  return words ? [`gh pr list: ${words}`] : [];
 }
