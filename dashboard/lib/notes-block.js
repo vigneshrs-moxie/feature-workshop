@@ -28,7 +28,9 @@ const oneLine = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
 /** Words on one line, at most QUOTE_MAX characters, a cut marked with `…`. */
 export function cutQuote(s) {
   const t = oneLine(s);
-  return t.length > QUOTE_MAX ? `${t.slice(0, QUOTE_MAX - 1).trimEnd()}…` : t;
+  // By character, not by UTF-16 unit, so an emoji at the cut is never split in two.
+  const chars = Array.from(t);
+  return chars.length > QUOTE_MAX ? `${chars.slice(0, QUOTE_MAX - 1).join('').trimEnd()}…` : t;
 }
 
 const pct = (v) => Math.round(Math.min(100, Math.max(0, Number(v) || 0)));

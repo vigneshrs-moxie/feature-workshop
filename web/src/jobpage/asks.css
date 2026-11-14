@@ -1,0 +1,47 @@
+/* The asks (job page rebuild, Task 19; design brief R6): the row above the message box
+   (left/AsksRow.tsx), ⌘K's asks and places (Palette.tsx, on the app's command box classes), and
+   `Keep as an ask` on his messages in the conversation (reader/ConversationView.tsx). Theme tokens only;
+   the buttons are the shared Button (placed here, never drawn). */
+
+/* The row: one line, the asks that fit, ⌘K at the right end */
+.jp2-asks { position: relative; flex: none; border-top: 1px solid var(--border-1); background: var(--surface-0); }
+.jp2-asks-in { display: flex; align-items: center; gap: 4px; height: 40px; padding: 0 10px; }
+.jp2-asks-fit { flex: 1; min-width: 0; display: flex; align-items: center; gap: 4px; overflow: hidden; }
+.jp2-ask, .jp2-ask-more { flex: none; }
+.jp2-ask[hidden] { display: none; }
+.jp2-ask-more { margin-left: auto; }
+
+/* Sent · Undo, and what Go faster switched: over the row, so nothing below moves */
+.jp2-asks-msg { position: absolute; inset: 0; display: flex; align-items: center; gap: 8px; padding: 0 12px; background: var(--surface-0); font-size: 12.5px; line-height: 18px; color: var(--text-1); }
+.jp2-asks-mt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jp2-asks-undo, .jp2-asks-hide { flex: none; }
+/* Why something did not go: under the row, in full */
+.jp2-asks-msg.is-problem { position: static; align-items: flex-start; padding: 0 12px 8px; font-weight: 500; }
+.jp2-asks-msg.is-problem .jp2-asks-mt { flex: 1; white-space: normal; padding-top: 5px; }
+
+/* Hovering an ask: the exact text it sends */
+.jp2-asks-tip { position: absolute; bottom: calc(100% + 4px); left: 10px; right: 10px; z-index: 30; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border-2); background: var(--surface-float); box-shadow: var(--elev-lg); font-size: 12.5px; line-height: 18px; color: var(--text-1); pointer-events: none; overflow-wrap: anywhere; }
+.jp2-asks-says { color: var(--text-3); }
+
+/* 760 to 1100 px: the row keeps to the message box's width */
+.jp2[data-layout="mid"] .jp2-asks { width: 100%; max-width: 640px; margin-left: auto; margin-right: auto; }
+/* The phone: the asks scroll sideways; no ⌘K */
+.jp2[data-layout="phone"] .jp2-asks-in { height: 52px; padding: 0 18px; }
+.jp2[data-layout="phone"] .jp2-asks-fit { position: relative; overflow-x: auto; scrollbar-width: none; }
+.jp2[data-layout="phone"] .jp2-asks-msg { padding: 0 18px; font-size: 14px; }
+.jp2[data-layout="phone"] .jp2-asks-msg.is-problem { padding: 0 18px 10px; }
+
+/* ⌘K: each ask's exact text under its label */
+.jp2-pal-opt { align-items: stretch; }
+.jp2-pal-main { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 1px; padding: 6px 0; }
+.jp2-pal-main .palette-label { flex: none; }
+.jp2-pal-says { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-xs); color: var(--text-3); }
+.jp2-pal-empty { margin: 0; padding: 2px 10px 8px; font-size: var(--text-xs); color: var(--text-3); }
+
+/* Keep as an ask: over the line's time while the pointer is on his message (or the focus on the button) */
+.jp2-cv-item.is-you { position: relative; }
+.jp2-cv-keep { position: absolute; top: 0; left: -10000px; }
+.jp2-cv-item.is-you:hover > .jp2-cv-keep, .jp2-cv-keep:focus-visible, .jp2-cv-keep.is-kept { left: auto; right: 4px; }
+.jp2-cv-item.is-you:hover > .jp2-cv-line time { visibility: hidden; }
+.jp2-cv-item.is-you:has(> .jp2-cv-keep:focus-visible) > .jp2-cv-line time, .jp2-cv-item.is-you:has(> .jp2-cv-keep.is-kept) > .jp2-cv-line time { visibility: hidden; }
+.jp2[data-layout="phone"] .jp2-cv-keep { display: none; }

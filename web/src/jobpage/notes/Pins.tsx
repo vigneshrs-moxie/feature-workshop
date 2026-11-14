@@ -7,14 +7,14 @@
 // The spot is in per cent from the picture's own top left (the letterbox around a video is left out).
 // Pins already made on the picture show as numbered dots; a chip's click flashes its pin.
 //
-// Pasting a picture into the message box (⌘V) keeps it in this browser (smaller, as a JPEG, under
-// sb.pasted.<slug>.<id>; in memory only when storage is full) and opens it in the reader to pin on
-// (reader kind `picture`). Starbase cannot send a picture to the Foreman yet: the pin's note carries
-// what he sees.
+// Pasting a picture into the message box (⌘V) saves it in the job's own folder on the laptop
+// (pictures/<sha256>.<ext>; the website keeps it in the tab) and opens it in the reader to pin on
+// (reader kind `picture`): see Pasted pictures below.
 
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { pinPlace } from '../../../../dashboard/lib/notes-block.js';
 import { readStored, writeStored } from '../../lib/stored';
+import type { JobStore } from '../jobStore';
 import type { ReaderTarget } from '../types';
 import { useJob, useJobStore } from '../useJob';
 import { addNote } from './chips';
@@ -126,26 +126,50 @@ export function Pins({ picture, children }: PinsProps) {
 }
 
 // ---------- Pasted pictures ----------
+//
+// On the laptop a pasted picture goes to the job's own folder (POST /api/job/:slug/pictures,
+// site/routes-pictures.js) as pictures/<sha256>.<ext>: the pin's place names that file, so the Foreman
+// can open it, and this browser keeps only the name (the reader's address and the note). The website
+// keeps the picture in this tab only (it can't reach the laptop's folder), and the pin's line says the
+// Foreman can't open it. Pictures an earlier build kept in this browser (sb.pasted.<slug>.p<n>) are
+// sent to the job's folder the next time the job is open on the laptop, their notes pointed at the
+// saved file, and the browser's copies removed (adoptPasted).
 
-/** Where a pasted picture is kept in this browser. */
+/** A picture saved in the job's folder: its name there (pictures/<name>). */
+export const SAVED_PICTURE = /^[0-9a-f]{64}\.(png|jpg|webp|gif)$/;
+/** Where an earlier build kept a pasted picture in this browser. */
 export const pastedKey = (slug: string, id: string) => `sb.pasted.${slug}.${id}`;
-const inMemory = new Map<string, string>();
-/** Largest side of a kept picture, and the most characters storage is asked to keep. */
+/** The website's pasted pictures, for this tab only. */
+const inTab = new Map<string, string>();
+const tabKey = (slug: string, id: string) => `sb.pasted.tab.${slug}.${id}`;
+/** Largest side of a picture the website keeps, and the most the job's folder takes. */
 const MAX_SIDE = 1600;
-const MAX_KEPT = 1_500_000;
+const MAX_BYTES = 10 * 1024 * 1024;
 
-export function readPasted(slug: string, id: string): string | null {
-  return inMemory.get(pastedKey(slug, id)) ?? readStored(pastedKey(slug, id));
+const readSession = (k: string) => { try { return sessionStorage.getItem(k); } catch { return null; } };
+const writeSession = (k: string, v: string) => { try { sessionStorage.setItem(k, v); } catch { /* the tab's memory has it */ } };
+
+/** Where the reader shows a pasted picture from: the job's folder (laptop), or this tab (website); null when gone. */
+export function pictureSrc(slug: string, id: string): string | null {
+  if (SAVED_PICTURE.test(id)) return `/api/job/${encodeURIComponent(slug)}/pictures/${id}`;
+  return inTab.get(tabKey(slug, id)) ?? readSession(tabKey(slug, id));
 }
+/** What an earlier build kept in this browser for a picture, if anything (adoptPasted's input). */
+export function readPasted(slug: string, id: string): string | null {
+  return SAVED_PICTURE.test(id) ? null : readStored(pastedKey(slug, id)) ?? inTab.get(tabKey(slug, id)) ?? readSession(tabKey(slug, id));
+}
+
+const asDataUrl = (file: Blob) => new Promise<string>((done, fail) => {
+  const r = new FileReader();
+  r.onload = () => done(String(r.result));
+  r.onerror = () => fail(r.error ?? new Error('Couldn’t read the picture.'));
+  r.readAsDataURL(file);
+});
+const base64Of = (dataUrl: string) => dataUrl.slice(dataUrl.indexOf(',') + 1);
 
 /** A picture file as a data URL, smaller when it is large (a JPEG at most MAX_SIDE across) where the browser can draw it. */
 async function shrink(file: Blob): Promise<string> {
-  const raw = await new Promise<string>((done, fail) => {
-    const r = new FileReader();
-    r.onload = () => done(String(r.result));
-    r.onerror = () => fail(r.error ?? new Error('Couldn’t read the picture.'));
-    r.readAsDataURL(file);
-  });
+  const raw = await asDataUrl(file);
   try {
     if (typeof createImageBitmap !== 'function') return raw;
     const bmp = await createImageBitmap(file);
@@ -163,16 +187,64 @@ async function shrink(file: Blob): Promise<string> {
   }
 }
 
-/** Keep a pasted picture for the job; its id (`p1`, `p2`, …) opens it in the reader. */
-export async function keepPasted(slug: string, file: Blob): Promise<string> {
+/** The client a picture is saved through (the laptop's): null on the website. */
+type Poster = { post<T>(path: string, body?: unknown): Promise<T> } | null;
+
+/** Save a picture's data URL in the job's folder: its name there. */
+async function upload(slug: string, dataUrl: string, api: NonNullable<Poster>): Promise<string> {
+  const r = await api.post<{ path?: unknown }>(`/api/job/${encodeURIComponent(slug)}/pictures`, { data: base64Of(dataUrl) });
+  const name = typeof r?.path === 'string' ? r.path.replace(/^pictures\//, '') : '';
+  if (!SAVED_PICTURE.test(name)) throw new Error('The picture wasn’t saved.');
+  return name;
+}
+
+/**
+ * Keep a pasted picture for the job; its id opens it in the reader. On the laptop (`api`) it is saved in
+ * the job's folder and the id is its name there; on the website (no `api`) it stays in this tab (`p1`, …).
+ */
+export async function keepPasted(slug: string, file: Blob, api: Poster): Promise<string> {
+  if (api) {
+    if (file.size > MAX_BYTES) throw new Error('The picture is too big: at most 10 MB.');
+    return upload(slug, await asDataUrl(file), api);
+  }
   const url = await shrink(file);
   let n = 1;
-  while (readPasted(slug, `p${n}`) !== null) n++;
+  while (inTab.has(tabKey(slug, `p${n}`)) || readSession(tabKey(slug, `p${n}`)) !== null) n++;
   const id = `p${n}`;
-  inMemory.set(pastedKey(slug, id), url);
-  if (url.length <= MAX_KEPT) writeStored(pastedKey(slug, id), url);
+  inTab.set(tabKey(slug, id), url);
+  writeSession(tabKey(slug, id), url);
   return id;
 }
+
+/**
+ * Pictures an earlier build kept in this browser for this job (sb.pasted.<slug>.p<n>): each is saved in
+ * the job's folder, the notes pinned on it now name the saved file, and the browser's copy goes. One
+ * that can't be saved stays for the next time. Laptop only.
+ */
+export async function adoptPasted(slug: string, api: NonNullable<Poster>, store: JobStore): Promise<number> {
+  const prefix = `sb.pasted.${slug}.`;
+  let keys: string[] = [];
+  try { keys = Object.keys(localStorage).filter((k) => k.startsWith(prefix) && /^p\d+$/.test(k.slice(prefix.length))); } catch { return 0; }
+  let moved = 0;
+  for (const key of keys) {
+    const old = key.slice(prefix.length);
+    const url = readStored(key);
+    if (!url) { writeStored(key, null); continue; }
+    let name: string;
+    try { name = await upload(slug, url, api); } catch { continue; }
+    const notes = store.getState().ui.notes.map((n) => (n.pin?.picture === `pasted:${old}`
+      ? { ...n, target: { kind: 'picture' as const, id: name }, place: savedName(name), chip: SAVED_CHIP, pin: { ...n.pin, picture: `pasted:${name}` } }
+      : n));
+    store.setNotes(notes);
+    writeStored(key, null);
+    moved++;
+  }
+  return moved;
+}
+
+/** A saved picture's name in a pin's place: the file in the job's folder, for the Foreman to open. */
+const savedName = (name: string) => `Pasted picture (pictures/${name} in the job’s folder)`;
+const SAVED_CHIP = 'Pasted picture';
 
 /** The first picture in a paste, or null. */
 export function pastedPicture(data: DataTransfer | null): File | null {
@@ -185,22 +257,20 @@ export function pastedPicture(data: DataTransfer | null): File | null {
 /** A pasted picture in the reader, to pin on. */
 export function PictureView({ id }: { id: string }) {
   const slug = useJob((s) => s.slug);
-  const url = readPasted(slug, id);
+  const src = pictureSrc(slug, id);
+  const saved = SAVED_PICTURE.test(id);
   const n = id.replace(/^p/, '');
-  const picture: Picture = {
-    key: `pasted:${id}`,
-    name: () => `Pasted picture ${n} (it stays in his browser: you can’t open it)`,
-    chip: () => `Pasted picture ${n}`,
-    target: { kind: 'picture', id },
-  };
+  const picture: Picture = saved
+    ? { key: `pasted:${id}`, name: () => savedName(id), chip: () => SAVED_CHIP, target: { kind: 'picture', id } }
+    : { key: `pasted:${id}`, name: () => `Pasted picture ${n} (it stays in his browser: you can’t open it)`, chip: () => `Pasted picture ${n}`, target: { kind: 'picture', id } };
   return (
     <ReaderBody view="picture" place={`picture:${id}`}>
-      {url ? (
+      {src ? (
         <>
           <p className="jp2-dim">Click the picture where something is wrong: each click drops a numbered pin with a note.</p>
-          <Pins picture={picture}><img className="jp2-pic" src={url} alt={`Pasted picture ${n}`} /></Pins>
+          <Pins picture={picture}><img className="jp2-pic" src={src} alt={saved ? 'The picture you pasted' : `Pasted picture ${n}`} /></Pins>
         </>
-      ) : <NotLoaded error="This pasted picture isn’t kept in this browser any more. Its notes still go, with their words." />}
+      ) : <NotLoaded error="This pasted picture was kept only in a tab that has closed. Its notes still go, with their words." />}
     </ReaderBody>
   );
 }

@@ -11,7 +11,8 @@ import { installKeyListener, resetChord } from '../../app/keyRegistry';
 import { box, chipText, host, noteBox, openNotes, para, payload, PLAN, plus, reader, settle, type NotesPage } from '../fixtures/notesPage';
 import { forgetRecentPages } from '../recent';
 import type { JobBody, JobPagePayload } from '../types';
-import { blockOf, describeBlock } from './Pointable';
+import { longJob200 } from '../fixtures/longJob200';
+import { blockOf, blockSearches, describeBlock, roughIndex } from './Pointable';
 
 const CSS = readFileSync(path.join(process.cwd(), 'src/jobpage/jobpage.css'), 'utf8');
 const rule = (sel: string) => { const at = CSS.indexOf(`${sel} {`); return at < 0 ? '' : CSS.slice(at + sel.length + 2, CSS.indexOf('}', at)); };
@@ -20,6 +21,11 @@ const S1 = 'The schedule page waits for the van number';
 const press = (k: string) => act(() => { fireEvent.keyDown(document.body, { key: k }); });
 const button = (name: string) => within(noteBox()!).getByRole('button', { name });
 const field = () => within(noteBox()!).getByRole('textbox');
+
+/** His message line, its body, and a reply that answers note 1 as explained. */
+const mine = (id: string) => ({ id, kind: 'you' as const, at: '2026-11-04T15:09:00.000Z', step: 'review' as const, headline: 'Notes', mine: true, hash: id });
+const mineBody = (id: string, text: string): JobBody => ({ id, kind: 'you', version: id, html: '<p>Notes</p>', meta: {}, text });
+const answerBody = (id: string, answer: string): JobBody => ({ id, kind: 'reply', version: id, html: '<p>Reply.</p>', meta: {}, text: `Reply.\n\n--- Notes answered ---\n1. done · explained · ${answer}\n--- End ---` });
 
 let offKeys: () => void = () => {};
 beforeEach(() => {
@@ -174,26 +180,73 @@ describe('Explain', () => {
     const note = () => reader().querySelector<HTMLElement>('.jp2-pt-mnote');
     expect(note()).toHaveTextContent('Asked. The answer opens here when the Foreman replies.');
 
-    // The Foreman's reply lands with the answered block at its end.
+    // His message carrying it, then the Foreman's reply with the answered block at its end.
     const next = payload();
     next.v = 2;
-    next.thread.push({ id: 'reply:ans1', kind: 'reply', at: '2026-11-04T15:10:00.000Z', step: 'review', headline: 'The row limit', mine: false, hash: 'ans1' });
-    const reply: JobBody = { id: 'reply:ans1', kind: 'reply', version: 'ans1', html: '<p>The row limit.</p>', meta: {}, text: 'The row limit.\n\n--- Notes answered ---\n1. done · explained · It adds a second sheet so no row is dropped.\n--- End ---' };
-    await o.serve(next, { 'reply:ans1': reply });
+    next.thread.push(mine('you:ex1'), { id: 'reply:ans1', kind: 'reply', at: '2026-11-04T15:10:00.000Z', step: 'review', headline: 'The row limit', mine: false, hash: 'reply:ans1' });
+    await o.serve(next, { 'you:ex1': mineBody('you:ex1', String(body.text)), 'reply:ans1': answerBody('reply:ans1', 'It adds a second sheet so no row is dropped.') });
     await settle();
     await settle();
     expect(note()).toHaveTextContent('It adds a second sheet so no row is dropped.');
     expect(note()).toHaveTextContent('Explain · the Foreman');
   });
 
-  it('a refusal says why beside the block', async () => {
+  it('a refusal says why beside the block with Ask again, and is never kept as asked: a reload and a later reply show nothing', async () => {
     const { ApiError } = await import('../../api/client');
-    const post = vi.fn(async () => { throw new ApiError(409, 'limit', { code: 'limited' }); });
-    await opened({ post });
+    const post = vi.fn(async (_path: string, _body?: unknown) => { throw new ApiError(409, 'limit', { code: 'limited' }); });
+    const o = await opened({ post });
     act(() => { fireEvent.mouseMove(para(S1)); });
     act(() => { fireEvent.click(plus()!); });
     await act(async () => { fireEvent.click(button('Explain')); });
-    expect(reader().querySelector('.jp2-pt-mnote')).toHaveTextContent('Not sent: Claude’s usage limit is reached.');
+    const note = () => reader().querySelector<HTMLElement>('.jp2-pt-mnote');
+    expect(note()).toHaveTextContent('Not sent: Claude’s usage limit is reached.');
+    expect(note()).not.toHaveTextContent('Asked');
+    expect(o.store.getState().explains).toEqual([]);
+    expect(localStorage.getItem(`sb.notes.${o.store.getState().slug}`)).toBeNull();
+    // Ask again sends it again.
+    await act(async () => { fireEvent.click(within(note()!).getByRole('button', { name: 'Ask again' })); });
+    expect(post).toHaveBeenCalledTimes(2);
+    expect(post.mock.calls[1][1]).toEqual(post.mock.calls[0][1]);
+    // A reply that lands later is not taken for its answer.
+    const next = payload();
+    next.v = 2;
+    next.thread.push({ id: 'reply:later', kind: 'reply', at: '2026-11-04T15:10:00.000Z', step: 'review', headline: 'Something else', mine: false, hash: 'reply:later' });
+    await o.serve(next, { 'reply:later': answerBody('reply:later', 'Not about that.') });
+    await settle();
+    expect(note()).not.toHaveTextContent('Not about that.');
+    expect(note()).not.toHaveTextContent('answered in its reply');
+  });
+
+  it('an Explain that waits behind a running reply is answered by the reply after its own message, not by the running one', async () => {
+    const { ApiError } = await import('../../api/client');
+    const post = vi.fn(async (_path: string, body?: unknown) => {
+      if ((body as { queue?: boolean }).queue) return { waiting: { text: 'x', at: 'now', why: null } };
+      throw new ApiError(409, 'The Foreman is still working on your last message.', {});
+    });
+    const o = await opened({ post });
+    act(() => { fireEvent.mouseMove(para(S1)); });
+    act(() => { fireEvent.click(plus()!); });
+    await act(async () => { fireEvent.click(button('Explain')); });
+    expect(post).toHaveBeenCalledTimes(2);
+    expect(post.mock.calls[1][1]).toMatchObject({ queue: true });
+    const sent = String((post.mock.calls[1][1] as { text: string }).text);
+    const note = () => reader().querySelector<HTMLElement>('.jp2-pt-mnote');
+    // The running reply ends first (it answers his earlier message, with an answered block of its own).
+    const next = payload();
+    next.v = 2;
+    next.thread.push({ id: 'reply:running', kind: 'reply', at: '2026-11-04T15:05:00.000Z', step: 'review', headline: 'Earlier', mine: false, hash: 'reply:running' });
+    await o.serve(next, { 'reply:running': answerBody('reply:running', 'An answer to something else.') });
+    await settle();
+    expect(note()).toHaveTextContent('Asked. The answer opens here when the Foreman replies.');
+    // Then his waiting message goes, and its own reply.
+    const after = payload();
+    after.v = 3;
+    after.thread.push(next.thread.at(-1)!, mine('you:ex2'), { id: 'reply:mine', kind: 'reply', at: '2026-11-04T15:12:00.000Z', step: 'review', headline: 'The row limit', mine: false, hash: 'reply:mine' });
+    await o.serve(after, { 'you:ex2': mineBody('you:ex2', sent), 'reply:mine': answerBody('reply:mine', 'It adds a second sheet.') });
+    await settle();
+    await settle();
+    expect(note()).toHaveTextContent('It adds a second sheet.');
+    expect(o.store.getState().explains[0]).toMatchObject({ sent: 'you:ex2', line: 'reply:mine' });
   });
 });
 
@@ -248,5 +301,70 @@ describe('the phone', () => {
     act(() => { fireEvent.click(para(S1)); });
     expect(document.querySelector('.jp2-nb-sheet .jp2-nb.is-sheet')).not.toBeNull();
     // A link in a block is still a link: no sheet for it.
+  });
+});
+
+describe('speed with notes present (fix round 1, I3)', () => {
+  const CONVO = { kind: 'conversation' as const, id: 'conversation' };
+  const best = (xs: number[]) => Math.min(...xs);
+  const limit = process.env.CI ? 400 : 100;
+
+  it('200 items with notes on the open exchange: reopening stays under 100 ms, and a re-render searches for nothing', async () => {
+    const o = await opened({ job: longJob200, read: CONVO });
+    for (let i = 0; i < 20 && reader().querySelectorAll('.jp2-cv-item .jp2-prose p').length < 3; i++) await settle();
+    // Three notes on paragraphs of the open messages.
+    const paras = [...reader().querySelectorAll<HTMLElement>('.jp2-cv-item .jp2-prose p')].slice(0, 3);
+    expect(paras.length).toBe(3);
+    const s = o.store.getState();
+    act(() => { o.store.setNotes(paras.map((p, i) => ({ n: i + 1, kind: 'drop' as const, note: '', ...describeBlock(p, CONVO, s) }))); });
+    expect(reader().querySelectorAll('[data-pt-noted]')).toHaveLength(3);
+    const times: number[] = [];
+    const searched = blockSearches.count;
+    for (let i = 0; i < 5; i++) {
+      act(() => { o.store.setReader({ kind: 'ticket', id: 'ticket' }); });
+      const t0 = performance.now();
+      act(() => { o.store.setReader(CONVO); });
+      times.push(performance.now() - t0);
+    }
+    // The hard check everywhere: each open looks inside each note's own message once, never more.
+    expect(blockSearches.count - searched).toBeLessThanOrEqual(3 * 5);
+    console.info(`[timing] 200-item conversation with 3 notes, five opens: ${times.map((t) => t.toFixed(1)).join(', ')} ms`);
+    expect(best(times)).toBeLessThan(limit);
+    await settle();
+    expect(reader().querySelectorAll('[data-pt-noted]')).toHaveLength(3);
+    // New lines land five times: the view draws again each time; no block is searched for again.
+    const before = blockSearches.count;
+    for (let k = 0; k < 5; k++) {
+      const next = JSON.parse(JSON.stringify(o.store.getState().payload)) as JobPagePayload;
+      next.v += 1;
+      next.thread.push({ id: `small:x${k}`, kind: 'small', at: '2026-11-04T16:00:00.000Z', step: 'review', headline: `A small event ${k}`, mine: false, hash: `x${k}` });
+      await o.serve(next);
+    }
+    expect(blockSearches.count - before).toBe(0);
+    expect(reader().querySelectorAll('[data-pt-noted]')).toHaveLength(3);
+  });
+
+  it('a long document (1,200 paragraphs) with five notes near its end opens under 100 ms; notes marked', async () => {
+    const html = Array.from({ length: 1200 }, (_, i) => `<p>Paragraph ${i + 1}: the crew schedule export keeps the week in order for the office, line ${i + 1}.</p>`).join('');
+    const long: JobBody = { id: PLAN, kind: 'doc', version: String(longJob200.bodies[PLAN]?.meta.hash ?? PLAN), text: '# Long', meta: {}, html };
+    const o = await opened({ bodies: { [PLAN]: long } });
+    await settle();
+    const s = o.store.getState();
+    const ends = [1196, 1197, 1198, 1199, 1200].map((n) => para(`Paragraph ${n}:`));
+    act(() => { o.store.setNotes(ends.map((p, i) => ({ n: i + 1, kind: 'drop' as const, note: '', ...describeBlock(p, { kind: 'doc', id: PLAN }, s), block: { ...describeBlock(p, { kind: 'doc', id: PLAN }, s).block, at: roughIndex(host(), p) } }))); });
+    const times: number[] = [];
+    const searched = blockSearches.count;
+    for (let i = 0; i < 5; i++) {
+      act(() => { o.store.setReader({ kind: 'ticket', id: 'ticket' }); });
+      const t0 = performance.now();
+      act(() => { o.store.setReader({ kind: 'doc', id: PLAN }); });
+      times.push(performance.now() - t0);
+    }
+    // The hard check everywhere: each note's block is found where it was, with no search of the document.
+    expect(blockSearches.count - searched).toBe(0);
+    console.info(`[timing] 1,200-paragraph document with 5 notes, five opens: ${times.map((t) => t.toFixed(1)).join(', ')} ms`);
+    expect(best(times)).toBeLessThan(limit);
+    await settle();
+    expect(reader().querySelectorAll('[data-pt-noted]')).toHaveLength(5);
   });
 });

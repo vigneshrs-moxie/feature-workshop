@@ -811,7 +811,7 @@ describe('job store: notes survive a reload (Task 17, R4)', () => {
     const drafts = memory();
     drafts.write(notesKey(SLUG), '{not json');
     expect(createJobStore(SLUG, { api: server().api, events: stream().events, drafts }).getState().ui.notes).toEqual([]);
-    drafts.write(notesKey(SLUG), JSON.stringify({ notes: [NOTE, { n: 'x' }], explains: 'no' }));
+    drafts.write(notesKey(SLUG), JSON.stringify({ notes: [NOTE, { n: 'x' }, { ...NOTE, n: 9, kind: 'remove' }], explains: 'no' }));
     const store = createJobStore(SLUG, { api: server().api, events: stream().events, drafts });
     expect(store.getState().ui.notes).toEqual([NOTE]);
     expect(store.getState().explains).toEqual([]);

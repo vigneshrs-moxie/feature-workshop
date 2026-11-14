@@ -478,14 +478,15 @@ export const MessageBox = memo(function MessageBox({ boxRef, onOpen }: MessageBo
       Stop it and send now
     </Button>
   );
-  /** A picture pasted into the box (⌘V) opens in the reader to pin on (R4). */
+  /** A picture pasted into the box (⌘V) opens in the reader to pin on (R4); on the laptop it is saved in the job's folder first. */
   function onPaste(e: ClipboardEvent<HTMLTextAreaElement>) {
     const file = pastedPicture(e.clipboardData);
     if (!file) return;
     e.preventDefault();
-    void keepPasted(slug, file).then(
-      (id) => onOpen?.({ kind: 'picture', id }, boxRef.current),
-      () => setLine({ words: 'Couldn’t keep that picture. Try pasting it again.', problem: true }),
+    setLine({ words: 'Saving the picture…', problem: false });
+    void keepPasted(slug, file, hosted || api.hosted?.() ? null : api).then(
+      (id) => { setLine(null); onOpen?.({ kind: 'picture', id }, boxRef.current); },
+      (err) => setLine({ words: `Couldn’t keep that picture: ${err instanceof TypeError ? UNREACHABLE : err instanceof Error ? err.message : String(err)}`, problem: true }),
     );
   }
 

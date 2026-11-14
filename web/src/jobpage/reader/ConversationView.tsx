@@ -36,11 +36,16 @@
 // on, only ever forward, to the newest line that has been in view, so the job row's `· N new` counts
 // only what he has not had on screen (a message that arrives while he reads higher up stays new).
 // The `New` line keeps to his look from before this view.
+//
+// `Keep as an ask` (R6): on a laptop, hovering (or tabbing to) a message he sent shows it over the
+// line's time; it keeps the message's words in this browser (asks.ts, sb.asks.kept) and ⌘K lists them
+// under Yours.
 
 import { createContext, memo, useCallback, useContext, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from 'react';
 import { Button } from '../../components/Button';
 import { Icon } from '../../components/Icon';
 import { readStored, useStored, writeStored } from '../../lib/stored';
+import { keepAsk } from '../asks';
 import { freshCount, seenKey } from '../left/JobRows';
 import type { ReaderTarget, StepRow, StopId, ThreadLine } from '../types';
 import { useJob, useJobStore } from '../useJob';
@@ -567,10 +572,33 @@ const Item = memo(function Item({ line: l, open, onToggle, onOpen }: ItemProps) 
         <span className="jp2-cv-h">{brief ? <><b>{brief[1]}</b>{brief[2]}</> : l.headline}</span>
         {l.at && <time dateTime={l.at}>{timeWords(l.at)}</time>}
       </button>
+      {l.kind === 'you' && l.by !== 'auto' && <KeepAsk line={l} />}
       {open && <ItemBody line={l} onOpen={onOpen} />}
     </li>
   );
 });
+
+/** Keep a message he sent as an ask (R6): its full words, or its line when the body cannot be read. */
+function KeepAsk({ line }: { line: ThreadLine }) {
+  const store = useJobStore();
+  const [kept, setKept] = useState<null | 'kept' | 'already'>(null);
+  async function keep() {
+    const body = store.getState().bodies[line.id] ?? await store.loadBody(line.id).catch(() => null);
+    const text = body?.text?.trim() || line.headline;
+    setKept(keepAsk(text) ? 'kept' : 'already');
+  }
+  return (
+    <Button
+      kind="quiet"
+      size="sm"
+      className={`jp2-cv-keep${kept ? ' is-kept' : ''}`}
+      onClick={() => void keep()}
+      title="Keep this message as an ask: ⌘K lists it under Yours, and one click sends the same words again."
+    >
+      {kept === 'kept' ? 'Kept: in ⌘K under Yours' : kept === 'already' ? 'Already kept' : 'Keep as an ask'}
+    </Button>
+  );
+}
 
 /** An open item's full text, under its line; nothing (no reserved height) until it lands. */
 function ItemBody({ line, onOpen }: { line: ThreadLine; onOpen: ItemProps['onOpen'] }) {

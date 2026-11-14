@@ -99,6 +99,7 @@ export const KEYS = {
   'jp-ticket': { keys: ['g t'], label: 'Open the ticket and goal', scope: 'jobpage' },
   'jp-write': { keys: ['c', 'i'], label: 'Put the cursor in the message box', scope: 'jobpage' },
   'jp-note': { keys: ['n'], label: 'Add a note on the part under the pointer: Change, Drop this or Explain', scope: 'jobpage', where: 'In the reader, with the pointer on a block. Notes and options are in the ⋯ menu.' },
+  'jp-palette': { keys: ['Mod+K'], label: 'Asks and places: everyday requests to the Foreman, and the page’s places', scope: 'jobpage', where: 'On a laptop; on the phone, and on other pages, ⌘K is every action. Every action is also its last row.', always: true },
   // Your move (jobpage/left/YourMove.tsx)
   'jp-go': { keys: ['Mod+Enter'], label: 'Go: send the picks shown', scope: 'jobpage', where: 'While Your move waits for your yes; from anywhere on the page, the message box too.', always: true },
   'jp-yes': { keys: ['a'], label: 'Go, or Allow once', scope: 'jobpage', where: 'While Your move waits for your yes. Never allows a hard line or a risky step.' },

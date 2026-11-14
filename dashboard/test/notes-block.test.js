@@ -100,3 +100,10 @@ test('the answer of an explain note is read from the end of the Foreman’s repl
   assert.equal(answer('--- Notes answered ---\n1. not done · step 4 is no longer in Plan v3\n--- End ---'), null);
   assert.equal(answer(null), null);
 });
+
+test('the cut never splits a character in two (an emoji at the cut stays whole or goes)', () => {
+  const s = `${'a'.repeat(298)}😀😀😀`;
+  const out = cutQuote(s);
+  assert.equal(out, `${'a'.repeat(298)}😀…`);
+  assert.ok(!/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(out), 'no lone half of a pair');
+});

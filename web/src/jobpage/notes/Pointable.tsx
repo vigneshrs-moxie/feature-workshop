@@ -27,7 +27,7 @@ import { useKeyScope } from '../../app/keyRegistry';
 import { readHref, replaceHash } from '../../app/router';
 import { Button } from '../../components/Button';
 import { useWorkshop } from '../../state/store';
-import { parseAnswered } from '../../../../dashboard/lib/notes-block.js';
+import { parseAnswered, parseNotes } from '../../../../dashboard/lib/notes-block.js';
 import type { BlockAnchor, Explained, JobPageState } from '../jobStore';
 import { sendRefusal } from '../left/MessageBox';
 import { setPick } from '../reader/branch';
@@ -44,6 +44,10 @@ const PROSE_BLOCK = 'p, li, h1, h2, h3, h4, h5, h6, tr, pre, blockquote';
 const OWN_BLOCK = '.jp2-dl:not(.is-hunk), .jp2-fd, .jp2-fd-flat, .jp2-rec-r, .jp2-dec';
 /** Every block a note can be on (for finding one again by its words; diff lines go by their key). */
 const CANDIDATES = ['.jp2-fd, .jp2-fd-flat, .jp2-rec-r, .jp2-dec', ...PROSE_BLOCK.split(', ').map((t) => `.jp2-prose ${t}`)].join(', ');
+/** The same, cheaply (plain tags and classes): a block's place in this list is kept with its note (BlockAnchor.at). */
+const ROUGH = `${PROSE_BLOCK}, .jp2-fd, .jp2-fd-flat, .jp2-rec-r, .jp2-dec`;
+/** A block's place among the reader's rough blocks. */
+export const roughIndex = (root: ParentNode, el: Element) => [...root.querySelectorAll(ROUGH)].indexOf(el);
 const SKIP = '[data-pt-skip], .jp2-cv-line, .jp2-doc-ol, .jp2-rv-top, input, textarea, select';
 
 /** The block an element is in, or null (outside any, or in the page's own controls). */
@@ -231,9 +235,13 @@ export function describeBlock(b: HTMLElement, view: ReaderTarget, s: JobPageStat
 }
 
 /** A note's block in a view, by its key or its words; null when it is not there (now). */
+/** How many times a reader was searched for a block (tests: a re-render with notes present searches nothing). */
+export const blockSearches = { count: 0 };
+
 export function findBlock(root: ParentNode, note: { target: ReaderTarget | null; block?: BlockAnchor | null }): HTMLElement | null {
   const a = note.block;
   if (!a) return null;
+  blockSearches.count++;
   if (a.key?.startsWith('dl:')) {
     const [, sha, ...rest] = a.key.split(':');
     const ln = rest.pop() ?? '';
@@ -245,12 +253,50 @@ export function findBlock(root: ParentNode, note: { target: ReaderTarget | null;
   }
   const t = note.target;
   const scope = t && (t.kind === 'message' || t.kind === 'brief') ? root.querySelector(`.jp2-cv-item[data-id="${CSS.escape(t.id)}"]`) ?? root : root;
-  const want = a.text;
+  return blocksByWords(scope).get(a.text) ?? null;
+}
+
+/** Every block in a part of the reader by its words (the first 300), the first of equal words kept. */
+export function blocksByWords(scope: ParentNode): Map<string, HTMLElement> {
+  const out = new Map<string, HTMLElement>();
   for (const el of scope.querySelectorAll<HTMLElement>(CANDIDATES)) {
-    const b = blockOf(el);
-    if (b === el && words(el).slice(0, 300) === want) return el;
+    // A paragraph inside a list item is that item, and a page control is never a block.
+    if (el.tagName === 'P' && el.parentElement?.tagName === 'LI') continue;
+    const w = words(el).slice(0, 300);
+    if (!out.has(w) && blockOf(el) === el) out.set(w, el);
   }
-  return null;
+  return out;
+}
+
+/**
+ * findBlock, remembered per note: a re-render finds the block it found last time with one check (still in
+ * the reader, still the same words), and a block not found is searched for again only when the reader's
+ * content changed (its element count). So with notes present a re-render costs one check per note.
+ */
+type Found = { el: HTMLElement | null; stamp: number };
+function findKept(kept: Map<string, Found>, root: HTMLElement, note: { target: ReaderTarget | null; block?: BlockAnchor | null }, key: string, pass: { index: Map<string, HTMLElement> | null; stamp: number | null }): HTMLElement | null {
+  const was = kept.get(key);
+  const a = note.block;
+  if (!a) return null;
+  if (was?.el && was.el.isConnected && root.contains(was.el) && (a.key ? true : words(was.el).slice(0, 300) === a.text)) return was.el;
+  pass.stamp ??= root.getElementsByTagName('*').length;
+  if (was && !was.el && was.stamp === pass.stamp) return null;
+  let el: HTMLElement | null = null;
+  const t = note.target;
+  // Where it was when he pointed at it, first: one look, not a search.
+  if (!a.key && typeof a.at === 'number' && a.at >= 0) {
+    const guess = root.querySelectorAll<HTMLElement>(ROUGH)[a.at];
+    if (guess && words(guess).slice(0, 300) === a.text && blockOf(guess) === guess) el = guess;
+  }
+  if (el) { /* found where it was */ }
+  else if (a.key || (t && (t.kind === 'message' || t.kind === 'brief'))) el = findBlock(root, note);
+  else {
+    // One look over the reader for every note this pass (not one per note).
+    if (!pass.index) { blockSearches.count++; pass.index = blocksByWords(root); }
+    el = pass.index.get(a.text) ?? null;
+  }
+  kept.set(key, { el, stamp: pass.stamp });
+  return el;
 }
 
 // ---------- Where things sit ----------
@@ -274,8 +320,11 @@ const onPhone = (el: Element | null) => Boolean(el?.closest('.jp2[data-layout="p
 const ACTIVE = new Set(['starting', 'running', 'waiting_permission', 'stopping']);
 
 /**
- * Reads each Explain's answer from the Foreman's reply after it (once the reply has ended), and keeps
- * it with the Explain. The message box calls it, so answers are read wherever he is on the page.
+ * Reads each Explain's answer and keeps it with the Explain. The answer belongs to the Explain's own
+ * message: first his message after `after` that carries this [explain] note (a message that waited for
+ * a running reply comes after that reply, so the running reply is never taken for the answer), then the
+ * first reply after it, once it has ended (`1. done · explained · …`; a reply without the line says it
+ * answered in its words). The message box calls it, so answers are read wherever he is on the page.
  */
 export function useExplainAnswers() {
   const store = useJobStore();
@@ -288,8 +337,22 @@ export function useExplainAnswers() {
     let off = false;
     void (async () => {
       for (const ex of open) {
-        const at = ex.after ? thread.findIndex((l) => l.id === ex.after) : -1;
-        if (ex.after && at < 0) continue;
+        let at = ex.sent ? thread.findIndex((l) => l.id === ex.sent) : -1;
+        if (at < 0) {
+          // His message that carried it.
+          const from = ex.after ? thread.findIndex((l) => l.id === ex.after) : -1;
+          if (ex.after && from < 0) continue;
+          for (let i = from + 1; i < thread.length; i++) {
+            const l = thread[i];
+            if (l.kind !== 'you' && !l.mine) continue;
+            const body = await store.loadBody(l.id);
+            if (off) return;
+            if (body && parseNotes(body.text).some((x) => x.kind === 'explain' && x.place === oneLine(ex.place))) { at = i; break; }
+          }
+          if (at < 0) continue;
+        }
+        const sent = thread[at].id;
+        let found: { answer: string | null; line: string } | null = null;
         for (let i = at + 1; i < thread.length; i++) {
           const l = thread[i];
           if (l.kind !== 'reply') continue;
@@ -298,10 +361,12 @@ export function useExplainAnswers() {
           const body = await store.loadBody(l.id);
           if (off || !body) return;
           // An Explain goes alone (Notes (1)): its answer is line 1 of the reply's answered block.
-          const answer = parseAnswered(body.text).find((a) => a.n === 1 && a.explained)?.what || null;
-          store.setExplains(store.getState().explains.map((e) => (e.n === ex.n ? { ...e, answer, line: l.id } : e)));
+          found = { answer: parseAnswered(body.text).find((a) => a.n === 1 && a.explained)?.what || null, line: l.id };
           break;
         }
+        if (off) return;
+        // One write per Explain: its message, and the answer once there is one.
+        if (found || ex.sent !== sent) store.setExplains(store.getState().explains.map((e) => (e.n === ex.n ? { ...e, sent, ...(found ?? {}) } : e)));
       }
     })();
     return () => { off = true; };
@@ -339,7 +404,8 @@ export function Pointable({ hostRef, place, ready, children }: PointableProps) {
   const [lost, setLost] = useState<{ words: string; top: number } | null>(null);
   const [margins, setMargins] = useState<{ ex: Explained; top: number; left: number; side: boolean }[]>([]);
   const [tick, setTick] = useState(0);
-  const [refused, setRefused] = useState<Record<number, string>>({});
+  /** Explains the server refused: never kept (nothing was sent), shown with why and Ask again until closed. */
+  const [refused, setRefused] = useState<(Explained & { why: string })[]>([]);
   const notes = useJob((s) => s.ui.notes);
   const explains = useJob((s) => s.explains);
   const seek = useJob((s) => s.seek);
@@ -354,6 +420,8 @@ export function Pointable({ hostRef, place, ready, children }: PointableProps) {
   useEffect(() => { if (someNotes && !attached) setAttached(true); }, [someNotes, attached]);
   /** Marks set by the last pass (none: nothing to take off). */
   const marked = useRef(false);
+  /** Each note's block as last found (findKept). */
+  const kept = useRef(new Map<string, Found>());
 
   // The `+` goes while an inner column (the diff) scrolls, or the pointer leaves the reader; a width change places the margin notes again.
   useEffect(() => {
@@ -372,6 +440,7 @@ export function Pointable({ hostRef, place, ready, children }: PointableProps) {
     const h = host();
     const spot = describeBlock(el, view, store.getState());
     if (quote) spot.quote = oneLine(quote);
+    if (h && !spot.block.key) spot.block.at = roughIndex(h, el);
     const sheet = onPhone(el);
     let at: Open['at'] = null;
     if (h && !sheet) {
@@ -447,13 +516,14 @@ export function Pointable({ hostRef, place, ready, children }: PointableProps) {
   });
 
   /** Ask the Foreman at once; the margin note says it is asked, then shows the answer. */
-  async function explain(spot: Spot, words: string) {
+  async function explain(spot: { target: ReaderTarget | null; place: string; quote: string | null; block: BlockAnchor | null }, words: string) {
     const s = store.getState();
     const after = s.payload?.thread.at(-1)?.id ?? null;
-    const ex: Omit<Explained, 'n'> = { target: spot.target, place: spot.place, quote: spot.quote, block: spot.block, after, answer: null, line: null };
-    const n = nextNoteN(s.ui.notes, s.explains);
-    store.setExplains([...s.explains, { ...ex, n }]);
-    const text = composeFor([{ n, kind: 'explain', target: spot.target, place: spot.place, chip: spot.chip, quote: spot.quote, note: words }], '');
+    const n = nextNoteN(s.ui.notes, [...s.explains, ...refused]);
+    const ex: Explained = { n, target: spot.target, place: spot.place, quote: spot.quote, block: spot.block, after, answer: null, line: null, sent: null };
+    store.setExplains([...s.explains, ex]);
+    setRefused((r) => r.filter((x) => x.place !== spot.place));
+    const text = composeFor([{ n, kind: 'explain', target: spot.target, place: spot.place, chip: '', quote: spot.quote, note: words }], '');
     const path = `/api/job/${encodeURIComponent(slug)}/send`;
     try {
       try {
@@ -464,7 +534,9 @@ export function Pointable({ hostRef, place, ready, children }: PointableProps) {
         await api.post(path, { kind: 'message', text, queue: true });
       }
     } catch (err) {
-      setRefused((r) => ({ ...r, [n]: sendRefusal(err).replace('Your words are back in the box; send them', 'Ask again') }));
+      // Not sent: it is not kept (a reload never shows it as asked), and says why here, with Ask again.
+      store.setExplains(store.getState().explains.filter((e) => e.n !== n));
+      setRefused((r) => [...r, { ...ex, why: sendRefusal(err).replace(' Your words are back in the box; send them once it resets.', '').replace(/ Your words are back in the box[^.]*\./, '') }]);
     }
   }
 
@@ -482,18 +554,19 @@ export function Pointable({ hostRef, place, ready, children }: PointableProps) {
     const root = host();
     const h = root;
     if (!root || !h) return;
-    if (!marked.current && !notes.length && !explains.length) { setMargins((was) => (was.length ? [] : was)); return; }
+    if (!marked.current && !notes.length && !explains.length && !refused.length) { setMargins((was) => (was.length ? [] : was)); return; }
     for (const el of root.querySelectorAll('[data-pt-noted]')) el.removeAttribute('data-pt-noted');
     marked.current = false;
+    const pass = { index: null as Map<string, HTMLElement> | null, stamp: null as number | null };
     for (const n of notes) {
       if (!inView(n.target, view) || n.kind === 'pin') continue;
-      const b = findBlock(root, n);
+      const b = findKept(kept.current, root, n, `n${n.n}`, pass);
       if (b) { b.setAttribute('data-pt-noted', ''); marked.current = true; }
     }
     const shown: typeof margins = [];
-    for (const ex of explains) {
+    for (const ex of [...explains, ...refused]) {
       if (!inView(ex.target, view)) continue;
-      const b = findBlock(root, ex);
+      const b = findKept(kept.current, root, ex, `e${ex.n}`, pass);
       if (!b) continue;
       const box = boxIn(b, h);
       const prose = b.closest('.jp2-prose');
@@ -503,7 +576,7 @@ export function Pointable({ hostRef, place, ready, children }: PointableProps) {
       shown.push(side ? { ex, top: box.top, left: right + 24, side } : { ex, top: box.top + box.height + 4, left: Math.max(8, box.left), side });
     }
     setMargins((was) => (was.length === shown.length && was.every((m, i) => m.ex === shown[i].ex && m.top === shown[i].top && m.left === shown[i].left) ? was : shown));
-  }, [children, notes, explains, view, tick, ready, attached]);
+  }, [children, notes, explains, refused, view, tick, ready, attached]);
 
   // A chip asked for its place: open → scroll to the block and flash it; not there → say so.
   useLayoutEffect(() => {
@@ -548,7 +621,7 @@ export function Pointable({ hostRef, place, ready, children }: PointableProps) {
 
   const dropExplain = (n: number) => {
     store.setExplains(store.getState().explains.filter((e) => e.n !== n));
-    setRefused((r) => { const x = { ...r }; delete x[n]; return x; });
+    setRefused((r) => r.filter((x) => x.n !== n));
   };
   const openReply = (id: string) => {
     const t: ReaderTarget = { kind: 'message', id };
@@ -595,8 +668,12 @@ export function Pointable({ hostRef, place, ready, children }: PointableProps) {
             Explain · the Foreman
             <Button kind="quiet" size="sm" icon="x" iconOnly aria-label="Close this answer" title="Close this answer." onClick={() => dropExplain(ex.n)} />
           </p>
-          {refused[ex.n] ? <p className="jp2-pt-mnote-no" role="alert">{refused[ex.n]}</p>
-            : ex.answer ? <p>{ex.answer}</p>
+          {'why' in ex ? (
+            <p className="jp2-pt-mnote-no" role="alert">
+              {String(ex.why)}{' '}
+              <button type="button" className="link-button" onClick={() => void explain(ex, '')}>Ask again</button>
+            </p>
+          ) : ex.answer ? <p>{ex.answer}</p>
               : ex.line ? <p>The Foreman answered in its reply. <button type="button" className="link-button" onClick={() => openReply(ex.line!)}>Read the reply</button></p>
                 : <p className="jp2-dim">Asked. The answer opens here when the Foreman replies.</p>}
         </aside>

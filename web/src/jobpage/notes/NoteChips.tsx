@@ -10,7 +10,9 @@ import type { PageNote } from '../jobStore';
 import type { ReaderTarget } from '../types';
 import { useJob, useJobStore } from '../useJob';
 import { bodyToRead, chipWords, composeFor, goneFrom } from './chips';
+import { adoptPasted } from './Pins';
 import { useExplainAnswers } from './Pointable';
+import { useWorkshop } from '../../state/store';
 
 export interface NoteChipsProps {
   onOpen?(t: ReaderTarget, from?: HTMLElement | null): void;
@@ -21,6 +23,14 @@ export const NoteChips = memo(function NoteChips({ onOpen }: NoteChipsProps) {
   const notes = useJob((s) => s.ui.notes);
   // Explains' answers are read here, so they land wherever he is on the page.
   useExplainAnswers();
+  // Pictures an earlier build kept in this browser go to the job's folder (laptop only), once per page.
+  const { api } = useWorkshop();
+  const hosted = useJob((s) => s.payload?.hosted === true);
+  const hasPayload = useJob((s) => s.payload !== null);
+  useEffect(() => {
+    if (!hasPayload || hosted || api.hosted?.()) return;
+    void adoptPasted(store.getState().slug, api, store);
+  }, [store, api, hosted, hasPayload]);
   const [shown, setShown] = useState(false);
   const id = useId();
   useEffect(() => { if (!notes.length) setShown(false); }, [notes.length]);

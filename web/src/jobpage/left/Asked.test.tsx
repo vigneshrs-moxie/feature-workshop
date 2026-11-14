@@ -101,6 +101,6 @@ describe('What you asked', () => {
     const card = ym.querySelector('.jp2-card')!;
     expect(card).not.toBeNull();
     expect(card.compareDocumentPosition(asked()!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getByRole('button', { name: /^Go/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /^Go(?! faster)/ })).toBeTruthy();
   });
 });

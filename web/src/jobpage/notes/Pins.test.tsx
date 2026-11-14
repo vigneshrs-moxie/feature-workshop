@@ -14,7 +14,7 @@ import { ChecksView } from '../reader/ChecksView';
 import type { JobBody, JobPagePayload } from '../types';
 import { JobStoreContext } from '../useJob';
 import { composeFor } from './chips';
-import { clock, readPasted } from './Pins';
+import { clock } from './Pins';
 
 const SLUG = longJob.payload.slug;
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
@@ -98,23 +98,69 @@ describe('pins on the recording', () => {
 });
 
 describe('a pasted picture', () => {
-  it('pasting a picture into the message box opens it in the reader to pin on; its pin goes as a note', async () => {
-    const o = openNotes({ read: null, patch: (p) => { p.move = null; } });
-    await settle();
+  const NAME = `${'c'.repeat(64)}.png`;
+  /** The laptop's client: a picture is saved in the job's folder, any other post answers as a send. */
+  const laptopPost = () => vi.fn(async (path: string, _body?: unknown) => (path.endsWith('/pictures') ? { path: `pictures/${NAME}`, size: 4 } : { run: { id: 'r1' } }));
+  const paste = async () => {
     const file = new File([new Uint8Array([137, 80, 78, 71])], 'shot.png', { type: 'image/png' });
     await act(async () => {
       fireEvent.paste(box(), { clipboardData: { items: [{ kind: 'file', type: 'image/png', getAsFile: () => file }] } });
       await new Promise((r) => setTimeout(r, 20));
     });
     await settle();
-    expect(reader().querySelector('.jp2-rv-top h2')).toHaveTextContent('Pasted picture 1');
-    expect(reader().querySelector<HTMLImageElement>('.jp2-pins img')!.src).toMatch(/^data:image\/png/);
-    expect(readPasted(SLUG, 'p1')).toMatch(/^data:image\/png/);
+  };
+
+  it('on the laptop it is saved in the job’s folder, opens in the reader from there, and its pin names that file; nothing is kept in this browser', async () => {
+    const post = laptopPost();
+    const o = openNotes({ read: null, post, patch: (p) => { p.move = null; } });
+    await settle();
+    await paste();
+    const call = post.mock.calls.find((c) => String(c[0]).endsWith('/pictures'))!;
+    expect(call[0]).toBe(`/api/job/${SLUG}/pictures`);
+    expect((call[1] as { data: string }).data).toBe('iVBORw==');
+    expect(reader().querySelector('.jp2-rv-top h2')).toHaveTextContent('Pasted picture');
+    expect(reader().querySelector<HTMLImageElement>('.jp2-pins img')!.getAttribute('src')).toBe(`/api/job/${SLUG}/pictures/${NAME}`);
+    expect(Object.keys(localStorage).filter((k) => k.startsWith('sb.pasted.'))).toEqual([]);
     act(() => { fireEvent.click(hit()); });
     fireEvent.change(within(pinBox()).getByRole('textbox'), { target: { value: 'this button is cut off' } });
     act(() => { fireEvent.click(within(pinBox()).getByRole('button', { name: 'Add the note' })); });
-    expect(chipText()).toEqual(['Pasted picture 1 · pin 1']);
+    expect(chipText()).toEqual(['Pasted picture · pin 1']);
+    expect(composeFor(o.store.getState().ui.notes, '')).toContain(`1. [pin] Pasted picture (pictures/${NAME} in the job’s folder) · pin 1 at 50% across, 50% down`);
+  });
+
+  it('a refused save says why in the message box and opens nothing', async () => {
+    const { ApiError } = await import('../../api/client');
+    const post = vi.fn(async () => { throw new ApiError(415, 'Only a PNG, JPEG, WebP or GIF picture can be saved.', {}); });
+    openNotes({ read: null, post, patch: (p) => { p.move = null; } });
+    await settle();
+    await paste();
+    expect(document.querySelector('.jp2-mbw')).toHaveTextContent('Couldn’t keep that picture: Only a PNG, JPEG, WebP or GIF picture can be saved.');
+    expect(reader().querySelector('.jp2-pins img')).toBeNull();
+  });
+
+  it('on the website it stays in this tab, and its pin says the Foreman can’t open it', async () => {
+    const o = openNotes({ read: null, patch: (p) => { p.move = null; p.hosted = true; } });
+    await settle();
+    await paste();
+    expect(o.post).not.toHaveBeenCalled();
+    expect(reader().querySelector<HTMLImageElement>('.jp2-pins img')!.src).toMatch(/^data:image\/png/);
+    expect(Object.keys(localStorage).filter((k) => k.startsWith('sb.pasted.'))).toEqual([]);
+    act(() => { fireEvent.click(hit()); });
+    fireEvent.change(within(pinBox()).getByRole('textbox'), { target: { value: 'cut off' } });
+    act(() => { fireEvent.click(within(pinBox()).getByRole('button', { name: 'Add the note' })); });
     expect(composeFor(o.store.getState().ui.notes, '')).toContain('1. [pin] Pasted picture 1 (it stays in his browser: you can’t open it) · pin 1 at 50% across, 50% down');
+  });
+
+  it('a picture an earlier build kept in this browser goes to the job’s folder, its notes now name the file, and the browser’s copy goes', async () => {
+    localStorage.setItem(`sb.pasted.${SLUG}.p1`, 'data:image/png;base64,iVBORw==');
+    localStorage.setItem(`sb.notes.${SLUG}`, JSON.stringify({ explains: [], notes: [{ n: 1, kind: 'pin', target: { kind: 'picture', id: 'p1' }, place: 'Pasted picture 1 (it stays in his browser: you can’t open it)', chip: 'Pasted picture 1', quote: null, note: 'cut off', pin: { n: 1, x: 10, y: 20, picture: 'pasted:p1' } }] }));
+    const post = laptopPost();
+    const o = openNotes({ read: null, post, patch: (p) => { p.move = null; } });
+    await settle();
+    await settle();
+    expect(post).toHaveBeenCalledWith(`/api/job/${SLUG}/pictures`, { data: 'iVBORw==' });
+    expect(localStorage.getItem(`sb.pasted.${SLUG}.p1`)).toBeNull();
+    expect(o.store.getState().ui.notes[0]).toMatchObject({ target: { kind: 'picture', id: NAME }, place: `Pasted picture (pictures/${NAME} in the job’s folder)`, pin: { picture: `pasted:${NAME}` } });
   });
 
   it('a paste with only words stays a paste of words', async () => {

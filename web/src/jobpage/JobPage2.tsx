@@ -29,7 +29,9 @@
 // [ ] the step before and after; j k the next and previous line on the left (in the conversation, its
 // lines, when that is where he is); Enter opens that line;
 // / searches the conversation; g c the conversation; g t the ticket and goal; c i the message box;
-// n adds a note on the block under the pointer (notes/Pointable.tsx registers it). Their other meanings come back when the page goes.
+// n adds a note on the block under the pointer (notes/Pointable.tsx registers it); ⌘K the asks and
+// places (Palette.tsx; on the phone ⌘K stays the app's). Their other meanings come back when the page goes.
+// The asks row (left/AsksRow.tsx) sits above the message box; it and ⌘K share one runner.
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
@@ -48,11 +50,13 @@ import { CONVERSATION, DECISIONS, DETAILS, TICKET } from './targets';
 import type { JobPagePayload, ReaderTarget, StopId } from './types';
 import { Header } from './left/Header';
 import { JobRows } from './left/JobRows';
+import { AsksRow, useAskRunner } from './left/AsksRow';
 import { MessageBox } from './left/MessageBox';
 import { Steps, stepsFromRow } from './left/Steps';
 import { YourMove } from './left/YourMove';
 import { stepLine } from './reader/ConversationView';
 import { Reader } from './reader/Reader';
+import { Palette } from './Palette';
 import { JobStoreContext, useJob, useJobStore } from './useJob';
 import './jobpage.css';
 
@@ -146,6 +150,8 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
   const reader = useRef<HTMLElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   const search = useRef<HTMLInputElement>(null);
+  /** The asks' runner: the row and ⌘K send through it (R6). */
+  const asks = useAskRunner(box);
   /** The control that opened the reader, for the back row to give the focus back to. */
   const opener = useRef<HTMLElement | null>(null);
   const single = layout !== 'wide';
@@ -319,6 +325,7 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
             {/* Tasks 20 and 21: the phone's PR line goes here, ending in `Comments · 3 new` (it opens the PR view). */}
             <JobRows cursor={cursor} first={lines.findIndex((l) => l.target)} onOpen={pickReader} />
           </div>
+          <AsksRow runner={asks} job={job} phone={phone} />
           <MessageBox boxRef={box} onOpen={pickReader} />
         </div>
         {screenNow === 'step' && step && <PhoneStep id={step} job={job} onBack={moves.back} onOpen={pickReader} />}
@@ -344,6 +351,7 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
           <Reader fallback={job?.title ?? ''} searchRef={search} onOpen={pickReader} />
         </section>
       </div>
+      <Palette runner={asks} job={job} phone={phone} onStep={openStep} onOpen={pickReader} />
     </main>
   );
 }

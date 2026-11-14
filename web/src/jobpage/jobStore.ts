@@ -51,8 +51,10 @@ export interface BlockAnchor {
   version: string | null;
   /** The body's text hash when it was pointed at (a document's), else null. */
   hash: string | null;
-  /** A block that is not found by its words (a diff line): its own key (notes/Pointable.tsx keyOf). */
+  /** A block that is not found by its words (a diff line): its own key (notes/Pointable.tsx). */
   key?: string | null;
+  /** Where it was among the reader's blocks when pointed at: looked at first when finding it again. */
+  at?: number;
 }
 
 /** A note pinned to something on the page (R4, Task 17): it goes in the notes block (notes/chips.ts). */
@@ -82,8 +84,10 @@ export interface Explained {
   place: string;
   quote: string | null;
   block: BlockAnchor | null;
-  /** The last conversation line when it was sent: the answer is in a reply after it. */
+  /** The last conversation line when it was sent: his message carrying it comes after it. */
   after: string | null;
+  /** His message that carried it (a conversation line), once found: the answer is in the reply after it. */
+  sent?: string | null;
   /** The answer once read; `line`: the reply that had it (or that answered without the block). */
   answer: string | null;
   line: string | null;
@@ -184,7 +188,9 @@ export const draftKey = (slug: string) => `fw.draft.${slug}`;
 /** This page's key for a job's notes not sent yet and the Explains sent (R4): { notes, explains }. */
 export const notesKey = (slug: string) => `sb.notes.${slug}`;
 
-const isNote = (x: unknown): x is PageNote => isObject(x) && typeof x.n === 'number' && typeof x.kind === 'string' && typeof x.place === 'string' && typeof x.chip === 'string' && typeof x.note === 'string';
+/** The kinds a kept note may have (a stored note of any other kind would make composing it throw). */
+const KINDS: readonly string[] = ['change', 'drop', 'explain', 'pin'];
+const isNote = (x: unknown): x is PageNote => isObject(x) && typeof x.n === 'number' && typeof x.kind === 'string' && KINDS.includes(x.kind) && typeof x.place === 'string' && typeof x.chip === 'string' && typeof x.note === 'string';
 const isExplained = (x: unknown): x is Explained => isObject(x) && typeof x.n === 'number' && typeof x.place === 'string';
 
 /** The notes and Explains kept for a job, or none (anything unreadable is left out). */

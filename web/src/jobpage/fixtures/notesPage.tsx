@@ -8,7 +8,7 @@ import { createStore, WorkshopContext } from '../../state/store';
 import { browserDrafts, createJobStore, type JobStore } from '../jobStore';
 import { JobPage2 } from '../JobPage2';
 import type { JobBody, JobPagePayload, ReaderTarget } from '../types';
-import { longJob } from './longJob';
+import { longJob, type LongJobFixture } from './longJob';
 
 export const SLUG = longJob.payload.slug;
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
@@ -16,9 +16,11 @@ export const payload = () => clone(longJob.payload) as unknown as JobPagePayload
 export const PLAN = 'implementation-plan.md';
 
 /** A held body as the item route answers it. */
-export const bodyOf = (id: string): JobBody | undefined => {
-  const b = longJob.bodies[id];
-  return b ? { ...b, version: String(b.meta.hash ?? b.id) } : undefined;
+export const bodyOf = (id: string, job: LongJobFixture = longJob): JobBody | undefined => {
+  const b = job.bodies[id];
+  // A conversation item's body is current at its line's hash (the store drops one that isn't).
+  const line = job.payload.thread.find((l) => l.id === id);
+  return b ? { ...b, version: line?.hash ?? String(b.meta.hash ?? b.id) } : undefined;
 };
 
 export type Post = ReturnType<typeof vi.fn>;
@@ -33,18 +35,19 @@ export interface NotesPage {
 }
 
 /** The page, reading `read` in the reader, with a store kept in this browser (drafts, notes). */
-export function openNotes({ read = { kind: 'doc', id: PLAN }, patch, post = okPost(), bodies = {} }: {
-  read?: ReaderTarget | null; patch?: (p: JobPagePayload) => void; post?: Post; bodies?: Record<string, JobBody>;
+export function openNotes({ read = { kind: 'doc', id: PLAN }, patch, post = okPost(), bodies = {}, job = longJob }: {
+  read?: ReaderTarget | null; patch?: (p: JobPagePayload) => void; post?: Post; bodies?: Record<string, JobBody>; job?: LongJobFixture;
 } = {}): NotesPage {
-  let current = payload();
+  let current = JSON.parse(JSON.stringify(job.payload)) as JobPagePayload;
   patch?.(current);
   let extra: Record<string, JobBody> = { ...bodies };
-  window.history.replaceState(null, '', `/#/job/${SLUG}`);
-  const store = createJobStore(SLUG, {
+  const slug = current.slug;
+  window.history.replaceState(null, '', `/#/job/${slug}`);
+  const store = createJobStore(slug, {
     api: {
       page: async (_slug: string, v: number | null) => (v === current.v ? { same: true as const, v } : current),
       item: async (_slug: string, id: string) => {
-        const b = extra[id] ?? bodyOf(id);
+        const b = extra[id] ?? bodyOf(id, job);
         if (!b) throw new Error('Not found (404).');
         return b;
       },
@@ -55,7 +58,7 @@ export function openNotes({ read = { kind: 'doc', id: PLAN }, patch, post = okPo
   const api = { get: vi.fn(async () => { throw new Error('not here'); }), post, hosted: () => false } as unknown as ApiClient;
   const utils = render(
     <WorkshopContext.Provider value={{ api, store: createStore() }}>
-      <UiProvider><JobPage2 slug={SLUG} job={null} store={store} /></UiProvider>
+      <UiProvider><JobPage2 slug={slug} job={null} store={store} /></UiProvider>
     </WorkshopContext.Provider>,
   );
   return {
