@@ -426,3 +426,13 @@ test('Task 14: findings and the Test step facts are bodies (ids findings, checks
   const moved = itemSources({ payload: { thread: [], steps: [] }, page: { ...page, review: { ...page.review, rows: rows.map((r) => ({ ...r, status: 'fixed' })) } }, render: renderMarkdown });
   assert.notEqual(moved.get('findings').version, f.version, 'a status that moved is a new version');
 });
+
+test('Task 14 fix round 1: the website’s findings say when the mirror kept only some rows', async () => {
+  const { findingsSource } = await import('../lib/job-payload-cache.js');
+  const rows = Array.from({ length: 30 }, (_, i) => ({ lens: null, severity: 'minor', text: `Finding ${i}`, status: 'fixed' }));
+  const cut = findingsSource({ review: { at: null, rows, cut: true, total: 41 } });
+  assert.equal(cut.meta.cut, true);
+  assert.equal(cut.meta.total, 41);
+  const whole = findingsSource({ review: { at: null, rows } });
+  assert.equal('cut' in whole.meta, false, 'nothing added when every row is there');
+});

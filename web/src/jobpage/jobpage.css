@@ -412,6 +412,7 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2-fd-more { padding: 4px 8px 10px 88px; }
 .jp2-fd-more p { margin: 0 0 6px; }
 .jp2-fd-none { margin: 0; padding: 6px 8px; font-size: 14px; color: var(--text-2); }
+.jp2-fd-cut { margin: 0 0 10px; font-size: 13px; line-height: 18px; color: var(--text-2); }
 .jp2-fd-rest { display: block; margin: 16px 8px 0; font-size: 14px; }
 .jp2-fd-lenses { margin: 6px 0 0; padding: 0 8px; list-style: none; }
 .jp2-fd-lenses li { padding: 2px 0; font-size: 13px; }

@@ -299,7 +299,8 @@ const count = (n) => (Number.isFinite(Number(n)) && Number(n) > 0 ? Math.floor(N
 /**
  * The reader's Findings (id 'findings'): the combined review's rows as lib/play.js reviewRows reads
  * them (its findingStatus says open, fixed or not-doing; nothing here decides a status again).
- * meta { at, known (review.md was read), rows [{ lens, severity, text, status }] }. Laptop and website alike.
+ * meta { at, known (review.md was read), rows [{ lens, severity, text, status }], and on the website when the
+ * mirror kept only some rows: cut: true, total }. Laptop and website alike.
  * @param {object|null|undefined} page the job's page facts (runner jobDetail.page, or the mirrored record's)
  */
 export function findingsSource(page) {
@@ -312,7 +313,9 @@ export function findingsSource(page) {
       text: r.text,
       status: FINDING_STATUS.has(r.status) ? r.status : 'open',
     }));
-  const meta = { at: typeof review?.at === 'string' ? review.at : null, known: Boolean(review), rows };
+  // The website's copy keeps 30 rows (runner/mirror.js marks it cut, with how many there were): say so.
+  const cut = review?.cut === true && Number.isFinite(Number(review.total)) ? { cut: true, total: Number(review.total) } : {};
+  const meta = { at: typeof review?.at === 'string' ? review.at : null, known: Boolean(review), rows, ...cut };
   const text = rows.map((r) => `- ${r.severity} · ${r.status} · ${r.text}`).join('\n');
   return { id: 'findings', kind: 'findings', version: hashOf(JSON.stringify(meta)), text, meta };
 }

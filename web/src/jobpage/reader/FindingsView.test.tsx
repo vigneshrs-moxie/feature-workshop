@@ -151,3 +151,39 @@ describe('Findings', () => {
     expect(rule('.jp2-fd-t')).toMatch(/text-overflow: ellipsis/);
   });
 });
+
+describe('Findings, fix round 1', () => {
+  it('on the website a cut list says how many of how many it shows', async () => {
+    const body = bodyWith([{ lens: null, severity: 'minor', text: 'One.', status: 'fixed' }]);
+    body.meta = { ...body.meta, cut: true, total: 41 };
+    open({ body });
+    await settle();
+    expect(document.querySelector('.jp2-fd-cut')!.textContent).toBe('This shows 1 of the 41 findings. All of them show on your laptop.');
+  });
+
+  it('an opened finding stays open when a new body puts another one above it', async () => {
+    const p = clone(longJob.payload) as unknown as JobPagePayload;
+    p.hashes = { ticket: null, decisions: null, findings: 'f1' };
+    let body = bodyWith([{ lens: null, severity: 'major', text: 'B is slow.', status: 'open' }]);
+    let served: JobPagePayload = p;
+    const store = createJobStore(SLUG, {
+      api: { page: async (_s: string, v: number | null) => (v === served.v ? { same: true as const, v } : served), item: async () => body },
+      events: () => () => {}, viewer: () => null, initial: p,
+    });
+    const api = { get: vi.fn(), post: vi.fn(), hosted: () => false } as unknown as ApiClient;
+    render(
+      <WorkshopContext.Provider value={{ api, store: createStore() }}>
+        <JobStoreContext.Provider value={store}><FindingsView onOpen={() => {}} /></JobStoreContext.Provider>
+      </WorkshopContext.Provider>,
+    );
+    await settle();
+    fireEvent.click(qa('.jp2-fd-line')[0]);
+    body = { ...bodyWith([{ lens: null, severity: 'blocker', text: 'A is wrong.', status: 'open' }, { lens: null, severity: 'major', text: 'B is slow.', status: 'open' }]), version: 'f2' };
+    served = { ...p, v: p.v + 1, hashes: { ticket: null, decisions: null, findings: 'f2' } };
+    await act(async () => { await store.loadPage(); });
+    await settle();
+    expect(qa('.jp2-fd-line')).toHaveLength(2);
+    expect(qa('.jp2-fd-line').map((l) => l.getAttribute('aria-expanded'))).toEqual(['false', 'true']);
+    expect(document.querySelector('.jp2-fd-more')!.textContent).toMatch(/B is slow\./);
+  });
+});

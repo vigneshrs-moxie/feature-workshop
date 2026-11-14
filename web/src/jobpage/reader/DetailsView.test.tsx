@@ -155,3 +155,22 @@ describe('Details', () => {
     expect(CSS).toMatch(/\.jp2-dt td\.jp2-num \{[^}]*text-align: right/);
   });
 });
+
+describe('Details, fix round 1', () => {
+  it('follows the store’s event test: a job-page event that names the job only in its data counts; on the website a change for no job counts', async () => {
+    const a = open();
+    await settle();
+    a.emit({ type: 'job-page', data: { slug: SLUG, v: 3 } } as unknown as Partial<LiveEvent>);
+    await settle();
+    expect(workAsks(a.get)).toBe(2);
+    a.view.unmount();
+    const b = open({ hosted: true });
+    await settle();
+    b.emit({ type: 'change', job: null, data: {} } as unknown as Partial<LiveEvent>);
+    await settle();
+    expect(workAsks(b.get)).toBe(2);
+    b.emit({ type: 'change', job: 'another-job', data: {} } as unknown as Partial<LiveEvent>);
+    await settle();
+    expect(workAsks(b.get)).toBe(2);
+  });
+});

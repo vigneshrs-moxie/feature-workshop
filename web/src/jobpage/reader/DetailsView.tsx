@@ -66,8 +66,13 @@ export function DetailsView({ events = onLiveEvent }: DetailsViewProps) {
   useEffect(() => {
     void read();
     return events((e) => {
-      if (!e || e.job !== slug) return;
-      if (e.type === 'job-page' || (hosted && e.type === 'thread')) void read();
+      // The same test as the page's store (jobStore onEvent): the event's job, else its data's slug; on the
+      // website a thread or change that names no job counts too.
+      if (!e) return;
+      const d = (e.data && typeof e.data === 'object' ? e.data : {}) as { slug?: unknown };
+      const job = e.job ?? d.slug ?? null;
+      if (e.type === 'job-page' && job === slug) void read();
+      else if (hosted && (e.type === 'thread' || e.type === 'change') && (job === slug || e.job === null)) void read();
     });
   }, [read, events, slug, hosted]);
 

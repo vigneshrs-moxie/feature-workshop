@@ -60,7 +60,8 @@ export function FindingsView({ onOpen }: FindingsViewProps) {
   const { body, error } = useBody('findings');
   const more = useJob(reviewMore);
   const [folds, setFolds] = useState<Record<string, boolean>>({});
-  const [open, setOpen] = useState<Set<number>>(() => new Set());
+  // Opened by its words, so a body that changes under him keeps the same finding open.
+  const [open, setOpen] = useState<Set<string>>(() => new Set());
   const toggle = (k: string) => setFolds((f) => ({ ...f, [k]: !f[k] }));
   if (!body) return <ReaderBody view="findings" place="findings:findings" ready={false}><NotLoaded error={error} /></ReaderBody>;
   const rows = rowsOf(body.meta);
@@ -78,10 +79,13 @@ export function FindingsView({ onOpen }: FindingsViewProps) {
   return (
     <ReaderBody view="findings" place="findings:findings">
       <div className="jp2-fds">
+        {body.meta?.cut === true && typeof body.meta.total === 'number' && (
+          <p className="jp2-fd-cut">{`This shows ${rows.length} of the ${body.meta.total} findings. All of them show on your laptop.`}</p>
+        )}
         <h3 className="jp2-fd-g">{`Open · ${opened.length}`}</h3>
         {opened.length === 0 && <p className="jp2-fd-none">Nothing open.</p>}
         {opened.map(({ r, i }) => (
-          <OpenRow key={i} r={r} open={open.has(i)} onToggle={() => setOpen((s) => { const n = new Set(s); if (n.has(i)) n.delete(i); else n.add(i); return n; })} />
+          <OpenRow key={`${r.text}\n${i}`} r={r} open={open.has(r.text)} onToggle={() => setOpen((s) => { const n = new Set(s); if (n.has(r.text)) n.delete(r.text); else n.add(r.text); return n; })} />
         ))}
         {fixed.length > 0 && <Fold label={`Fixed · ${fixed.length}`} open={!!folds.fixed} onToggle={() => toggle('fixed')} rows={fixed.map((x) => x.r)} />}
         {notDoing.length > 0 && <Fold label={`Not doing · ${notDoing.length}`} open={!!folds.notDoing} onToggle={() => toggle('notDoing')} rows={notDoing.map((x) => x.r)} />}
