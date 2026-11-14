@@ -112,11 +112,10 @@ import { WAITING_FILE, WaitingExists, WaitingMessages } from '../lib/queued.js';
 import { RESTART_TEXT, RESUME_KIND, replay, withRestartNotes } from './replay.js';
 import { removeServiceFile, writeServiceFile } from './service-file.js';
 import { createStacks } from './stacks.js';
-import { commentKey, itemSummary, lookAt, noteFeedback, readFeedback } from '../lib/pr-feedback.js';
-import { ReviewRefused, createReviewRounds, gitRead, readRounds } from '../lib/review-round.js';
+import { itemSummary, lookAt, noteFeedback, readFeedback } from '../lib/pr-feedback.js';
+import { ReviewRefused, createReviewRounds, gitRead } from '../lib/review-round.js';
 import { ACTION_NUDGE, prLines, readDue, tellMerges as tellMergesFor, unpushedOf } from '../lib/pr-lines.js';
-import { WriteRefused, createGhWrite, yes as ghYes } from '../lib/gh-write.js';
-import { askMessage, checkMessage, createPrComments, fixMessage, markCheck, markRows } from '../lib/pr-comments.js';
+import { createGhWrite } from '../lib/gh-write.js';
 import { createSiteLink, siteTokenStore } from './site-link.js';
 import { PRODUCT } from '../lib/brand.js';
 
@@ -1907,23 +1906,6 @@ export async function createRunner(config) {
     reviewRounds.refreshJob(e.slug).catch(() => {});
   });
 
-  // ---------- PR comments on the new job page (lib/pr-comments.js; the job page rebuild, Task 21, R3) ----------
-  // After each network refresh of the flow map, after the review rounds' and pr-feedback's looks (the same chain),
-  // the open PRs of each job the new page has open or cached are read (read-only gh, and git cat-file for the code
-  // lines a comment sits on); the page's rebuild then makes the rows. Never on a page request.
-  const prComments = createPrComments({
-    gh: feedbackGh, git, read: gitRead, jobs: async () => featuresShared(), wanted: (slug) => jobPages.has(slug),
-    codeDir: (f) => ownCodeDir(f), touch: (slug) => jobPages.touch(slug), rounds: (dir) => readRounds(dir),
-    problem: (err) => console.error('pr comments:', err.message),
-  });
-  if (testHooks && typeof testHooks === 'object') testHooks.prComments = prComments; // tests only
-  let commentsFetchedAt = null;
-  flow.on('flow', (view) => {
-    if (!feedbackGh || view.refreshing || !view.fetchedAt || view.fetchedAt === commentsFetchedAt) return;
-    commentsFetchedAt = view.fetchedAt;
-    feedbackPass = feedbackPass.then(() => prComments.pass(view)).catch((err) => console.error('pr comments:', err.message));
-  });
-
   // ---------- Notifications outside the browser (lib/notify.js) ----------
 
   const notifier = new Notifier({ dir: state.dir, settings: async () => (await state.getSettings()).notify, baseUrl: `http://${HOST}:${PORT}`, demo: DEMO });
@@ -2417,14 +2399,12 @@ export async function createRunner(config) {
     const commits = await branchCommitsOf(f).then((c) => (Array.isArray(c) ? c.length : null), () => null);
     const evidence = await local_.evidence.view(slug).catch(() => null);
     const key = detail.page?.ticket?.key ?? (await statusTicketKey(f.dir).catch(() => null)) ?? null;
-    const prFacts = await prFactsOf(f, detail.threadAll ?? []).catch(() => null);
     const payload = buildJobPage({
       card, lane: card.lane ?? null, laneReason: card.laneReason ?? null, lanePaused: card.paused === true,
       detail, thread: detail.threadAll, commits, evidence: evidence?.evidence || evidence?.recording ? evidence : null,
       usage: limits.view(), key, orbitUrl, hosted: false,
-      // R2 (Task 20): the PR lines' facts: the flow map's lane and GitHub line, the commits a push carries (git);
-      // Task 21: each PR's comment rows, with the Foreman's answers from the conversation.
-      prFacts,
+      // R2 (Task 20): the PR lines' facts: the flow map's lane and GitHub line, the commits a push carries (git).
+      prFacts: await prFactsOf(f).catch(() => null),
     });
     // The documents the steps list and the ones only the reader reaches (a step's `more`).
     const files = [...new Set(payload.steps.flatMap((st) => [...st.outputs, ...st.more]).filter((o) => o.kind === 'doc').map((o) => o.id))];
@@ -2449,11 +2429,6 @@ export async function createRunner(config) {
       decided: detail.decidedOnYourBehalf, autoDecided: Array.isArray(detail.auto?.decided) ? detail.auto.decided : [], page: detail.page,
       render: (text, { json = false } = {}) => (json ? jsonHtml(text) : renderMarkdown(text, { idHref: idHref(f) })),
     });
-    // Task 21: each PR's comment rows are a body (GET /api/job/:slug/pr/:n answers from it), never in the payload.
-    for (const c of Object.values(prFacts?.comments ?? {})) {
-      const meta = { number: c.number, url: c.url, rows: c.rows, checks: c.checks, verdict: c.verdict, readAt: c.readAt, problem: c.problem };
-      sources.set(`pr:${c.n}`, { kind: 'pr', version: c.v, text: '', meta, html: () => '' });
-    }
     // The bodies the payload names no line or output for carry their hash here, so a kept copy is dropped when it moves on.
     payload.hashes = { ticket: sources.get('ticket')?.version ?? null, decisions: sources.get('decisions')?.version ?? null, findings: sources.get('findings')?.version ?? null, checks: sources.get('checks')?.version ?? null };
     // Details (lib/work-rows.js): the corrected activity, the cost rows and the replies' ends; the crew's logs are read only when Details asks.
@@ -2513,7 +2488,7 @@ export async function createRunner(config) {
     return [...m.keys()];
   }
   /** What lib/pr-lines.js prLines needs for this job, but its rows (jobDetail's page.prs). */
-  async function prFactsOf(f, thread = null) {
+  async function prFactsOf(f) {
     const view = flow.view();
     const lane = ownLane(f, flowLanes);
     const repo = lane ? view.repos.find((r) => r.lanes.some((l) => l.slug === f.slug)) ?? null : null;
@@ -2528,16 +2503,7 @@ export async function createRunner(config) {
       lane, repo: repo ? { org: repo.org ?? null, fork: repo.fork ?? null } : null, github: view.github ?? null, push,
       job: { stage: f.stage ?? null, prs: f.prs ?? null, closed: closedOff(f) ? f.closed : null, title: f.title ?? null, key: slugTicketKey(f.slug) ?? null },
       sent: list('sentNudges'), dismissed: list('dismissedNudges'), inRound: roundStateOf(f.slug) !== null, pending: prPending(f.slug), covered,
-      // Task 21: each PR's comment rows (thread: the job's conversation, for the Foreman's answers; null: as last built),
-      // and a review round ready to send back (its Send back is Push the fixes).
-      comments: thread ? await prComments.factsOf(f, thread) : prComments.lastOf(f.slug),
-      round: roundStateOf(f.slug) === 'ready' ? { ready: true, number: reviewRounds.facts.get(f.slug)?.current ?? null, ...(await roundWho(f.slug)) } : null,
     };
-  }
-  /** The ready round's number and its reviewer's name, for Push the fixes' words. */
-  async function roundWho(slug) {
-    const v = await reviewRounds.view(slug).catch(() => null);
-    return { round: v?.rounds?.filter((r) => r.state !== 'done').at(-1)?.round ?? null, reviewer: v?.who?.reviewer ?? null };
   }
   /** Read GitHub now for this job's page (the flow map's network refresh; one at a time, never waited on). */
   function prRead(slug) {
@@ -2576,10 +2542,6 @@ export async function createRunner(config) {
       }
     }
   });
-  /** One PR's comment rows as the page's last build made them (the cache entry's `pr:<n>` body), or null. */
-  async function prBody(slug, n) {
-    return (await jobPages.item(slug, `pr:${n}`).catch(() => null))?.meta ?? null;
-  }
   const prs = {
     /**
      * GET /api/job/:slug/pr/:n: the line and the GitHub read, from the warm cache (Task 21 adds the comment rows).
@@ -2592,95 +2554,7 @@ export async function createRunner(config) {
       if (!line) throw new HttpError(404, 'This job has no such pull request line.');
       const reading = readIfOld && readDue(flow.view().github);
       if (reading) prRead(slug);
-      // Task 21: the comment rows, from the same cache entry (a body, never in the payload).
-      const body = await prBody(slug, n);
-      return { n, line, github: p.github ?? null, rows: body?.rows ?? [], checks: body?.checks ?? [], verdict: body?.verdict ?? null, readAt: body?.readAt ?? null, problem: body?.problem ?? null, number: body?.number ?? line.number ?? null, reading };
-    },
-    /**
-     * Task 21. POST …/pr/:n/fix { ids } (Fix these) and …/ask { ids } (What is he asking?): one prepared message
-     * quoting each ticked comment goes to the Foreman, as his own message; Fix these marks them Fixing, and a
-     * pr-feedback card waiting on one of them goes (the Desk never asks again). Only rows the page showed.
-     */
-    async comments(slug, n, what, { ids = [], confirmNoTerminal = false } = {}) {
-      const f = await jobOf(slug);
-      const body = await prBody(slug, n);
-      const rows = ids.map((id) => body?.rows?.find((r) => r.id === id) ?? null);
-      if (!rows.length || rows.some((r) => !r)) throw new HttpError(409, 'Those comments moved on since you looked: read the PR again. Nothing was sent.', { code: 'pr-moved' });
-      const number = body.number;
-      if (what === 'leave') {
-        await markRows(f.dir, number, Object.fromEntries(rows.map((r) => [r.id, { state: 'left', why: 'you left it' }])));
-        await state.audit({ action: 'pr-comments', what, featureDir: f.dir, slug: f.slug, pr: n, ids });
-        jobPages.touch(slug);
-        return { ok: true, left: ids.length };
-      }
-      const text = (what === 'fix' ? fixMessage : askMessage)(rows, { label: `PR #${n}`, number });
-      const drive = await driveState(f);
-      const out = sendPlan(f, drive, { confirmNoTerminal }, text);
-      // Marked before the send, so the Foreman's answer is always newer than the mark.
-      const at = new Date().toISOString();
-      const run = await startSend(f, out, { kind: 'message' });
-      if (what === 'fix') {
-        await markRows(f.dir, number, Object.fromEntries(rows.map((r) => [r.id, { state: 'fixing' }])), at);
-        const record = await readFeedback(f.dir);
-        for (const r of rows) {
-          const key = commentKey({ number }, r.id);
-          const card = driver.feedbackCardFor?.(f.dir, key);
-          if (card) driver.dropFeedbackCard(card.id, 'page');
-          if (['waiting', 'queued'].includes(record.items[key]?.state)) await noteFeedback(f.dir, key, { state: 'sent' });
-        }
-      }
-      await state.audit({ action: 'pr-comments', what, featureDir: f.dir, slug: f.slug, pr: n, ids, runId: run.id });
-      await markActed(f.dir);
-      invalidate();
-      jobPages.touch(slug);
-      return { ok: true, sent: true, text, run };
-    },
-    /** Task 21. POST …/pr/:n/fix-check { name } (Fix it): the failed check's failing lines go to the Foreman; it shows Fixing. */
-    async fixCheck(slug, n, { name, confirmNoTerminal = false } = {}) {
-      const f = await jobOf(slug);
-      const body = await prBody(slug, n);
-      const check = body?.checks?.find((c) => c.name === name) ?? null;
-      if (!check) throw new HttpError(409, 'That check isn’t failing any more: read the PR again. Nothing was sent.', { code: 'pr-moved' });
-      const text = checkMessage(check, { label: `PR #${n}`, number: body.number });
-      const out = sendPlan(f, await driveState(f), { confirmNoTerminal }, text);
-      const at = new Date().toISOString();
-      const run = await startSend(f, out, { kind: 'message' });
-      await markCheck(f.dir, body.number, check, 'fixing', at);
-      await state.audit({ action: 'pr-comments', what: 'fix-check', featureDir: f.dir, slug: f.slug, pr: n, check: check.name, runId: run.id });
-      await markActed(f.dir);
-      invalidate();
-      jobPages.touch(slug);
-      return { ok: true, sent: true, text, run };
-    },
-    /**
-     * Task 21. POST …/pr/:n/reply { id, body } (Post it): his reply, as he edited it, posted on GitHub through
-     * lib/gh-write.js with his yes made here, answering his click: in the thread for a line comment, else on the PR
-     * quoting the comment. The row then says Posted.
-     */
-    async reply(slug, n, { id, body: text }) {
-      const f = await jobOf(slug);
-      const body = await prBody(slug, n);
-      const row = body?.rows?.find((r) => r.id === id) ?? null;
-      if (!row) throw new HttpError(409, 'That comment moved on since you looked: read the PR again. Nothing was posted.', { code: 'pr-moved' });
-      if (!ghWrites) throw new HttpError(409, `${PRODUCT} can’t write to GitHub here. Copy the reply and post it on GitHub.`, { code: 'no-writer' });
-      const facts = await prFactsOf(f);
-      const repo = facts.repo?.org?.slug ?? facts.repo?.fork?.slug ?? null;
-      const githubId = Number(String(row.id).slice(1));
-      let res;
-      try {
-        res = await ghWrites.reply({
-          yes: ghYes({ what: `Post your reply to ${row.author}’s comment on PR #${n}` }), featureDir: f.dir, slug: f.slug, repo, number: body.number,
-          comment: { type: row.kind === 'line' ? 'line' : 'issue', id: githubId, author: row.author, quote: row.body }, body: text,
-        });
-      } catch (err) {
-        if (err instanceof WriteRefused) throw new HttpError(409, err.message, { code: err.code });
-        throw err;
-      }
-      if (!res.ok) throw new HttpError(502, `GitHub didn’t take the reply: ${res.err ?? 'it failed'}. Nothing was posted.`, { code: 'gh-failed' });
-      await markRows(f.dir, body.number, { [row.id]: { state: row.state === 'new' || row.state === 'fixing' ? 'answered' : row.state, commit: row.commit, why: row.why, reply: { draft: text, posted: text } } });
-      await markActed(f.dir);
-      jobPages.touch(slug);
-      return { ok: true, posted: true };
+      return { n, line, github: p.github ?? null, rows: [], verdict: null, reading };
     },
     /** POST …/pr/:n/pull: read GitHub now (Pull now). */
     async pull(slug) {
@@ -2700,15 +2574,6 @@ export async function createRunner(config) {
       if (!next || next.id !== body.id || next.check !== body.check) {
         const sent = line?.why === 'Sent to the Foreman';
         throw new HttpError(409, sent ? 'That was already sent to the Foreman. Nothing was sent again.' : 'That PR moved on since you looked: read its line again. Nothing was sent.', { code: sent ? 'pr-sent' : 'pr-moved' });
-      }
-      // Task 21: a review round ready to send back: Push the fixes is the round's own Send back (lib/review-round.js:
-      // push, replies, resolve, ask again), every write through lib/gh-write.js with the yes made there, on this click.
-      if (next.round) {
-        try { await reviewRounds.act(slug, 'send', { go: true }); } catch (err) { if (err instanceof ReviewRefused) throw new HttpError(err.status, err.message); throw err; }
-        await state.audit({ action: 'pr-line', featureDir: f.dir, slug: f.slug, pr: n, id: next.id, round: true });
-        await markActed(f.dir);
-        jobPages.touch(slug);
-        return { ok: true, sent: false, sendBack: true };
       }
       const drive = await driveState(f);
       const out = sendPlan(f, drive, { confirmNoTerminal: body.confirmNoTerminal === true }, next.sends);
@@ -3402,17 +3267,8 @@ export async function createRunner(config) {
       const codeDir = ownCodeDir(f);
       if (!codeDir) throw new HttpError(404, 'No repository for this job.');
       try {
-        const shown = await git.show(codeDir, body.commit);
-        // Git knows it, but is it this job's? A commit from another branch is said to be not on this branch
-        // (merge-base --is-ancestor answers 1 for no), so `Fixed in <sha>` never shows another branch's diff.
-        const branch = ownBranch(f);
-        if (branch && /^[0-9a-fA-F]{4,40}$/.test(String(body.commit))) {
-          const on = await gitRead(codeDir, ['merge-base', '--is-ancestor', String(body.commit), `refs/heads/${branch}`]);
-          if (!on.ok && on.code === 1) throw new HttpError(404, `Commit ${body.commit} is not on this branch.`, { code: 'no-commit' });
-        }
-        return { dir: codeDir, ...shown };
+        return { dir: codeDir, ...(await git.show(codeDir, body.commit)) };
       } catch (err) {
-        if (err instanceof HttpError) throw err;
         // A sha git does not know (mistyped, or gone in a rebase): said plainly, for Changes to show (Task 18).
         if (/unknown revision|bad object|bad revision|not a valid object|ambiguous argument/i.test(String(err?.message ?? ''))) throw new HttpError(404, `Commit ${body.commit} is not on this branch.`, { code: 'no-commit' });
         throw err;
