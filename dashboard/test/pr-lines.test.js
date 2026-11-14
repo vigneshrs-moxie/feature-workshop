@@ -352,3 +352,34 @@ test('fix round 1: a send that is refused tells nothing and leaves it for the ne
   assert.deepEqual(await tellMerges(w.deps), []);
   assert.deepEqual(w.sessions['/f/x'].sentNudges, []);
 });
+
+// ---------- Task 21: the comments on a line, and Push the fixes ----------
+
+test('pr lines (Task 21): a line carries its comment counts; fixed comments make PR #1’s push `Push the fixes (2 commits)`', () => {
+  const list = [gh(247, BRANCH, 'OPEN', { checks: [{ conclusion: 'SUCCESS' }] })];
+  const base = { list, jf: { fork: { exists: true, ahead: 2, behind: 0 }, org: { exists: true } }, push: { pushed: true, head: TWO[0].sha, count: 2, commits: TWO, behind: 0 }, stage: 'pr1' };
+  const fresh = line(facts({ ...base, comments: { 1: { fresh: 3, total: 4, fixed: 0, failing: 1, v: 'abc' } } }), 1);
+  assert.deepEqual(fresh.comments, { fresh: 3, total: 4, fixed: 0, failing: 1, v: 'abc' });
+  assert.equal(fresh.next.id, 'push-update', 'nothing fixed yet: a plain update');
+  assert.equal(line(facts(base), 1).comments, null, 'not read: no counts');
+  const fixed = line(facts({ ...base, comments: { 1: { fresh: 1, total: 4, fixed: 2, failing: 0, v: 'def' } } }), 1);
+  assert.equal(fixed.next.id, 'push-fixes');
+  assert.equal(fixed.next.label, 'Push the fixes (2 commits)');
+  assert.equal(fixed.next.go, 'Push');
+  assert.deepEqual(fixed.next.says.slice(0, 3), [`Pushes 2 commits from ${BRANCH} to your fork (origin), so PR #1 (#247) has them:`, 'bbbbbbb Show the damage list', 'aaaaaaa Add the damage table']);
+  assert.match(fixed.next.sends, /^Please push the fixes for the review comments: feature\/orbit-9-damage-list to origin as it is now, 2 commits PR #1 \(#247\) doesn’t have yet, ending at bbbbbbb\. Push exactly that commit: `git push origin bbbbbbb10{32}:refs\/heads\/feature\/orbit-9-damage-list`\. Only this push: don’t reply or resolve anything on GitHub/);
+  assert.notEqual(fixed.next.check, fresh.next.check);
+});
+
+test('pr lines (Task 21): a review round ready to send back → `Push the fixes (n commits)` that runs the round’s Send back', () => {
+  const list = [gh(247, BRANCH, 'OPEN', { checks: [{ conclusion: 'SUCCESS' }], review: 'CHANGES_REQUESTED' })];
+  const f = facts({ list, jf: { fork: { exists: true, ahead: 2, behind: 0 }, org: { exists: true } }, push: { pushed: true, head: TWO[0].sha, count: 2, commits: TWO, behind: 0 }, stage: 'pr1', inRound: true, round: { ready: true, number: 247, round: 2, reviewer: 'Raj' } });
+  const l = line(f, 1);
+  assert.equal(l.next.id, 'push-fixes');
+  assert.equal(l.next.round, true);
+  assert.equal(l.next.label, 'Push the fixes (2 commits)');
+  assert.equal(l.next.go, 'Send back');
+  assert.deepEqual(l.next.says, ['Sends back round 2 on PR #1 (#247):', `Pushes 2 commits from ${BRANCH} to your fork (origin):`, 'bbbbbbb Show the damage list', 'aaaaaaa Add the damage table', 'Posts each reply, marks the threads resolved and asks Raj to review again.']);
+  assert.match(l.next.sends, /^Starbase sends back round 2 on PR #1 \(#247\)/);
+  assert.equal(line({ ...f, round: { ready: false, number: 247 } }, 1).next.id, 'push-update', 'not ready: the plain update');
+});

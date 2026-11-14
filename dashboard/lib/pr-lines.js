@@ -57,6 +57,8 @@ export const PR_SENTENCES = Object.freeze({
   'push-open': (x) => `Please push ${x.branch} to ${x.fork} as it is now (${plural(x.count, 'commit')}, ending at ${x.head}), with exactly that commit: \`${pushCommand(x)}\`. Then open PR #1 from ${x.forkOwner}:${x.branch} into ${x.branch} on ${x.org}${x.orgBranch ? '' : ORG_BRANCH_FIRST}, titled "${x.title}". Nothing else goes to GitHub. If something must be committed before the push (main brought in, the decisions file), commit it and stop there, so I see what will go.`,
   'open-pr1': (x) => `Please open PR #1 from ${x.forkOwner}:${x.branch} into ${x.branch} on ${x.org}${x.orgBranch ? '' : ORG_BRANCH_FIRST}, titled "${x.title}". ${x.branch} is already on ${x.fork} at ${x.head}: push nothing. Nothing else goes to GitHub.`,
   'push-update': (x) => `Please push ${x.branch} to ${x.fork} as it is now: ${plural(x.count, 'commit')} PR #1${x.number ? ` (#${x.number})` : ''} doesn’t have yet, ending at ${x.head}. Push exactly that commit: \`${pushCommand(x)}\`. Only this push: nothing else goes to GitHub.`,
+  // Task 21: the same push once the Foreman has fixed review comments (the replies are his to copy or post).
+  'push-fixes': (x) => `Please push the fixes for the review comments: ${x.branch} to ${x.fork} as it is now, ${plural(x.count, 'commit')} PR #1${x.number ? ` (#${x.number})` : ''} doesn’t have yet, ending at ${x.head}. Push exactly that commit: \`${pushCommand(x)}\`. Only this push: don’t reply or resolve anything on GitHub, and nothing else goes to GitHub.`,
   'open-pr2': (x) => `${PR2_OPEN_SENTENCE} From ${x.branch} into staging on ${x.org}, titled "${x.title}". Only this PR: no reviewer yet, and nothing else goes to GitHub.`,
   'request-review': () => PR2_REVIEW_SENTENCE,
 });
@@ -67,6 +69,7 @@ const LABELS = {
   'push-open': () => ({ label: 'Push and open PR #1', go: 'Push and open' }),
   'open-pr1': () => ({ label: 'Open PR #1', go: 'Open PR #1' }),
   'push-update': (x) => ({ label: `Push update (${plural(x.count, 'commit')})`, go: 'Push' }),
+  'push-fixes': (x) => ({ label: `Push the fixes (${plural(x.count, 'commit')})`, go: 'Push' }),
   'open-pr2': () => ({ label: 'Open PR #2', go: 'Open PR #2' }),
   'request-review': () => ({ label: 'Request review', go: 'Request review' }),
 };
@@ -89,9 +92,8 @@ function githubRead(g) {
 const hash = (text) => createHash('sha1').update(text).digest('hex').slice(0, 12);
 
 /** One action, whole: its label, yes, what it says, the sentence and the check. */
-function action(id, x, says) {
-  const sends = PR_SENTENCES[id](x);
-  return { id, ...LABELS[id](x), says, sends, check: hash(`${id}\n${sends}\n${says.join('\n')}`) };
+function action(id, x, says, { sends = PR_SENTENCES[id](x), ...extra } = {}) {
+  return { id, ...LABELS[id](x), says, sends, check: hash(`${id}\n${sends}\n${says.join('\n')}`), ...extra };
 }
 
 /**
@@ -119,9 +121,15 @@ const dirtyLine = (lane) => (lane?.dirty > 0 ? [`${plural(lane.dirty, 'changed f
  *   hosted   built on the website: nothing to act on there
  *   covered  the PR steps' go-ahead covers this job's push and its PR #1 (auto mode at a PR step:
  *            lib/hard-lines.js goAheadCovers); otherwise `says` ends with `Starbase will ask you once more …`
+ *   comments (Task 21, lib/pr-comments.js) by line n: { fresh, total, fixed, failing, v }: the line's `comments`;
+ *            fixed rows on PR #1 make its push `Push the fixes (n commits)` (id 'push-fixes', the Foreman pushes)
+ *   round    { ready, number, round, reviewer }: a review round ready to send back on that PR: its line's action
+ *            is `Push the fixes (n commits)` with `round: true`, which runs the round's Send back
+ *            (lib/review-round.js: push, replies, resolve, ask again), every write through lib/gh-write.js
  */
 export function prLines(facts = {}) {
-  const { rows = [], lane = null, repo = null, push = null, job = {}, sent = [], inRound = false, pending = [], hosted = false, covered = false } = facts;
+  const { rows = [], lane = null, repo = null, push = null, job = {}, sent = [], inRound = false, pending = [], hosted = false, covered = false, comments = {}, round = null } = facts;
+  const countsOf = (n) => { const c = comments?.[n]; return c && Number.isInteger(c.total) ? { fresh: c.fresh ?? 0, total: c.total, fixed: c.fixed ?? 0, failing: c.failing ?? 0, v: c.v ?? null } : null; };
   const github = githubRead(facts.github);
   const byN = (n) => (Array.isArray(rows) ? rows.find((r) => r?.n === n) : null) ?? { n, state: 'not-started' };
   const p1 = byN(1);
@@ -158,7 +166,8 @@ export function prLines(facts = {}) {
     }
     if ((p1.state === 'open' || p1.state === 'draft') && push.pushed && push.count > 0) {
       const number = p1.number ?? null;
-      return { next: action('push-update', { ...x, number }, [`Pushes ${plural(push.count, 'commit')} from ${branch} to your fork (${fork}), so PR #1${number ? ` (#${number})` : ''} has them:`, ...commitLines(push.commits), ...moreLine(push), ...dirtyLine(lane), ...unlessCovered('pushes')]), push: true };
+      const id = (countsOf(1)?.fixed ?? 0) > 0 ? 'push-fixes' : 'push-update';
+      return { next: action(id, { ...x, number }, [`Pushes ${plural(push.count, 'commit')} from ${branch} to your fork (${fork}), so PR #1${number ? ` (#${number})` : ''} has them:`, ...commitLines(push.commits), ...moreLine(push), ...dirtyLine(lane), ...unlessCovered('pushes')]), push: true };
     }
     return { why: null };
   }
@@ -171,15 +180,27 @@ export function prLines(facts = {}) {
       ?? { why: p2.state === 'not-started' && p1.state !== 'merged' ? 'after PR #1 is merged' : null };
   }
 
+  /** A review round ready to send back on this PR: its Send back is the push of the fixes (Starbase writes, on his yes). */
+  function sendBack(row) {
+    const count = push?.count ?? 0;
+    const who = round.reviewer ? String(round.reviewer) : 'the reviewer';
+    const which = `${round.round ? `round ${round.round}` : 'the round'} on PR #${row.n}${row.number ? ` (#${row.number})` : ''}`;
+    return { next: action('push-fixes', { ...x, count }, [
+      `Sends back ${which}:`,
+      ...(count > 0 ? [`Pushes ${plural(count, 'commit')} from ${branch} to your fork (${fork}):`, ...commitLines(push.commits), ...moreLine(push)] : []),
+      `Posts each reply, marks the threads resolved and asks ${who} to review again.`,
+    ], { sends: `${PRODUCT} sends back ${which}: the push, the replies, the resolved threads and the ask to review again.`, go: 'Send back', round: true }), push: count > 0 };
+  }
+
   const lines = [1, 2, 3].map((n) => {
     const row = byN(n);
     const lp = lanePr(n);
     const at = row.state === 'merged' ? lp?.mergedAt ?? null : row.state === 'open' || row.state === 'draft' ? lp?.createdAt ?? row.openedAt ?? null : null;
-    const out = { n, number: row.number ?? null, url: row.url ?? null, title: row.title ?? null, state: row.state ?? 'not-started', word: prWord(row), at, next: null, why: null, comments: null };
+    const out = { n, number: row.number ?? null, url: row.url ?? null, title: row.title ?? null, state: row.state ?? 'not-started', word: prWord(row), at, next: null, why: null, comments: countsOf(n) };
     // A PR not open yet that waits for the one before says so, wherever the page is.
     const waits = out.state === 'not-started' && n > 1 && byN(n - 1).state !== 'merged' ? `after PR #${n - 1} is merged` : null;
     if (n === 3 || quiet) { out.why = waits; return out; }
-    const c = n === 1 ? first() : second();
+    const c = round?.ready && row.number && round.number === row.number ? sendBack(row) : n === 1 ? first() : second();
     if (!c.next) { out.why = c.why ?? null; return out; }
     if (github.problem) out.why = 'No button while GitHub isn’t answering';
     else if (!github.at) out.why = 'GitHub not read yet';
