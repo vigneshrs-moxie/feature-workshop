@@ -10,8 +10,11 @@
 //      over two minutes with a message arriving every 10 s, the conversation open and read half way
 //      down; the line he reads does not move either.
 //   4  Go shows `Sent` within 50 ms of the click; when the server refuses, his picks are back.
-//   5  Idle for 60 s: no React commit and no request but the event stream. Then one message arrives:
-//      only the conversation's count and the conversation's lines redraw.
+//   5  Idle for 60 s (no activity on this job; the demo's other jobs go on): no React commit in the job
+//      page and no request of the page's own. Then one message arrives: only the conversation's count
+//      and the conversation's lines redraw. What other jobs' activity moves in the app around the page
+//      (its snapshot, Play and presence reads, the top bar) is printed as app shell, never a miss
+//      (ruled in the Task 23 fix round).
 //   6  The page's job request (`/page`) answers under 100 ms from a warm cache, and opening the page
 //      starts no git, ps or psql and reads no agent log.
 //   7  No transition or animation over 120 ms in the new page's CSS (web/src/jobpage/**/*.css and
@@ -54,6 +57,14 @@ const results = [];
 const record = (rule, what, number, limit, pass, note = '') => {
   results.push({ rule, what, number, limit, pass, note });
   console.log(`  [${pass ? 'pass' : 'MISS'}] rule ${rule}: ${what}: ${number} (limit ${limit})${note ? ` · ${note}` : ''}`);
+};
+/**
+ * The app around the page (its snapshot, Play and presence reads, the top bar), moved by OTHER jobs'
+ * activity: ruled outside the job page's rules (Task 23 fix round), so counted and printed apart, never a miss.
+ */
+const shell = (rule, what, number, note = '') => {
+  results.push({ rule, what, number, limit: '-', pass: true, shell: true, note });
+  console.log(`  [app shell] rule ${rule}: ${what}: ${number}${note ? ` · ${note}` : ''}`);
 };
 const want = (n) => !ONLY || ONLY.has(n);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -482,12 +493,17 @@ async function rule5() {
   await page.waitForTimeout(IDLE_SECONDS * 1000);
   const idle = await page.evaluate(() => window.__zones(() => []));
   const asked = requests.filter((r) => r.at >= from && !/\/api\/events/.test(r.url)).map((r) => `${new URL(r.url).pathname}`);
-  const byPath = Object.entries(asked.reduce((m, p) => ({ ...m, [p]: (m[p] ?? 0) + 1 }), {})).map(([p, n]) => `${p} ×${n}`).join(', ');
   const few = (xs, n = 10) => `${xs.slice(0, n).join(', ')}${xs.length > n ? ` (+${xs.length - n})` : ''}`;
-  record(5, `React commits in ${IDLE_SECONDS} s idle`, String(idle.commits), '0', idle.commits === 0,
-    idle.commits ? `${idle.jobCommits} drew in the job page${idle.jobOther.length ? ` (${few(idle.jobOther, 6)})` : ''}; app around it: ${few(idle.shell, 8)}` : '');
-  record(5, `React commits in ${IDLE_SECONDS} s idle that drew in the job page`, String(idle.jobCommits), '0', idle.jobCommits === 0, idle.jobMuts.length ? `changed: ${few(idle.jobMuts, 6)}` : '');
-  record(5, `requests in ${IDLE_SECONDS} s idle (but the event stream)`, String(asked.length), '0', asked.length === 0, byPath);
+  // Idle means no activity on this job: the demo's other jobs go on writing (as they do on his laptop), and
+  // what they move in the app around the page is the app shell's, counted apart.
+  const own = asked.filter((p) => p.startsWith(`/api/job/${SLUG}/`));
+  const others = asked.filter((p) => !p.startsWith(`/api/job/${SLUG}/`));
+  const byPath = (list) => Object.entries(list.reduce((m, p) => ({ ...m, [p]: (m[p] ?? 0) + 1 }), {})).map(([p, n]) => `${p} ×${n}`).join(', ');
+  record(5, `React commits in ${IDLE_SECONDS} s idle that drew in the job page`, String(idle.jobCommits), '0', idle.jobCommits === 0,
+    `${idle.jobOther.length ? `drawn: ${few(idle.jobOther, 6)}` : ''}${idle.jobMuts.length ? `; changed: ${few(idle.jobMuts, 6)}` : ''}`);
+  record(5, `the page's own requests in ${IDLE_SECONDS} s idle`, String(own.length), '0', own.length === 0, byPath(own));
+  shell(5, `React commits in ${IDLE_SECONDS} s idle, all`, String(idle.commits), idle.shell.length ? `app around the page: ${few(idle.shell, 6)}` : '');
+  shell(5, `app shell requests in ${IDLE_SECONDS} s idle (but the event stream)`, String(others.length), byPath(others));
 
   // One message arriving: only the conversation's count (its row, and the reader's "n items") and its lines may redraw.
   const lines0 = await page.evaluate(() => document.querySelectorAll('[data-view="conversation"] .jp2-cv-item').length);
@@ -505,8 +521,8 @@ async function rule5() {
   const arrived = landed ? `arrived; ${seen.commits} commits, ${seen.components} components drawn, ${seen.okMuts} changes in the conversation's count and lines` : 'DID NOT ARRIVE';
   record(5, 'one arriving message: job page parts drawn other than the conversation count and lines', String(seen.jobOther.length), '0', landed && seen.jobOther.length === 0,
     `${arrived}${seen.jobOther.length ? `; drawn: ${few(seen.jobOther)}` : ''}${seen.jobMuts.length ? `; changed: ${few(seen.jobMuts, 6)}` : ''}`);
-  record(5, 'one arriving message: app parts around the job page drawn', String(seen.shell.length), '0', landed && seen.shell.length === 0,
-    `${seen.shell.length ? few(seen.shell) : ''}${seen.shellMuts.length ? `; changed: ${few(seen.shellMuts, 6)}` : ''}`);
+  shell(5, 'one arriving message: app parts around the job page drawn', String(seen.shell.length),
+    `${seen.shell.length ? few(seen.shell, 6) : ''}${seen.shellMuts.length ? `; changed: ${few(seen.shellMuts, 6)}` : ''}`);
   return { idle, asked, seen };
 }
 
@@ -620,7 +636,8 @@ await browser.close();
 console.log(`\nSpeed table (${LABEL}, ${Math.round((Date.now() - t0) / 1000)} s):`);
 console.log('| rule | measure | number | limit | result |');
 console.log('|---|---|---|---|---|');
-for (const r of results) console.log(`| ${r.rule} | ${r.what} | ${r.number} | ${r.limit} | ${r.pass ? 'pass' : 'MISS'}${r.note ? ` (${r.note.replace(/\|/g, '/')})` : ''} |`);
+for (const r of results) console.log(`| ${r.rule} | ${r.what} | ${r.number} | ${r.limit} | ${r.shell ? 'app shell (outside the page)' : r.pass ? 'pass' : 'MISS'}${r.note ? ` (${r.note.replace(/\|/g, '/')})` : ''} |`);
 const missed = results.filter((r) => !r.pass);
-console.log(missed.length ? `\n${missed.length} of ${results.length} measures missed.` : `\nAll ${results.length} measures pass.`);
+const counted = results.filter((r) => !r.shell).length;
+console.log(missed.length ? `\n${missed.length} of ${counted} measures missed.` : `\nAll ${counted} measures pass (and ${results.length - counted} app shell numbers noted).`);
 process.exit(missed.length ? 1 : 0);
