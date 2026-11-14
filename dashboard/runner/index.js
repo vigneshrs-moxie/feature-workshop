@@ -2426,8 +2426,8 @@ export async function createRunner(config) {
   // Each PR's line and its one next action are built with the job's payload (jobPageSource): the flow map's
   // lane and GitHub line, and the commits a push would carry (read-only git, at the rebuild). GitHub is read
   // by the flow map only (flow.refresh({ network: true })): when a page opens a job and the last read is over
-  // two minutes old (the page's one POST …/pull { ifOld: true } as it opens), and on Pull now; never on the
-  // page's request for its payload (speed rule 6) and never on a timer of the page's. A button's yes sends its fixed sentence to the Foreman (prs.go below), which does
+  // two minutes old (the page's one GET …/pr/1?read=old as it opens), and on Pull now; never on the page's
+  // request for its payload (speed rule 6), never waited on, and never on a timer of the page's. A button's yes sends its fixed sentence to the Foreman (prs.go below), which does
   // the git work under the hard lines and the PR steps' go-ahead as they are: nothing here pushes or writes to GitHub.
   const prSent = new Map(); // slug -> Map(check -> { runId, endedAt }): PR sentences on their way to the Foreman
   const prAsked = new Set(); // jobs whose page asked for a read: rebuilt when it ends, so `read` moves
@@ -2499,17 +2499,22 @@ export async function createRunner(config) {
     }
   });
   const prs = {
-    /** GET /api/job/:slug/pr/:n: the line and the GitHub read, from the warm cache (Task 21 adds the comment rows). */
-    async view(slug, n) {
+    /**
+     * GET /api/job/:slug/pr/:n: the line and the GitHub read, from the warm cache (Task 21 adds the comment rows).
+     * readIfOld (the page opening a job, ?read=old): GitHub is read too, in the background, when the last read is
+     * over two minutes old; the answer never waits for it.
+     */
+    async view(slug, n, { readIfOld = false } = {}) {
       const p = await jobPages.page(slug, null);
       const line = (p.prs ?? []).find((l) => l.n === n) ?? null;
       if (!line) throw new HttpError(404, 'This job has no such pull request line.');
-      return { n, line, github: p.github ?? null, rows: [], verdict: null };
+      const reading = readIfOld && readDue(flow.view().github);
+      if (reading) prRead(slug);
+      return { n, line, github: p.github ?? null, rows: [], verdict: null, reading };
     },
-    /** POST …/pr/:n/pull: read GitHub now (Pull now); ifOld (the page opening): only when the last read is over two minutes old. */
-    async pull(slug, { ifOld = false } = {}) {
+    /** POST …/pr/:n/pull: read GitHub now (Pull now). */
+    async pull(slug) {
       await jobOf(slug);
-      if (ifOld && !readDue(flow.view().github)) return { reading: false };
       prRead(slug);
       return { reading: true };
     },

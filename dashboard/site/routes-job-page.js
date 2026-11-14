@@ -8,11 +8,11 @@
 //   GET /api/job/:slug/work?viewer=<id>           Details: { rows, costs, note } (lib/work-rows.js); reads
 //                                     each crew member's log only here, once while it is unchanged.
 //                                     On the website: what the mirror has, or no rows and a reason
-//   GET  /api/job/:slug/pr/:n                   one PR's line and the GitHub read it comes from (Task 20; Task 21
-//                                     adds its comment rows): { n, line, github, rows, verdict }
-//   POST /api/job/:slug/pr/:n/pull { ifOld? }   Pull now: GitHub is read now, in the background → { reading: true };
-//                                     ifOld (the page opening a job): only when the last read is over two
-//                                     minutes old, else { reading: false }. The payload's request never reads it.
+//   GET  /api/job/:slug/pr/:n?read=old          one PR's line and the GitHub read it comes from (Task 20; Task 21
+//                                     adds its comment rows): { n, line, github, rows, verdict, reading };
+//                                     read=old (the page opening a job): GitHub is read in the background when
+//                                     the last read is over two minutes old. The payload's request never reads it.
+//   POST /api/job/:slug/pr/:n/pull              Pull now: GitHub is read now, in the background → { reading: true }
 //   POST /api/job/:slug/pr/:n/go { id, check, confirmNoTerminal? }   his yes to the line's next action: its
 //                                     fixed sentence goes to the Foreman when the line still says the same
 //                                     (lib/pr-lines.js), else 409 and nothing is sent → { ok, sent, text, run }
@@ -64,11 +64,11 @@ export default function jobPageRoutes({ read, sendJson, local }) {
     },
     {
       method: 'GET', path: new RegExp(`${PR.source}$`),
-      run: async ({ res, m }) => sendJson(res, 200, await prsOf(local).view(m[1], Number(m[2]))),
+      run: async ({ res, url, m }) => sendJson(res, 200, await prsOf(local).view(m[1], Number(m[2]), { readIfOld: url.searchParams.get('read') === 'old' })),
     },
     {
       method: 'POST', path: new RegExp(`${PR.source}\\/pull$`),
-      run: async ({ res, m, body }) => sendJson(res, 200, await prsOf(local).pull(m[1], { ifOld: body?.ifOld === true })),
+      run: async ({ res, m }) => sendJson(res, 200, await prsOf(local).pull(m[1])),
     },
     {
       method: 'POST', path: new RegExp(`${PR.source}\\/go$`),

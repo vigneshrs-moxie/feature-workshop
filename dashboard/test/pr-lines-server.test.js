@@ -139,7 +139,9 @@ test('server: Request review sends the nudge’s sentence and the Desk does not 
 
 test('server: Pull now reads GitHub (the flow map’s read) and answers at once; the page opening reads it only when the last read is old', { timeout: 60_000 }, async () => {
   await waitFor(async () => (await get('/api/flow')).body.github?.triedAt, 'the first read');
-  assert.deepEqual((await post('/api/job/review-job/pr/1/pull', { ifOld: true })).body, { reading: false }, 'read under two minutes ago: not again');
+  const opening = await get('/api/job/review-job/pr/1?read=old');
+  assert.equal(opening.status, 200);
+  assert.equal(opening.body.reading, false, 'read under two minutes ago: not again');
   const was = (await get('/api/flow')).body.github?.triedAt ?? null;
   await new Promise((r) => setTimeout(r, 20));
   const r = await post('/api/job/review-job/pr/1/pull');
