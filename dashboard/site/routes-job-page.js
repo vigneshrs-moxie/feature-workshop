@@ -44,6 +44,17 @@ const viewerOf = (url) => {
 
 const PR = /^\/api\/job\/([^/]+)\/pr\/([1-3])/;
 const ROW_ID = /^[cri]\d{1,20}$/;
+/** A reply's most (what GitHub takes in one comment, lib/gh-write.js MAX_BODY): longer is refused in words, never cut. */
+const REPLY_MAX = 60000;
+/** His edited replies sent with one Push the fixes, together: under the 256 KB a request may carry (site/index.js readBody). */
+const REPLIES_MAX = 200000;
+const many = (n) => n.toLocaleString('en');
+/** A reply's text, or a refusal in plain words when it is longer than GitHub takes. */
+function replyText(v) {
+  const text = typeof v === 'string' ? v.trim() : '';
+  if (text.length > REPLY_MAX) throw new HttpError(400, `That reply is ${many(text.length)} characters: GitHub takes at most ${many(REPLY_MAX)} in one comment. Shorten it. Nothing was sent.`, { code: 'too-long' });
+  return text;
+}
 /** The ticked rows' ids: 1 to 100 of them, each a comment's id (`c901`, `r55`, `i77`). */
 const idsOf = (body) => {
   const ids = Array.isArray(body?.ids) ? body.ids.filter((x) => typeof x === 'string' && ROW_ID.test(x)) : [];
@@ -99,15 +110,25 @@ export default function jobPageRoutes({ read, sendJson, local, runner, LOCAL }) 
     {
       method: 'POST', path: new RegExp(`${PR.source}\\/go$`),
       run: async ({ res, m, body }) => {
+        const prs = prsOf(local);
         const id = str(body?.id, 40);
         const check = str(body?.check, 40);
         if (!id || !/^[0-9a-f]{12}$/.test(check)) throw new HttpError(400, 'Say which action and the check the line gave (id, check).');
         // replies (Task 21, a review round's Push the fixes): his edits of the round's drafted replies, by comment id.
+        // Each at most what GitHub takes, all of them together under what one request carries: over either is refused
+        // in words, never cut (what is posted is what he left in the boxes).
         const replies = {};
-        for (const [k, v] of Object.entries(body?.replies && typeof body.replies === 'object' ? body.replies : {}).slice(0, 100)) {
-          if (ROW_ID.test(k) && typeof v === 'string' && v.trim()) replies[k] = v.slice(0, 60000);
+        const given = Object.entries(body?.replies && typeof body.replies === 'object' ? body.replies : {});
+        if (given.length > 100) throw new HttpError(400, `That is ${many(given.length)} replies: at most 100 go with one Push the fixes. Nothing was sent.`, { code: 'too-long' });
+        let total = 0;
+        for (const [k, v] of given) {
+          if (!ROW_ID.test(k) || typeof v !== 'string' || !v.trim()) continue;
+          replyText(v);
+          replies[k] = v;
+          total += v.length;
         }
-        return sendJson(res, 200, await prsOf(local).go(m[1], Number(m[2]), { id, check, confirmNoTerminal: body?.confirmNoTerminal === true, replies }));
+        if (total > REPLIES_MAX) throw new HttpError(413, `Your edited replies come to ${many(total)} characters: at most ${many(REPLIES_MAX)} go with one Push the fixes. Shorten them, or post the longest yourself on GitHub. Nothing was sent.`, { code: 'too-long' });
+        return sendJson(res, 200, await prs.go(m[1], Number(m[2]), { id, check, confirmNoTerminal: body?.confirmNoTerminal === true, replies }));
       },
     },
     {
@@ -125,19 +146,21 @@ export default function jobPageRoutes({ read, sendJson, local, runner, LOCAL }) 
     {
       method: 'POST', path: new RegExp(`${PR.source}\\/draft$`),
       run: async ({ res, m, body }) => {
+        const prs = prsOf(local);
         const id = str(body?.id, 30);
-        const text = str(body?.body, 60000).trim();
+        const text = replyText(body?.body);
         if (!ROW_ID.test(id) || !text) throw new HttpError(400, 'Say which comment and the reply (id, body).');
-        return sendJson(res, 200, await prsOf(local).draft(m[1], Number(m[2]), { id, body: text }));
+        return sendJson(res, 200, await prs.draft(m[1], Number(m[2]), { id, body: text }));
       },
     },
     {
       method: 'POST', path: new RegExp(`${PR.source}\\/reply$`),
       run: async ({ res, m, body }) => {
+        const prs = prsOf(local);
         const id = str(body?.id, 30);
-        const text = str(body?.body, 60000).trim();
+        const text = replyText(body?.body);
         if (!ROW_ID.test(id) || !text) throw new HttpError(400, 'Say which comment and the reply (id, body).');
-        return sendJson(res, 200, await prsOf(local).reply(m[1], Number(m[2]), { id, body: text }));
+        return sendJson(res, 200, await prs.reply(m[1], Number(m[2]), { id, body: text }));
       },
     },
   ];

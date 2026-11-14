@@ -866,3 +866,34 @@ test('Task 14: the new job page on the site answers findings and checks from the
     assert.equal(page.body.hashes.checks, checks.body.version);
   } finally { l.link.stop(); await s.close(); }
 });
+
+test('final fix S5: the website refuses the new job page’s writes (PR lines and comments, a waiting message, Stop it and send now, a pasted picture) and queues nothing', async () => {
+  const { s, olive, l } = await setUp();
+  try {
+    const before = await count(s, 'SELECT count(*)::int AS n FROM commands');
+    // The PR routes are this computer's only: a 404 in words, for every one of them.
+    assert.equal((await olive.person.json('/api/job/add-export/pr/1')).status, 404);
+    const check = '0123456789ab';
+    for (const [tail, body] of [
+      ['go', { id: 'push-fixes', check }], ['pull', {}], ['fix', { ids: ['c1'] }], ['ask', { ids: ['c1'] }], ['leave', { ids: ['c1'] }],
+      ['fix-check', { name: 'test' }], ['draft', { id: 'c1', body: 'Done.' }], ['reply', { id: 'c1', body: 'Done.' }],
+    ]) {
+      const r = await olive.person.send('POST', `/api/job/add-export/pr/1/${tail}`, body);
+      assert.equal(r.status, 404, `${tail}: ${JSON.stringify(r.body)}`);
+      assert.match(r.body.error, /on your own computer/, tail);
+    }
+    // A message kept waiting for the Foreman, its Send and its Cancel, and Stop it and send now: the laptop's.
+    const queued = await olive.person.send('POST', '/api/job/add-export/send', { text: 'Also the header.', kind: 'message', queue: true });
+    assert.equal(queued.status, 409, JSON.stringify(queued.body));
+    assert.equal(queued.body.code, 'on-laptop');
+    for (const p of ['/api/job/add-export/waiting/send', '/api/job/add-export/waiting/cancel', '/api/runs/run-1/stop']) {
+      const r = await olive.person.send('POST', p, p.endsWith('/stop') ? { then: 'send-waiting' } : {});
+      assert.equal(r.status, 409, `${p}: ${JSON.stringify(r.body)}`);
+      assert.equal(r.body.code, 'on-laptop', p);
+    }
+    // A pasted picture is kept in the browser on the website: there is no route to save it.
+    const pic = await olive.person.send('POST', '/api/job/add-export/pictures', { data: 'iVBORw0KGgo=' });
+    assert.ok([404, 405].includes(pic.status), `${pic.status} ${JSON.stringify(pic.body)}`);
+    assert.equal(await count(s, 'SELECT count(*)::int AS n FROM commands'), before, 'nothing queued for the laptop');
+  } finally { l.link.stop(); await s.close(); }
+});

@@ -215,3 +215,28 @@ test('routes: on the website (no runner’s local part) the PR routes are a 404 
   const view = routes.find((r) => r.method === 'GET' && r.path.test('/api/job/x/pr/1'));
   await assert.rejects(view.run({ res: null, m: ['', 'x', '1'] }), (err) => err.status === 404 && /on your own computer/.test(err.message));
 });
+
+test('final fix S4: a reply over what GitHub takes is refused in words, never cut; Push the fixes’ replies together stay under one request', async () => {
+  const got = [];
+  const prs = { reply: async (...a) => { got.push(['reply', ...a]); return { ok: true }; }, draft: async (...a) => { got.push(['draft', ...a]); return { ok: true }; }, go: async (...a) => { got.push(['go', ...a]); return { ok: true }; } };
+  const sent = [];
+  const routes = jobPageRoutes({ read: {}, sendJson: (_res, status, body) => { sent.push([status, body]); }, local: { prs } });
+  const route = (tail) => routes.find((r) => r.method === 'POST' && r.path.test(`/api/job/x/pr/1/${tail}`));
+  const m = (tail) => ['', 'x', '1', tail];
+  const long = 'a'.repeat(60001);
+  for (const tail of ['reply', 'draft']) {
+    await assert.rejects(route(tail).run({ res: null, m: m(tail), body: { id: 'i7', body: long } }), (err) => err.status === 400 && /60,001 characters: GitHub takes at most 60,000/.test(err.message) && /Nothing was sent/.test(err.message));
+    await route(tail).run({ res: null, m: m(tail), body: { id: 'i7', body: 'a'.repeat(60000) } });
+  }
+  assert.deepEqual(got.map((g) => [g[0], g[3].body.length]), [['reply', 60000], ['draft', 60000]], 'up to 60,000 goes whole');
+  const go = route('go');
+  const check = '0123456789ab';
+  await assert.rejects(go.run({ res: null, m: m('go'), body: { id: 'push-fixes', check, replies: { c1: long } } }), (err) => err.status === 400 && /GitHub takes at most 60,000/.test(err.message));
+  const four = Object.fromEntries([1, 2, 3, 4].map((n) => [`c${n}`, 'b'.repeat(55000)]));
+  await assert.rejects(go.run({ res: null, m: m('go'), body: { id: 'push-fixes', check, replies: four } }), (err) => err.status === 413 && /220,000 characters: at most 200,000 go with one Push the fixes/.test(err.message));
+  const many = Object.fromEntries(Array.from({ length: 101 }, (_, n) => [`c${n + 1}`, 'ok']));
+  await assert.rejects(go.run({ res: null, m: m('go'), body: { id: 'push-fixes', check, replies: many } }), (err) => err.status === 400 && /101 replies: at most 100/.test(err.message));
+  const three = Object.fromEntries([1, 2, 3].map((n) => [`c${n}`, 'b'.repeat(60000)]));
+  await go.run({ res: null, m: m('go'), body: { id: 'push-fixes', check, replies: three } });
+  assert.deepEqual(Object.values(got.at(-1)[3].replies).map((v) => v.length), [60000, 60000, 60000], 'whole, never cut');
+});

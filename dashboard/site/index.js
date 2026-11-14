@@ -52,7 +52,7 @@ async function readBody(req) {
   const chunks = [];
   for await (const c of req) {
     size += c.length;
-    if (size > 256 * 1024) throw new HttpError(413, 'Too much data.');
+    if (size > 256 * 1024) throw new HttpError(413, `That is too much to send at once: at most 256 KB. Nothing was done.`);
     chunks.push(c);
   }
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); } catch { throw new HttpError(400, 'That wasn’t valid JSON.'); }
