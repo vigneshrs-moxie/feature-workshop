@@ -46,6 +46,8 @@ describe('Settings → Keys', () => {
   });
 
   it('lists every key the app has, from the registry, grouped by where it works', () => {
+    // The new job page's keys are listed while its switch is on (final W8).
+    localStorage.setItem('sb.jobPage', 'new');
     render(<KeysSettings />);
     const all = screen.getByRole('region', { name: 'Every key' });
     // A key kept for later (keyDef(id).hidden: the new job page's n) is bound but not listed, here as in the ? sheet.
@@ -55,5 +57,13 @@ describe('Settings → Keys', () => {
     expect(within(all).getByRole('region', { name: 'The Inbox' })).toHaveTextContent('Start a job on the ticket');
     expect(within(all).getByRole('region', { name: 'The open step' })).toHaveTextContent('The step after this one');
     expect(all).toHaveTextContent('never work while you type');
+    localStorage.removeItem('sb.jobPage');
+  });
+
+  it('final W8: leaves the new job page’s keys out while its switch is off', () => {
+    localStorage.removeItem('sb.jobPage');
+    render(<KeysSettings />);
+    const all = screen.getByRole('region', { name: 'Every key' });
+    expect(within(all).queryByText(KEYS['jp-step-prev'].label)).toBeNull();
   });
 });

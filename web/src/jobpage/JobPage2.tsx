@@ -37,6 +37,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import type { Job } from '../api/types';
+import { BRAND } from '../app/brand';
 import { useKeyScope } from '../app/keyRegistry';
 import { jobHref, readHref, replaceHash, stageHref, type JobView } from '../app/router';
 import { Button } from '../components/Button';
@@ -420,7 +421,7 @@ function PageProblem() {
   return (
     <div className="jp2-pageproblem" role="alert">
       <p className="jp2-pageproblem-says">{problem}</p>
-      <Button size="sm" onClick={tryAgain} disabled={trying} title="Ask Starbase for this job again.">{trying ? 'Trying again…' : 'Try again'}</Button>
+      <Button size="sm" onClick={tryAgain} disabled={trying} title={`Ask ${BRAND.name} for this job again.`}>{trying ? 'Trying again…' : 'Try again'}</Button>
     </div>
   );
 }

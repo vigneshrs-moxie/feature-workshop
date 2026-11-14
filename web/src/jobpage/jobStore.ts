@@ -33,6 +33,7 @@
 
 import type { ApiClient } from '../api/client';
 import { ApiError, createApi } from '../api/client';
+import { BRAND } from '../app/brand';
 import type { LiveEvent } from '../api/types';
 import { gateDraftKey } from '../lib/gateCard';
 import { readStored, writeStored } from '../lib/stored';
@@ -222,10 +223,10 @@ const PAGE_ERROR = 'Couldn’t load this job: ';
 /** Why the job did not load, in plain words: no such job, Starbase not answering, or what it said. */
 export function pageProblemOf(err: unknown): string {
   const status = err instanceof ApiError ? err.status : null;
-  if (status === 404) return 'Starbase has no job by this name. It may have been removed, or the address has a typo.';
-  if (status === null || status === 502 || status === 503 || status === 504) return 'Starbase isn’t answering. Check that it is running, then try again.';
+  if (status === 404) return `${BRAND.name} has no job by this name. It may have been removed, or the address has a typo.`;
+  if (status === null || status === 502 || status === 503 || status === 504) return `${BRAND.name} isn’t answering. Check that it is running, then try again.`;
   const said = message(err).trim();
-  return `Starbase couldn’t load this job: ${/[.!?]$/.test(said) ? said : `${said}.`}`;
+  return `${BRAND.name} couldn’t load this job: ${/[.!?]$/.test(said) ? said : `${said}.`}`;
 }
 const BODY_ERROR = 'Couldn’t load that part of the job: ';
 
