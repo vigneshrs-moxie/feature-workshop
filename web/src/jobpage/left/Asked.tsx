@@ -13,6 +13,7 @@
 //   it, once.
 
 import { memo, useEffect, useState } from 'react';
+import { BRAND } from '../../app/brand';
 import { Button } from '../../components/Button';
 import '../answers.css';
 import { addNote, oneLine } from '../notes/chips';
@@ -77,7 +78,7 @@ function AskedLines({ asked, onOpen }: AskedProps) {
 
   return (
     <section className="jp2-asked" aria-label="What you asked">
-      <p className="jp2-asked-h" title="As the Foreman reports it: Starbase doesn’t check each answer.">What you asked · the Foreman says {asked.done} of {asked.total} done</p>
+      <p className="jp2-asked-h" title={`As the Foreman reports it: ${BRAND.name} doesn’t check each answer.`}>What you asked · the Foreman says {asked.done} of {asked.total} done</p>
       <ul className="jp2-asked-l">
         {asked.notes.map((a) => {
           const missing = gone(a);
