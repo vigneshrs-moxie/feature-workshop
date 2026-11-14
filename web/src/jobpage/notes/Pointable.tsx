@@ -347,8 +347,12 @@ export function Pointable({ hostRef, place, ready, children }: PointableProps) {
   const host = () => hostRef.current;
   // The scroll area's ref is set after this part's first layout pass (a parent's ref comes after its
   // children's effects): one more pass once it is there, so marks and margin notes show on arrival.
+  // (Only when there is something to mark: a view with no notes costs no extra pass.)
   const [attached, setAttached] = useState(false);
-  useEffect(() => { setAttached(true); }, []);
+  const someNotes = notes.length > 0 || explains.length > 0 || seek !== null;
+  useEffect(() => { if (someNotes && !attached) setAttached(true); }, [someNotes, attached]);
+  /** Marks set by the last pass (none: nothing to take off). */
+  const marked = useRef(false);
 
   // The `+` goes while an inner column (the diff) scrolls, or the pointer leaves the reader; a width change places the margin notes again.
   useEffect(() => {
@@ -477,10 +481,13 @@ export function Pointable({ hostRef, place, ready, children }: PointableProps) {
     const root = host();
     const h = root;
     if (!root || !h) return;
+    if (!marked.current && !notes.length && !explains.length) { setMargins((was) => (was.length ? [] : was)); return; }
     for (const el of root.querySelectorAll('[data-pt-noted]')) el.removeAttribute('data-pt-noted');
+    marked.current = false;
     for (const n of notes) {
       if (!inView(n.target, view) || n.kind === 'pin') continue;
-      findBlock(root, n)?.setAttribute('data-pt-noted', '');
+      const b = findBlock(root, n);
+      if (b) { b.setAttribute('data-pt-noted', ''); marked.current = true; }
     }
     const shown: typeof margins = [];
     for (const ex of explains) {
