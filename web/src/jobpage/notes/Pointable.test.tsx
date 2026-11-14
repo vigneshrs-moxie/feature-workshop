@@ -307,7 +307,26 @@ describe('the phone', () => {
 describe('speed with notes present (fix round 1, I3)', () => {
   const CONVO = { kind: 'conversation' as const, id: 'conversation' };
   const best = (xs: number[]) => Math.min(...xs);
-  const limit = process.env.CI ? 400 : 100;
+  /** Best of five opens of `target`, each from the ticket. */
+  const opens = (o: NotesPage, target: { kind: 'conversation' | 'doc'; id: string }) => {
+    const times: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      act(() => { o.store.setReader({ kind: 'ticket', id: 'ticket' }); });
+      const t0 = performance.now();
+      act(() => { o.store.setReader(target); });
+      times.push(performance.now() - t0);
+    }
+    return times;
+  };
+  /**
+   * The clock, held only on a quiet machine: under 100 ms when the same open without notes takes at most
+   * 50 ms (alone it reads about 40 ms). Inside a whole suite, or on CI, the clock says little (both
+   * numbers swing by 3×), so there the node counts are the check, as the lead ruled.
+   */
+  const fastEnough = (withNotes: number[], without: number[]) => {
+    if (process.env.CI || best(without) > 50) return;
+    expect(best(withNotes)).toBeLessThan(100);
+  };
 
   it('200 items with notes on the open exchange: reopening stays under 100 ms, and a re-render searches for nothing', async () => {
     const o = await opened({ job: longJob200, read: CONVO });
@@ -315,21 +334,17 @@ describe('speed with notes present (fix round 1, I3)', () => {
     // Three notes on paragraphs of the open messages.
     const paras = [...reader().querySelectorAll<HTMLElement>('.jp2-cv-item .jp2-prose p')].slice(0, 3);
     expect(paras.length).toBe(3);
+    const without = opens(o, CONVO);
+    for (let i = 0; i < 20 && reader().querySelectorAll('.jp2-cv-item .jp2-prose p').length < 3; i++) await settle();
     const s = o.store.getState();
-    act(() => { o.store.setNotes(paras.map((p, i) => ({ n: i + 1, kind: 'drop' as const, note: '', ...describeBlock(p, CONVO, s) }))); });
+    act(() => { o.store.setNotes([...reader().querySelectorAll<HTMLElement>('.jp2-cv-item .jp2-prose p')].slice(0, 3).map((p, i) => ({ n: i + 1, kind: 'drop' as const, note: '', ...describeBlock(p, CONVO, s) }))); });
     expect(reader().querySelectorAll('[data-pt-noted]')).toHaveLength(3);
-    const times: number[] = [];
     const searched = blockSearches.count;
-    for (let i = 0; i < 5; i++) {
-      act(() => { o.store.setReader({ kind: 'ticket', id: 'ticket' }); });
-      const t0 = performance.now();
-      act(() => { o.store.setReader(CONVO); });
-      times.push(performance.now() - t0);
-    }
+    const times = opens(o, CONVO);
     // The hard check everywhere: each open looks inside each note's own message once, never more.
     expect(blockSearches.count - searched).toBeLessThanOrEqual(3 * 5);
-    console.info(`[timing] 200-item conversation with 3 notes, five opens: ${times.map((t) => t.toFixed(1)).join(', ')} ms`);
-    expect(best(times)).toBeLessThan(limit);
+    console.info(`[timing] 200-item conversation, five opens without notes: ${without.map((t) => t.toFixed(1)).join(', ')} ms; with 3 notes: ${times.map((t) => t.toFixed(1)).join(', ')} ms`);
+    fastEnough(times, without);
     await settle();
     expect(reader().querySelectorAll('[data-pt-noted]')).toHaveLength(3);
     // New lines land five times: the view draws again each time; no block is searched for again.
@@ -349,21 +364,17 @@ describe('speed with notes present (fix round 1, I3)', () => {
     const long: JobBody = { id: PLAN, kind: 'doc', version: String(longJob200.bodies[PLAN]?.meta.hash ?? PLAN), text: '# Long', meta: {}, html };
     const o = await opened({ bodies: { [PLAN]: long } });
     await settle();
+    const without = opens(o, { kind: 'doc', id: PLAN });
+    await settle();
     const s = o.store.getState();
     const ends = [1196, 1197, 1198, 1199, 1200].map((n) => para(`Paragraph ${n}:`));
     act(() => { o.store.setNotes(ends.map((p, i) => ({ n: i + 1, kind: 'drop' as const, note: '', ...describeBlock(p, { kind: 'doc', id: PLAN }, s), block: { ...describeBlock(p, { kind: 'doc', id: PLAN }, s).block, at: roughIndex(host(), p) } }))); });
-    const times: number[] = [];
     const searched = blockSearches.count;
-    for (let i = 0; i < 5; i++) {
-      act(() => { o.store.setReader({ kind: 'ticket', id: 'ticket' }); });
-      const t0 = performance.now();
-      act(() => { o.store.setReader({ kind: 'doc', id: PLAN }); });
-      times.push(performance.now() - t0);
-    }
+    const times = opens(o, { kind: 'doc', id: PLAN });
     // The hard check everywhere: each note's block is found where it was, with no search of the document.
     expect(blockSearches.count - searched).toBe(0);
-    console.info(`[timing] 1,200-paragraph document with 5 notes, five opens: ${times.map((t) => t.toFixed(1)).join(', ')} ms`);
-    expect(best(times)).toBeLessThan(limit);
+    console.info(`[timing] 1,200-paragraph document, five opens without notes: ${without.map((t) => t.toFixed(1)).join(', ')} ms; with 5 notes: ${times.map((t) => t.toFixed(1)).join(', ')} ms`);
+    fastEnough(times, without);
     await settle();
     expect(reader().querySelectorAll('[data-pt-noted]')).toHaveLength(5);
   });
