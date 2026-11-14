@@ -180,6 +180,24 @@ export function keptWords(text: string): string {
   return text.replace(/^[ \t]*--- Notes \(\d+\) ---[\s\S]*?^[ \t]*--- End of notes ---[ \t]*$/gm, '').trim();
 }
 
+/**
+ * Asks held together go as one message. Two or more start with one line naming them all
+ * (`2 asks: Where are we?; Explain this step`), so the conversation's headline shows each, then their
+ * exact texts, a blank line apart.
+ */
+export function joinAsks(asks: { label: string; text: string }[]): string {
+  if (asks.length === 1) return asks[0].text;
+  return [`${asks.length} asks: ${asks.map((a) => a.label).join('; ')}`, ...asks.map((a) => a.text)].join('\n\n');
+}
+
+/** The texts of a message joinAsks made, one per ask; null when it is not one (or does not split cleanly). */
+export function splitAsks(message: string): string[] | null {
+  const m = /^(\d+) asks: [^\n]*\n\n([\s\S]*)$/.exec(message.trim());
+  if (!m) return null;
+  const parts = m[2].split(/\n\n/).map((x) => x.trim()).filter(Boolean);
+  return parts.length === Number(m[1]) ? parts : null;
+}
+
 /** Keep a message he sent as an ask; false when it is kept already. */
 export function keepAsk(text: string): boolean {
   const words = text.trim();

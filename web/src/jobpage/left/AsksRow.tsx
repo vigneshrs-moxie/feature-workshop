@@ -34,7 +34,7 @@ import { BRAND } from '../../app/brand';
 import { paletteKeyLabel, pressKey } from '../../app/keyRegistry';
 import { Button } from '../../components/Button';
 import { useWorkshop, type Store } from '../../state/store';
-import { askSays, fastOptions, fillGap, rowFor, type Ask } from '../asks';
+import { askSays, fastOptions, fillGap, joinAsks, rowFor, type Ask } from '../asks';
 import { withWordsBack, type JobStore } from '../jobStore';
 import { useJob, useJobStore } from '../useJob';
 import { stepsFromRow } from './Steps';
@@ -43,6 +43,10 @@ import '../asks.css';
 
 /** How long an ask is held (and its line shown) before it goes. */
 export const HOLD_MS = 4000;
+/** Asks held together go at the latest this long after the first click, */
+export const HOLD_MAX_MS = 8000;
+/** or as soon as this many are held. */
+export const HOLD_MAX_ASKS = 4;
 
 /**
  * What the row says over itself: Sent · Undo (with the held words, `held`), what Go faster switched,
@@ -92,16 +96,20 @@ export interface AskRunnerDeps {
   box: RefObject<HTMLTextAreaElement | null>;
   /** Whether the Foreman is replying now (the app's live run, else the payload's). */
   running?: () => boolean;
+  /** The clock (tests). */
+  now?: () => number;
 }
 
-export function createAskRunner({ api, store, box, running = () => false }: AskRunnerDeps): AskRunner {
+export function createAskRunner({ api, store, box, running = () => false, now: clock = () => Date.now() }: AskRunnerDeps): AskRunner {
   let line: AskLine | null = null;
   const listeners = new Set<() => void>();
   const say = (next: AskLine | null) => { line = next; for (const l of [...listeners]) l(); };
   /** The one timer: the asks held before they go, or a short line before it goes away. */
   let timer: ReturnType<typeof setTimeout> | null = null;
   /** The asks held now, in the order he clicked them (they go together, as one message). */
-  let held: string[] = [];
+  let held: { label: string; text: string }[] = [];
+  /** When the first of them was clicked. */
+  let firstAt = 0;
   /** What Undo does for Go faster's line (put the options back). */
   let undoFast: (() => void) | null = null;
   let ended = false;
@@ -126,31 +134,41 @@ export function createAskRunner({ api, store, box, running = () => false }: AskR
     const q = r && typeof r === 'object' ? (r.queued as { id?: unknown } | undefined) : undefined;
     if (q) {
       if (typeof q === 'object' && typeof q.id === 'string') store.watchQueued(q.id, text);
-      if (!ended && held.length === 0) brief({ words: QUEUED, undo: null, problem: false });
+      // Only when nothing else is said: Go faster's line keeps its Undo.
+      if (!ended && line === null) brief({ words: QUEUED, undo: null, problem: false });
     }
   }
 
-  /** Held asks go now (Go faster's line, or the page going): one message. */
+  /** Held asks go now (Go faster, the cap, or the page going): one message; their Undo goes with them. */
   function flush() {
-    const texts = held;
+    const asks = held;
     held = [];
     clear();
-    if (texts.length) void post(texts.join('\n\n'));
+    if (line?.undo === 'held') say(null);
+    if (asks.length) void post(joinAsks(asks));
   }
 
-  function hold(text: string) {
+  function hold(label: string, text: string) {
+    // The same ask twice within the hold goes once.
+    if (held.some((h) => h.text === text)) return;
+    // The cap: four held, the fifth starts a new hold after they go.
+    if (held.length >= HOLD_MAX_ASKS) flush();
     clear();
     undoFast = null;
-    held = [...held, text];
-    say({ words: held.length > 1 ? `${SENT} ${held.length}` : SENT, undo: 'held', problem: false, held: [...held] });
-    // One timer: the newest ask restarts it, so each has its four seconds of Undo.
+    if (!held.length) firstAt = clock();
+    held = [...held, { label, text }];
+    say({ words: held.length > 1 ? `${SENT} ${held.length}` : SENT, undo: 'held', problem: false, held: held.map((h) => h.text) });
+    // One timer: the newest ask restarts it, so each has its four seconds of Undo, but never past
+    // eight seconds from the first click.
+    const wait = Math.max(0, Math.min(HOLD_MS, firstAt + HOLD_MAX_MS - clock()));
     timer = setTimeout(() => {
       timer = null;
-      const texts = held;
+      const asks = held;
       held = [];
-      say(null);
-      if (texts.length) void post(texts.join('\n\n'));
-    }, HOLD_MS);
+      // Only its own line: a refusal said meanwhile stays.
+      if (line?.undo === 'held') say(null);
+      if (asks.length) void post(joinAsks(asks));
+    }, wait);
   }
 
   /** A line that goes away by itself after HOLD_MS, on the same timer (never while asks are held). */
@@ -225,7 +243,7 @@ export function createAskRunner({ api, store, box, running = () => false }: AskR
       if (store.getState().payload?.lock) { say({ words: LOCKED, problem: true, undo: null }); return; }
       // The website can't keep a message waiting: while the Foreman works the words stay in the box, as typed ones do.
       if (hosted() && running()) { fill(a.text, -1); brief({ words: KEPT, undo: null, problem: false }); return; }
-      hold(a.text);
+      hold(a.label, a.text);
     },
     undo() {
       if (line?.undo === 'held' && held.length) { held = []; clear(); say(null); return; }
@@ -246,8 +264,11 @@ function runningNow(app: Store, store: JobStore): boolean {
   const s = store.getState();
   const live = app.getState().runs[s.slug] ?? null;
   const p = s.payload?.run ?? null;
-  const run = live && (!p || !p.id || live.id === p.id) ? live : p ?? live;
-  return Boolean(run && ACTIVE.has(run.status ?? ''));
+  const on = (r: { status?: string | null } | null) => Boolean(r && ACTIVE.has(r.status ?? ''));
+  // As the message box's runNow: the live run when it is the payload's (or the payload names none),
+  // or when it is replying and the payload's is not; else the payload's.
+  const run = live && (!p || !p.id || live.id === p.id) ? live : p && live && on(live) && !on(p) ? live : p ?? live;
+  return on(run);
 }
 
 /** The page's runner: made once, ended (held asks sent) when the page goes. */

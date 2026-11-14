@@ -61,7 +61,7 @@ function server({ working = false } = {}) {
   return { post, get };
 }
 
-interface Opened { store: JobStore; post: Fn; get: Fn; unmount(): void; serve(p: JobPagePayload): Promise<void> }
+interface Opened { store: JobStore; app: ReturnType<typeof createStore>; post: Fn; get: Fn; unmount(): void; serve(p: JobPagePayload): Promise<void> }
 
 function open({ patch = {}, srv = server(), beside = null }: { patch?: Partial<JobPagePayload>; srv?: ReturnType<typeof server>; beside?: React.ReactNode } = {}): Opened {
   let current = { ...payload(), ...patch };
@@ -82,7 +82,7 @@ function open({ patch = {}, srv = server(), beside = null }: { patch?: Partial<J
     </WorkshopContext.Provider>,
   );
   return {
-    store, post: srv.post, get: srv.get, unmount: utils.unmount,
+    store, app, post: srv.post, get: srv.get, unmount: utils.unmount,
     serve: async (next) => { current = next; await act(async () => { await store.loadPage(); }); },
   };
 }
@@ -195,7 +195,7 @@ describe('an ask with nothing to fill in', () => {
     expect(sends(o.post)).toHaveLength(0);
     act(() => { vi.advanceTimersByTime(1); });
     await flush();
-    expect(sends(o.post).map((c) => (c[1] as { text: string }).text)).toEqual([`${askById('where')!.text}\n\n${askById('fixfind')!.text}`]);
+    expect(sends(o.post).map((c) => (c[1] as { text: string }).text)).toEqual([`2 asks: Where are we?; Fix the open findings\n\n${askById('where')!.text}\n\n${askById('fixfind')!.text}`]);
     expect(vi.getTimerCount() - before).toBe(0);
   });
 
@@ -702,6 +702,142 @@ describe('Keep as an ask, a message with notes (minor)', () => {
       fireEvent.click(within(mine).getByRole('button', { name: 'Keep as an ask' }));
       await flush();
       expect(JSON.parse(localStorage.getItem(KEPT_KEY)!)).toEqual(['And keep the export as it is.']);
+    } finally {
+      longJob.bodies[id].text = was;
+    }
+  });
+});
+
+// ---------- Fix round 2 ----------
+
+describe('fix round 2', () => {
+  it('1 · the website: a queued reply arriving after Go faster’s line leaves that line and its Undo', async () => {
+    const srv = server();
+    const realPost = srv.post.getMockImplementation()!;
+    let sent: (v: unknown) => void = () => {};
+    srv.post.mockImplementation(async (path: string, body?: unknown) => (path.endsWith('/send') ? new Promise((r) => { sent = r; }) : realPost(path, body)));
+    const o = open({ srv, patch: { hosted: true } });
+    await settle();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    fireEvent.click(row().getByRole('button', { name: 'Where are we?' }));
+    fireEvent.click(row().getByRole('button', { name: 'Go faster' }));
+    await flush();
+    expect(document.querySelector('.jp2-asks-msg')).toHaveTextContent(`${FAST_SAYS}·Undo`);
+    await act(async () => { sent({ ok: true, queued: { id: 'q-1', status: 'queued' } }); });
+    await flush();
+    expect(document.querySelector('.jp2-asks-msg')).toHaveTextContent(`${FAST_SAYS}·Undo`);
+    expect(document.querySelector('.jp2-asks-msg')).not.toHaveTextContent(QUEUED);
+    fireEvent.click(row().getByRole('button', { name: 'Undo' }));
+    await flush();
+    expect(optionPosts(o.post)).toHaveLength(2);
+  });
+
+  it('2 · the website: the app’s live run counts as working when the payload’s run has ended', async () => {
+    const o = open({ patch: { hosted: true, run: { ...RUNNING_RUN, id: 'run-old', status: 'done' } } });
+    await settle();
+    // The stream says a new reply started (another run id) before the payload caught up.
+    act(() => { o.app.dispatch({ type: 'event', event: { v: 2, type: 'run', job: SLUG, seq: 999999, data: { id: 'run-new', slug: SLUG, status: 'running' } } } as never); });
+    expect(o.app.getState().runs[SLUG]?.status).toBe('running');
+    fireEvent.click(row().getByRole('button', { name: 'Where are we?' }));
+    await flush();
+    expect(sends(o.post)).toHaveLength(0);
+    expect(box()).toHaveValue(askById('where')!.text);
+  });
+
+  it('3 · Go faster sends a held ask at once, and its Sent · Undo goes with it (no Undo that does nothing)', async () => {
+    const srv = server();
+    srv.get.mockImplementationOnce(() => new Promise(() => {}));
+    const o = open({ srv });
+    await settle();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    fireEvent.click(row().getByRole('button', { name: 'Where are we?' }));
+    fireEvent.click(row().getByRole('button', { name: 'Go faster' }));
+    await flush();
+    expect(sends(o.post)).toHaveLength(1);
+    expect(row().queryByRole('button', { name: 'Undo' })).toBeNull();
+  });
+
+  it('4 · a refusal said while asks are held is not wiped when they go', async () => {
+    const o = open();
+    await settle();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    fireEvent.click(row().getByRole('button', { name: 'Go faster' }).parentElement!.querySelector<HTMLButtonElement>('.jp2-askb')!);
+    // Another place takes the job while it is held; a second ask is refused with the reason.
+    const locked = payload();
+    locked.v += 1;
+    locked.lock = { owner: 'terminal', pid: 1, branch: null, acquiredAt: null };
+    await o.serve(locked);
+    cmdK();
+    fireEvent.click(within(palette()!).getAllByRole('option').find((x) => x.querySelector('.palette-label')?.textContent === 'Stop here')!);
+    expect(row().getByRole('alert')).toHaveTextContent('Not sent: another place is working on this job');
+    act(() => { vi.advanceTimersByTime(HOLD_MS); });
+    await flush();
+    expect(row().getByRole('alert')).toHaveTextContent('Not sent: another place is working on this job');
+  });
+
+  it('5 · the same ask clicked twice within the hold goes once', async () => {
+    const o = open();
+    await settle();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    fireEvent.click(row().getByRole('button', { name: 'Where are we?' }));
+    fireEvent.click(row().getByRole('button', { name: 'Where are we?' }));
+    expect(document.querySelector('.jp2-asks-msg')).toHaveTextContent(/^Sent·Undo$/);
+    act(() => { vi.advanceTimersByTime(HOLD_MS); });
+    await flush();
+    expect(sends(o.post).map((c) => (c[1] as { text: string }).text)).toEqual([askById('where')!.text]);
+  });
+
+  it('6 · held asks go at most 8 s after the first click', async () => {
+    const o = open();
+    await settle();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    fireEvent.click(row().getByRole('button', { name: 'Where are we?' }));
+    act(() => { vi.advanceTimersByTime(3000); });
+    fireEvent.click(row().getByRole('button', { name: 'Explain this step' }));
+    act(() => { vi.advanceTimersByTime(3000); });
+    fireEvent.click(row().getByRole('button', { name: 'Fix the open findings' }));
+    // 6 s in: the newest would wait to 10 s, but the cap is 8 s from the first click.
+    act(() => { vi.advanceTimersByTime(1999); });
+    await flush();
+    expect(sends(o.post)).toHaveLength(0);
+    act(() => { vi.advanceTimersByTime(1); });
+    await flush();
+    expect(sends(o.post)).toHaveLength(1);
+    expect((sends(o.post)[0][1] as { text: string }).text.split('\n')[0]).toBe('3 asks: Where are we?; Explain this step; Fix the open findings');
+  });
+
+  it('6 · at most four are held: a fifth sends the four now and is held by itself', async () => {
+    const o = open();
+    await settle();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const before = vi.getTimerCount();
+    cmdK();
+    const pick = (label: string) => { if (!palette()) cmdK(); fireEvent.click(within(palette()!).getAllByRole('option').find((x) => x.querySelector('.palette-label')?.textContent === label)!); };
+    for (const l of ['Where are we?', 'Explain this step', 'Stop here', 'Fix the open findings']) pick(l);
+    expect(document.querySelector('.jp2-asks-msg')).toHaveTextContent(/^Sent 4·Undo$/);
+    expect(sends(o.post)).toHaveLength(0);
+    pick('Publish the walkthrough');
+    await flush();
+    expect(sends(o.post)).toHaveLength(1);
+    expect((sends(o.post)[0][1] as { text: string }).text.startsWith('4 asks: ')).toBe(true);
+    expect(document.querySelector('.jp2-asks-msg')).toHaveTextContent(/^Sent·Undo$/);
+    expect(vi.getTimerCount() - before).toBe(1);
+  });
+
+  it('7 · Keep as an ask on a message of joined asks keeps each one', async () => {
+    const id = 'you:a0d62ac173be';
+    const was = longJob.bodies[id].text;
+    longJob.bodies[id].text = `2 asks: Where are we?; Stop here\n\n${askById('where')!.text}\n\n${askById('stop')!.text}`;
+    try {
+      const o = open();
+      await settle();
+      act(() => { o.store.setReader({ kind: 'conversation', id: 'conversation' }); });
+      await settle();
+      const mine = document.querySelector<HTMLElement>(`.jp2-cv-item.is-you[data-id="${id}"]`)!;
+      fireEvent.click(within(mine).getByRole('button', { name: 'Keep as an ask' }));
+      await flush();
+      expect(JSON.parse(localStorage.getItem(KEPT_KEY)!)).toEqual([askById('where')!.text, askById('stop')!.text]);
+      expect(within(mine).getByRole('button', { name: 'Kept 2 asks: in ⌘K under Yours' })).toBeInTheDocument();
     } finally {
       longJob.bodies[id].text = was;
     }

@@ -130,3 +130,15 @@ describe('what a kept message keeps (fix round 1)', () => {
     expect(keptWords('Mind the --- Notes (1) --- words in a sentence.')).toBe('Mind the --- Notes (1) --- words in a sentence.');
   });
 });
+
+describe('asks sent together (fix round 2)', () => {
+  it('start with one line naming each, then their texts; and split back', async () => {
+    const { joinAsks, splitAsks } = await import('./asks');
+    const two = joinAsks([{ label: 'Where are we?', text: 'A.' }, { label: 'Stop here', text: 'B.' }]);
+    expect(two).toBe('2 asks: Where are we?; Stop here\n\nA.\n\nB.');
+    expect(joinAsks([{ label: 'x', text: 'Only.' }])).toBe('Only.');
+    expect(splitAsks(two)).toEqual(['A.', 'B.']);
+    expect(splitAsks('2 asks: x; y\n\nA.\n\nB.\n\nC.')).toBeNull();
+    expect(splitAsks('Where are we?')).toBeNull();
+  });
+});
