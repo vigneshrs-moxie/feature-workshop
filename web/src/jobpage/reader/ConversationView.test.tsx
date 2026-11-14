@@ -20,6 +20,7 @@ import { longJob200 } from '../fixtures/longJob200';
 import { createJobStore, type JobStore } from '../jobStore';
 import { JobPage2 } from '../JobPage2';
 import { seenKey } from '../left/JobRows';
+import { sameGroupProps } from './ConversationView';
 import { forgetRecentPages } from '../recent';
 import { CONVERSATION } from '../targets';
 import type { JobBody, JobPagePayload, ThreadLine } from '../types';
@@ -619,5 +620,26 @@ describe('fix round 1', () => {
     BODY_PX = 420;
     act(() => { told!(); });
     expect(lineOf(LAST_REPLY).getBoundingClientRect().top).toBe(before);
+  });
+});
+
+describe('Task 23 fix round 2: a new line draws its own group only (speed rule 5)', () => {
+  const line = (id: string): ThreadLine => ({ id, kind: 'reply', at: '2026-11-04T10:00:00Z', step: null, headline: id, mine: false, hash: id });
+  const a = line('a');
+  const b = line('b');
+  const fns = { onToggle: () => {}, onAll: () => {}, onSmall: () => {}, onOpen: () => {} };
+  const props = (lines: ThreadLine[], ids: string[], newId: string | null = null) => ({
+    group: { key: 'g:a', step: null, label: 'Start', day: 'Tuesday', lines, small: [] },
+    open: EMPTY_OPEN, allOpen: false, stepIds: ids, newId, smallOpen: false, showSmall: true, ...fns,
+  });
+  const EMPTY_OPEN: ReadonlySet<string> = new Set();
+
+  it('a group made again from a newer payload with the same lines (new arrays) does not draw again', () => {
+    expect(sameGroupProps(props([a, b], ['a', 'b']), props([a, b], ['a', 'b']))).toBe(true);
+  });
+
+  it('a group whose lines changed, or that gains the New mark, draws again', () => {
+    expect(sameGroupProps(props([a], ['a']), props([a, b], ['a', 'b']))).toBe(false);
+    expect(sameGroupProps(props([a, b], ['a', 'b']), props([a, b], ['a', 'b'], 'b'))).toBe(false);
   });
 });

@@ -639,6 +639,8 @@ describe('Task 23 fix round: only the part that changed draws (speed rule 5)', (
     expect([drawn.header, drawn.move]).toEqual([0, 0]);
     expect(draws.buttons.filter((b) => /^(Previous|Next)\b/.test(b) || b === 'Send')).toEqual([]);
     expect(draws.notes).toBe(0);
+    // No older line draws again: each of his lines has its Keep as an ask, which would draw with it.
+    expect(draws.buttons.filter((b) => b === 'Keep as an ask')).toEqual([]);
   });
 });
 

@@ -41,7 +41,7 @@
 // line's time; it keeps the message's words in this browser (asks.ts, sb.asks.kept) and ⌘K lists them
 // under Yours.
 
-import { createContext, memo, useCallback, useContext, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from 'react';
+import { createContext, Fragment, memo, useCallback, useContext, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type RefObject } from 'react';
 import { Button } from '../../components/Button';
 import { Icon } from '../../components/Icon';
 import { readStored, useStored, writeStored } from '../../lib/stored';
@@ -475,7 +475,7 @@ export function ConversationView({ searchRef, onOpen }: ConversationViewProps) {
                   open={opened}
                   allOpen={ids.length > 0 && ids.every((id) => opened.has(id))}
                   stepIds={ids}
-                  newId={filtering ? null : newId}
+                  newId={!filtering && newId && g.lines.some((l) => l.id === newId) ? newId : null}
                   smallOpen={!filtering && smallOpen.has(g.key)}
                   showSmall={!filtering}
                   onToggle={toggle}
@@ -508,6 +508,19 @@ interface GroupViewProps {
   onOpen(t: ReaderTarget, from?: HTMLElement | null): void;
 }
 
+const sameList = <T,>(a: readonly T[], b: readonly T[]) => a === b || (a.length === b.length && a.every((x, i) => x === b[i]));
+/**
+ * Whether a group draws the same: the groups are made again from every newer payload (new arrays of the
+ * same line objects, which the store keeps by id), so a new line draws its own group only (speed rule 5).
+ */
+export function sameGroupProps(a: GroupViewProps, b: GroupViewProps): boolean {
+  const g = a.group, h = b.group;
+  return (g === h || (g.key === h.key && g.step === h.step && g.label === h.label && g.day === h.day && sameList(g.lines, h.lines) && sameList(g.small, h.small)))
+    && a.open === b.open && a.allOpen === b.allOpen && sameList(a.stepIds, b.stepIds) && a.newId === b.newId
+    && a.smallOpen === b.smallOpen && a.showSmall === b.showSmall
+    && a.onToggle === b.onToggle && a.onAll === b.onAll && a.onSmall === b.onSmall && a.onOpen === b.onOpen;
+}
+
 const GroupView = memo(function GroupView({ group: g, open, allOpen, stepIds, newId, smallOpen, showSmall, onToggle, onAll, onSmall, onOpen }: GroupViewProps) {
   const n = g.small.length;
   return (
@@ -519,10 +532,12 @@ const GroupView = memo(function GroupView({ group: g, open, allOpen, stepIds, ne
         </button>
       </div>
       <ul className="jp2-cv-lines">
+        {/* The New line before the first new one; no component of its own per line, so only the memo'd items are met. */}
         {g.lines.map((l) => (
-          <WithMark key={l.id} mark={l.id === newId}>
+          <Fragment key={l.id}>
+            {l.id === newId && <li className="jp2-cv-new" role="separator" aria-label="New since your last look">New</li>}
             <Item line={l} open={open.has(l.id)} onToggle={onToggle} onOpen={onOpen} />
-          </WithMark>
+          </Fragment>
         ))}
       </ul>
       {showSmall && n > 0 && (
@@ -541,17 +556,8 @@ const GroupView = memo(function GroupView({ group: g, open, allOpen, stepIds, ne
       )}
     </section>
   );
-});
+}, sameGroupProps);
 
-/** A line, with the New line before it when it is the first new one. */
-function WithMark({ mark, children }: { mark: boolean; children: ReactNode }) {
-  return (
-    <>
-      {mark && <li className="jp2-cv-new" role="separator" aria-label="New since your last look">New</li>}
-      {children}
-    </>
-  );
-}
 
 interface ItemProps {
   line: ThreadLine;
