@@ -36,11 +36,13 @@ const GOOD = {
   prototype: { slug: 'sample-job', action: 'publish' },
   'usage-resume': {},
   name: { ticket: { key: 'ORBIT-479', title: 'Feedback API' }, description: 'ORBIT-479: Feedback API', kind: 'bug', repoPath: '/tmp/repo', avoid: ['status-filter'] },
+  'queue-message': { slug: 'sample-job', text: 'Also the header.', replace: true, model: null, despiteLimit: false, confirmNoTerminal: false },
+  'cancel-waiting': { slug: 'sample-job' },
 };
 
 test('the two lists are exactly the plan’s, closed and frozen', () => {
   assert.deepEqual(Object.keys(REMOTE_COMMANDS).sort(), ['allow', 'approve', 'auto', 'auto-start', 'deny', 'fetch-diff', 'pause', 'reply', 'send-back', 'stack-merge', 'start', 'stop', 'take-over']);
-  assert.deepEqual(Object.keys(LOCAL_COMMANDS).sort(), ['close', 'name', 'notes', 'nudge', 'options', 'policy', 'prototype', 'reopen', 'repo', 'restart', 'resume', 'rules', 'settings', 'steer', 'try-it', 'usage-resume']);
+  assert.deepEqual(Object.keys(LOCAL_COMMANDS).sort(), ['close', 'name', 'notes', 'nudge', 'options', 'policy', 'prototype', 'reopen', 'repo', 'restart', 'resume', 'rules', 'settings', 'steer', 'try-it', 'usage-resume', 'queue-message', 'cancel-waiting'].sort());
   assert.ok(Object.isFrozen(REMOTE_COMMANDS) && Object.isFrozen(LOCAL_COMMANDS));
   assert.ok(Object.values(REMOTE_COMMANDS).every(Object.isFrozen));
   assert.throws(() => { REMOTE_COMMANDS.shell = {}; });

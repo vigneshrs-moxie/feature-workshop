@@ -138,6 +138,10 @@ export const LOCAL_COMMANDS = freeze({
   'usage-resume': {},
   // The New job form's branch name for a ticket (lib/branch-name.js): a name, and the slug and branch a start would get now.
   name: { ticket: required(FIELD.json), description: str(600), kind: oneOf('feature', 'bug'), repoPath: str(1000), avoid: FIELD.list },
+  // A message from the box that waits while the Foreman works and goes when its reply ends (lib/queued.js, the job
+  // page's R8); with nothing running it goes now. One per job: replace puts it in place of the one waiting. Cancel removes it.
+  'queue-message': { slug: required(FIELD.slug), text: required(FIELD.text), replace: FIELD.bool, model: str(100), despiteLimit: FIELD.bool, confirmNoTerminal: FIELD.bool },
+  'cancel-waiting': { slug: required(FIELD.slug) },
 });
 
 const fieldsOf = (type) => (Object.hasOwn(REMOTE_COMMANDS, type) ? REMOTE_COMMANDS[type] : Object.hasOwn(LOCAL_COMMANDS, type) ? LOCAL_COMMANDS[type] : null);

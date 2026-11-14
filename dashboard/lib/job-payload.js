@@ -34,7 +34,8 @@
 //                the cache and mirrorJobPage add conversation.more: older items left out, the website's case)
 //   open         { kind: ReaderKind, id }: what the reader shows on arrival (decision 2)
 //   thread       ThreadLine[]: one line per conversation item, oldest first, no bodies
-//   waiting      null (R8, Task 16: the one message waiting for the Foreman)
+//   waiting      null | { text, at, why }: the one message waiting for the Foreman (R8, lib/queued.js); why: a
+//                refusal when it was time to send (the usage limit, the terminal), else null
 //   prs          PrLine[]: always three
 //   hosted       boolean: built on the website (mirrorJobPage, which leaves out drive, lock and local: LOCAL_ONLY)
 //
@@ -611,6 +612,8 @@ function openOf(state, move, steps) {
 
 // ---------- The payload ----------
 
+/** The waiting message as the page shows it (R8), or null. */
+const waitingOf = (w) => (w && typeof w.text === 'string' && w.text ? { text: w.text, at: w.at ?? null, why: w.why ?? null } : null);
 const pick = (o, keys) => (o ? Object.fromEntries(keys.map((k) => [k, o[k] ?? null])) : null);
 
 /**
@@ -677,7 +680,7 @@ export function buildJobPage(facts) {
     rows: { conversation: { count: thread.length }, decisions: { count: decided } },
     open,
     thread,
-    waiting: null,
+    waiting: waitingOf(detail.waiting),
     prs: (Array.isArray(page.prs) ? page.prs : []).map((p) => ({ n: p.n, number: p.number ?? null, url: p.url ?? null, state: p.state ?? 'not-started', word: prWord(p), next: null, comments: null })),
     hosted: Boolean(f.hosted),
   };

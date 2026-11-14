@@ -150,8 +150,17 @@ export default function jobRoutes({ runner, read, send, sendJson, needJob, wiref
       // sent now; it still answers that brief, so it must still be the current one (as …/gate checks).
       const gateBrief = readBriefNumber(body.gateBrief);
       const kind = str(body.kind, 20) || 'message';
+      // queue: while the Foreman works the message waits and goes when the reply ends (lib/queued.js, R8): 202
+      // with { waiting }. With nothing running it goes now (200, { run }). A plain message only; on this computer only.
+      if (body.queue === true) {
+        if (gateBrief || kind !== 'message') throw new HttpError(400, 'Only a plain message can wait for the Foreman.');
+        const r = await runner.handle({ type: 'queue-message', slug, text, ...(body.replace === true ? { replace: true } : {}), ...sendFields(body) }, LOCAL);
+        return sendJson(res, r?.waiting ? 202 : 200, r);
+      }
       return command(res, { type: 'reply', slug, via: 'box', text, kind, gateBrief, ...sendFields(body) });
     }),
+    // The message waiting for the Foreman, cancelled: { cancelled, text } (text: the words removed, or null).
+    post(/^\/api\/job\/([^/]+)\/waiting\/cancel$/, async ({ res, m }) => command(res, { type: 'cancel-waiting', slug: await needJob(m[1]) })),
     post(/^\/api\/job\/([^/]+)\/nudge\/([\w-]+)\/(dismiss|yes)$/, async ({ res, m, body }) => {
       // A hand-off nudge on the Desk (lib/nudges.js): dismiss it, or send its one sentence to the Foreman.
       const slug = await needJob(m[1]);

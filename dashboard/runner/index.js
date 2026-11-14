@@ -107,6 +107,7 @@ import { telemetry as telemetryOf } from '../lib/telemetry.js';
 import { ClaudeCodeUsage, CLAUDE_CODE_NOTE, CLAUDE_CODE_WORDS, readSetting as claudeCodeSetting, writeSetting as setClaudeCodeSetting } from '../lib/claude-code-usage.js';
 import { EVENT_TYPES, NOTES_MAX, parseCommand } from '../lib/protocol.js';
 import { JobLocked, heldElsewhere } from '../lib/lock.js';
+import { WAITING_FILE, WaitingExists, WaitingMessages } from '../lib/queued.js';
 import { RESTART_TEXT, RESUME_KIND, replay, withRestartNotes } from './replay.js';
 import { removeServiceFile, writeServiceFile } from './service-file.js';
 import { createStacks } from './stacks.js';
@@ -186,6 +187,9 @@ export async function createRunner(config) {
   setApiPort(PORT); // nor call Starbase's own address (the starbase-api hard line)
   // Your "Always allow" rules (rules.json next to the dashboard's other state; see lib/rules.js).
   const rules = new RuleStore(state.dir);
+  // The one message waiting for each job's Foreman (lib/queued.js, the job page's R8), kept beside sessions.json.
+  const waitingMessages = new WaitingMessages({ file: path.join(state.dir, WAITING_FILE) });
+  await waitingMessages.load();
   const HOOK_SCRIPT = path.join(HERE, 'hooks', 'record.mjs');
   const queryFn = config.queryFn ?? (DEMO
     ? (await import('../demo/fake-query.js')).makeFakeQuery({ featuresDir: FEATURES_DIR })
@@ -1289,6 +1293,8 @@ export async function createRunner(config) {
       statusForCompose: statusForCompose(f),
       // A gate reply waiting for the usage limit to reset ({ kind, gateBrief, at }), or null.
       heldReply: limits.heldFor(f.dir),
+      // The message waiting for the Foreman ({ text, at, why }), or null (lib/queued.js, the job page's R8).
+      waiting: waitingMessages.view(f.dir),
       // runLines: each reply's start and end from the whole audit, for Details (lib/work-rows.js) to tell which reply a crew row was part of.
       ...(whole ? { threadAll: threadPart.all, briefTexts: threadPart.texts, runLines: runLines(audit) } : {}),
     };
@@ -1357,6 +1363,72 @@ export async function createRunner(config) {
     await reopenIfClosed(f);
     invalidate();
     return run;
+  }
+
+  // ---------- The message waiting for the Foreman (lib/queued.js, the job page's R8) ----------
+
+  /** The job's waiting message changed: its payload is built again (v moves) and the website's copy is sent again. */
+  function waitingMoved(slug) {
+    invalidate();
+    events.emit('change', slug, { at: Date.now() });
+  }
+  /** A refusal at send time, in its own plain words (the payload's waiting.why). */
+  const whyNot = (err) => String(err?.message ?? err).split('\n')[0].slice(0, 600);
+  const flushing = new Set(); // job folders whose waiting message is being sent now
+  const flushAgain = new Set(); // ... and asked for again meanwhile (a reply ended during the look)
+
+  /**
+   * The job's waiting message goes now, once, unless something stops it: the same checks as a message from
+   * the box (sendPlan: a restart or close under way, the usage limit, the terminal) and the job's lock. A
+   * refusal keeps it, with why. A reply that is going (another start came first) keeps it for that reply's
+   * end; so does a reply the last clean stop paused, which carries on first.
+   */
+  async function flushWaiting(dir) {
+    if (!waitingMessages.get(dir)) return;
+    if (flushing.has(dir)) { flushAgain.add(dir); return; }
+    flushing.add(dir);
+    let slug = null;
+    try {
+      const w = waitingMessages.get(dir);
+      const f = (await features()).find((x) => x.dir === dir) ?? null;
+      if (!w || !f) return;
+      slug = f.slug;
+      const drive = await driveState(f);
+      if (drive.mode === 'running' || restartPaused.get(dir)?.how === 'clean') return;
+      let out;
+      try {
+        if (f.closed) throw new Error('This job is marked done. Nothing was sent.');
+        out = sendPlan(f, drive, { confirmNoTerminal: w.confirmNoTerminal }, w.text);
+        let held = null;
+        try { held = heldElsewhere(dir); } catch { held = null; }
+        if (held) throw new JobLocked(held);
+      } catch (err) {
+        if (w.why !== whyNot(err)) { await waitingMessages.refuse(dir, whyNot(err)); waitingMoved(slug); }
+        return;
+      }
+      const taken = await waitingMessages.take(dir);
+      if (!taken) return;
+      waitingMoved(slug);
+      try {
+        await startSend(f, out, { kind: 'message' });
+      } catch (err) {
+        // Not started: back as it was (a reply that started first: it goes when that one ends).
+        await waitingMessages.putBack(dir, taken, err instanceof Busy ? null : whyNot(err));
+        waitingMoved(slug);
+        return;
+      }
+      await markActed(f.dir); // his message
+      await clearTooBig(f.dir);
+    } catch (err) {
+      console.error(`waiting message (${slug ?? dir}):`, err?.message ?? err);
+    } finally {
+      flushing.delete(dir);
+      if (flushAgain.delete(dir)) flushWaiting(dir).catch(() => {});
+    }
+  }
+  /** Every job's waiting message, one job after another (at the start, after the usage limit lifts). */
+  async function flushAllWaiting() {
+    for (const dir of waitingMessages.dirs()) await flushWaiting(dir);
   }
 
   async function reopenIfClosed(f) {
@@ -2534,6 +2606,10 @@ export async function createRunner(config) {
   }
   // A reply stopped before its result: what it used so far is a turn too (an estimate).
   driver.on('run', (run) => { if (RUN_ENDED.has(run.status)) logTurn(turnMeter.forget(run.id, run)); });
+  // A reply ended: the message waiting for the Foreman goes now (lib/queued.js, the job page's R8).
+  driver.on('run', (run) => { if (RUN_ENDED.has(run.status) && run.featureDir && waitingMessages.get(run.featureDir)) flushWaiting(run.featureDir).catch(() => {}); });
+  // The usage limit lifted: messages it held go.
+  limits.on('change', () => { if (!limits.isLimited() && waitingMessages.dirs().length) flushAllWaiting().catch(() => {}); });
 
 
   // ---------- Commands (lib/protocol.js): every change the site asks for ----------
@@ -2584,6 +2660,8 @@ export async function createRunner(config) {
     if (!text) throw new HttpError(400, 'The message is empty.');
     const reply = { ok: true, text, chipsDropped: g.chips.length - chips.length, ...(options ? { options, summary: describeOptions(options) } : {}) };
     const drive = await driveState(f);
+    // Auto never queues, and never answers ahead of his message waiting for the Foreman: that goes first.
+    if (auto && drive.mode !== 'running' && waitingMessages.get(f.dir)) throw new HttpError(409, 'Your message waiting for the Foreman goes first.', { code: 'busy' });
     if (drive.mode === 'running') {
       if (auto) throw new HttpError(409, 'The Foreman is still working on your last message. Wait for it, or pause it first.', { code: 'busy' });
       await saveChipOptions(f, options);
@@ -2809,6 +2887,37 @@ export async function createRunner(config) {
       await markActed(f.dir); // his message, of any kind
       await clearTooBig(f.dir); // Run as a stack instead is one of these
       return { run };
+    },
+    // POST /api/job/:slug/send with queue (lib/queued.js, the job page's R8): while the Foreman works the message
+    // waits (one per job; replace puts it in place of the one waiting, else a 409 names that one) and goes when
+    // the reply ends. With nothing running it goes now, as a message from the box does. Never Auto's.
+    async 'queue-message'(body) {
+      const f = await jobOf(body.slug);
+      const text = body.text ?? '';
+      if (!text) throw new HttpError(400, 'The message is empty.');
+      if (restarting.has(f.dir)) throw new HttpError(409, BEING_RESTARTED);
+      if ((await driveState(f)).mode !== 'running') {
+        return HANDLERS.reply({ slug: body.slug, via: 'box', text, kind: 'message', model: body.model ?? null, despiteLimit: body.despiteLimit, confirmNoTerminal: body.confirmNoTerminal });
+      }
+      let waiting;
+      try {
+        waiting = await waitingMessages.put(f.dir, { slug: f.slug, text, confirmNoTerminal: body.confirmNoTerminal === true }, { replace: body.replace === true });
+      } catch (err) {
+        if (!(err instanceof WaitingExists)) throw err;
+        const first = err.waiting.text.length > 120 ? `${err.waiting.text.slice(0, 119)}…` : err.waiting.text;
+        throw new HttpError(409, `A message is already waiting for the Foreman: “${first}” Replace it, or cancel it first.`, { code: 'waiting', waiting: err.waiting });
+      }
+      waitingMoved(f.slug);
+      // The reply may have ended while it was saved: then it goes now.
+      flushWaiting(f.dir).catch(() => {});
+      return { ok: true, waiting };
+    },
+    // POST /api/job/:slug/waiting/cancel: the waiting message removed; text: its words (null when none waited).
+    async 'cancel-waiting'(body) {
+      const f = await jobOf(body.slug);
+      const was = await waitingMessages.cancel(f.dir);
+      if (was) waitingMoved(f.slug);
+      return { ok: true, cancelled: Boolean(was), text: was?.text ?? null };
     },
     approve: (body) => gateDecision('approve', body),
     'send-back': (body) => gateDecision('changes', body),
@@ -3924,6 +4033,7 @@ export async function createRunner(config) {
     testHooks.replay = replayRestart;
     testHooks.startJob = (body, internal) => HANDLERS.start(body, internal);
     testHooks.checkParked = checkParkedGates; // one look for parked gates, without start()'s timer
+    testHooks.flushWaiting = flushAllWaiting; // start()'s look at the messages waiting for the Foreman
   }
 
   // ---------- Start and stop ----------
@@ -3963,6 +4073,8 @@ export async function createRunner(config) {
     setInterval(() => { auto.pass(); }, 60_000).unref?.();
     // Replies the last clean stop paused carry on.
     startCarryingOn();
+    // Messages waiting for the Foreman at the last stop go now (one whose reply carries on first goes when it ends).
+    flushAllWaiting().catch((err) => console.error('waiting messages:', err.message));
     // The hosted site (packet 2A): idle until `starbase login` pairs this laptop.
     if (siteLinkOn) startSiteLink().catch((err) => console.error('site link:', err.message));
   }
