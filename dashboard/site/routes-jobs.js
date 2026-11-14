@@ -14,9 +14,10 @@ const str = (v, max = 20000) => (typeof v === 'string' ? v.slice(0, max) : '');
 // ---------- Reading what the page sent (…/send and …/gate) ----------
 
 // The gate card's body, checked: kind, the brief it answers, at most 20 answers, 20 verdicts,
-// MAX_CHIPS chips and a 4,000-character note. Anything off is a 400, and nothing is sent.
+// MAX_CHIPS chips and a note as long as /send's text (20,000 characters: the job page's notes block
+// goes in it, Task 17). Anything off is a 400, and nothing is sent.
 const GATE_KINDS = ['approve', 'changes', 'message', 'stop'];
-const GATE_NOTE_MAX = 4000;
+const GATE_NOTE_MAX = 20000;
 // The clarify brief allows up to five decisions, so three was too few; twenty is a ceiling, not a target.
 export const GATE_ANSWERS_MAX = 20;
 export const GATE_VERDICTS_MAX = 20;

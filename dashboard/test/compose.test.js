@@ -147,3 +147,31 @@ test('usage limit: a held reply goes in place of the carry-on message, with its 
   assert.equal(limits.heldFor('/f/a'), null);
   await fs.rm(state.dir, { recursive: true, force: true });
 });
+
+// Task 17 fix round 1 (Critical 1): a notes block from the job page (lib/notes-block.js) reaches the
+// Foreman on its own lines with Go, Send back and Stop; his words after it stay on one line, and plain
+// words (the old page's) are one line as before.
+const BLOCK = [
+  '--- Notes (2) ---',
+  '1. [change] Plan v2 · step 4 "Add the filter to the table"',
+  '   > the words he pointed at',
+  '   Note: use the existing badge',
+  '2. [drop] Spec v3 · acceptance line 6',
+  '--- End of notes ---',
+].join('\n');
+
+test('compose: a notes block keeps its lines with Go, Send back and Stop; his words after it stay one line', () => {
+  const status = { brief: { number: 4 }, nextProposed: 'Build' };
+  assert.equal(composeReply({ kind: 'approve', status, note: `${BLOCK}\n\nAlso keep\nthe old export.` }),
+    `I approve. Go ahead with the next stage: Build\n${BLOCK}\n\nAlso keep the old export.`);
+  assert.equal(composeReply({ kind: 'changes', status, note: BLOCK }),
+    `Please make changes before moving on, and stay in the current stage:\n${BLOCK}`);
+  assert.equal(composeReply({ kind: 'stop', status, note: `${BLOCK}\n\nThat's all.` }),
+    `Stop here. Record where things stand in workflow-status.md and don’t start anything else.\n${BLOCK}\n\nThat's all.`);
+});
+
+test('compose: plain words are one line as before, and a block that never closes is plain words', () => {
+  const status = { brief: { number: 4 }, nextProposed: 'Build' };
+  assert.equal(composeReply({ kind: 'changes', status, note: 'Use\nthe   old\ncolumn.' }), 'Please make changes before moving on, and stay in the current stage:\nUse the old column.');
+  assert.equal(composeReply({ kind: 'approve', status, note: '--- Notes (1) ---\n1. [drop] x' }), 'I approve. Go ahead with the next stage: Build\n--- Notes (1) --- 1. [drop] x');
+});

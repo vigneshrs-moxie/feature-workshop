@@ -43,8 +43,10 @@ const FIELD = {
   slug: { ok: (v) => typeof v === 'string' && v.length > 0 && v.length <= 300 && !/[/\\\0]/.test(v) && v !== '.' && v !== '..', says: 'a job name' },
   // A reply, a steered message or an edited reply: at most 20,000 characters.
   text: { ok: isText(20000), says: 'text of at most 20,000 characters' },
-  // A note on a decision, a permission or a closed job.
+  // A note on a permission or a closed job.
   note: { ok: isText(4000), says: 'text of at most 4,000 characters' },
+  // A gate decision's note: it can carry the job page's notes block (Task 17), so as long as a reply.
+  gateNote: { ok: isText(20000), says: 'text of at most 20,000 characters' },
   // The brief a decision answers, or none.
   brief: { ok: (v) => v === null || (Number.isInteger(v) && v >= 1 && v <= 99999), says: 'a brief number' },
   // A permission request's id, or a reply's (run) id.
@@ -66,7 +68,7 @@ const required = (check) => ({ ...check, required: true });
 
 // The gate card's decision: the brief it answers, your answers, verdicts, next-step chips and note.
 const GATE = {
-  slug: required(FIELD.slug), briefNumber: FIELD.brief, note: FIELD.note, answers: FIELD.record, verdicts: FIELD.record,
+  slug: required(FIELD.slug), briefNumber: FIELD.brief, note: FIELD.gateNote, answers: FIELD.record, verdicts: FIELD.record,
   chips: FIELD.list, startAfterReset: FIELD.bool, model: str(100), despiteLimit: FIELD.bool, confirmNoTerminal: FIELD.bool,
 };
 

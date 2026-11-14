@@ -3,6 +3,20 @@
 
 const line = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
 
+// A note that opens with the job page's notes block (lib/notes-block.js composeNotes) keeps the block's
+// lines: the Foreman reads it line by line (notes-and-comments.md). His words after it, and any note
+// without a whole block, are one line as before.
+const NOTES_OPEN = /^--- Notes \(\d+\) ---$/;
+const NOTES_CLOSE = '--- End of notes ---';
+/** The note's lines: the notes block as written, then his words on one line ('' and nothing when none). */
+function noteLines(note) {
+  const lines = String(note ?? '').trim().split(/\r?\n/);
+  const end = lines.findIndex((l) => l.trim() === NOTES_CLOSE);
+  if (!NOTES_OPEN.test(lines[0]?.trim() ?? '') || end < 0) { const w = line(note); return w ? [w] : []; }
+  const words = line(lines.slice(end + 1).join(' '));
+  return [...lines.slice(0, end + 1).map((l) => l.trimEnd()), ...(words ? ['', words] : [])];
+}
+
 function answersBlock(questions = [], answers = {}) {
   const out = [];
   questions.forEach((q, i) => {
@@ -111,13 +125,14 @@ export function composeReply({ kind, status = {}, answers = {}, verdicts = {}, n
     body.push(next ? `I approve. Go ahead with the next stage: ${next}` : 'I approve. Go ahead with the next stage you proposed.');
     const v = versionsLine(status);
     if (v) body.push(v);
-    if (line(note)) body.push(line(note));
+    body.push(...noteLines(note));
   } else if (kind === 'changes') {
     body.push('Please make changes before moving on, and stay in the current stage:');
-    body.push(line(note) || '(describe the changes)');
+    const own = noteLines(note);
+    body.push(...(own.length ? own : ['(describe the changes)']));
   } else if (kind === 'stop') {
     body.push('Stop here. Record where things stand in workflow-status.md and don’t start anything else.');
-    if (line(note)) body.push(line(note));
+    body.push(...noteLines(note));
   } else {
     body.push(String(note ?? '').trim());
   }

@@ -79,6 +79,7 @@ before(async () => {
   await writeJob('long-job');
   await writeJob('versions-job');
   await writeJob('classic-job');
+  await writeJob('notes-gate-job');
   await writeJob('guidance-job');
   // L0 and L1 jobs with their levels' own defaults, for a level change from the header (…/options {level}).
   await writeJob('l0-job', { options: { level: 0, flow: 'quick', skip: ['spec', 'refine', 'investigate', 'spec-update', 'plan', 'test', 'review'], reviewers: [], manual_test: false, models: { foreman: 'claude-opus-5-5', build: 'claude-sonnet-5-5', checks: 'claude-sonnet-5-5' } } });
@@ -277,7 +278,7 @@ test('gate: refusals send nothing and change nothing', { timeout: 60_000 }, asyn
     [{ kind: 'approve', briefNumber: 1 }, 409, /moved on to brief 2/],
     [{ kind: 'yes' }, 400, /Unknown decision/],
     [{ kind: 'approve', briefNumber: '2' }, 400, /brief number/],
-    [{ kind: 'message', note: 'x'.repeat(4001) }, 400, /too long/],
+    [{ kind: 'message', note: 'x'.repeat(20001) }, 400, /too long \(at most 20,000 characters\)/],
     [{ kind: 'changes', note: '  ' }, 400, /Say what to change/],
     [{ kind: 'approve', answers: Object.fromEntries(Array.from({ length: 21 }, (_, i) => [`${i + 1}`, { choice: 'a' }])) }, 400, /^Too many answers in one go: 21\. Starbase takes at most 20\.$/],
     [{ kind: 'approve', verdicts: Object.fromEntries(Array.from({ length: 21 }, (_, i) => [`D-${i}`, { verdict: 'confirm' }])) }, 400, /^Too many verdicts in one go: 21\. Starbase takes at most 20\.$/],
@@ -495,4 +496,22 @@ test('options: a save carrying the updated_at it loaded is refused when the opti
   const classic = await write('POST', '/api/job/conflict-job/options', { options: { ...options, notes: 'Classic.' } });
   assert.equal(classic.status, 200, JSON.stringify(classic.body));
   assert.equal((await readJson(featuresDir, 'conflict-job', 'options.json')).notes, 'Classic.');
+});
+
+// Task 17 fix round 1: the job page's notes go in a gate reply's note (Go · and do these 3, Send back ·
+// 3 notes). The Foreman reads the block line by line, so it must arrive on its lines. A decision made on
+// the website is queued as this same command ({ type: 'approve', note, … }) and runs through the same
+// gateDecision on the laptop, so this covers it too.
+test('gate: a notes block in the note arrives on its own lines, his words after it; a long one (over 4,000) goes', { timeout: 60_000 }, async () => {
+  const quote = 'the words he pointed at, '.repeat(12).trim();
+  const notes = Array.from({ length: 16 }, (_, i) => [`${i + 1}. [change] Plan v2 · step ${i + 1} "Add the filter to the table"`, `   > ${quote}`, '   Note: use the existing badge']).flat();
+  const block = ['--- Notes (16) ---', ...notes, '--- End of notes ---'].join('\n');
+  assert.ok(block.length > 4000, 'longer than the old cap');
+  const r = await write('POST', '/api/job/notes-gate-job/gate', { kind: 'approve', briefNumber: 2, note: `${block}\n\nAnd keep\nthe old export.` });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.sent, true);
+  // (The job's open decision, not confirmed by this body, is listed first, as with any approval.)
+  assert.equal(r.body.text, `Not confirmed yet: D-1.\n\n${APPROVE_TEXT}\n${block}\n\nAnd keep the old export.`);
+  const sent = await sendsFor('notes-gate-job');
+  assert.ok(sent.at(-1).text.endsWith(`${block}\n\nAnd keep the old export.`), 'the audited text has the block on its lines');
 });

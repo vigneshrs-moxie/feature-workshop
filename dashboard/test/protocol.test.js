@@ -63,6 +63,8 @@ test('every command on each list is accepted with good fields', () => {
   }
   // Optional fields may be left out; a 20,000-character reply is fine.
   assert.equal(parseCommand({ type: 'reply', slug: 'x', text: 'y'.repeat(20000) }).ok, true);
+  // A gate note with the job page's notes block (Task 17) may be as long, from the site too (a website decision).
+  for (const type of ['approve', 'send-back', 'stop']) assert.equal(parseCommand({ type, slug: 'x', note: 'n'.repeat(20000) }, { from: 'site' }).ok, true, type);
   assert.equal(parseCommand({ type: 'usage-resume' }, { from: 'local' }).ok, true);
 });
 
@@ -96,7 +98,9 @@ test('an unknown type, a local command from the site, an extra field and a wrong
   refused({ type: 'reply', slug: 'x', text: 'y'.repeat(20001) }, 'site', /20,000/);
   refused({ type: 'approve', slug: 'x', briefNumber: '3' }, 'site', /brief number/);
   refused({ type: 'approve', slug: 'x', briefNumber: 0 }, 'site', /brief number/);
-  refused({ type: 'approve', slug: 'x', note: 'n'.repeat(4001) }, 'site', /4,000/);
+  // A gate note carries the job page's notes block (Task 17): as long as a reply. A permission's note stays short.
+  refused({ type: 'approve', slug: 'x', note: 'n'.repeat(20001) }, 'site', /20,000/);
+  refused({ type: 'allow', requestId: 'req-1', note: 'n'.repeat(4001) }, 'site', /4,000/);
   refused({ type: 'allow', requestId: '../../etc' }, 'site', /an id/);
   refused({ type: 'allow', requestId: 'req-1', scope: 'forever' }, 'site', /“once” or “run”/);
   refused({ type: 'deny' }, 'site', /needs “requestId”/);
