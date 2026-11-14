@@ -110,3 +110,28 @@ describe('Task 18 fix round 1: a long What changed draws in chunks', () => {
     expect(reader().querySelector('.jp2-dd-sum')!.textContent).toBe('Since v2: 10 lines added, 10 removed');
   });
 });
+
+describe('Task 18 fix round 2: a newer older version starts the lines again', () => {
+  it('what is drawn so far starts again at 400 when the older version compared changes', async () => {
+    const many = (f: (i: number) => string) => Array.from({ length: 1000 }, (_, i) => f(i)).join('\n');
+    const now: JobBody = { ...NOW, text: many((i) => (i % 100 === 0 ? `changed ${i}` : `line ${i}`)) };
+    const old: JobBody = { ...OLD, text: many((i) => `line ${i}`) };
+    const V3_ID = 'versions/implementation-plan.v3.md';
+    const o = openNotes({ patch: withV2, bodies: { [PLAN]: now, [OLD_ID]: old, [V3_ID]: { ...old, id: V3_ID } } });
+    await settle();
+    act(() => { fireEvent.click(toggle()!); });
+    await settle();
+    act(() => { fireEvent.click(screen.getByRole('button', { name: /^Show the next 400 lines/ })); });
+    await settle();
+    expect(reader().querySelectorAll('.jp2-dd-l')).toHaveLength(800);
+    // v3's words are already held, so nothing waits in between: the same view goes on drawing.
+    await act(async () => { await o.store.loadBody(V3_ID); });
+    const next = JSON.parse(JSON.stringify(o.store.getState().payload)) as JobPagePayload;
+    next.v += 1;
+    for (const s of next.steps) for (const x of [...s.outputs, ...(s.more ?? [])]) if (x.id === PLAN) { x.version = '4'; x.versions = [{ n: '3', id: V3_ID }, { n: '2', id: OLD_ID }]; }
+    await o.serve(next);
+    await settle();
+    expect(toggle()!.textContent).toBe('What changed since v3');
+    expect(reader().querySelectorAll('.jp2-dd-l')).toHaveLength(400);
+  });
+});

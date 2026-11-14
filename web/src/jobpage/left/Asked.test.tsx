@@ -119,3 +119,25 @@ describe('Task 18 fix round 1: a commit the Foreman names that is not on the bra
     expect(there.querySelector('.jp2-asked-warn')).toBeNull();
   });
 });
+
+describe('Task 18 fix round 2: a commit list that cannot tell', () => {
+  const twoLines = () => withAsked([DONE3[1], { ...DONE3[1], n: 4, note: 'the real one', what: 'commit b81b49e · week.ts', commit: { sha: 'b81b49e', file: 'week.ts' } }]);
+  const commits = [{ sha: 'b81b49e7f5a657e2d701ccca3e5a3a455ed7b41b', short: 'b81b49e7', subject: 's', date: null, files: [] }];
+
+  it('a list cut at its limit: a commit not in it stays a link (Changes asks for it by itself)', async () => {
+    const o = openNotes({ read: null, patch: twoLines() });
+    await settle();
+    await act(async () => { await loadCommits(o.store, { get: async () => ({ commits, cut: true }) } as unknown as ApiClient, SLUG); });
+    const [maybe] = lines();
+    expect(maybe.querySelector('.jp2-asked-warn')).toBeNull();
+    expect(within(maybe).getByRole('button', { name: /a smaller badge/ })).toBeTruthy();
+  });
+
+  it('an empty list (no branch yet, or it could not be read) marks no line as not on the branch', async () => {
+    const o = openNotes({ read: null, patch: twoLines() });
+    await settle();
+    await act(async () => { await loadCommits(o.store, { get: async () => ({ commits: [], note: 'No feature branch yet.' }) } as unknown as ApiClient, SLUG); });
+    expect(asked()!.querySelector('.jp2-asked-warn')).toBeNull();
+    expect(lines().every((l) => within(l).queryByRole('button'))).toBe(true);
+  });
+});

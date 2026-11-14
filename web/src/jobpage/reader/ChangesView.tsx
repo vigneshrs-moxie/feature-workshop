@@ -20,7 +20,7 @@ import { Button } from '../../components/Button';
 import { useWorkshop } from '../../state/store';
 import { sinceWords } from '../left/YourMove';
 import { useJob, useJobStore } from '../useJob';
-import { findCommit, findFile, loadCommits, loadDiff, setPick, useBranch, type BranchCommit, type BranchFile } from './branch';
+import { findCommit, findFile, loadCommits, loadDiff, notOnBranch, setPick, useBranch, type BranchCommit, type BranchFile } from './branch';
 import { ReaderBody } from './ReaderBody';
 
 /** Lines in one chunk of a diff, and how many draw at first. */
@@ -41,10 +41,14 @@ export function ChangesView() {
   useEffect(() => { if (!hosted) void loadCommits(store, api, slug); }, [store, api, slug, hosted]);
 
   const commits = branch.commits ?? [];
-  const found = findCommit(commits, branch.pick.sha);
-  // A commit named (by the Foreman, What you asked) that is not on the branch: said plainly, never the newest in its place.
-  const missing = branch.pick.sha && branch.commits && commits.length && !found ? branch.pick.sha : null;
-  const commit = missing ? null : found ?? commits[0] ?? null;
+  const sha = branch.pick.sha;
+  const found = findCommit(commits, sha);
+  // A commit named (by the Foreman, What you asked) that is not on the branch: said plainly, never the newest
+  // in its place. When the list was cut at its limit it may be older than the list: asked for by itself, and
+  // only the server's word (its 404) says it is not there.
+  const missing = notOnBranch(branch, sha) ? sha : null;
+  const older = sha && !found && commits.length && !missing ? sha : null;
+  const commit: BranchCommit | null = missing ? null : older ? { sha: older, short: older.slice(0, 8), subject: '', date: null, files: [] } : found ?? commits[0] ?? null;
   // The newest commit's diff, fetched ahead of any pick.
   useEffect(() => { if (!hosted && commit) void loadDiff(store, api, slug, commit.sha); }, [store, api, slug, hosted, commit?.sha]);
   // The commit first shown stays shown: a newer one arriving on the list's re-read never replaces what he reads.
@@ -86,6 +90,7 @@ export function ChangesView() {
         <div className="jp2-ch-p">
           <FileList files={files} on={path} onPick={pickFile} />
           <DiffColumn place={commit ? `${commit.sha}:${path ?? ''}` : ''}>
+            {older && <p className="jp2-dim jp2-ch-nofile jp2-ch-older" role="status">Commit {older} is older than the commits listed.</p>}
             {noFile && <p className="jp2-dim jp2-ch-nofile" role="status">{noFile} is not in this commit. Showing its first file.</p>}
             {commit && <Diff sha={commit.sha} path={path} onAgain={() => void loadDiff(store, api, slug, commit.sha)} />}
           </DiffColumn>

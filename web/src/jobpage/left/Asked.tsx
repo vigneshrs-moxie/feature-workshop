@@ -18,7 +18,7 @@ import { Button } from '../../components/Button';
 import '../answers.css';
 import { addNote, oneLine } from '../notes/chips';
 import { useWorkshop } from '../../state/store';
-import { findCommit, loadCommits, setPick, useBranch } from '../reader/branch';
+import { loadCommits, notOnBranch, setPick, useBranch } from '../reader/branch';
 import type { JobPagePayload, NoteAnswer, ReaderTarget } from '../types';
 import { useJob, useJobStore } from '../useJob';
 
@@ -55,8 +55,8 @@ function AskedLines({ asked, onOpen }: AskedProps) {
   // A commit the Foreman names is looked for on the branch (the list Changes reads), so a line never
   // links to a commit that is not there as if it proved the change.
   useEffect(() => { if (named && !hosted) void loadCommits(store, api, slug); }, [store, api, slug, hosted, named]);
-  const commits = useBranch(store).commits;
-  const gone = (a: NoteAnswer) => Boolean(a.commit && commits && !findCommit(commits, a.commit.sha));
+  const branch = useBranch(store);
+  const gone = (a: NoteAnswer) => Boolean(a.commit && notOnBranch(branch, a.commit.sha));
   // The notes put back with Ask again (by number), for this answer only.
   const [again, setAgain] = useState<ReadonlySet<number>>(() => new Set());
 

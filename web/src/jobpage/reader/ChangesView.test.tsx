@@ -7,7 +7,7 @@ import { act, fireEvent, render } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ApiClient } from '../../api/client';
+import { ApiError, type ApiClient } from '../../api/client';
 import { createStore, WorkshopContext } from '../../state/store';
 import { longJob } from '../fixtures/longJob';
 import { createJobStore, type JobStore } from '../jobStore';
@@ -330,5 +330,37 @@ describe('Task 18 fix round 1: a commit or file the Foreman names that is not th
     act(() => { setPick(o.store, { sha: 'b81b49e', path: 'EmployeesTable.tsx' }); });
     await settle();
     expect(q('.jp2-ch-nofile')!.textContent).toBe('EmployeesTable.tsx is not in this commit. Showing its first file.');
+  });
+});
+
+describe('Task 18 fix round 2: a list cut at its limit', () => {
+  const OLD_SHA = '01d1234';
+  const oldDiff = { sha: OLD_SHA, message: 'old', author: 'a', date: null, truncated: false, files: [{ path: 'app/old/file.ts', added: 1, removed: 0 }], patchFiles: [{ path: 'app/old/file.ts', lines: ['@@ -0,0 +1,1 @@', '+export const old = 1;'] }] };
+  const cutAnswer = async (url: string) => {
+    if (url.endsWith('/commits')) return { commits: COMMITS, cut: true };
+    if (url.endsWith(`/commit/${OLD_SHA}`)) return oldDiff;
+    if (url.endsWith('/commit/deadbee')) throw new ApiError(404, 'Commit deadbee is not on this branch.', { code: 'no-commit' });
+    const m = /\/commit\/([0-9a-f]+)$/.exec(url);
+    if (m) return diffOf(m[1]);
+    throw new Error(`Not asked for: ${url}`);
+  };
+
+  it('a commit past the list is asked for by itself and shown, said to be older than the list', async () => {
+    const o = open({ answer: cutAnswer });
+    act(() => { setPick(o.store, { sha: OLD_SHA, path: 'file.ts' }); });
+    await settle();
+    expect(diffAsks(o.get)).toContain(`/api/job/${SLUG}/commit/${OLD_SHA}`);
+    expect(q('.jp2-ch-missing')).toBeNull();
+    expect(q('.jp2-ch-older')!.textContent).toBe(`Commit ${OLD_SHA} is older than the commits listed.`);
+    expect(qa('.jp2-ch-f').find((r) => r.getAttribute('aria-current') === 'true')!.textContent).toContain('file.ts');
+    expect(document.body.textContent).toContain('export const old = 1;');
+  });
+
+  it('only when the server says it is not there does Changes say it is not on this branch', async () => {
+    const o = open({ answer: cutAnswer });
+    act(() => { setPick(o.store, { sha: 'deadbee', path: null }); });
+    await settle();
+    expect(diffAsks(o.get)).toContain(`/api/job/${SLUG}/commit/deadbee`);
+    expect(q('.jp2-ch-missing')!.textContent).toBe('Commit deadbee is not on this branch.');
   });
 });

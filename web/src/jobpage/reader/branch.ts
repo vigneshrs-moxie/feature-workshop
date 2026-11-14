@@ -10,7 +10,7 @@
 // Components read it through useBranch, which redraws only when something here changed.
 
 import { useSyncExternalStore } from 'react';
-import type { ApiClient } from '../../api/client';
+import { ApiError, type ApiClient } from '../../api/client';
 import type { JobStore } from '../jobStore';
 
 export interface BranchFile { path: string; added: number | null; removed: number | null; isNew?: boolean }
@@ -26,6 +26,10 @@ export interface Branch {
   error: string | null;
   diffs: ReadonlyMap<string, CommitDiff>;
   diffErrors: ReadonlyMap<string, string>;
+  /** The list stopped at the server's limit (the newest 100): a commit not in it may still be on the branch. */
+  cut: boolean;
+  /** Commits the server said are not there (its 404 `no-commit`), by the sha asked for. */
+  gone: ReadonlySet<string>;
   /** What Changes had picked (commit, file), so coming back shows it again. */
   pick: { sha: string | null; path: string | null };
 }
@@ -48,7 +52,7 @@ function heldOf(store: JobStore): Held {
   if (!h) {
     const listeners = new Set<() => void>();
     h = {
-      state: { commits: null, note: null, error: null, diffs: new Map(), diffErrors: new Map(), pick: { sha: null, path: null } },
+      state: { commits: null, cut: false, gone: new Set(), note: null, error: null, diffs: new Map(), diffErrors: new Map(), pick: { sha: null, path: null } },
       subscribe: (l) => { listeners.add(l); return () => { listeners.delete(l); }; },
       listAsk: null, diffAsks: new Map(), listeners,
     };
@@ -89,8 +93,8 @@ export function loadCommits(store: JobStore, api: ApiClient, slug: string): Prom
   if (h.listAsk) return h.listAsk;
   h.listAsk = (async () => {
     try {
-      const r = await api.get<{ commits?: unknown; note?: unknown }>(`${path(slug)}/commits`);
-      set(h, { commits: commitsOf(r?.commits), note: text(r?.note) || null, error: null });
+      const r = await api.get<{ commits?: unknown; note?: unknown; cut?: unknown }>(`${path(slug)}/commits`);
+      set(h, { commits: commitsOf(r?.commits), cut: r?.cut === true, note: text(r?.note) || null, error: null });
     } catch (err) {
       // What is held stays; the error shows only when nothing is.
       set(h, { error: words(err) });
@@ -122,6 +126,8 @@ export function loadDiff(store: JobStore, api: ApiClient, slug: string, sha: str
       set(h, { diffs, diffErrors: errors });
       return diff;
     } catch (err) {
+      // The server's word that the commit is not there (runner fetch-diff: a sha git does not know).
+      if (err instanceof ApiError && err.status === 404 && err.body?.code === 'no-commit') set(h, { gone: new Set(h.state.gone).add(sha) });
       set(h, { diffErrors: new Map(h.state.diffErrors).set(sha, words(err)) });
       return null;
     } finally {
@@ -130,6 +136,16 @@ export function loadDiff(store: JobStore, api: ApiClient, slug: string, sha: str
   })();
   h.diffAsks.set(sha, ask);
   return ask;
+}
+
+/**
+ * Whether a commit named elsewhere (What you asked: the Foreman's sha) is known not to be on the branch:
+ * the list is read, has commits, does not have it, and either holds the whole branch or the server said
+ * so for that sha. An empty or unread list, or a list cut at its limit, cannot tell.
+ */
+export function notOnBranch(b: Branch, sha: string | null): boolean {
+  if (!sha || !b.commits || !b.commits.length || findCommit(b.commits, sha)) return false;
+  return !b.cut || b.gone.has(sha);
 }
 
 /** A commit by its sha, or by a short sha as the Foreman writes it (What you asked, Task 18); undefined when it is not on the branch. */

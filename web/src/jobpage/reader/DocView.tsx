@@ -51,7 +51,8 @@ function DocChanges({ now, older }: { now: JobBody; older: NonNullable<Older> })
   return (
     <div className="jp2-dd">
       <p className="jp2-dd-sum">Since v{older.n}: {plural(added, 'line')} added, {removed} removed</p>
-      <DiffLines lines={lines} />
+      {/* Keyed by the version compared: a newer one starts its lines again. */}
+      <DiffLines key={older.id} lines={lines} />
     </div>
   );
 }
