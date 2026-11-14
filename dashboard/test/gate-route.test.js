@@ -80,6 +80,7 @@ before(async () => {
   await writeJob('versions-job');
   await writeJob('classic-job');
   await writeJob('notes-gate-job');
+  await writeJob('picture-job');
   await writeJob('guidance-job');
   // L0 and L1 jobs with their levels' own defaults, for a level change from the header (…/options {level}).
   await writeJob('l0-job', { options: { level: 0, flow: 'quick', skip: ['spec', 'refine', 'investigate', 'spec-update', 'plan', 'test', 'review'], reviewers: [], manual_test: false, models: { foreman: 'claude-opus-5-5', build: 'claude-sonnet-5-5', checks: 'claude-sonnet-5-5' } } });
@@ -514,4 +515,36 @@ test('gate: a notes block in the note arrives on its own lines, his words after 
   assert.equal(r.body.text, `Not confirmed yet: D-1.\n\n${APPROVE_TEXT}\n${block}\n\nAnd keep the old export.`);
   const sent = await sendsFor('notes-gate-job');
   assert.ok(sent.at(-1).text.endsWith(`${block}\n\nAnd keep the old export.`), 'the audited text has the block on its lines');
+});
+
+// Task 17 fix round 1 (the lead's ruling): a pasted picture is saved in the job's folder, so a pin's
+// note can name it for the Foreman; the page reads it back from there.
+test('pictures: POST saves a pasted picture as pictures/<sha256>.<ext> in the job folder; GET reads it back; refusals save nothing', { timeout: 60_000 }, async () => {
+  const { createHash } = await import('node:crypto');
+  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from('a made-up screenshot')]);
+  const sha = createHash('sha256').update(png).digest('hex');
+  const r = await write('POST', '/api/job/picture-job/pictures', { data: png.toString('base64') });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(r.body, { path: `pictures/${sha}.png`, size: png.length });
+  assert.deepEqual(await fs.readFile(path.join(featuresDir, 'picture-job', 'pictures', `${sha}.png`)), png);
+  const back = await fetch(`${base}/api/job/picture-job/pictures/${sha}.png`);
+  assert.equal(back.status, 200);
+  assert.equal(back.headers.get('content-type'), 'image/png');
+  assert.deepEqual(Buffer.from(await back.arrayBuffer()), png);
+
+  // Refused: no token, not JSON, not a picture, too big, no such job; reading anything but a picture's own name.
+  assert.equal((await write('POST', '/api/job/picture-job/pictures', { data: png.toString('base64') }, { auth: false })).status, 403);
+  const plain = await fetch(`${base}/api/job/picture-job/pictures`, { method: 'POST', headers: { 'Content-Type': 'image/png', 'X-Starbase-Token': token }, body: png });
+  assert.equal(plain.status, 415);
+  const svg = await write('POST', '/api/job/picture-job/pictures', { data: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>').toString('base64') });
+  assert.equal(svg.status, 415);
+  assert.match(svg.body.error, /PNG, JPEG, WebP or GIF/);
+  const big = await write('POST', '/api/job/picture-job/pictures', { data: Buffer.concat([png, Buffer.alloc(10 * 1024 * 1024)]).toString('base64') });
+  assert.equal(big.status, 413);
+  assert.equal((await write('POST', '/api/job/picture-job/pictures', { data: 'not base64!' })).status, 400);
+  assert.equal((await write('POST', '/api/job/no-such-job/pictures', { data: png.toString('base64') })).status, 404);
+  for (const bad of ['..%2Foptions.json', 'x.png', `${'a'.repeat(64)}.svg`, `${'a'.repeat(64)}.png`]) {
+    assert.equal((await fetch(`${base}/api/job/picture-job/pictures/${bad}`)).status, 404, bad);
+  }
+  assert.deepEqual(await fs.readdir(path.join(featuresDir, 'picture-job', 'pictures')), [`${sha}.png`]);
 });

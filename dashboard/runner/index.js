@@ -65,6 +65,7 @@ import { NAME_PROBLEM, NAME_TIMEOUT_MS, ownName, suggestName, validName } from '
 import { autoCost, autoLog, autoLogRecord, writeAutoLog } from '../lib/auto-log.js';
 import { GATE_PARK_MS, GateParking, RaisedVersions, isGateWaiting, isParkable, gateView, answeredBriefs, isGateDecision, feedParking } from '../lib/gate.js';
 import { composeReply, cleanChips } from '../lib/compose.js';
+import { pictureFile, savePicture } from '../lib/pictures.js';
 import { skillChecker } from '../lib/skill-check.js';
 import { DEMO_OFF, prototypesSetup, publishScript, runPublish } from '../lib/prototype.js';
 import { DOC_MAX_BYTES, DocError, describeDoc, docVersion, jsonHtml, listJobDocs, readJobDoc, readSummary, readWalkthrough, readWireframes, readWireframesPack, servableSpec } from '../lib/docs.js';
@@ -3949,6 +3950,11 @@ export async function createRunner(config) {
     // A repository added or forgotten is a settings change: the site link offers the website's Start form the new list.
     repos: ((door) => ({ ...door, add: async (x) => afterRepoChange(await door.add(x)), remove: async (p) => afterRepoChange(await door.remove(p)) }))(reposDoor(local.registry, { recent: () => repoList() })),
     evidence: (await import('./evidence.js')).evidenceRunner({ jobs: features, local, state, events, on, demo: DEMO, env, onAutoDbProblem, stopAuto: stopAutoFor }), // evidence at the test stage: runner/evidence.js, site/routes-evidence.js
+    /** Pasted pictures for pin notes (Task 17): saved in the job's own folder (lib/pictures.js, site/routes-pictures.js). */
+    pictures: {
+      save: async (slug, bytes) => savePicture((await jobOf(slug)).dir, bytes),
+      file: async (slug, name) => pictureFile((await jobOf(slug)).dir, name),
+    },
     recordSecret,
     /**
      * An easter egg found, or something the page saw you do (a theme tried), from fixed lists only.
