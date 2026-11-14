@@ -800,7 +800,7 @@ describe('Task 16 fix round 1', () => {
   const KEPT_STOPPED = 'Kept: you stopped the reply. Press Send to send it.';
 
   it('a message kept after a plain stop shows Send and Cancel; Send posts …/waiting/send and the row says it is going', async () => {
-    const post = vi.fn(async () => ({ ok: true, waiting: null }));
+    const post = vi.fn(async (_path: string, _body?: unknown) => ({ ok: true, waiting: null }));
     open({ move: null, patch: { waiting: waiting('Use the old header.', KEPT_STOPPED) }, post });
     const row = waitRow()!;
     expect(row).toHaveTextContent(`Not sent yet: ${KEPT_STOPPED}`);
@@ -821,7 +821,7 @@ describe('Task 16 fix round 1', () => {
   });
 
   it('the Foreman is asking him first: the waiting words move into the box (after what is there), the message is cancelled, and one line says so', async () => {
-    const post = vi.fn(async () => ({ ok: true, cancelled: true, text: 'Also the footer.' }));
+    const post = vi.fn(async (_path: string, _body?: unknown) => ({ ok: true, cancelled: true, text: 'Also the footer.' }));
     const o = open({ move: null, patch: { run: RUNNING }, post });
     type('Typed already.');
     await refresh(o, { ...payload(), v: 2, run: { ...RUNNING, status: 'done' }, waiting: waiting('Also the footer.', 'The Foreman is asking you something first.', true) });
