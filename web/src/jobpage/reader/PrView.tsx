@@ -27,7 +27,7 @@ import { PrLines, clockWords } from '../left/PrLines';
 import type { PrCheck, PrRow, ReaderTarget } from '../types';
 import { useJob, useJobStore } from '../useJob';
 import { findCommit, loadCommits, notOnBranch, setPick, useBranch } from './branch';
-import { loadPr, setDraft, setTick, usePrHeld } from './prComments';
+import { loadPr, setDraft, setPending, setTick, usePrHeld } from './prComments';
 import { ReaderBody } from './ReaderBody';
 import './prview.css';
 
@@ -62,8 +62,10 @@ export const PrView = memo(function PrView({ n, onOpen }: PrViewProps) {
   useEffect(() => { if (!hosted && api) void loadPr(store, api, slug, n, v); }, [store, api, slug, n, v, hosted]);
   const view = held.views.get(n) ?? null;
   const rows = useMemo(() => view?.rows ?? [], [view]);
-  const ticked = useCallback((r: PrRow) => held.ticks.get(r.id) ?? r.state === 'new', [held.ticks]);
-  const tickedRows = rows.filter((r) => ticked(r) && r.state !== 'fixing');
+  // What he just did shows until the server's rows show it too (never back to New in between).
+  const shown = useCallback((r: PrRow): PrRow['state'] => { const p = held.pending.get(r.id); return p && p.state !== 'posted' ? p.state : r.state; }, [held.pending]);
+  const ticked = useCallback((r: PrRow) => held.ticks.get(r.id) ?? shown(r) === 'new', [held.ticks, shown]);
+  const tickedRows = rows.filter((r) => ticked(r) && shown(r) !== 'fixing');
 
   // x ticks the row under the pointer.
   const hover = useRef<string | null>(null);
@@ -84,7 +86,7 @@ export const PrView = memo(function PrView({ n, onOpen }: PrViewProps) {
     setSending({ what, ids });
     try {
       await api.post(`/api/job/${encodeURIComponent(slug)}/pr/${n}/${what}`, { ids });
-      if (what !== 'ask') for (const id of ids) setTick(store, id, false);
+      if (what !== 'ask') for (const id of ids) { setTick(store, id, false); setPending(store, id, { state: what === 'fix' ? 'fixing' : 'left' }); }
       await loadPr(store, api, slug, n, null, { force: true });
     } catch (err) {
       setProblem(err instanceof ApiError ? err.message : UNREACHABLE);
@@ -96,6 +98,7 @@ export const PrView = memo(function PrView({ n, onOpen }: PrViewProps) {
   if (hosted) return <ReaderBody view="pr" place={`pr:${n}`}><PrLines only={n} /><p className="jp2-notyet">The comments show on your laptop.</p></ReaderBody>;
   const error = held.errors.get(n) ?? null;
   const fixing = (id: string) => sending?.what === 'fix' && sending.ids.includes(id);
+  const githubDown = Boolean(view?.github?.problem);
   return (
     <ReaderBody view="pr" place={`pr:${n}`} className="jp2-prv">
       <PrLines only={n} skip="push-fixes" />
@@ -106,7 +109,7 @@ export const PrView = memo(function PrView({ n, onOpen }: PrViewProps) {
       {view && !rows.length && <p className="jp2-notyet">No comments to answer on PR #{n}.</p>}
       <div className="jp2-prc-list">
         {rows.map((r) => (
-          <Row key={r.id} slug={slug} n={n} row={r} ticked={ticked(r)} fixing={fixing(r.id)} onHover={(id) => { hover.current = id; }} onOpen={onOpen} />
+          <Row key={r.id} slug={slug} n={n} row={r} state={fixing(r.id) ? 'fixing' : shown(r)} ticked={ticked(r)} githubDown={githubDown} onHover={(id) => { hover.current = id; }} onOpen={onOpen} />
         ))}
       </div>
       <div className="jp2-prc-bar" role="group" aria-label="The ticked comments">
@@ -127,9 +130,8 @@ export const PrView = memo(function PrView({ n, onOpen }: PrViewProps) {
   );
 });
 
-const Row = memo(function Row({ slug, n, row, ticked, fixing, onHover, onOpen }: { slug: string; n: number; row: PrRow; ticked: boolean; fixing: boolean; onHover(id: string | null): void; onOpen: PrViewProps['onOpen'] }) {
+const Row = memo(function Row({ slug, n, row, state, ticked, githubDown, onHover, onOpen }: { slug: string; n: number; row: PrRow; state: PrRow['state']; ticked: boolean; githubDown: boolean; onHover(id: string | null): void; onOpen: PrViewProps['onOpen'] }) {
   const store = useJobStore();
-  const state = fixing ? 'fixing' : row.state;
   const answered = state === 'fixed' || state === 'answered' || state === 'left';
   return (
     <div className="jp2-prc" data-state={state} onMouseEnter={() => onHover(row.id)} onMouseLeave={() => onHover(null)}>
@@ -151,7 +153,8 @@ const Row = memo(function Row({ slug, n, row, ticked, fixing, onHover, onOpen }:
       <p className="jp2-prc-b">{row.body}</p>
       {(row.replies ?? []).map((x, i) => <p key={i} className="jp2-prc-re"><b>{x.author}{x.mine ? ' (you)' : ''}</b> {x.body}</p>)}
       {state === 'left' && row.why && <p className="jp2-prc-why">Left: {row.why}</p>}
-      {answered && row.reply && <Reply slug={slug} n={n} row={row} />}
+      {row.onGithub && <p className="jp2-prc-why">Answered on GitHub</p>}
+      {answered && row.reply && <Reply slug={slug} n={n} row={row} githubDown={githubDown} />}
     </div>
   );
 });
@@ -174,7 +177,7 @@ function FixedIn({ slug, sha, file, onOpen }: { slug: string; sha: string; file:
 }
 
 /** The drafted reply, editable in place: Copy with Open on GitHub (the default), or Post it. */
-function Reply({ slug, n, row }: { slug: string; n: number; row: PrRow }) {
+function Reply({ slug, n, row, githubDown }: { slug: string; n: number; row: PrRow; githubDown: boolean }) {
   const store = useJobStore();
   const api = useContext(WorkshopContext)?.api ?? null;
   const held = usePrHeld(store);
@@ -182,7 +185,8 @@ function Reply({ slug, n, row }: { slug: string; n: number; row: PrRow }) {
   const [copied, setCopied] = useState(false);
   const [posting, setPosting] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
-  const posted = row.reply?.posted ?? null;
+  const just = held.pending.get(row.id);
+  const posted = row.reply?.posted ?? (just?.state === 'posted' ? just.text : null);
   const copy = async () => {
     try { await navigator.clipboard.writeText(text); setCopied(true); } catch { setProblem('Couldn’t copy: select the reply and copy it.'); }
   };
@@ -192,6 +196,7 @@ function Reply({ slug, n, row }: { slug: string; n: number; row: PrRow }) {
     setProblem(null);
     try {
       await api.post(`/api/job/${encodeURIComponent(slug)}/pr/${n}/reply`, { id: row.id, body: text });
+      setPending(store, row.id, { state: 'posted', text });
       await loadPr(store, api, slug, n, null, { force: true });
     } catch (err) {
       setProblem(err instanceof ApiError ? err.message : UNREACHABLE);
@@ -201,15 +206,15 @@ function Reply({ slug, n, row }: { slug: string; n: number; row: PrRow }) {
   };
   return (
     <div className="jp2-prc-reply">
-      <p className="jp2-prc-rl">{posted ? 'Your reply, posted' : 'The Foreman’s draft of a reply: edit it here'}</p>
+      <p className="jp2-prc-rl">{posted ? 'Your reply, posted' : row.round ? 'The Foreman’s draft of a reply: edit it here. It is posted with Push the fixes (the review round’s Send back).' : 'The Foreman’s draft of a reply: edit it here'}</p>
       <textarea className="jp2-prc-ta" value={text} rows={Math.min(8, Math.max(2, Math.ceil(text.length / 80)))} readOnly={Boolean(posted)}
         onChange={(e) => { setCopied(false); setDraft(store, row.id, e.currentTarget.value); }} aria-label={`Reply to ${row.author}`} />
       <div className="jp2-prc-ra">
-        {posted ? <span className="jp2-prc-posted" role="status">Posted</span> : (
+        {posted ? <span className="jp2-prc-posted" role="status">Posted</span> : row.round ? null : (
           <>
             <Button kind="primary" size="sm" onClick={() => { void copy(); }} title="Copies the reply, to paste on GitHub yourself.">{copied ? 'Copied' : 'Copy'}</Button>
             {row.link && <Button size="sm" href={row.link} target="_blank" rel="noreferrer" title="Opens this comment on GitHub, to paste the reply there.">Open on GitHub</Button>}
-            <Button kind="quiet" size="sm" disabled={posting || !text.trim()} onClick={() => { void post(); }} title={`${BRAND.name} posts this reply on GitHub for you, as it is now.`}>{posting ? 'Posting…' : 'Post it'}</Button>
+            {!githubDown && <Button kind="quiet" size="sm" disabled={posting || !text.trim()} onClick={() => { void post(); }} title={`${BRAND.name} posts this reply on GitHub for you, exactly as it is now.`}>{posting ? 'Posting…' : 'Post it'}</Button>}
           </>
         )}
       </div>

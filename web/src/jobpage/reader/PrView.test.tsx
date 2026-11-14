@@ -248,3 +248,49 @@ describe('the PR view (Task 21)', () => {
     expect(o.store.getState().ui.reader).toEqual({ kind: 'pr', id: '1' });
   });
 });
+
+describe('the PR view, fix round 1', () => {
+  it('I2: Fix these and Post it hold Fixing and Posted until the server’s rows show them (no flicker back to New, no second Post it)', async () => {
+    const o = open(payload(), view(NEW_ROWS));
+    await openPr(o);
+    fireEvent.click(within(bar()).getByRole('button', { name: 'Fix these' }));
+    await settle();
+    // The server still answers the old rows (its rebuild comes a moment later).
+    expect(cards().slice(0, 3).map((c) => c.querySelector('.jp2-prc-st')!.textContent)).toEqual(['Fixing', 'Fixing', 'Fixing']);
+    expect(bar().querySelector('.jp2-prc-n')!.textContent).toBe('Nothing ticked');
+    // Post it: Posted at once, and no button to post it again.
+    const o2 = open(payload(line1({ comments: { fresh: 0, total: 2, fixed: 1, failing: 0, v: 'v2' } })), view(FIXED_ROWS));
+    await openPr(o2);
+    const c = [...document.querySelectorAll<HTMLElement>('.jp2-prc:not(.jp2-prc-check)')].filter((x) => within(x).queryByRole('button', { name: 'Post it' }))[0];
+    fireEvent.click(within(c).getByRole('button', { name: 'Post it' }));
+    await settle();
+    expect(within(c).getByText('Posted')).toBeInTheDocument();
+    expect(within(c).queryByRole('button', { name: 'Post it' })).toBeNull();
+    expect(calls(o2.post, '/pr/1/reply')).toHaveLength(1);
+  });
+
+  it('I1: a row in a review round: its draft is editable, it has no Post it, and his edit goes with Push the fixes', async () => {
+    const NEXT_ROUND = { ...NEXT_FIX, go: 'Send back', round: true, says: ['Sends back round 2 on PR #1 (#247), 3 steps:', 'Push 2 commits to your fork', 'Reply on GitHub to each of raj’s 1 comment', '  Reply to raj on web/src/App.tsx:40', 'Mark the 1 fixed comment resolved'] };
+    const l1 = line1({ next: NEXT_ROUND, comments: { fresh: 0, total: 1, fixed: 1, failing: 0, v: 'v4' } });
+    const o = open(payload(l1), view([{ ...FIXED_ROWS[0], round: true }], l1));
+    await openPr(o);
+    const c = cardOf('raj');
+    expect(within(c).queryByRole('button', { name: 'Post it' })).toBeNull();
+    expect(within(c).queryByRole('button', { name: 'Copy' })).toBeNull();
+    expect(c.querySelector('.jp2-prc-rl')!.textContent).toMatch(/posted with Push the fixes/);
+    fireEvent.change(c.querySelector('textarea')!, { target: { value: 'Renamed, thanks.' } });
+    fireEvent.click(within(bar()).getByRole('button', { name: 'Push the fixes (2 commits)' }));
+    expect(within(bar()).getByText('  Reply to raj on web/src/App.tsx:40', { normalizer: (x) => x })).toBeInTheDocument();
+    fireEvent.click(within(bar()).getByRole('button', { name: 'Send back' }));
+    await settle();
+    expect(calls(o.post, '/pr/1/go').map((x) => x[1])).toEqual([{ id: 'push-fixes', check: 'abcdefabcdef', replies: { c901: 'Renamed, thanks.' } }]);
+  });
+
+  it('M3: no Post it while GitHub isn’t answering', async () => {
+    const down = { ...view(FIXED_ROWS), github: { ...GH, problem: 'GitHub isn’t answering.' } };
+    const o = open(payload(line1({ comments: { fresh: 0, total: 2, fixed: 1, failing: 0, v: 'v2' } })), down);
+    await openPr(o);
+    expect(within(cardOf('raj')).queryByRole('button', { name: 'Post it' })).toBeNull();
+    expect(within(cardOf('raj')).getByRole('button', { name: 'Copy' })).toBeInTheDocument();
+  });
+});

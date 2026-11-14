@@ -7,7 +7,7 @@
 import { useSyncExternalStore } from 'react';
 import type { ApiClient } from '../../api/client';
 import type { JobStore } from '../jobStore';
-import type { PrView } from '../types';
+import type { PrRow, PrView } from '../types';
 
 export interface PrHeld {
   /** The last answer by PR line (1, 2, 3). */
@@ -18,7 +18,16 @@ export interface PrHeld {
   ticks: ReadonlyMap<string, boolean>;
   /** His edits of a drafted reply, by row id. */
   drafts: ReadonlyMap<string, string>;
+  /**
+   * What he just did on a row (Fix these, Leave, Post it), shown until the server's rows show it too: the rows
+   * come from the page's next rebuild, a moment after the click, so the row never flickers back to New.
+   */
+  pending: ReadonlyMap<string, Pending>;
 }
+export type Pending = { state: 'fixing' | 'left' } | { state: 'posted'; text: string };
+
+/** Whether the server's row shows what he did (then the pending mark goes). */
+const caughtUp = (p: Pending, row: PrRow | undefined) => (p.state === 'posted' ? Boolean(row?.reply?.posted) : Boolean(row && row.state !== 'new'));
 
 interface Held {
   state: PrHeld;
@@ -34,7 +43,7 @@ function heldOf(store: JobStore): Held {
   let h = held.get(store);
   if (!h) {
     const listeners = new Set<() => void>();
-    h = { state: { views: new Map(), errors: new Map(), ticks: new Map(), drafts: new Map() }, listeners, asked: new Map(), subscribe: (l) => { listeners.add(l); return () => { listeners.delete(l); }; } };
+    h = { state: { views: new Map(), errors: new Map(), ticks: new Map(), drafts: new Map(), pending: new Map() }, listeners, asked: new Map(), subscribe: (l) => { listeners.add(l); return () => { listeners.delete(l); }; } };
     held.set(store, h);
   }
   return h;
@@ -58,7 +67,10 @@ export async function loadPr(store: JobStore, api: ApiClient, slug: string, n: n
     if (h.asked.get(n) !== key) return; // a newer ask is out
     const errors = new Map(h.state.errors);
     errors.delete(n);
-    set(h, { views: new Map(h.state.views).set(n, { ...r, rows: Array.isArray(r?.rows) ? r.rows : [], checks: Array.isArray(r?.checks) ? r.checks : [] }), errors });
+    const rows = Array.isArray(r?.rows) ? r.rows : [];
+    const pending = new Map(h.state.pending);
+    for (const [id, p] of h.state.pending) { const row = rows.find((x) => x.id === id); if (row && caughtUp(p, row)) pending.delete(id); }
+    set(h, { views: new Map(h.state.views).set(n, { ...r, rows, checks: Array.isArray(r?.checks) ? r.checks : [] }), errors, pending });
   } catch (err) {
     if (h.asked.get(n) !== key) return;
     h.asked.delete(n);
@@ -78,6 +90,24 @@ export function setTick(store: JobStore, id: string, on: boolean) {
 export function setDraft(store: JobStore, id: string, text: string) {
   const h = heldOf(store);
   set(h, { drafts: new Map(h.state.drafts).set(id, text) });
+}
+
+export function setPending(store: JobStore, id: string, p: Pending | null) {
+  const h = heldOf(store);
+  const pending = new Map(h.state.pending);
+  if (p) pending.set(id, p); else pending.delete(id);
+  set(h, { pending });
+}
+
+/** His edits of a review round's drafted replies, by comment id: they go with Push the fixes (the round's Send back). */
+export function roundDrafts(store: JobStore): Record<string, string> {
+  const s = heldOf(store).state;
+  const out: Record<string, string> = {};
+  for (const v of s.views.values()) for (const r of v.rows) {
+    const d = s.drafts.get(r.id);
+    if (r.round && d !== undefined && d.trim() && d !== r.reply?.draft) out[r.id] = d;
+  }
+  return out;
 }
 
 export function usePrHeld(store: JobStore): PrHeld {

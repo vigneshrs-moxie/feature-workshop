@@ -163,6 +163,12 @@ export interface PrRow {
   commit: string | null;
   why?: string | null;
   reply: null | { draft: string; posted: string | null };
+  /** In a review round still going: its reply goes with Push the fixes (the round's Send back), never by Post it. */
+  round?: true;
+  /** Answered on GitHub by hand (his reply after the reviewer's last word). */
+  onGithub?: true;
+  /** When the mark it shows was made. */
+  markAt?: string | null;
 }
 /** A failed check on the PR's newest commit, with the end of its log. */
 export interface PrCheck { name: string; link: string | null; runId: string | null; head: string | null; log: string | null; state: 'failed' | 'fixing' }
