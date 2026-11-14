@@ -73,6 +73,7 @@ import { slugTicketKey } from './orbit.js';
 import { EVIDENCE_JSON, WIREFRAMES_FILE, WIREFRAMES_JSON } from './docs.js';
 import { cardPaused, jobWorking } from './working.js';
 import { parseAnswered, parseNotes } from './notes-block.js';
+import { OWN_SENDS } from './auto.js';
 
 /**
  * What buildJobPage takes: what the runner already computed for the job (runner/index.js).
@@ -614,10 +615,15 @@ function openOf(state, move, steps) {
 
 // ---------- What you asked (R5, Task 18) ----------
 
+/** A message he sent himself (not one of Starbase's own, lib/auto.js OWN_SENDS, nor Auto's). */
+const isOwnMessage = (it) => it?.kind === 'you' && it.by !== 'auto' && !OWN_SENDS.has(it.sendKind);
 const KIND_WORDS = { change: 'Change', drop: 'Drop this', explain: 'Explain', pin: 'Pin' };
 const NOT_ANSWERED = 'The Foreman’s reply doesn’t answer this note.';
 const COMMIT_WHERE = /^commit\s+([0-9a-f]{7,40})$/i;
-const FILE_NAME = /[\w./-]+\.\w+/;
+/** A file name (`EmployeesTable.tsx`, `src/api.ts`): its extension starts with a letter, so `v3.1` is not one. */
+const FILE_NAME = /[\w./-]*\w\.[A-Za-z]\w*/g;
+/** The last file name in a few words, or null. */
+const fileIn = (words) => [...String(words ?? '').matchAll(FILE_NAME)].at(-1)?.[0] ?? null;
 
 /** The document a name with its version means (`Implementation plan v3`, `Plan v3`): that version when it is an older one. */
 function docTarget(words, steps) {
@@ -644,7 +650,7 @@ function docTarget(words, steps) {
 /** Where a done note's change can be seen: `commit abc1234` (Changes, at that commit and file) or a document's version. */
 function whereTarget(where, what, steps) {
   const c = COMMIT_WHERE.exec(where);
-  if (c) return { target: { kind: 'changes', id: 'changes' }, commit: { sha: c[1].toLowerCase(), file: FILE_NAME.exec(what)?.[0] ?? null } };
+  if (c) return { target: { kind: 'changes', id: 'changes' }, commit: { sha: c[1].toLowerCase(), file: fileIn(what) } };
   return { target: docTarget(where, steps), commit: null };
 }
 
@@ -662,19 +668,24 @@ function placeTarget(place, steps) {
 /**
  * What you asked (R5): the Foreman's answer to each note of his last notes block, from the
  * `--- Notes answered ---` block at the end of its newest reply (lib/notes-block.js parseAnswered),
- * each named by the note he sent (parseNotes) and opening where its change is. null when the newest
- * reply has no block, or a message of his came after it. `steps`: the payload's step rows (the
+ * each named by the note he sent (parseNotes) and opening where its change is. null when no reply has
+ * a block since his own last message (Starbase's own sends and Auto's leave it shown). `steps`: the payload's step rows (the
  * runner calls it again once each document's older versions are stamped on them).
  *   NoteAnswer { n, note, place, done, what, target, explained?: true, commit?: { sha, file },
  *                ask: { kind, place, quote, note } | null (the note as sent, for `Ask again`) }
  */
 export function askedOf(thread, steps) {
   const items = Array.isArray(thread) ? thread : [];
+  // The newest reply with the block, while no message of his own came after it (Starbase's own sends,
+  // a nudge, a resume, a status fix, and Auto's do not count: he has not moved on).
   let at = items.length - 1;
-  while (at >= 0 && items[at]?.kind !== 'reply') at--;
-  if (at < 0 || items.slice(at + 1).some((it) => it?.kind === 'you')) return null;
-  const lines = parseAnswered(items[at].reply ?? '');
-  if (!lines.length) return null;
+  let lines = [];
+  for (; at >= 0; at--) {
+    const it = items[at];
+    if (isOwnMessage(it)) return null;
+    if (it?.kind === 'reply' && (lines = parseAnswered(it.reply ?? '')).length) break;
+  }
+  if (at < 0) return null;
   let sent = [];
   for (let i = at - 1; i >= 0 && !sent.length; i--) if (items[i]?.kind === 'you') sent = parseNotes(items[i].text);
   const ns = [...new Set([...sent.map((s) => s.n), ...lines.map((l) => l.n)])].sort((a, b) => a - b);

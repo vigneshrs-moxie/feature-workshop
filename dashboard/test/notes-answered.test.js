@@ -158,3 +158,39 @@ test('parseNotes reads the block a gate reply carries on one line (compose.js pu
     { n: 3, kind: 'explain', place: 'Findings · major · Saves twice', quote: null, note: null },
   ]);
 });
+
+test('fix round 1: parseNotes reads the block by its lines: a quote holding `2. [drop]` or `Note:` does not split the note', () => {
+  const text = [
+    '--- Notes (2) ---',
+    '1. [change] Spec v3 · line 4 "A > B, then C"',
+    '   > see 2. [drop] x and Note: keep it',
+    '   Note: shorter',
+    '2. [drop] Spec v3 · line 6',
+    '--- End of notes ---',
+  ].join('\n');
+  assert.deepEqual(parseNotes(text), [
+    { n: 1, kind: 'change', place: 'Spec v3 · line 4 "A > B, then C"', quote: 'see 2. [drop] x and Note: keep it', note: 'shorter' },
+    { n: 2, kind: 'drop', place: 'Spec v3 · line 6', quote: null, note: null },
+  ]);
+});
+
+test('fix round 1: the one-line form keeps ` > ` inside a place’s quoted words, `Note:` and the next number inside a quote', () => {
+  const notes = [
+    { kind: 'change', place: 'Spec v3 · line 4 "A > B, then C"', quote: 'see 2. [drop] x and Note: keep it', note: 'shorter' },
+    { kind: 'drop', place: 'Spec v3 · line 6', quote: 'Export > PDF' },
+  ];
+  const flat = composeNotes({ notes }).replace(/\s+/g, ' ');
+  assert.deepEqual(parseNotes(flat), [
+    { n: 1, kind: 'change', place: 'Spec v3 · line 4 "A > B, then C"', quote: 'see 2. [drop] x and Note: keep it', note: 'shorter' },
+    { n: 2, kind: 'drop', place: 'Spec v3 · line 6', quote: 'Export > PDF', note: null },
+  ]);
+});
+
+test('fix round 1: keptReply finds the real answer blocks, not a fence quoted earlier in the reply', () => {
+  const quoted = 'I will end with a --- Comments answered --- block? No:\n--- Comments answered ---\nquoted here only\n';
+  const full = `${quoted}${'Long words. '.repeat(2000)}\n\n${BLOCK}`;
+  assert.ok(full.length > REPLY_KEPT + 16000);
+  const kept = keptReply(full);
+  assert.ok(kept.endsWith(BLOCK));
+  assert.deepEqual(parseAnswered(kept), THREE);
+});

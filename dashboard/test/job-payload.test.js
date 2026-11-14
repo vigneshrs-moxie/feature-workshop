@@ -596,10 +596,9 @@ test('Task 18: the Foreman’s answer to each note, note by note, each opening w
   assert.deepEqual(drop.ask, { kind: 'drop', place: 'Product spec v0.5 · acceptance line 6', quote: 'Export to PDF', note: null });
 });
 
-test('Task 18: a reply without the block gives asked: null, as does a newer reply without one or a message of his after it', () => {
+test('Task 18: a reply without the block gives asked: null, as does a message of his after it', () => {
   assert.equal(buildJobPage(atReview()).asked, null);
   assert.equal(buildJobPage(askedJob([you('you:n', SENT), reply('reply:a', 'I made the changes.')])).asked, null);
-  assert.equal(buildJobPage(askedJob([you('you:n', SENT), reply('reply:a', ANSWER), reply('reply:b', 'Anything else?', T(17))])).asked, null);
   assert.equal(buildJobPage(askedJob([you('you:n', SENT), reply('reply:a', ANSWER), you('you:m', 'Go ahead.', T(17))])).asked, null);
   // The website's record has no reply words (they show on the laptop): nothing to read there.
   assert.equal(buildJobPage(askedJob([you('you:n', SENT), { id: 'reply:a', kind: 'reply', at: T(16), stopped: false }])).asked, null);
@@ -624,4 +623,25 @@ test('Task 18: a change shown in an older version than the one now opens that ve
   assert.deepEqual(askedOf([you('you:n', SENT), reply('reply:a', ANSWER.replace('Implementation plan v3', 'Implementation plan v2'))], steps).notes[0].target, { kind: 'doc', id: 'versions/implementation-plan.v2.md' });
   // The Foreman's short name for it (`Plan v3`) finds it too.
   assert.deepEqual(askedOf([reply('reply:a', ANSWER.replace('Implementation plan v3', 'Plan v3'))], p.steps).notes[0].target, { kind: 'doc', id: 'implementation-plan.md' });
+});
+
+test('Task 18 fix round 1: Starbase’s own sends (a nudge, a resume, a status fix) and Auto’s keep What you asked; his own next message ends it', () => {
+  const own = (id, sendKind, at, extra = {}) => ({ id, kind: 'you', at, text: 'Carry on.', sendKind, ...extra });
+  for (const kind of ['nudge', 'resume', 'resume-after-restart', 'status-fix']) {
+    const p = buildJobPage(askedJob([you('you:n', SENT), reply('reply:a', ANSWER), own('you:s', kind, T(17)), reply('reply:b', 'Carried on where I was.', T(18))]));
+    assert.equal(p.asked?.total, 4, kind);
+    assert.equal(p.asked.notes[0].note, 'use the existing badge', kind);
+  }
+  assert.equal(buildJobPage(askedJob([you('you:n', SENT), reply('reply:a', ANSWER), own('you:g', 'approve', T(17), { by: 'auto' })])).asked?.total, 4, 'Auto’s Go is not his');
+  // A newer reply after the answer, with nothing of his between: the answer stays.
+  assert.equal(buildJobPage(askedJob([you('you:n', SENT), reply('reply:a', ANSWER), reply('reply:b', 'Anything else?', T(17))])).asked?.total, 4);
+  // His own: a message, a Go, a steer.
+  for (const kind of ['message', 'approve', 'steer']) {
+    assert.equal(buildJobPage(askedJob([you('you:n', SENT), reply('reply:a', ANSWER), own('you:m', kind, T(17))])).asked, null, kind);
+  }
+});
+
+test('Task 18 fix round 1: the file a commit line names is the last code file in its words', () => {
+  const p = buildJobPage(askedJob([you('you:n', SENT), reply('reply:a', ANSWER.replace('commit abc1234 · EmployeesTable.tsx', 'commit abc1234 · v3.1 bump in api.ts'))]));
+  assert.deepEqual(p.asked.notes[1].commit, { sha: 'abc1234', file: 'api.ts' });
 });

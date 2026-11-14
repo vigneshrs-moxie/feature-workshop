@@ -119,22 +119,65 @@ export function parseAnswered(reply) {
 
 const NOTES_OPEN = /--- Notes \((\d+)\) ---/g;
 const NOTES_CLOSE = '--- End of notes ---';
-const NOTE_ITEM = new RegExp(String.raw`(?:^|\s)(\d+)\.\s\[(${NOTE_KINDS.join('|')})\]\s`, 'g');
+const KINDS = NOTE_KINDS.join('|');
+/** A note's first line in the block as composeNotes writes it: `n. [kind] place`. */
+const NOTE_HEAD = new RegExp(String.raw`^(\d+)\.\s\[(${KINDS})\]\s(.*)$`);
 
-/** One sent note's words after its `n. [kind] `: the place, `> quote`, `Note: note` (on their own lines, or all on one). */
-function sentParts(body) {
-  const lines = body.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  if (lines.length > 1) {
-    const quote = lines.find((l) => l.startsWith('> '));
-    const note = lines.find((l) => l.startsWith('Note: '));
-    return { place: lines[0], quote: quote ? quote.slice(2).trim() : null, note: note ? note.slice(6).trim() || null : null };
+/** The block as composeNotes writes it: each note's first line, then `> quote` and `Note: note` lines under it. */
+function notesByLine(lines) {
+  const out = [];
+  for (const raw of lines) {
+    const line = raw.trim();
+    const head = NOTE_HEAD.exec(line);
+    if (head) { out.push({ n: Number(head[1]), kind: head[2], place: head[3].trim(), quote: null, note: null }); continue; }
+    const last = out.at(-1);
+    if (!last) continue;
+    if (line.startsWith('> ') && last.quote === null && last.note === null) last.quote = line.slice(2).trim() || null;
+    else if (line.startsWith('Note: ') && last.note === null) last.note = line.slice(6).trim() || null;
   }
-  // On one line (a gate reply's note: compose.js puts it on one line).
-  const flat = oneLine(body);
-  const n = flat.lastIndexOf(' Note: ');
-  const head = n < 0 ? flat : flat.slice(0, n);
-  const q = head.indexOf(' > ');
-  return { place: (q < 0 ? head : head.slice(0, q)).trim(), quote: q < 0 ? null : head.slice(q + 3).trim() || null, note: n < 0 ? null : flat.slice(n + 7).trim() || null };
+  return out;
+}
+
+/** The first ` > ` not inside double quotes (a place names a heading or a line in quotes), or -1. */
+function quoteMark(s) {
+  let inside = false;
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === '"') inside = !inside;
+    else if (!inside && s.startsWith(' > ', i)) return i;
+  }
+  return -1;
+}
+
+/**
+ * The block on one line (a gate reply before compose.js kept its lines): `1. [kind] place > quote Note:
+ * note 2. [kind] …`. The notes are numbered 1 to n in order, so each one starts at the last `k. [kind] `
+ * before the next one's start (a quote that names the next number stays in its note); the place ends at
+ * the first ` > ` outside quoted words, the note starts at the last ` Note: `.
+ */
+function notesOnOneLine(flat, count) {
+  const starts = [];
+  let end = flat.length;
+  for (let k = count; k >= 1; k--) {
+    const re = new RegExp(String.raw`(?:^|\s)${k}\.\s\[(${KINDS})\]\s`, 'g');
+    let found = null;
+    for (const m of flat.slice(0, end).matchAll(re)) found = m;
+    if (!found) return [];
+    starts.unshift({ k, kind: found[1], at: found.index, body: found.index + found[0].length });
+    end = found.index;
+  }
+  return starts.map((st, i) => {
+    const body = flat.slice(st.body, i + 1 < starts.length ? starts[i + 1].at : flat.length).trim();
+    const q = quoteMark(body);
+    const noteAt = body.lastIndexOf(' Note: ');
+    const n = noteAt > q ? noteAt : -1;
+    const head = n < 0 ? body : body.slice(0, n);
+    return {
+      n: st.k, kind: st.kind,
+      place: (q < 0 ? head : head.slice(0, q)).trim(),
+      quote: q < 0 ? null : head.slice(q + 3).trim() || null,
+      note: n < 0 ? null : body.slice(n + 7).trim() || null,
+    };
+  });
 }
 
 /**
@@ -152,11 +195,8 @@ export function parseNotes(text) {
   const close = s.indexOf(NOTES_CLOSE, from);
   if (close < 0) return [];
   const inner = s.slice(from, close);
-  const items = [...inner.matchAll(NOTE_ITEM)];
-  return items.map((m, i) => {
-    const body = inner.slice(m.index + m[0].length, i + 1 < items.length ? items[i + 1].index : inner.length);
-    return { n: Number(m[1]), kind: m[2], ...sentParts(body) };
-  });
+  const lines = inner.split(/\r?\n/).filter((l) => l.trim());
+  return lines.length > 1 ? notesByLine(lines) : notesOnOneLine(oneLine(inner), Number(open[1]));
 }
 
 /** How much of a reply the audit keeps (lib/driver.js, the `run-ended` line). */
@@ -173,17 +213,20 @@ const TAIL_KEPT = 16000;
 export function keptReply(full) {
   const text = String(full ?? '');
   if (text.length <= REPLY_KEPT) return text;
-  const lines = text.split('\n');
-  let at = -1;
+  // The fence and end lines in order; a block is a fence whose next such line is its `--- End ---`
+  // (a fence quoted on its own earlier in the reply is followed by another fence, not by an end).
+  const marks = [];
   let pos = 0;
-  const found = {};
-  for (const l of lines) {
+  for (const l of text.split('\n')) {
     const t = l.trim();
-    if (t === NOTES_ANSWERED || t === COMMENTS_ANSWERED) found[t] = pos;
+    if (t === NOTES_ANSWERED || t === COMMENTS_ANSWERED || t === ANSWER_END) marks.push({ t, pos });
     pos += l.length + 1;
   }
-  for (const p of Object.values(found)) if (at < 0 || p < at) at = p;
-  if (at < 0) return text.slice(0, REPLY_KEPT);
+  const last = {};
+  marks.forEach((m, i) => { if (m.t !== ANSWER_END && marks[i + 1]?.t === ANSWER_END) last[m.t] = m.pos; });
+  const found = Object.values(last);
+  if (!found.length) return text.slice(0, REPLY_KEPT);
+  const at = Math.min(...found);
   const tail = text.slice(at);
   if (tail.length > TAIL_KEPT) return text.slice(0, REPLY_KEPT);
   if (at <= REPLY_KEPT) return text;
