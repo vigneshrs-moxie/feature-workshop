@@ -607,8 +607,9 @@ test('Send back stops at the first failure and says which line; Try again from h
   assert.deepEqual(replies.map((w) => w[3].split('/').at(-2)), ['7001', '7002', '7002'], '7001 once; 7002 tried, then posted');
   assert.equal(s.gitCalls.filter((g) => g[1] === 'push').length, 1, 'pushed once');
   // The review comment's reply: a comment on the PR quoting it.
-  // Task 21 final wave: the reply exactly as drafted, with nothing put in front.
-  assert.equal(github.writes().find((w) => w[3] === `repos/${REPO}/issues/152/comments`).at(-1), 'body=Thanks.');
+  // Task 21 final wave: the reply exactly as drafted; final fix S3: the draft itself starts with the review's first
+  // line quoted (a review-level reply is a bare PR comment), so what posts is what the draft showed.
+  assert.equal(github.writes().find((w) => w[3] === `repos/${REPO}/issues/152/comments`).at(-1), 'body=> A few things before this goes in.\n\nThanks.');
 });
 
 test('two saves of one round at once both land, and the later one wins', async () => {
@@ -754,4 +755,18 @@ test('Task 21 final wave: a drafted reply is kept whole up to what GitHub takes,
   assert.equal(applyForeman(round, { round: 1, state: 'ready', items: [{ id: 'c1', state: 'fixed', reply: long }] }), true);
   assert.equal(round.items[0].reply, long);
   assert.equal(REPLY_MAX, 60000);
+});
+
+test('final fix S3: a drafted reply to a review or conversation comment starts with its first line quoted; a line comment’s does not; his own edit is kept as he left it', async () => {
+  const { withQuote, quoteLine } = await import('../lib/pr-feedback.js');
+  assert.equal(quoteLine('\n> earlier words\nA few things before this goes in.'), '> earlier words');
+  assert.equal(quoteLine('   '), null);
+  assert.equal(quoteLine('x'.repeat(200)), `> ${'x'.repeat(119)}…`);
+  assert.equal(withQuote('Thanks.', 'A few things.\nMore.'), '> A few things.\n\nThanks.');
+  assert.equal(withQuote('> A few things.\n\nThanks.', 'A few things.'), '> A few things.\n\nThanks.', 'never twice');
+  assert.equal(withQuote('', 'A few things.'), '');
+  const item = (type, extra = {}) => ({ id: `${type}1`, type, quote: 'Please rename this.\nIt reads oddly.', included: true, state: 'todo', reply: null, replyEdited: false, ...extra });
+  const round = { items: [item('review'), item('issue'), item('line'), item('issue', { id: 'mine', replyEdited: true, reply: 'My own words.' })], foreman: null };
+  applyForeman(round, { ready: true, items: round.items.map((i) => ({ id: i.id, state: 'answered', reply: 'Done.' })) });
+  assert.deepEqual(round.items.map((i) => i.reply), ['> Please rename this.\n\nDone.', '> Please rename this.\n\nDone.', 'Done.', 'My own words.']);
 });

@@ -31,6 +31,25 @@ import { writeFileAtomic } from './atomic-write.js';
 export const FEEDBACK_FILE = 'pr-feedback.json';
 /** The most quoted text one message carries (characters). */
 export const QUOTE_MAX = 4000;
+
+/** A reply's quote of the comment it answers: its first line (at most 120 characters), as `> …`; null for an empty one. */
+export function quoteLine(body) {
+  const first = String(body ?? '').split('\n').map((l) => l.replace(/^\s*>+\s?/, '').trim()).find(Boolean) ?? '';
+  if (!first) return null;
+  return `> ${first.length > 120 ? `${first.slice(0, 119)}…` : first}`;
+}
+
+/**
+ * A drafted reply to a review-level or conversation comment (GitHub posts it as a bare PR comment, not in a
+ * thread): that comment's first line quoted on top, so the reply says what it answers. It is part of the draft he
+ * sees and can edit, so what posts is what he saw. A draft that starts with a quote already is left as it is.
+ */
+export function withQuote(draft, body) {
+  const text = String(draft ?? '');
+  const q = quoteLine(body);
+  if (!q || !text.trim() || /^\s*>/.test(text)) return text;
+  return `${q}\n\n${text}`;
+}
 /** The card's two answers (a question card also offers "Something else": your own words). */
 export const FEEDBACK_SEND = 'Send it to the Foreman';
 export const FEEDBACK_LEAVE = 'Leave it';

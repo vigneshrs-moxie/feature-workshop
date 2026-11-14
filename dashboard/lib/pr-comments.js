@@ -34,7 +34,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { writeFileAtomic } from './atomic-write.js';
-import { QUOTE_MAX, feedbackMessage, isSummaryBot } from './pr-feedback.js';
+import { QUOTE_MAX, feedbackMessage, isSummaryBot, withQuote } from './pr-feedback.js';
 import { scrub } from './orbit.js';
 import { githubProblem } from './flow.js';
 
@@ -216,6 +216,9 @@ export function rowsOf({ comments = [], conversation = [], me = [], kept = {}, a
       row.commit = mark.commit ? short(mark.commit) : null;
       row.why = mark.why ?? null;
       row.reply = mark.reply ? { draft: String(mark.reply.draft ?? ''), posted: mark.reply.posted ?? null } : null;
+      // The Foreman's draft to a review or conversation comment: Post it posts it as a bare PR comment, so it starts
+      // with that comment's first line quoted, in the draft he sees and edits (a line comment's goes in its thread).
+      if (mark.from === 'answer' && row.kind !== 'line' && row.reply && !row.reply.posted) row.reply.draft = withQuote(row.reply.draft, row.body);
       // A reply in the thread from someone else, after the answer (not after his Fix these), opens it again.
       const lastOther = replies.filter((x) => !isMine(x.author)).map((x) => ms(x.at)).filter((t) => t !== null).sort((p, q) => p - q).at(-1) ?? null;
       const markAt = ms(mark.at);
