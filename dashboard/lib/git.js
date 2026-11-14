@@ -3,6 +3,7 @@
 // Commands run through execFile (no shell) with validated arguments and a time limit.
 
 import { execFile } from 'node:child_process';
+import fsp from 'node:fs/promises';
 import path from 'node:path';
 
 const REF = /^(?!-)[\w./@{}^~-]{1,200}$/;
@@ -28,6 +29,24 @@ export async function isGitRepo(dir) {
 export async function headOf(dir, ref) {
   if (!REF.test(ref)) return null;
   try { return (await git(dir, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`])).trim() || null; } catch { return null; }
+}
+
+// Where git keeps a repository's refs (a worktree shares its main checkout's), or null.
+export async function commonDirOf(dir) {
+  try {
+    const out = (await git(dir, ['rev-parse', '--git-common-dir'])).trim();
+    return out ? path.resolve(dir, out) : null;
+  } catch { return null; }
+}
+
+// A stamp of the files that change when a branch moves (its reflog, its loose ref, packed-refs), read
+// with three stats and no git: equal stamps, the same head. commonDir: commonDirOf's answer.
+export async function refStamp(commonDir, branch) {
+  if (!commonDir || !REF.test(branch)) return null;
+  const parts = branch.split('/');
+  const files = [path.join(commonDir, 'logs', 'refs', 'heads', ...parts), path.join(commonDir, 'refs', 'heads', ...parts), path.join(commonDir, 'packed-refs')];
+  const stamps = await Promise.all(files.map((f) => fsp.stat(f).then((s) => `${s.mtimeMs}:${s.size}`, () => '-')));
+  return stamps.join('|');
 }
 
 // Commits in base..head, newest first.

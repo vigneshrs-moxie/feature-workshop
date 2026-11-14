@@ -14,6 +14,7 @@
 //   .item(slug, id, { viewer }?)   one body: { id, kind, version, html, text, meta }; its html is rendered
 //                          on the first ask and kept until its version changes
 //   .work(slug, { viewer }?)   the facts the build kept for Details (build's optional `work`), or null
+//   .commits(slug)         the commit list the last build kept (build's optional `commits`), or null
 //   .viewerOpen(id), .viewerGone(id)   a page's event stream opened or closed (site/index.js)
 //   .touch(slug)           the job changed: rebuild it if a page has it open, else mark it stale
 //   .touchAll()            something changed that names no job: the same for every cached job
@@ -76,7 +77,7 @@ export function jobPageCache({ build, onVersion = () => {}, log = console.error,
     return e;
   }
 
-  function apply(e, { payload, sources, work = null }) {
+  function apply(e, { payload, sources, work = null, commits = null }) {
     const { v: _own, ...rest } = payload ?? {};
     const json = JSON.stringify(rest);
     let moved = false;
@@ -97,6 +98,7 @@ export function jobPageCache({ build, onVersion = () => {}, log = console.error,
     e.sources = next;
     e.html = html;
     e.work = work ?? null;
+    e.commits = commits ?? null;
     e.resolve();
     if (moved) {
       try { onVersion(e.slug, e.v); } catch (err) { log(`job page: ${err.message}`); }
@@ -210,6 +212,11 @@ export function jobPageCache({ build, onVersion = () => {}, log = console.error,
     async work(slug, { viewer = null } = {}) {
       const e = await warm(slug, viewer);
       return e.work ?? null;
+    },
+    /** The commit list the last build kept (build's optional `commits`), or null; never starts a build. */
+    commits(slug) {
+      const e = entries.get(slug);
+      return e?.payload ? e.commits ?? null : null;
     },
     touch(slug) {
       if (!slug) return;

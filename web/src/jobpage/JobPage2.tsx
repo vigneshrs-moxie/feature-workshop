@@ -55,6 +55,7 @@ import { MessageBox } from './left/MessageBox';
 import { Steps, stepsFromRow } from './left/Steps';
 import { usePrLead, usePrOpeningRead } from './left/PrLines';
 import { YourMove } from './left/YourMove';
+import { loadCommits } from './reader/branch';
 import { stepLine } from './reader/ConversationView';
 import { Reader } from './reader/Reader';
 import { Palette } from './Palette';
@@ -109,7 +110,15 @@ function usePageStore(slug: string, given: JobStore | undefined, first: (s: JobS
     const mine = made.current!;
     const keep = () => { const p = mine.store.getState().payload; if (p) rememberPage(p); };
     const unkeep = mine.store.subscribe(keep);
-    void mine.store.loadPage().then(() => { if (!mine.ended) idle(() => { if (!mine.ended) void mine.store.prefetch(); }); });
+    void mine.store.loadPage().then(() => {
+      if (mine.ended) return;
+      idle(() => {
+        if (mine.ended) return;
+        void mine.store.prefetch();
+        // The Build step's commit list too (laptop only): its first pick shows at once (speed rule 2).
+        const p = mine.store.getState().payload;
+        if (p && !p.hosted && !api.hosted?.() && p.steps.some((st) => st.outputs.some((o) => o.kind === 'changes'))) void loadCommits(mine.store, api, slug);
+      });
     return () => { mine.ended = true; unkeep(); mine.store.destroy(); };
     // The page is keyed by the slug: the store lives as long as the page does.
   }, []);

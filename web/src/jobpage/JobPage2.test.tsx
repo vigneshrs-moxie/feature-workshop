@@ -45,6 +45,9 @@ vi.mock('./left/YourMove', async (importOriginal) => {
   return { ...real, YourMove: memo((p: Parameters<typeof real.YourMove>[0]) => { drawn.move++; return createElement(real.YourMove, p); }) };
 });
 
+/** The next page read's answer, when a test sets one. */
+const nextPage = vi.hoisted(() => ({ make: null as null | (() => unknown) }));
+
 const SLUG = longJob.payload.slug;
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
 const payload = () => clone(longJob.payload) as unknown as JobPagePayload;
@@ -63,7 +66,7 @@ function client({ hold = false } = {}) {
   const get = vi.fn(async (path: string): Promise<unknown> => {
     if (path.includes('/page')) {
       if (hold) await new Promise<void>((r) => { release = r; });
-      return payload();
+      return nextPage.make ? nextPage.make() : payload();
     }
     const id = decodeURIComponent(/[?&]id=([^&]+)/.exec(path)?.[1] ?? '');
     const b = longJob.bodies[id];
@@ -115,7 +118,7 @@ const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 0)
 const key = (k: string, target: Element = document.body) => act(() => { fireEvent.keyDown(target, { key: k }); });
 
 let offKeys: () => void = () => {};
-beforeEach(() => { windowWidth(1512); made.length = 0; forgetRecentPages(); offKeys = installKeyListener(); resetChord(); });
+beforeEach(() => { windowWidth(1512); made.length = 0; nextPage.make = null; forgetRecentPages(); offKeys = installKeyListener(); resetChord(); });
 afterEach(() => { offKeys(); vi.unstubAllGlobals(); localStorage.clear(); window.history.replaceState(null, '', '/'); });
 
 describe('first paint and the payload', () => {
@@ -558,5 +561,26 @@ describe('Task 10 fix round 1: the prototype’s step rule on the page', () => {
     fireEvent.click(stepRow('Ship'));
     expect(readerTitle()).toBe('Ship');
     expect(document.querySelector('.jp2-notyet')).toHaveTextContent('Nothing yet. This step has not started.');
+  });
+});
+
+describe('Task 23 fix round: the commit list is fetched ahead (speed rule 2)', () => {
+  it('once the page is in and the browser is idle, the Build step\'s commit list is asked for, so its first pick waits on nothing', async () => {
+    const { get } = open(`#/job/${SLUG}`);
+    await settle();
+    await settle();
+    expect(get.mock.calls.map((c) => String(c[0])).filter((p) => p.endsWith('/commits'))).toEqual([`/api/job/${SLUG}/commits`]);
+  });
+
+  it('a job whose steps show no Changes yet asks for none', async () => {
+    nextPage.make = () => {
+      const p = payload();
+      for (const st of p.steps) st.outputs = st.outputs.filter((o) => o.kind !== 'changes');
+      return p;
+    };
+    const { get } = open(`#/job/${SLUG}`);
+    await settle();
+    await settle();
+    expect(get.mock.calls.map((c) => String(c[0])).filter((p) => p.endsWith('/commits'))).toEqual([]);
   });
 });

@@ -503,3 +503,49 @@ test('Task 12 fix round 2: a write in a job’s versions/ folder starts no rebui
     assert.ok(hooks.jobPages.stats().builds > before, 'a document of the job is');
   } finally { viewer.close(); }
 });
+
+test('Task 23 fix round (speed rule 2): the commit list of a job the page watches comes from its page build: no git on the request, and a new commit is in it after the next rebuild', { timeout: 60_000 }, async () => {
+  const slug = 'commits-from-the-page';
+  const g = (...args) => execFileSync('git', ['-C', repo, '-c', 'user.name=T', '-c', 'user.email=t@example.invalid', ...args], { encoding: 'utf8' }).trim();
+  await fsp.writeFile(path.join(repo, 'a.txt'), 'a\n');
+  g('add', '-A'); g('commit', '-q', '-m', 'start');
+  const baseSha = g('rev-parse', 'HEAD');
+  g('switch', '-q', '-c', 'feature/commits-from-the-page');
+  await fsp.writeFile(path.join(repo, 'b.txt'), 'b\n');
+  g('add', '-A'); g('commit', '-q', '-m', 'feat: the first commit');
+  g('switch', '-q', '-');
+  const dir = await writeJob(slug, { 'implementation-plan.md': '# Plan\n\n1. One step.\n' });
+  const status = JSON.parse(await fsp.readFile(path.join(dir, 'status.json'), 'utf8'));
+  await fsp.writeFile(path.join(dir, 'status.json'), JSON.stringify({ ...status, stage: 'implement', branch: 'feature/commits-from-the-page', base_sha: baseSha }, null, 2));
+  const viewer = await openViewer();
+  try {
+    // (The runner's job list is kept 1.5 s, and a slug just found missing answers 404 for 5 s.)
+    let first = await get(`/api/job/${slug}/page?viewer=${viewer.id}`);
+    const until = Date.now() + 15_000;
+    while (first.status === 404 && Date.now() < until) { await sleep(250); first = await get(`/api/job/${slug}/page?viewer=${viewer.id}`); }
+    assert.equal(first.status, 200, JSON.stringify(first.body));
+    const spy = spies();
+    let one;
+    try { one = await get(`/api/job/${slug}/commits`); } finally { spy.restore(); }
+    assert.equal(one.status, 200, JSON.stringify(one.body));
+    assert.deepEqual(one.body.commits.map((c) => c.subject), ['feat: the first commit']);
+    assert.deepEqual(one.body.commits[0].files.map((f) => f.path), ['b.txt']);
+    assert.deepEqual(spy.calls.spawn, [], 'no git on the request: the list was read at the page build');
+    // A new commit on the branch, then the job's change point: the next rebuild reads the list again.
+    g('switch', '-q', 'feature/commits-from-the-page');
+    await fsp.writeFile(path.join(repo, 'c.txt'), 'c\n');
+    g('add', '-A'); g('commit', '-q', '-m', 'feat: the second commit');
+    g('switch', '-q', '-');
+    // Before the rebuild, the ref files have moved: the route reads the branch itself (git), not the old list.
+    const stale = await get(`/api/job/${slug}/commits`);
+    assert.equal(stale.body.commits.length, 2, 'never the list from before the commit');
+    hooks.jobPages.touch(slug);
+    const end = Date.now() + 10_000;
+    while (Date.now() < end && hooks.jobPages.commits(slug)?.list.commits.length !== 2) await sleep(20);
+    const spy2 = spies();
+    let two;
+    try { two = await get(`/api/job/${slug}/commits`); } finally { spy2.restore(); }
+    assert.deepEqual(two.body.commits.map((c) => c.subject), ['feat: the second commit', 'feat: the first commit']);
+    assert.deepEqual(spy2.calls.spawn, []);
+  } finally { viewer.close(); }
+});

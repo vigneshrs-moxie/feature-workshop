@@ -665,6 +665,34 @@ export async function createRunner(config) {
   const branchCommitsCache = new Map(); // codeDir|branch|base -> { head, commits }
   // The Build step's commits with their files (GET /api/job/:slug/commits), kept the same way.
   const commitsWithFilesCache = new Map(); // codeDir|branch|base -> { head, commits }
+  // The Build step's commit list (GET /api/job/:slug/commits): { list, common, stamp }. list is the route's
+  // answer; common and stamp (lib/git.js commonDirOf, refStamp: taken before the list is read) let a later
+  // ask see, without git, that the branch has not moved. Read again only when the head moved: one
+  // `git rev-parse` each time.
+  const commonDirs = new Map(); // codeDir -> git's common folder
+  async function commitListOf(f) {
+    // A branch Starbase only guessed is read as no branch (ownBranch, ownCodeDir).
+    const codeDir = ownCodeDir(f);
+    const branch = ownBranch(f);
+    if (!codeDir || !branch || !(await git.isGitRepo(codeDir))) return { list: { dir: codeDir, commits: [], note: 'No feature branch yet. Commits show up here once building starts.' }, common: null, stamp: null };
+    try {
+      if (!commonDirs.has(codeDir)) keepLatest(commonDirs, codeDir, await git.commonDirOf(codeDir), BRANCH_COMMITS_KEPT);
+      const common = commonDirs.get(codeDir) ?? null;
+      const stamp = await git.refStamp(common, branch).catch(() => null);
+      const head = await git.headOf(codeDir, branch);
+      const key = `${codeDir}|${branch}|${f.baseSha ?? ''}`;
+      const hit = head ? commitsWithFilesCache.get(key) : null;
+      let commits = hit?.head === head ? hit.commits : null;
+      if (!commits) {
+        commits = await git.commitsWithFiles(codeDir, { base: f.baseSha ?? null, head: branch });
+        if (head) keepLatest(commitsWithFilesCache, key, { head, commits }, BRANCH_COMMITS_KEPT);
+      }
+      // cut: the list stopped at its limit, so a commit not in it may still be on the branch (What you asked).
+      return { list: { dir: codeDir, base: f.baseSha ?? null, head: branch, commits, cut: commits.length >= git.COMMITS_LISTED }, common, stamp: head ? stamp : null };
+    } catch (err) {
+      return { list: { dir: codeDir, commits: [], note: `Couldn’t read the branch: ${String(err.message).split('\n')[0]}` }, common: null, stamp: null };
+    }
+  }
   async function branchCommitsOf(f) {
     const base = f.baseSha ?? f.baseBranch;
     const branch = ownBranch(f);
@@ -2397,7 +2425,9 @@ export async function createRunner(config) {
     // The bodies the payload names no line or output for carry their hash here, so a kept copy is dropped when it moves on.
     payload.hashes = { ticket: sources.get('ticket')?.version ?? null, decisions: sources.get('decisions')?.version ?? null, findings: sources.get('findings')?.version ?? null, checks: sources.get('checks')?.version ?? null };
     // Details (lib/work-rows.js): the corrected activity, the cost rows and the replies' ends; the crew's logs are read only when Details asks.
-    return { payload, sources, work: workFacts(detail) };
+    // The Build step's commit list, when a step shows Changes: read here, so the route answers a pick without git.
+    const commitList = payload.hosted !== true && payload.steps.some((st) => st.outputs.some((o) => o.kind === 'changes')) ? await commitListOf(f).catch(() => null) : null;
+    return { payload, sources, work: workFacts(detail), commits: commitList };
   }
   // Each crew member's first instruction and how its log ends, for Details: kept by each log's size and time.
   const crewLogReader = crewLogs({ projectsDir: PROJECTS_DIR });
@@ -3993,26 +4023,11 @@ export async function createRunner(config) {
     },
     localView: async (slug, { fresh = false } = {}) => local.view(await jobOf(slug), { fresh }),
     async commits(slug) {
-      const f = await jobOf(slug);
-      // A branch Starbase only guessed is read as no branch (ownBranch, ownCodeDir).
-      const codeDir = ownCodeDir(f);
-      const branch = ownBranch(f);
-      if (!codeDir || !branch || !(await git.isGitRepo(codeDir))) return { dir: codeDir, commits: [], note: 'No feature branch yet. Commits show up here once building starts.' };
-      try {
-        // Read again only when the branch's head moved (as branchCommitsOf): one `git rev-parse` each ask.
-        const head = await git.headOf(codeDir, branch);
-        const key = `${codeDir}|${branch}|${f.baseSha ?? ''}`;
-        const hit = head ? commitsWithFilesCache.get(key) : null;
-        let commits = hit?.head === head ? hit.commits : null;
-        if (!commits) {
-          commits = await git.commitsWithFiles(codeDir, { base: f.baseSha ?? null, head: branch });
-          if (head) keepLatest(commitsWithFilesCache, key, { head, commits }, BRANCH_COMMITS_KEPT);
-        }
-        // cut: the list stopped at its limit, so a commit not in it may still be on the branch (What you asked).
-        return { dir: codeDir, base: f.baseSha ?? null, head: branch, commits, cut: commits.length >= git.COMMITS_LISTED };
-      } catch (err) {
-        return { dir: codeDir, commits: [], note: `Couldn’t read the branch: ${String(err.message).split('\n')[0]}` };
-      }
+      // The job page's build keeps the list (speed rule 2): answered from it while the branch's ref files
+      // are as they were then (three stats, no git); else read now, as before.
+      const kept = await jobPages.commits(slug);
+      if (kept && kept.stamp !== null && kept.stamp === await git.refStamp(kept.common, kept.list.head).catch(() => null)) return kept.list;
+      return (await commitListOf(await jobOf(slug))).list;
     },
     /** Markdown you are writing (the drawer's notes Preview), rendered by the same sanitising renderer as every document. */
     render: async (slug, text) => ({ html: renderMarkdown(text, { idHref: idHref(await jobOf(slug)) }) }),
