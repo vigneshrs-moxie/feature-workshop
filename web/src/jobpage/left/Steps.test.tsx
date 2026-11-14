@@ -107,8 +107,8 @@ describe('the steps', () => {
     expect(row('Build')).not.toHaveClass('is-sel');
     expect(reads('Test')).toEqual({ kind: 'checks', id: 'checks' });
     expect(reads('Spec')).toEqual({ kind: 'doc', id: 'spec' });
-    // A step not started: nothing yet, and the reader says so.
-    expect(reads('Ship')).toEqual({ kind: 'not-yet', id: 'ship' });
+    // Ship not started yet: its PR lines (Phase 4 B1: the PR's action is offered on any step).
+    expect(reads('Ship')).toEqual({ kind: 'ship', id: 'ship' });
     expect(row('Ship')).toHaveClass('is-sel');
     // The current step: its main output, its own output marked in its list.
     expect(reads('Review')).toEqual({ kind: 'findings', id: 'findings' });

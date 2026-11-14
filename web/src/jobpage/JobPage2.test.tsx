@@ -578,12 +578,13 @@ describe('Task 10 fix round 1: the prototype’s step rule on the page', () => {
     expect(blocks()).toBe(before);
   });
 
-  it('a step that has not started opens a plain “Nothing yet” in the reader', async () => {
+  it('Ship, not started yet, opens its PR lines in the reader, not “Nothing yet” (Phase 4 B1)', async () => {
     open(`#/job/${SLUG}`);
     await settle();
     fireEvent.click(stepRow('Ship'));
     expect(readerTitle()).toBe('Ship');
-    expect(document.querySelector('.jp2-notyet')).toHaveTextContent('Nothing yet. This step has not started.');
+    expect(document.querySelector('.jp2-notyet')).toBeNull();
+    expect(document.querySelector('.jp2-rv-body .jp2-prl')).not.toBeNull();
   });
 });
 
