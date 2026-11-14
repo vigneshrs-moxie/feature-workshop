@@ -364,3 +364,25 @@ describe('Task 18 fix round 2: a list cut at its limit', () => {
     expect(q('.jp2-ch-missing')!.textContent).toBe('Commit deadbee is not on this branch.');
   });
 });
+
+describe('Task 21: a commit past a cut list, before the server answers', () => {
+  it('says nothing about it being older until its diff has come; the server may yet say it is not on this branch', async () => {
+    let answerOld: (v: unknown) => void = () => {};
+    const OLD = '02d1234';
+    const o = open({
+      answer: async (url: string) => {
+        if (url.endsWith('/commits')) return { commits: COMMITS, cut: true };
+        if (url.endsWith(`/commit/${OLD}`)) return new Promise((r) => { answerOld = r; });
+        const m = /\/commit\/([0-9a-f]+)$/.exec(url);
+        if (m) return { sha: m[1], truncated: false, files: [{ path: 'a.ts', added: 1, removed: 0 }], patchFiles: [{ path: 'a.ts', lines: ['@@ -0,0 +1 @@', '+a'] }] };
+        throw new Error(`Not asked for: ${url}`);
+      },
+    });
+    act(() => { setPick(o.store, { sha: OLD, path: null }); });
+    await settle();
+    expect(q('.jp2-ch-older')).toBeNull();
+    answerOld({ sha: OLD, truncated: false, files: [{ path: 'old.ts', added: 1, removed: 0 }], patchFiles: [{ path: 'old.ts', lines: ['@@ -0,0 +1 @@', '+old'] }] });
+    await settle();
+    expect(q('.jp2-ch-older')!.textContent).toBe(`Commit ${OLD} is older than the commits listed.`);
+  });
+});

@@ -90,7 +90,8 @@ export function ChangesView() {
         <div className="jp2-ch-p">
           <FileList files={files} on={path} onPick={pickFile} />
           <DiffColumn place={commit ? `${commit.sha}:${path ?? ''}` : ''}>
-            {older && <p className="jp2-dim jp2-ch-nofile jp2-ch-older" role="status">Commit {older} is older than the commits listed.</p>}
+            {/* Only once the server has answered with its diff: before that it may yet say "not on this branch". */}
+            {older && branch.diffs.has(older) && <p className="jp2-dim jp2-ch-nofile jp2-ch-older" role="status">Commit {older} is older than the commits listed.</p>}
             {noFile && <p className="jp2-dim jp2-ch-nofile" role="status">{noFile} is not in this commit. Showing its first file.</p>}
             {commit && <Diff sha={commit.sha} path={path} onAgain={() => void loadDiff(store, api, slug, commit.sha)} />}
           </DiffColumn>
