@@ -666,3 +666,22 @@ test('Task 20: the PR lines come from what the runner read: one next action, wha
   assert.ok(site.prs.every((l) => l.next === null), 'nothing to act on from the website');
   assert.equal(buildJobPage(atReview()).github, null, 'no read known: no GitHub line');
 });
+
+test('Task 21: a PR comment’s Needs-you card is not the move; the new comments are one line under Your move (prMove)', () => {
+  const f = atReview();
+  f.detail.page.prs = [{ n: 1, number: 7, state: 'open' }, { n: 2, state: 'not-started' }, { n: 3, state: 'not-started' }];
+  f.detail.permissionsPending = [
+    { id: 'fb1', kind: 'question', toolName: 'AskUserQuestion', feedbackCard: true, createdAt: T(14), plain: { headline: 'ana commented on PR #1.' }, input: null },
+    { id: 'rd1', kind: 'question', toolName: 'AskUserQuestion', roundCard: true, createdAt: T(14), plain: { headline: 'Round 1' }, input: null },
+  ];
+  f.prFacts = { comments: { 1: { fresh: 3, total: 4, fixed: 0, failing: 0, v: 'x', since: T(13) } } };
+  const p = buildJobPage(f);
+  assert.notEqual(p.move?.kind, 'permission', 'the cards are the PR view’s rows here');
+  assert.deepEqual(p.prMove, { n: 1, fresh: 3, since: T(13) });
+  assert.deepEqual(p.prs[0].comments, { fresh: 3, total: 4, fixed: 0, failing: 0, v: 'x' });
+  f.prFacts = { comments: { 1: { fresh: 0, total: 4, fixed: 2, failing: 0, v: 'y', since: null } } };
+  assert.equal(buildJobPage(f).prMove, null, 'nothing new: no line');
+  // A permission still wins the card itself.
+  f.detail.permissionsPending = [{ id: 'p9', kind: 'permission', toolName: 'Bash', createdAt: T(14), plain: { headline: 'Run the tests' }, input: { command: 'npm test' } }];
+  assert.equal(buildJobPage(f).move.kind, 'permission');
+});

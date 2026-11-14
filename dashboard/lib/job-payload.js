@@ -39,6 +39,7 @@
 //                Foreman asks him something first, so the page moves the words into the box
 //   prs          PrLine[]: always three (lib/pr-lines.js prLines)
 //   github       null | { at, triedAt, reading, problem, run }: the GitHub read the PR lines come from (null: none known)
+//   prMove       null | { n, fresh, since }: Task 21, the PR comments not answered yet, one line under Your move
 //   hosted       boolean: built on the website (mirrorJobPage, which leaves out drive, lock and local: LOCAL_ONLY)
 //
 //   StepRow      { id: 'spec' | … | 'ship', label, state: 'done' | 'current' | 'todo' | 'skipped',
@@ -102,6 +103,7 @@ import { prLines, prWord } from './pr-lines.js';
  * @property {boolean} [hosted]         built on the website
  * @property {object} [prFacts]         what the PR lines need (lib/pr-lines.js prLines' facts but rows): lane, repo,
  *                                      github, push, job, sent, dismissed, inRound, pending
+ *                                      comments (Task 21, lib/pr-comments.js factsOf: each PR's counts), round
  */
 
 const STATE_WORDS = { 'needs-you': 'Waiting for you', working: 'Working', 'waiting-github': 'Waiting on GitHub', paused: 'Paused', done: 'Done' };
@@ -587,7 +589,8 @@ function questionMove(thread, card) {
 }
 
 function moveOf({ card, detail, thread }) {
-  const pending = Array.isArray(detail.permissionsPending) ? detail.permissionsPending : [];
+  // A PR comment's card (lib/pr-feedback.js) or a review round's (lib/review-round.js) is the PR view's rows here: prMove (Task 21).
+  const pending = (Array.isArray(detail.permissionsPending) ? detail.permissionsPending : []).filter((p) => !p?.feedbackCard && !p?.roundCard);
   if (pending.length) return permissionMove(pending[0]);
   if (detail.gate) return gateMove(detail.gate);
   if (card.needsYou) return questionMove(thread, card);
@@ -777,8 +780,19 @@ export function buildJobPage(facts) {
     waiting: waitingOf(detail.waiting),
     prs: prs.lines,
     github: prs.github,
+    prMove: prMoveOf(prs.lines, f.prFacts?.comments),
     hosted: Boolean(f.hosted),
   };
+}
+
+/**
+ * Task 21 (phase4-design.md Ruling 2): the PR comments not answered yet, one line under Your move (`PR #1 · 3 new
+ * comments`, opening that PR's view) in place of a Needs-you card per comment. The first PR with new ones; since: the
+ * oldest of them. null when there are none.
+ */
+function prMoveOf(lines, comments) {
+  const l = (lines ?? []).find((x) => (x.comments?.fresh ?? 0) > 0);
+  return l ? { n: l.n, fresh: l.comments.fresh, since: comments?.[l.n]?.since ?? null } : null;
 }
 
 // ---------- The website's payload ----------
