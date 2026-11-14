@@ -471,3 +471,12 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2-dt-err { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; }
 .jp2-dt-err p { margin: 0; }
 .jp2[data-layout="phone"] .jp2-dt-t th:nth-child(4), .jp2[data-layout="phone"] .jp2-dt-t td:nth-child(4) { display: none; }
+/* The message waiting for the Foreman (Task 16, R8): under the box, what happens to it, its words on two lines at most, Cancel at the end. */
+.jp2-mb-wait { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 8px; padding: 0 12px 8px; font-size: 12.5px; line-height: 18px; }
+.jp2-mb-wait-says { grid-column: 1; margin: 0; color: var(--text-2); }
+.jp2-mb-wait.is-problem .jp2-mb-wait-says { color: var(--text-1); font-weight: 500; }
+.jp2-mb-wait-words { display: -webkit-box; grid-column: 1; margin: 0; overflow: hidden; color: var(--text-1); white-space: pre-line; overflow-wrap: anywhere; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.jp2-mb-wait-cancel { grid-column: 2; grid-row: 1 / span 2; }
+.jp2-mb-replace { flex: none; margin-left: auto; }
+.jp2[data-layout="phone"] .jp2-mb:has(+ .jp2-mb-wait) { padding-bottom: 8px; }
+.jp2[data-layout="phone"] .jp2-mb-wait { padding: 0 18px 30px; font-size: 14px; line-height: 20px; }

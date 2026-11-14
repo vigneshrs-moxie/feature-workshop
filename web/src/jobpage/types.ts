@@ -155,7 +155,7 @@ export interface JobPagePayload {
   rows: { conversation: { count: number; more?: boolean }; decisions: { count: number } };
   open: ReaderTarget;
   thread: ThreadLine[];
-  /** R8 (Task 16): the one message waiting for the Foreman; null until then. */
+  /** R8 (Task 16): the one message waiting for the Foreman (dashboard/lib/queued.js); why: a refusal when it was time to send. */
   waiting: null | { text: string; at: string; why: string | null };
   prs: PrLine[];
   hosted: boolean;

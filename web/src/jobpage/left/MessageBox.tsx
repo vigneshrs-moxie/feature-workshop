@@ -13,11 +13,18 @@
 // typed since) with the server's reason in plain words. It sends once however fast he clicks.
 // While a reply runs the box says `Sends when it finishes` (the prototype's words), with `Stop it and
 // send now` beside it in the same row (on the phone, with no room in the row, on its own line above
-// the box: Task 15). Waiting messages are Task 16: until then Send keeps the words
-// in the box and sends nothing, and `Stop it and send now` stops the reply (POST /api/runs/:id/stop),
-// then sends the words once the run has ended (once more if the server still says busy right
-// after; it gives up waiting after STOP_WAIT_MS with a plain line). At a go-ahead or a question the
-// box says `Your own answer, or a message to the Foreman…` (the prototype's words).
+// the box: Task 15). A message waits for the Foreman (Task 16, R8): Send while a reply runs posts it
+// with `queue: true` and the server keeps it (one per job, lib/queued.js) and sends it when the reply
+// ends. Its words show under the box at once, with `Cancel` (POST …/waiting/cancel; the words come back
+// to the box). A second one is refused naming the first: `Replace it` sends with `replace: true`. When
+// it was time to send and the server still said no (the usage limit, the terminal), the payload's
+// `waiting.why` says so in its place. `Stop it and send now` makes the words wait, then stops the reply
+// (POST /api/runs/:id/stop): the server sends them as it ends.
+// The website cannot keep a message waiting (its decisions wait for the laptop instead): there the
+// waiting message shows read-only, Send while a reply runs keeps the words in the box, and `Stop it and
+// send now` stops the reply, then sends the words once the run has ended (once more if the server still
+// says busy right after; it gives up waiting after STOP_WAIT_MS with a plain line). At a go-ahead or a
+// question the box says `Your own answer, or a message to the Foreman…` (the prototype's words).
 // A message the website queues for the laptop that the site shows ended without being sent (failed,
 // changed, ran out, cancelled) gives its words back to the box (jobStore watchQueued).
 //
@@ -54,8 +61,11 @@ const STOP_SLOW = 'The Foreman hasn’t stopped yet. Your words are still here: 
 
 const UNREACHABLE = `Couldn’t reach ${BRAND.name}. Try again.`;
 const BUSY = 'Not sent: the Foreman is still working on a reply. Your words are back in the box; send them when it finishes, or Stop it and send now.';
-// Waiting messages come with Task 16; until then this says what to do.
+// The website keeps the words in the box while the Foreman works (only the laptop keeps a message waiting).
 const KEPT = 'Kept here, not sent. Press Send when the Foreman finishes, or Stop it and send now.';
+/** Above the words that wait for the Foreman (the prototype's `queued · sends when the Foreman finishes`). */
+export const WAITS = 'Sends when the Foreman finishes';
+const GONE_ALREADY = 'It had already gone to the Foreman.';
 const LOCKED = `Another place is working on this job (a terminal, or another ${BRAND.name}). Only one place can work on a job at a time.`;
 
 /** The server's no, in plain words. */
@@ -74,6 +84,14 @@ export function sendRefusal(err: unknown): string {
   }
   return `Not sent: ${err instanceof Error ? err.message : String(err)}`;
 }
+
+/** A second message while one waits (409 code waiting): the first one's words, named. */
+function secondRefusal(err: ApiError): string {
+  const first = (err.body.waiting as { text?: unknown } | undefined)?.text;
+  const words = typeof first === 'string' ? (first.length > 120 ? `${first.slice(0, 119)}…` : first) : null;
+  return `Not sent: a message is already waiting for the Foreman${words ? `: “${words}”` : '.'} Replace it with these words, or cancel it first.`;
+}
+const isSecond = (err: unknown): err is ApiError => err instanceof ApiError && err.status === 409 && err.body.code === 'waiting';
 
 /** The server's "the Foreman is still working" (a 409 with no code). */
 const isBusy = (err: unknown) => err instanceof ApiError && err.status === 409 && !err.body.code && /still working/i.test(err.message);
@@ -124,10 +142,31 @@ export const MessageBox = memo(function MessageBox({ boxRef }: MessageBoxProps) 
   const run = runNow(hasLiveRun ? { id: liveRunId, status: liveRunStatus } : null, hasPayloadRun ? { id: payloadRunId, status: payloadRunStatus } : null);
   const running = Boolean(run && ACTIVE.has(run.status ?? ''));
   const narrow = useNarrow();
+  const hosted = useJob((s) => s.payload?.hosted === true);
+  const v = useJob((s) => s.payload?.v ?? 0);
+  const waitText = useJob((s) => s.payload?.waiting?.text ?? null);
+  const waitWhy = useJob((s) => s.payload?.waiting?.why ?? null);
+  const vNow = useRef(v);
+  vNow.current = v;
+  /**
+   * What he made wait, shown at once, until a payload newer than the server's answer says how it stands
+   * (`afterV`: the payload's v when the answer came; null: not answered yet). `cancelled` the same for Cancel.
+   */
+  const [mine, setMine] = useState<{ text: string; afterV: number | null } | null>(null);
+  const [cancelled, setCancelled] = useState<{ afterV: number | null } | null>(null);
+  const [stopping, setStopping] = useState(false);
+  const fresh = (x: { afterV: number | null } | null) => Boolean(x && (x.afterV === null || x.afterV === v));
+  const waits: { text: string; why: string | null } | null = fresh(cancelled) ? null
+    : fresh(mine) ? { text: mine!.text, why: null }
+      : waitText ? { text: waitText, why: waitWhy } : null;
 
-  /** sent: the last words went (Send says Sent until he types again); stopping: Stop it and send now is waiting for the reply to end. */
-  const [phase, setPhase] = useState<'idle' | 'sending' | 'sent' | 'stopping'>('idle');
-  const [line, setLine] = useState<{ words: string; problem: boolean } | null>(null);
+  /**
+   * sent: the last words went (Send says Sent until he types again); waiting: they are on their way to wait
+   * for the Foreman; stopping (the website): Stop it and send now is waiting for the reply to end.
+   */
+  const [phase, setPhase] = useState<'idle' | 'sending' | 'sent' | 'waiting' | 'stopping'>('idle');
+  /** replace: the line offers Replace it (a message already waits). */
+  const [line, setLine] = useState<{ words: string; problem: boolean; replace?: boolean } | null>(null);
   const [askTerminal, setAskTerminal] = useState(false);
   const [noTerminal, setNoTerminal] = useState(false);
   const out = useRef(false);
@@ -201,13 +240,94 @@ export const MessageBox = memo(function MessageBox({ boxRef }: MessageBoxProps) 
   }, [api, store, slug, noTerminal, focusBox]);
 
 
+  /**
+   * The box's words wait for the Foreman (POST …/send with queue: true): shown under the box at once; a
+   * refusal puts them back. 'waiting': kept (202); 'sent': nothing was running, so they went now; 'refused'.
+   */
+  const queue = useCallback(async (replace = false): Promise<'waiting' | 'sent' | 'refused' | 'none'> => {
+    if (out.current) return 'none';
+    const words = store.getState().ui.draft;
+    const text = words.trim();
+    if (!text) { focusBox(); return 'none'; }
+    out.current = true;
+    setPhase('waiting');
+    setLine(null);
+    store.clearGaveBack();
+    store.setDraft('');
+    setMine({ text, afterV: null });
+    setCancelled(null);
+    let r: { waiting?: unknown } | null;
+    try {
+      r = await api.post<{ waiting?: unknown }>(`/api/job/${encodeURIComponent(slug)}/send`, { kind: 'message', text, queue: true, ...(replace ? { replace: true } : {}), confirmNoTerminal: noTerminal });
+    } catch (err) {
+      out.current = false;
+      setPhase('idle');
+      setMine(null);
+      const now = store.getState().ui.draft;
+      if (!now.trim()) store.setDraft(words);
+      else if (!now.includes(text)) store.setDraft(`${text}\n\n${now}`);
+      setLine(isSecond(err) ? { words: secondRefusal(err), problem: true, replace: true } : { words: sendRefusal(err), problem: true });
+      if (err instanceof ApiError && err.body.code === 'terminal-open') setAskTerminal(true);
+      return 'refused';
+    }
+    out.current = false;
+    setAskTerminal(false);
+    setNoTerminal(false);
+    const kept = Boolean(r && typeof r === 'object' && r.waiting);
+    setPhase(kept ? 'idle' : 'sent');
+    setMine(kept ? { text, afterV: vNow.current } : null);
+    return kept ? 'waiting' : 'sent';
+  }, [api, store, slug, noTerminal, focusBox]);
+
+  /** Cancel: off the page at once; the words come back to the box (before anything typed since) once the server has removed it. */
+  const cancelWaiting = useCallback(async () => {
+    const text = waits?.text ?? '';
+    setCancelled({ afterV: null });
+    setMine(null);
+    setLine(null);
+    let r: { cancelled?: boolean } | null;
+    try {
+      r = await api.post<{ cancelled?: boolean }>(`/api/job/${encodeURIComponent(slug)}/waiting/cancel`, {});
+    } catch (err) {
+      setCancelled(null);
+      setLine({ words: `Not cancelled: ${err instanceof TypeError ? UNREACHABLE : err instanceof Error ? err.message : String(err)}`, problem: true });
+      return;
+    }
+    setCancelled({ afterV: vNow.current });
+    if (!r?.cancelled) { setLine({ words: GONE_ALREADY, problem: false }); return; }
+    const now = store.getState().ui.draft;
+    if (!now.trim()) store.setDraft(text);
+    else if (!now.includes(text)) store.setDraft(`${text}\n\n${now}`);
+  }, [api, store, slug, waits?.text]);
+
   const pressSend = useCallback(() => {
     if (!store.getState().ui.draft.trim()) { focusBox(); return; }
     if (locked) return;
-    // Waiting messages are Task 16: the words stay in the box.
-    if (running) { setLine({ words: KEPT, problem: false }); return; }
+    if (running) {
+      // The website can't keep a message waiting: the words stay in the box.
+      if (hosted) { setLine({ words: KEPT, problem: false }); return; }
+      void queue();
+      return;
+    }
     void send();
-  }, [store, focusBox, locked, running, send]);
+  }, [store, focusBox, locked, running, hosted, queue, send]);
+
+  /** Stop it and send now, on this computer: the words wait (if any), then the reply stops; the server sends them as it ends. */
+  const stopThenSend = useCallback(async () => {
+    const words = store.getState().ui.draft.trim();
+    if (!words && !waits) { focusBox(); setLine({ words: 'Write the message first, then Stop it and send now.', problem: false }); return; }
+    if (!run?.id || stopping) return;
+    if (words && (await queue()) !== 'waiting') return;
+    setStopping(true);
+    try {
+      await api.post(`/api/runs/${encodeURIComponent(run.id)}/stop`, {});
+    } catch (err) {
+      // Ended by itself meanwhile (404 "already finished"): the waiting message goes as it would after a stop.
+      if (!(err instanceof ApiError && err.status === 404)) setLine({ words: `Not stopped: ${err instanceof TypeError ? UNREACHABLE : err instanceof Error ? err.message : String(err)}. Your message still waits for the Foreman.`, problem: true });
+    } finally {
+      setStopping(false);
+    }
+  }, [api, store, run?.id, stopping, waits, queue, focusBox]);
 
   const stopAndSend = useCallback(async () => {
     if (!store.getState().ui.draft.trim()) { focusBox(); setLine({ words: 'Write the message first, then Stop it and send now.', problem: false }); return; }
@@ -233,7 +353,7 @@ export const MessageBox = memo(function MessageBox({ boxRef }: MessageBoxProps) 
     setPhase('idle');
   }, [gaveBack]);
 
-  // Stopped: the words go now.
+  // Stopped (the website): the words go now.
   useEffect(() => {
     if (phase !== 'stopping' || running) return;
     setPhase('idle');
@@ -272,10 +392,10 @@ export const MessageBox = memo(function MessageBox({ boxRef }: MessageBoxProps) 
       kind="quiet"
       size={narrow ? 'md' : 'sm'}
       className="jp2-mb-stop"
-      busy={phase === 'stopping'}
+      busy={phase === 'stopping' || stopping}
       busyLabel="Stopping…"
       disabled={locked}
-      onClick={() => void stopAndSend()}
+      onClick={() => void (hosted ? stopAndSend() : stopThenSend())}
       title="End the Foreman’s reply now, then send your words as soon as it has stopped. Anything waiting for your answer is declined."
     >
       Stop it and send now
@@ -289,7 +409,16 @@ export const MessageBox = memo(function MessageBox({ boxRef }: MessageBoxProps) 
           <Choice type="checkbox" checked={noTerminal} onChange={(e) => setNoTerminal(e.target.checked)} /> None of the open terminals is this job’s Foreman
         </label>
       )}
-      {line && <p className={`jp2-mb-line${line.problem ? ' is-problem' : ''}`} role={line.problem ? 'alert' : 'status'}>{line.words}</p>}
+      {line && (
+        <p className={`jp2-mb-line${line.problem ? ' is-problem' : ''}`} role={line.problem ? 'alert' : 'status'}>
+          {line.words}
+          {line.replace && (
+            <Button kind="quiet" size="sm" className="jp2-mb-replace" disabled={locked} onClick={() => void queue(true)} title="Send these words to wait for the Foreman in place of the message waiting now.">
+              Replace it
+            </Button>
+          )}
+        </p>
+      )}
       {!line && gaveBack && <p className="jp2-mb-line is-problem" role="alert">{gaveBack.line}</p>}
       {/* The phone's row has no room for it beside the box: its own line above it. */}
       {narrow && stop && <div className="jp2-mb-stopline">{stop}</div>}
@@ -314,11 +443,23 @@ export const MessageBox = memo(function MessageBox({ boxRef }: MessageBoxProps) 
           className="jp2-mb-send"
           disabled={locked}
           onClick={pressSend}
-          title={locked ? `Off: ${LOCKED}` : running ? 'The Foreman is replying: your words stay in the box until it finishes.' : 'Send your words to the Foreman as a message.'}
+          title={locked ? `Off: ${LOCKED}` : running ? (hosted ? 'The Foreman is replying: your words stay in the box until it finishes.' : 'The Foreman is replying: your message waits and goes when it finishes.') : 'Send your words to the Foreman as a message.'}
         >
           {sentShown ? 'Sent' : 'Send'}
         </Button>
       </div>
+      {waits && (
+        <div className={`jp2-mb-wait${waits.why ? ' is-problem' : ''}`} role="status">
+          <p className="jp2-mb-wait-says">{waits.why ? `Not sent yet: ${waits.why}` : WAITS}</p>
+          <p className="jp2-mb-wait-words" title={waits.text}>{waits.text}</p>
+          {/* The website shows it only: cancelling is the laptop's. */}
+          {!hosted && (
+            <Button kind="quiet" size="sm" className="jp2-mb-wait-cancel" onClick={() => void cancelWaiting()} title="Take this message back before it goes: it is not sent, and its words return to the box.">
+              Cancel
+            </Button>
+          )}
+        </div>
+      )}
     </div>
   );
 });
