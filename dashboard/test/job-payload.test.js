@@ -353,7 +353,11 @@ test('a waiting permission or crew question takes the move ahead of a gate, with
     questions: [{ question: 'Which browser?', options: [{ label: 'Chrome' }, { label: 'Safari' }] }], risk: null,
     since: T(12, 31), canAllowForRun: false, hardLine: false, defaultToNo: true, canAlwaysAllow: false,
   });
-  assert.deepEqual(p.open, { kind: 'permission', id: 'p1' });
+  // The card is in Your move: the reader shows the current step's main output (or the conversation).
+  const main = p.steps.find((s) => s.state === 'current')?.main;
+  assert.ok(main);
+  assert.deepEqual(p.open, main.kind === 'not-yet' ? { kind: 'conversation', id: 'conversation' } : main);
+  assert.notEqual(p.open.kind, 'permission');
   const push = [{ id: 'p2', kind: 'permission', toolName: 'Bash', createdAt: T(12, 31), canAllowForRun: true, hardLine: true, plain: { headline: 'Push the branch to your fork', risk: 'Changes GitHub' }, input: { command: 'git push origin feature/x' }, draft: { tool: 'Bash' } }];
   const q = buildJobPage(atGate({ detail: { gate: gate(), permissionsPending: push } }));
   assert.equal(q.move.card, 'permission');

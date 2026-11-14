@@ -601,16 +601,18 @@ function moveOf({ card, detail, thread }) {
 /** What the reader shows on arrival (decision 2). */
 function openOf(state, move, steps) {
   const conversation = { kind: 'conversation', id: 'conversation' };
+  const currentMain = () => {
+    const main = steps.find((s) => s.row.state === 'current')?.main;
+    return main && main.kind !== 'not-yet' ? main : conversation;
+  };
   if (state === 'needs-you') {
-    if (move?.kind === 'permission') return { kind: 'permission', id: move.id };
+    // A waiting permission's card is Your move itself: the reader shows the step's work beside it.
+    if (move?.kind === 'permission') return currentMain();
     if (move?.kind === 'gate' && move.briefFile) return { kind: 'brief', id: `brief:${move.briefFile}` };
     if (move?.kind === 'question') return { kind: 'message', id: move.itemId };
     return conversation;
   }
-  if (state === 'working') {
-    const main = steps.find((s) => s.row.state === 'current')?.main;
-    return main && main.kind !== 'not-yet' ? main : conversation;
-  }
+  if (state === 'working') return currentMain();
   return conversation;
 }
 

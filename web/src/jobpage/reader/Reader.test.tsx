@@ -1,7 +1,7 @@
 // The reader and its text views (job page rebuild, Task 12): one thing at a time under the same thin
 // title row, typeset for reading. Built against the made-up long job.
 import { act, fireEvent, render, within } from '@testing-library/react';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../../api/client';
@@ -426,5 +426,54 @@ describe('Task 12 fix round 1', () => {
     expect(prose()!.querySelector('table')).not.toHaveClass('jp2-idcol');
     expect(CSS).toMatch(/\.jp2-prose \.jp2-idcol td:first-child \{ white-space: nowrap; \}/);
     expect(CSS).not.toMatch(/\.jp2-prose td:first-child/);
+  });
+});
+
+describe('final fix W2: every target the page offers has a view', () => {
+  const PLACEHOLDER = /later build/i;
+  it('every output kind the payload can carry, and an old permission address, opens a view that is neither a placeholder nor an error', async () => {
+    const kinds: ReaderTarget[] = [
+      { kind: 'doc', id: 'test-plan.md' }, { kind: 'screens', id: 'screens' }, { kind: 'changes', id: 'changes' },
+      // Checks, Recording and Your hand test (ChecksView) have their own tests (ChecksView.test.tsx).
+      { kind: 'findings', id: 'findings' }, { kind: 'walkthrough', id: 'walkthrough' }, { kind: 'pr', id: '1' },
+      { kind: 'ship', id: 'ship' }, { kind: 'permission', id: 'p1' },
+    ];
+    const o = open({ bodies: { 'test-plan.md': LATE_KEY_POINTS } });
+    await settle();
+    for (const t of kinds) {
+      act(() => { o.store.setReader(t); });
+      await settle();
+      const text = reader().textContent ?? '';
+      expect(text, t.kind).not.toMatch(PLACEHOLDER);
+      expect(text, t.kind).not.toMatch(/Couldn’t load that part of the job/);
+      expect(views().length, t.kind).toBeGreaterThan(0);
+      if (t.kind === 'screens' || t.kind === 'walkthrough') expect(views()[0].dataset.view).toBe(t.kind);
+      if (t.kind === 'permission') expect(title()).not.toBe('Permission');
+    }
+    expect(o.item.mock.calls.map((c) => c[1])).not.toContain('screens');
+    o.unmount();
+  });
+
+  it('a job waiting on a permission opens on the current step’s main output, not a permission view', async () => {
+    const o = open({ patch: (p) => { p.open = { kind: 'permission', id: 'p1' }; } });
+    await settle();
+    expect(title()).not.toBe('Permission');
+    expect(reader().textContent ?? '').not.toMatch(PLACEHOLDER);
+    o.unmount();
+  });
+
+  it('no “later build” words are left anywhere in the page’s code', () => {
+    const root = path.join(process.cwd(), 'src/jobpage');
+    const files: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) walk(p);
+        else if (/\.tsx?$/.test(e.name) && !/\.test\.tsx?$/.test(e.name)) files.push(p);
+      }
+    };
+    walk(root);
+    expect(files.length).toBeGreaterThan(10);
+    for (const f of files) expect(readFileSync(f, 'utf8'), f).not.toMatch(/later build/i);
   });
 });
