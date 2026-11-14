@@ -321,7 +321,7 @@ test('a round at PR #2: one card, Fix with the Foreman, the report in status.jso
 // ---------- Task 21 fix round 1 (C1, I1): the job page's Push the fixes during a round ----------
 
 /** The round to ready (as the test above): Fix with the Foreman, the reply stopped, two commits and the report. */
-async function roundReady(j, c, at) {
+async function roundReady(j, c, at, { bareFix = false } = {}) {
   await c.waitFor(async () => ((await c.get('/api/review/sample-job')).state === 'asked' ? true : null), 'round 1');
   const fix = await c.write('/api/review/sample-job/fix', {});
   assert.equal(fix.status, 200, JSON.stringify(fix.body));
@@ -337,7 +337,8 @@ async function roundReady(j, c, at) {
   await sh(j.clone, ['commit', '-q', '-am', 'Keep id as an alias']);
   const st = JSON.parse(await fs.readFile(path.join(j.job, 'status.json'), 'utf8'));
   st.prs = [{ number: at, rounds: [{ round: 1, state: 'ready', doing: null, next: null, checks: 'npm test passes.', items: [
-    { id: 'c7001', kind: 'change', plan: 'fix', state: 'fixed', commit: fix1, reply: `Fixed in ${fix1}: renamed to feedbackId.` },
+    // bareFix: the Foreman drafted no reply for the fix (his edit at the go gives it one: final fix S2).
+    { id: 'c7001', kind: 'change', plan: 'fix', state: 'fixed', commit: fix1, ...(bareFix ? {} : { reply: `Fixed in ${fix1}: renamed to feedbackId.` }) },
     { id: 'c7002', kind: 'question', plan: 'answer', state: 'answered', reply: 'It is reassigned below, so it stays a let.' },
     { id: 'r5001', kind: 'change', plan: 'answer', state: 'answered', reply: 'Thanks: both done.' },
   ] }] }];
@@ -396,10 +397,43 @@ for (const at of [2, 1]) {
     const replyTo7001 = writes.filter((w) => w[2] === 'POST' && /\/comments\/7001\/replies$/.test(w[3]));
     assert.deepEqual(replyTo7001.map((w) => w.slice(4)), [['-f', 'body=Renamed to feedbackId, thanks.']]);
     assert.deepEqual(writes.filter((w) => w[2] === 'POST' && /\/comments\/7002\/replies$/.test(w[3])).map((w) => w.slice(4)), [['-f', 'body=Kept as a let: it is reassigned below.']]);
-    assert.deepEqual(writes.filter((w) => w[2] === 'POST' && /\/issues\/\d+\/comments$/.test(w[3])).map((w) => w.at(-1)), ['body=Thanks: both done.'], 'the review’s reply exactly as drafted: no @name, no quote');
+    // Final fix S3: the review-level reply's draft starts with the review's first line quoted (it posts as a bare PR
+    // comment); otherwise exactly as drafted, no @name.
+    assert.deepEqual(writes.filter((w) => w[2] === 'POST' && /\/issues\/\d+\/comments$/.test(w[3])).map((w) => w.at(-1)), ['body=> A few things before this goes in.\n\nThanks: both done.'], 'the review’s reply exactly as drafted, with its quote: no @name');
     assert.equal(writes.some((w) => w[0] === 'pr' && w[1] === 'create'), at === 2, 'a follow-up PR #1 only where the words said so');
     assert.equal(writes.some((w) => w[0] === 'pr' && w[1] === 'merge'), at === 2);
     assert.ok(j.audit().filter((e) => e.action === 'gh-write').every((e) => e.yes === `Send back round 1 on PR #${at}`));
     await d.stop();
   });
 }
+
+test('final fix S1, S2, S3: two quick clicks on Push the fixes run Send back once; an edit that gives a fix its first reply still goes; a review-level reply shows its quote', async () => {
+  const at = 1;
+  const j = await makeJob({ at });
+  const output = [];
+  const d = await startDashboard({ env: j.env, stateDir: j.stateDir, output });
+  dashboards.push(d);
+  const c = client(d, output);
+  const r = await roundReady(j, c, at, { bareFix: true });
+  assert.ok(r.send.steps.some((s) => /^Reply on GitHub to each of .*’s 2 comments$/.test(s.words)), JSON.stringify(r.send.steps.map((s) => s.words)));
+  await c.get('/api/job/sample-job/page');
+  await c.write(`/api/job/sample-job/pr/${at}/pull`);
+  await c.waitFor(async () => ((await c.get(`/api/job/sample-job/pr/${at}`)).rows?.length ? true : null), 'the comment rows');
+  const line = await c.waitFor(async () => { const v = await c.get(`/api/job/sample-job/pr/${at}`); return v.line?.next?.id === 'push-fixes' ? v.line : null; }, 'Push the fixes');
+  // S3: the review-level reply's draft, as the PR view shows it, starts with the quote; a line comment's is bare.
+  const pv = await c.get(`/api/job/sample-job/pr/${at}`);
+  assert.equal(pv.rows.find((x) => x.id === 'r5001')?.reply?.draft, '> A few things before this goes in.\n\nThanks: both done.');
+  assert.equal(pv.rows.find((x) => x.id === 'c7002')?.reply?.draft, 'It is reassigned below, so it stays a let.');
+  // S1 and S2: two clicks at once, the edit giving c7001 its first reply (the replies step goes from 2 to 3).
+  const yes = { id: 'push-fixes', check: line.next.check, replies: { c7001: 'Renamed to feedbackId, thanks.' } };
+  const both = await Promise.all([c.write(`/api/job/sample-job/pr/${at}/go`, yes), c.write(`/api/job/sample-job/pr/${at}/go`, yes)]);
+  assert.deepEqual(both.map((x) => x.status).sort(), [200, 409], JSON.stringify(both.map((x) => x.body)));
+  assert.equal(both.find((x) => x.status === 200).body.sendBack, true);
+  await c.waitFor(async () => { const x = await c.get('/api/review/sample-job'); return ['waiting', 'stopped', 'sent'].includes(x.state) ? x : null; }, 'round 1 sent');
+  const writes = j.ghCalls().filter((x) => !isRead(x));
+  assert.deepEqual(writes.filter((w) => w[2] === 'POST' && /\/comments\/7001\/replies$/.test(w[3])).map((w) => w.slice(4)), [['-f', 'body=Renamed to feedbackId, thanks.']], 'once, with his words');
+  assert.equal(writes.filter((w) => w[2] === 'POST' && /\/comments\/7002\/replies$/.test(w[3])).length, 1);
+  assert.deepEqual(writes.filter((w) => w[2] === 'POST' && /\/issues\/\d+\/comments$/.test(w[3])).map((w) => w.at(-1)), ['body=> A few things before this goes in.\n\nThanks: both done.']);
+  assert.equal(j.audit().filter((e) => e.action === 'review-round-send' && e.what === 'go').length, 1, 'Send back started once');
+  await d.stop();
+});

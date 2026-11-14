@@ -30,7 +30,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { scrub, scrubDeep } from './orbit.js';
 import { runSteps, yes as yesFor } from './gh-write.js';
-import { QUOTE_MAX, checkKey, commentKey, isSummaryBot, lookedAt as lookedAtPr, noteFeedback, readFeedback as readFeedbackRecord } from './pr-feedback.js';
+import { QUOTE_MAX, checkKey, commentKey, isSummaryBot, lookedAt as lookedAtPr, noteFeedback, readFeedback as readFeedbackRecord, withQuote } from './pr-feedback.js';
 import { PRODUCT } from './brand.js';
 import { writeFileAtomic } from './atomic-write.js';
 
@@ -405,7 +405,9 @@ export function applyForeman(round, report, { at = new Date().toISOString() } = 
     if (r.state && FOREMAN_ITEM_STATES.has(r.state)) item.state = r.state;
     if (r.commit) item.commit = String(r.commit).slice(0, 40);
     if (r.reason != null) item.reason = cut(r.reason, 1000);
-    if (r.reply != null && !item.replyEdited && !noReply(item)) item.reply = cut(r.reply, REPLY_MAX);
+    // A reply to a review or conversation comment starts with that comment's first line quoted (it posts as a bare
+    // PR comment); a line comment's reply goes in its thread as it is.
+    if (r.reply != null && !item.replyEdited && !noReply(item)) item.reply = cut(item.type === 'review' || item.type === 'issue' ? withQuote(r.reply, item.quote) : r.reply, REPLY_MAX);
   }
   const after = JSON.stringify([round.items, round.foreman]);
   if (before !== after && round.foreman) round.foreman.at = at;
@@ -1443,7 +1445,8 @@ export function createReviewRounds(deps) {
         for (const i of list) {
           k++;
           if (i.posted?.ok) continue; // never posted twice
-          // The reply exactly as drafted and shown (no @name or quote put in front: Task 21 final wave).
+          // The reply exactly as drafted and shown (no @name put in front: Task 21 final wave); a review or
+          // conversation comment’s reply carries its quoted first line in the draft itself (applyForeman).
           const res = await deps.write.reply({ ...ctx, repo, number, comment: { type: i.type, id: i.githubId }, body: i.reply });
           i.posted = { ok: res.ok, at: iso(), id: res.posted ?? null, err: res.err ?? null };
           await saveRound(f.dir, round, { route: fx.route });
@@ -1532,10 +1535,41 @@ export function createReviewRounds(deps) {
     /** Send back: every step listed first, one go runs them in order. */
     async send(slug, { go, mergeFollowUp, expect } = {}) {
       if (go !== true) throw new ReviewRefused(400, 'Send back runs only on your go.');
+      // Taken before the first await: two goes that arrive together never both start Send back.
+      if (busy.has(slug)) throw new ReviewRefused(409, 'This round is being sent back already.');
+      busy.add(slug);
+      let started = false;
+      try {
+        await sendGo(slug, { mergeFollowUp, expect });
+        started = true;
+      } finally {
+        // runSend lets it go when Send back ends; a go refused before it started lets it go here.
+        if (!started) busy.delete(slug);
+      }
+      return refreshJob(slug);
+    },
+    /** Try again from here: the failed step and the ones after it; what is done doesn't run again. */
+    async retry(slug, { go } = {}) {
+      if (go !== true) throw new ReviewRefused(400, 'Try again runs only on your go.');
+      if (busy.has(slug)) throw new ReviewRefused(409, 'This round is being sent back already.');
+      busy.add(slug);
+      let started = false;
+      try {
+        await retryGo(slug);
+        started = true;
+      } finally {
+        if (!started) busy.delete(slug);
+      }
+      return refreshJob(slug);
+    },
+  });
+
+  /** Send back's checks and its start (actions.send holds `busy` around it). */
+  async function sendGo(slug, { mergeFollowUp, expect }) {
+    {
       const { f, fx, round } = await load(slug);
       needRound(round, ['fixing'], `Round ${round?.round} isn’t ready to send back.`);
       if (!foremanReady(round) || deps.driver?.activeRunFor?.({ featureDir: f.dir })) throw new ReviewRefused(409, 'The Foreman is still on it: Send back waits until the round is ready.');
-      if (busy.has(slug)) throw new ReviewRefused(409, 'This round is being sent back already.');
       if (!deps.write) throw new ReviewRefused(409, 'Nothing can be written to GitHub from here.');
       needLock(f);
       if (round.items.some((i) => i.late && !i.added)) throw new ReviewRefused(409, 'New comments joined the round: add them to the Foreman’s list or leave them out first.');
@@ -1552,8 +1586,10 @@ export function createReviewRounds(deps) {
       await saveRound(f.dir, round, { route: fx.route });
       await deps.audit?.({ action: 'review-round-send', what: 'go', featureDir: f.dir, slug, round: round.round, pr: round.pr, prLabel: round.prLabel, steps: plan.length, mergeFollowUp: merge });
       startSend(f, fx, round, yesFor({ what }));
-      return refreshJob(slug);
-    },
+    }
+  }
+
+  Object.assign(actions, {
     /** Not yet: nothing runs; the card goes until the round moves on. */
     async 'not-yet'(slug) {
       const { f, fx, round } = await load(slug);
@@ -1575,12 +1611,14 @@ export function createReviewRounds(deps) {
       await deps.audit?.({ action: 'review-round-send', what: 'stop-after', featureDir: f.dir, slug, round: round.round, pr: round.pr, prLabel: round.prLabel });
       return refreshJob(slug);
     },
-    /** Try again from here: the failed step and the ones after it; what is done doesn't run again. */
-    async retry(slug, { go } = {}) {
-      if (go !== true) throw new ReviewRefused(400, 'Try again runs only on your go.');
+    // retry: above, with send (it holds `busy` from the click).
+  });
+
+  /** Try again's checks and its start (actions.retry holds `busy` around it). */
+  async function retryGo(slug) {
+    {
       const { f, fx, round } = await load(slug);
       needRound(round, ['stopped']);
-      if (busy.has(slug)) throw new ReviewRefused(409, 'This round is being sent back already.');
       needLock(f);
       for (const s of round.send.steps) if (s.state !== 'done' && s.state !== 'skipped') Object.assign(s, { state: 'will', error: null, code: null, failWords: null });
       round.send.stopAfter = false;
@@ -1589,8 +1627,10 @@ export function createReviewRounds(deps) {
       await saveRound(f.dir, round, { route: fx.route });
       await deps.audit?.({ action: 'review-round-send', what: 'retry', featureDir: f.dir, slug, round: round.round, pr: round.pr, prLabel: round.prLabel });
       startSend(f, fx, round, yesFor({ what }));
-      return refreshJob(slug);
-    },
+    }
+  }
+
+  Object.assign(actions, {
     /** You said you'd merge the follow-up PR #1 yourself; merge it from here after all. */
     async 'merge-follow-up'(slug, { go } = {}) {
       if (go !== true) throw new ReviewRefused(400, 'Merging runs only on your go.');

@@ -2590,6 +2590,9 @@ export async function createRunner(config) {
     }
   });
   const prPosting = new Set(); // Post it on its way, by job, PR and comment: never twice at once
+  const prGoing = new Set(); // a PR line's yes on its way, by job: two quick clicks never run it twice
+  /** A round's planned steps without the replies step, whose count his own edits of the drafted replies can move. */
+  const stepsBesideReplies = (steps) => (steps ?? []).filter((w) => !/^Reply on GitHub to each of /.test(w));
   /** One PR's comment rows as the page's last build made them (the cache entry's `pr:<n>` body), or null. */
   async function prBody(slug, n) {
     return (await jobPages.item(slug, `pr:${n}`).catch(() => null))?.meta ?? null;
@@ -2731,6 +2734,20 @@ export async function createRunner(config) {
      * and sentence (check) does the sentence go to the Foreman, as a nudge's does. Refused in plain words otherwise.
      */
     async go(slug, n, body = {}) {
+      // One yes at a time per job, taken before anything is read: a second click while the first is on its way
+      // (a review round's Send back starts after several reads) is refused, never run twice.
+      if (prGoing.has(slug)) throw new HttpError(409, 'That is on its way already. Nothing was sent again.', { code: 'pr-sent' });
+      prGoing.add(slug);
+      try {
+        return await goOnce(slug, n, body);
+      } finally {
+        prGoing.delete(slug);
+      }
+    },
+  };
+  /** prs.go's work, once its per-job guard is taken. */
+  async function goOnce(slug, n, body) {
+    {
       const f = await jobOf(slug);
       const facts = await prFactsOf(f);
       const line = prLines({ ...facts, rows: prRows(f.prs, facts.lane) }).lines.find((l) => l.n === n) ?? null;
@@ -2745,8 +2762,20 @@ export async function createRunner(config) {
       // drafted replies (the PR view's textareas) go in first, so what is posted is what he left there.
       if (next.round) {
         try {
-          for (const [id, text] of Object.entries(body.replies ?? {})) await reviewRounds.act(slug, 'item', { id, reply: text });
-          await reviewRounds.act(slug, 'send', { go: true, expect: facts.round?.steps ?? [] });
+          const shown = facts.round?.steps ?? [];
+          let expect = shown;
+          const edits = Object.entries(body.replies ?? {});
+          for (const [id, text] of edits) await reviewRounds.act(slug, 'item', { id, reply: text });
+          if (edits.length) {
+            // His edits can give a reply to a comment that had none, which moves the replies step's count: the plan is
+            // read again, and it must be the one he saw in every other step (or nothing runs).
+            const after = (await reviewRounds.planFor(slug).catch(() => null))?.steps ?? null;
+            if (!after || JSON.stringify(stepsBesideReplies(after)) !== JSON.stringify(stepsBesideReplies(shown))) {
+              throw new HttpError(409, 'The round’s steps changed since you looked: read them again. Nothing was sent.', { code: 'pr-moved' });
+            }
+            expect = after;
+          }
+          await reviewRounds.act(slug, 'send', { go: true, expect });
         } catch (err) { if (err instanceof ReviewRefused) throw new HttpError(err.status, err.message, err.code ? { code: err.code } : {}); throw err; }
         await state.audit({ action: 'pr-line', featureDir: f.dir, slug: f.slug, pr: n, id: next.id, round: true });
         await markActed(f.dir);
@@ -2782,8 +2811,8 @@ export async function createRunner(config) {
       invalidate();
       jobPages.touch(slug);
       return { ok: true, sent: true, text: next.sends, run };
-    },
-  };
+    }
+  }
 
   /** What a watched folder's change does; `ignore` names the changes that do nothing. */
   function watchHandler(onFile = null, ignore = null) {
