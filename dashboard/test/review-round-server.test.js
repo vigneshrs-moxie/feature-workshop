@@ -368,7 +368,8 @@ for (const at of [2, 1]) {
     assert.equal(line.next.round, true);
     assert.equal(line.next.label, 'Push the fixes (2 commits)');
     assert.equal(line.next.go, 'Send back');
-    assert.deepEqual(line.next.says.filter((w) => !w.startsWith('  ')).slice(1), steps, 'every step, word for word');
+    assert.deepEqual(line.next.says.filter((w) => !w.startsWith('  ') && !/^[0-9a-f]{7} /.test(w)).slice(1), steps, 'every step, word for word');
+    assert.deepEqual(line.next.says.slice(2, 4).map((w) => w.slice(8)), ['Keep id as an alias', 'Rename id to feedbackId (review: c7001)'], 'and the commits the push carries');
     assert.deepEqual(line.next.says.filter((w) => w.startsWith('  Reply to')), ['  Reply to raj-moxie on App.tsx:1', '  Reply to raj-moxie on App.tsx:1', '  Reply to raj-moxie']);
     // His yes to another check: nothing runs.
     const stale = await c.write(`/api/job/sample-job/pr/${at}/go`, { id: 'push-fixes', check: '0123456789ab' });
@@ -381,6 +382,11 @@ for (const at of [2, 1]) {
     const refused = await c.write(`/api/job/sample-job/pr/${at}/reply`, { id: 'c7001', body: 'Posted on its own?' });
     assert.equal(refused.status, 409);
     assert.equal(refused.body.code, 'in-round');
+    // An edit kept on blur (…/draft) goes into the round itself.
+    const kept = await c.write(`/api/job/sample-job/pr/${at}/draft`, { id: 'c7002', body: 'Kept as a let: it is reassigned below.' });
+    assert.equal(kept.status, 200, JSON.stringify(kept.body));
+    const round = JSON.parse(await fs.readFile(path.join(j.job, 'review', 'rounds', 'round-1.json'), 'utf8'));
+    assert.equal(round.items.find((i) => i.id === 'c7002').reply, 'Kept as a let: it is reassigned below.');
     // His yes with his edit of one reply: the round's Send back, with that text, each reply once.
     const go = await c.write(`/api/job/sample-job/pr/${at}/go`, { id: 'push-fixes', check: line.next.check, replies: { c7001: 'Renamed to feedbackId, thanks.' } });
     assert.equal(go.status, 200, JSON.stringify(go.body));
@@ -389,6 +395,8 @@ for (const at of [2, 1]) {
     const writes = j.ghCalls().filter((x) => !isRead(x));
     const replyTo7001 = writes.filter((w) => w[2] === 'POST' && /\/comments\/7001\/replies$/.test(w[3]));
     assert.deepEqual(replyTo7001.map((w) => w.slice(4)), [['-f', 'body=Renamed to feedbackId, thanks.']]);
+    assert.deepEqual(writes.filter((w) => w[2] === 'POST' && /\/comments\/7002\/replies$/.test(w[3])).map((w) => w.slice(4)), [['-f', 'body=Kept as a let: it is reassigned below.']]);
+    assert.deepEqual(writes.filter((w) => w[2] === 'POST' && /\/issues\/\d+\/comments$/.test(w[3])).map((w) => w.at(-1)), ['body=Thanks: both done.'], 'the review’s reply exactly as drafted: no @name, no quote');
     assert.equal(writes.some((w) => w[0] === 'pr' && w[1] === 'create'), at === 2, 'a follow-up PR #1 only where the words said so');
     assert.equal(writes.some((w) => w[0] === 'pr' && w[1] === 'merge'), at === 2);
     assert.ok(j.audit().filter((e) => e.action === 'gh-write').every((e) => e.yes === `Send back round 1 on PR #${at}`));

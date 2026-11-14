@@ -21,6 +21,7 @@
 //   POST /api/job/:slug/pr/:n/ask { ids }        What is he asking?: the same comments, to be explained in words
 //   POST /api/job/:slug/pr/:n/leave { ids }      Leave: the rows show Left; nothing is sent
 //   POST /api/job/:slug/pr/:n/fix-check { name } Fix it: a failed check's failing lines go to the Foreman
+//   POST /api/job/:slug/pr/:n/draft { id, body } his edit of a review round's drafted reply, kept in the round
 //   POST /api/job/:slug/pr/:n/reply { id, body } Post it: his reply posted on GitHub (lib/gh-write.js, his yes) → { ok, posted }
 //                                     (lib/pr-comments.js; only rows the page was shown: else 409 and nothing goes)
 // The PR routes are this computer's only (the runner's `local.prs`): on the website they are a 404.
@@ -119,6 +120,15 @@ export default function jobPageRoutes({ read, sendJson, local, runner, LOCAL }) 
         const name = str(body?.name, 200);
         if (!name) throw new HttpError(400, 'Say which check (name).');
         return sendJson(res, 200, await prsOf(local).fixCheck(m[1], Number(m[2]), { name, confirmNoTerminal: body?.confirmNoTerminal === true }));
+      },
+    },
+    {
+      method: 'POST', path: new RegExp(`${PR.source}\\/draft$`),
+      run: async ({ res, m, body }) => {
+        const id = str(body?.id, 30);
+        const text = str(body?.body, 60000).trim();
+        if (!ROW_ID.test(id) || !text) throw new HttpError(400, 'Say which comment and the reply (id, body).');
+        return sendJson(res, 200, await prsOf(local).draft(m[1], Number(m[2]), { id, body: text }));
       },
     },
     {

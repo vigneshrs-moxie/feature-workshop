@@ -36,6 +36,7 @@ import path from 'node:path';
 import { writeFileAtomic } from './atomic-write.js';
 import { QUOTE_MAX, feedbackMessage, isSummaryBot } from './pr-feedback.js';
 import { scrub } from './orbit.js';
+import { githubProblem } from './flow.js';
 
 export const COMMENTS_FILE = 'pr-comments.json';
 export const ROW_STATES = Object.freeze(['new', 'fixing', 'fixed', 'answered', 'left']);
@@ -223,6 +224,7 @@ export function rowsOf({ comments = [], conversation = [], me = [], kept = {}, a
     // A round still going: its drafted reply goes with Push the fixes (the round's Send back), not by Post it.
     if (r?.open && row.state !== 'new') {
       row.round = true;
+      row.roundState = r.roundState ?? null;
       const draft = typeof r.reply === 'string' && r.reply.trim() ? r.reply : null;
       row.reply = draft ? { draft, posted: r.posted?.ok ? draft : null } : row.reply;
     }
@@ -405,7 +407,7 @@ export function createPrComments(deps) {
       }
       return { n, number, url: lanePr.url ?? null, head, comments, conversation, checks: failed, context, readAt: at, problem: null };
     } catch (err) {
-      return { ...(was ?? { n, number, url: lanePr.url ?? null, head: null, comments: [], conversation: [], checks: [], context: new Map(), readAt: null }), problem: `GitHub couldn’t be read: ${String(err?.message ?? err).split('\n')[0]}` };
+      return { ...(was ?? { n, number, url: lanePr.url ?? null, head: null, comments: [], conversation: [], checks: [], context: new Map(), readAt: null }), problem: githubProblem(String(err?.message ?? err).split('\n')[0].replace(/^gh [\w ]+?: /, ''))?.words ?? 'GitHub didn’t answer.' };
     }
   }
 
@@ -452,7 +454,7 @@ export function createPrComments(deps) {
     for (const p of prs.values()) {
       const roundItems = new Map();
       const its = rounds.filter((x) => x.prNumber === p.number);
-      for (const round of its) for (const i of round.items ?? []) if (i.id && i.type !== 'check') roundItems.set(i.id, { ...i, open: !['done', 'sent'].includes(round.state) && i.included !== false && i.added !== false });
+      for (const round of its) for (const i of round.items ?? []) if (i.id && i.type !== 'check') roundItems.set(i.id, { ...i, open: !['done', 'sent'].includes(round.state) && i.included !== false && i.added !== false, roundState: round.state });
       const pk = isRecord(kept.prs[p.number]) ? kept.prs[p.number] : {};
       const rows = rowsOf({ comments: p.comments, conversation: p.conversation, me: meOf.get(f.slug) ?? [], kept: pk.rows ?? {}, answers, rounds: roundItems, context: p.context, number: p.number, posts: Array.isArray(pk.posts) ? pk.posts : [] });
       const checkMarks = isRecord(pk.checks) ? pk.checks : {};

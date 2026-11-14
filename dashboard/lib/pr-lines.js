@@ -44,6 +44,8 @@ const REMOTE = /^[A-Za-z0-9][\w.-]{0,99}$/;
 const BASE = /^(?!-)[\w./-]{1,200}$/;
 
 const ORG_BRANCH_FIRST = ' (make that org branch from main first, as the skill says)';
+/** PR #1's line on a job whose branch isn't there yet. */
+export const NO_BRANCH = 'No branch yet: the PRs start after the build';
 
 /**
  * The push the sentence names: exactly the commit he saw, onto the job's own branch on the fork, so a
@@ -93,7 +95,9 @@ const hash = (text) => createHash('sha1').update(text).digest('hex').slice(0, 12
 
 /** One action, whole: its label, yes, what it says, the sentence and the check. */
 function action(id, x, says, { sends = PR_SENTENCES[id](x), ...extra } = {}) {
-  return { id, ...LABELS[id](x), says, sends, check: hash(`${id}\n${sends}\n${says.join('\n')}`), ...extra };
+  // key: what was sent, for `Sent to the Foreman`: the action and the commit it names, not its words (the count of
+  // changed files not committed moves while the Foreman works, and must not bring the same button back).
+  return { id, ...LABELS[id](x), says, sends, check: hash(`${id}\n${sends}\n${says.join('\n')}`), key: `${id}@${x.headFull ?? ''}`, ...extra };
 }
 
 /**
@@ -151,7 +155,7 @@ export function prLines(facts = {}) {
 
   /** PR #1's candidate action (before GitHub's state, the fork and what was sent are weighed), or a why. */
   function first() {
-    if (!push) return { why: null };
+    if (!push) return { why: facts.noBranch ? NO_BRANCH : null };
     if (p1.state === 'not-started') {
       if (push.count > 0) {
         return { next: action('push-open', x, [
@@ -191,8 +195,12 @@ export function prLines(facts = {}) {
     const which = `${round.round ? `round ${round.round}` : 'the round'} on PR #${row.n}${row.number ? ` (#${row.number})` : ''}`;
     const steps = Array.isArray(round.steps) ? round.steps.map(String) : [];
     const replies = (Array.isArray(round.replies) ? round.replies : []).map((r) => `  Reply ${String(r.words ?? '')}`);
-    const at = steps.findIndex((w) => /^Reply on GitHub/.test(w));
-    const says = [`Sends back ${which}, ${plural(steps.length, 'step')}:`, ...(at < 0 ? steps : [...steps.slice(0, at + 1), ...replies, ...steps.slice(at + 1)])];
+    // The commits the push carries, under its step, as every other push line lists them.
+    const pushAt = steps.findIndex((w) => /^Push \d+ commits? to your fork$/.test(w));
+    const commits = pushAt >= 0 && push?.commits?.length ? [...commitLines(push.commits), ...moreLine(push)] : [];
+    const withCommits = pushAt < 0 ? steps : [...steps.slice(0, pushAt + 1), ...commits, ...steps.slice(pushAt + 1)];
+    const at = withCommits.findIndex((w) => /^Reply on GitHub/.test(w));
+    const says = [`Sends back ${which}, ${plural(steps.length, 'step')}:`, ...(at < 0 ? withCommits : [...withCommits.slice(0, at + 1), ...replies, ...withCommits.slice(at + 1)])];
     return { next: action('push-fixes', { ...x, count }, says, { sends: `${PRODUCT} sends back ${which}: ${steps.join('; ')}.`, go: 'Send back', round: true }), push: false };
   }
 
@@ -209,7 +217,7 @@ export function prLines(facts = {}) {
     if (github.problem) out.why = 'No button while GitHub isn’t answering';
     else if (!github.at) out.why = 'GitHub not read yet';
     else if (c.push && push.behind > 0) out.why = `Your fork has ${plural(push.behind, 'commit')} this branch doesn’t: a push would be refused. Ask the Foreman to bring ${push.behind === 1 ? 'it' : 'them'} in first.`;
-    else if (pending.includes(c.next.check)) out.why = 'Sent to the Foreman';
+    else if (pending.includes(c.next.key)) out.why = 'Sent to the Foreman';
     else out.next = c.next;
     return out;
   });

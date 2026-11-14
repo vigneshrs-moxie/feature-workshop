@@ -220,3 +220,8 @@ test('a pull request carries when it was opened', async () => {
   assert.ok(fields.includes('createdAt'), fields.join(','));
   assert.equal(facts.prs[0].createdAt, '2026-11-10T09:00:00Z');
 });
+
+test('Phase 4: gh’s own offline words get the friendly line', async () => {
+  const { githubProblem } = await import('../lib/flow.js');
+  assert.equal(githubProblem('error connecting to api.github.com').words, 'GitHub didn’t answer. The network looks down: it tries again by itself.');
+});

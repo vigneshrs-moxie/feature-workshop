@@ -607,7 +607,8 @@ test('Send back stops at the first failure and says which line; Try again from h
   assert.deepEqual(replies.map((w) => w[3].split('/').at(-2)), ['7001', '7002', '7002'], '7001 once; 7002 tried, then posted');
   assert.equal(s.gitCalls.filter((g) => g[1] === 'push').length, 1, 'pushed once');
   // The review comment's reply: a comment on the PR quoting it.
-  assert.equal(github.writes().find((w) => w[3] === `repos/${REPO}/issues/152/comments`).at(-1), 'body=@raj-moxie \n> A few things before this goes in.\n\nThanks.');
+  // Task 21 final wave: the reply exactly as drafted, with nothing put in front.
+  assert.equal(github.writes().find((w) => w[3] === `repos/${REPO}/issues/152/comments`).at(-1), 'body=Thanks.');
 });
 
 test('two saves of one round at once both land, and the later one wins', async () => {
@@ -744,4 +745,13 @@ test('the round card answered from the Desk on a job whose branch turned out to 
   await assert.rejects(c.answerCard({ card: { ...card, slug: 'sample-job' }, action: 'send' }), (e) => e.status === 409 && e.message === GUESS);
   assert.deepEqual(github.writes(), []);
   assert.equal(s.gitCalls.filter((g) => g[1] === 'push').length, 0);
+});
+
+test('Task 21 final wave: a drafted reply is kept whole up to what GitHub takes, not cut at 4000 characters', async () => {
+  const { applyForeman, REPLY_MAX } = await import('../lib/review-round.js');
+  const round = { round: 1, items: [{ id: 'c1', type: 'line', included: true, state: 'todo', reply: null, replyEdited: false }] };
+  const long = `${'a'.repeat(4995)} end.`;
+  assert.equal(applyForeman(round, { round: 1, state: 'ready', items: [{ id: 'c1', state: 'fixed', reply: long }] }), true);
+  assert.equal(round.items[0].reply, long);
+  assert.equal(REPLY_MAX, 60000);
 });

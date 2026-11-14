@@ -524,7 +524,7 @@ test('Task 10 fix round 1: each step sends its main output; a step not started (
     build: { kind: 'changes', id: 'changes' },
     test: { kind: 'checks', id: 'checks' },
     review: { kind: 'findings', id: 'findings' },
-    ship: { kind: 'not-yet', id: 'ship' },
+    ship: { kind: 'ship', id: 'ship' }, // Phase 4 B1: Ship is its PR lines before it starts too
   });
   const working = atReview();
   working.card.stage = 'implement';

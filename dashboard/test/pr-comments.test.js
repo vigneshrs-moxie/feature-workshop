@@ -276,7 +276,7 @@ test('the read: GitHub not answering keeps what was read and says so', async () 
   await comments.pass(VIEW);
   const pr = (await comments.factsOf({ slug: 'open-job', dir }, []))[1];
   assert.equal(pr.rows.length, 4, 'the rows last read stay');
-  assert.match(pr.problem, /^GitHub couldn’t be read: /);
+  assert.equal(pr.problem, 'GitHub didn’t answer. The network looks down: it tries again by itself.', 'the flow map’s plain words, not gh’s');
 });
 
 test('git reads: cat-file -p and merge-base --is-ancestor only in those forms (lib/review-round.js gitRead)', async () => {

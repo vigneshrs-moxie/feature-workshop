@@ -44,7 +44,7 @@ export function githubProblem(err) {
   if (!e) return null;
   if (/auth login|not logged in|authenticat|HTTP 401|bad credentials/i.test(e)) return { words: 'GitHub didn’t answer. gh isn’t signed in: run gh auth login', run: 'gh auth login' };
   if (/ENOENT|command not found|not installed|spawn gh/i.test(e)) return { words: 'GitHub didn’t answer. gh isn’t installed: install it from cli.github.com, then run gh auth login', run: 'gh auth login' };
-  if (/timed? ?out|ETIMEDOUT|ECONNRESET|ENOTFOUND|could not resolve|network|connection/i.test(e)) return { words: 'GitHub didn’t answer. The network looks down: it tries again by itself.', run: null };
+  if (/timed? ?out|ETIMEDOUT|ECONNRESET|ENOTFOUND|could not resolve|network|connection|error connecting/i.test(e)) return { words: 'GitHub didn’t answer. The network looks down: it tries again by itself.', run: null };
   if (/rate limit|HTTP 403/i.test(e)) return { words: 'GitHub didn’t answer: it asks us to slow down for a while. It tries again by itself.', run: null };
   return { words: `GitHub didn’t answer: ${e.slice(0, 200)}`, run: null };
 }

@@ -142,11 +142,12 @@ test('pr lines: PR #2 open → Request review, the nudge’s sentence; sent once
 test('pr lines: a sentence already sent and still on its way gives no second button', () => {
   const f = facts();
   const first = line(f, 1);
-  const again = line({ ...f, pending: [first.next.check] }, 1);
+  // Pending is keyed by the action and its commit (Phase 4 B2), not by the words.
+  const again = line({ ...f, pending: [first.next.key] }, 1);
   assert.equal(again.next, null);
   assert.equal(again.why, 'Sent to the Foreman');
   // The branch moved (a new commit): another sentence, so a button again.
-  const moved = line({ ...f, pending: [first.next.check], push: { ...f.push, head: 'ccccccc1'.padEnd(40, '0'), count: 3, commits: [C('ccccccc1', 'More'), ...TWO] } }, 1);
+  const moved = line({ ...f, pending: [first.next.key], push: { ...f.push, head: 'ccccccc1'.padEnd(40, '0'), count: 3, commits: [C('ccccccc1', 'More'), ...TWO] } }, 1);
   assert.equal(moved.next.label, 'Push and open PR #1');
   assert.notEqual(moved.next.check, first.next.check);
 });
@@ -385,7 +386,7 @@ test('pr lines (Task 21): a review round ready to send back → `Push the fixes 
   assert.equal(l.next.round, true);
   assert.equal(l.next.label, 'Push the fixes (2 commits)');
   assert.equal(l.next.go, 'Send back');
-  assert.deepEqual(l.next.says, ['Sends back round 2 on PR #1 (#247), 4 steps:', 'Push 2 commits to your fork', 'Reply on GitHub to each of raj’s 1 comment', '  Reply to raj on a.ts:4', 'Mark the 1 fixed comment resolved', 'Ask raj to review PR #1 again']);
+  assert.deepEqual(l.next.says, ['Sends back round 2 on PR #1 (#247), 4 steps:', 'Push 2 commits to your fork', 'bbbbbbb Show the damage list', 'aaaaaaa Add the damage table', 'Reply on GitHub to each of raj’s 1 comment', '  Reply to raj on a.ts:4', 'Mark the 1 fixed comment resolved', 'Ask raj to review PR #1 again']);
   assert.match(l.next.sends, /^Starbase sends back round 2 on PR #1 \(#247\): Push 2 commits to your fork; Reply on GitHub/);
   const other = line({ ...f, round: { ...f.round, steps: steps.slice(1) } }, 1);
   assert.notEqual(other.next.check, l.next.check, 'another plan, another check');
@@ -403,10 +404,34 @@ test('pr lines (Task 21 fix round 1, C1): a round on PR #2 of a two-step reposit
     const steps = sendPlan(round, { ahead: 2, fork: 'origin', branch: BRANCH, orgRemote: 'moxie', twoStep: true, mergeFollowUp: merge }).map((p) => p.words);
     const l = line(facts({ ...base, round: { ready: true, number: 248, round: 3, reviewer: 'raj', ahead: 2, steps, replies: [] } }), 2);
     assert.equal(l.next.id, 'push-fixes');
-    assert.deepEqual(l.next.says.slice(1), steps, 'every step, word for word');
+    assert.deepEqual(l.next.says.slice(1).filter((w) => !/^[0-9a-f]{7} /.test(w)), steps, 'every step, word for word');
+    assert.deepEqual(l.next.says.slice(2, 4), ['bbbbbbb Show the damage list', 'aaaaaaa Add the damage table'], 'the commits the push carries, under it');
     const follow = l.next.says.find((w) => /follow-up PR #1/.test(w));
     assert.ok(follow, 'the follow-up PR #1 is said');
     assert.equal(/and merge it once its checks pass$/.test(follow), merge, 'and its merge, when the setting says so');
     assert.ok(l.next.sends.includes(follow));
   }
+});
+
+// ---------- Phase 4 fixes ----------
+
+test('pr lines (Phase 4 B2): Sent holds on the action and its commit; the count of uncommitted files moving brings no second button', () => {
+  const f = facts({ jf: { dirty: 3 } });
+  const first = line(f, 1);
+  assert.match(first.next.says.join('\n'), /3 changed files not committed/);
+  const later = { ...f, lane: { ...f.lane, dirty: 4 }, pending: [first.next.key] };
+  const again = line(later, 1);
+  assert.equal(again.next, null, 'the same push, still on its way');
+  assert.equal(again.why, 'Sent to the Foreman');
+  assert.notEqual(line({ ...later, pending: [] }, 1).next.check, first.next.check, 'the words did move');
+  assert.equal(first.next.key, `push-open@${TWO[0].sha}`);
+});
+
+test('pr lines (Phase 4): a job with no branch yet says so on PR #1', async () => {
+  const { NO_BRANCH } = await import('../lib/pr-lines.js');
+  const l = line(facts({ push: null, noBranch: true }), 1);
+  assert.equal(l.next, null);
+  assert.equal(l.why, 'No branch yet: the PRs start after the build');
+  assert.equal(NO_BRANCH, l.why);
+  assert.equal(line(facts({ push: null }), 1).why, null, 'unknown: nothing said');
 });

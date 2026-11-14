@@ -573,7 +573,10 @@ export async function createRunner(config) {
   // For the background watchers (the flow map, notifications) that all wake on the same change: one
   // load shared between them instead of one each.
   let sharedLoad = null;
-  const featuresShared = () => (sharedLoad ??= features().finally(() => { sharedLoad = null; }));
+  // A read of GitHub a job's page asked for (prRead: the page opening, Pull now) wakes the same watchers; for a moment
+  // after it they take the job list already held (any age), so one page's read never reads every agent's log again.
+  let heldListUntil = 0;
+  const featuresShared = () => (Date.now() < heldListUntil && cached ? Promise.resolve(cached.list) : (sharedLoad ??= features().finally(() => { sharedLoad = null; })));
 
   // The spec and artifact versions each brief was raised at (lib/gate.js RaisedVersions), noted
   // whenever the jobs are read. The gate card compares them with the versions now (gate.stale).
@@ -2511,15 +2514,15 @@ export async function createRunner(config) {
   // two minutes old (the page's one GET …/pr/1?read=old as it opens), and on Pull now; never on the page's
   // request for its payload (speed rule 6), never waited on, and never on a timer of the page's. A button's yes sends its fixed sentence to the Foreman (prs.go below), which does
   // the git work under the hard lines and the PR steps' go-ahead as they are: nothing here pushes or writes to GitHub.
-  const prSent = new Map(); // slug -> Map(check -> { runId, endedAt }): PR sentences on their way to the Foreman
+  const prSent = new Map(); // slug -> Map(key -> { runId, endedAt }): PR sentences on their way to the Foreman (key: the action and its commit)
   const prAsked = new Set(); // jobs whose page asked for a read: rebuilt when it ends, so `read` moves
   const prPushCache = new Map(); // what a push carries, kept while the branch and the fork's copy stay put (lib/pr-lines.js unpushedOf)
-  /** The checks of the sentences still on their way: until the reply ends in error, or GitHub was read after it ended. */
+  /** The keys (lib/pr-lines.js: action and commit) of the sentences still on their way: until the reply ends in error, or GitHub was read after it ended. */
   function prPending(slug) {
     const m = prSent.get(slug);
     if (!m) return [];
     const readAt = Date.parse(flow.view().github?.checkedAt ?? '');
-    for (const [check, e] of m) if (e.endedAt && Number.isFinite(readAt) && readAt > Date.parse(e.endedAt)) m.delete(check);
+    for (const [key, e] of m) if (e.endedAt && Number.isFinite(readAt) && readAt > Date.parse(e.endedAt)) m.delete(key);
     if (!m.size) prSent.delete(slug);
     return [...m.keys()];
   }
@@ -2531,12 +2534,15 @@ export async function createRunner(config) {
     const fork = repo?.fork?.remote ?? null;
     const dir = fork ? ownCodeDir(f) : null;
     const push = dir ? await unpushedOf({ dir, branch: ownBranch(f), base: f.baseSha ?? f.baseBranch ?? null, fork, git: gitRead, cache: prPushCache }).catch(() => null) : null;
+    // No branch yet (the build hasn't made it): PR #1's line says so.
+    const branch = ownBranch(f);
+    const noBranch = Boolean(dir) && !push && (!branch || !(await gitRead(dir, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}^{commit}`])).ok);
     const saved = await state.sessionFor(f.dir);
     // The PR steps' go-ahead (lib/hard-lines.js goAheadCovers, as goAheadFor asks it): auto mode at a PR step.
     const covered = (await state.policyFor(f.dir)) === 'auto' && PR_STAGES.has(f.stage);
     const list = (k) => (Array.isArray(saved?.[k]) ? saved[k] : []);
     return {
-      lane, repo: repo ? { org: repo.org ?? null, fork: repo.fork ?? null } : null, github: view.github ?? null, push,
+      lane, repo: repo ? { org: repo.org ?? null, fork: repo.fork ?? null } : null, github: view.github ?? null, push, noBranch,
       job: { stage: f.stage ?? null, prs: f.prs ?? null, closed: closedOff(f) ? f.closed : null, title: f.title ?? null, key: slugTicketKey(f.slug) ?? null },
       sent: list('sentNudges'), dismissed: list('dismissedNudges'), inRound: roundStateOf(f.slug) !== null, pending: prPending(f.slug), covered,
       // Task 21: each PR's comment rows (thread: the job's conversation, for the Foreman's answers; null: as last built),
@@ -2548,6 +2554,7 @@ export async function createRunner(config) {
   /** Read GitHub now for this job's page (the flow map's network refresh; one at a time, never waited on). */
   function prRead(slug) {
     prAsked.add(slug);
+    heldListUntil = Date.now() + 30_000;
     flow.refresh({ network: true }).catch(() => {});
     jobPages.touch(slug); // its line says GitHub is being read
   }
@@ -2665,19 +2672,21 @@ export async function createRunner(config) {
      * quoting the comment. The row then says Posted.
      */
     async reply(slug, n, { id, body: text }) {
-      const f = await jobOf(slug);
-      const body = await prBody(slug, n);
-      const row = body?.rows?.find((r) => r.id === id) ?? null;
-      if (!row) throw new HttpError(409, 'That comment moved on since you looked: read the PR again. Nothing was posted.', { code: 'pr-moved' });
-      if (row.round) throw new HttpError(409, 'This reply goes with Push the fixes (the review round’s Send back). Nothing was posted.', { code: 'in-round' });
-      if (!ghWrites) throw new HttpError(409, `${PRODUCT} can’t write to GitHub here. Copy the reply and post it on GitHub.`, { code: 'no-writer' });
-      // Once per comment: a second click (or a page that hasn't caught up yet) never posts it again.
-      const key = `${slug}\0${body.number}\0${id}`;
-      const kept = (await readKept(f.dir)).prs[body.number]?.rows?.[id] ?? null;
-      const postedSince = Boolean(kept?.reply?.posted) && (Date.parse(kept.at ?? '') || 0) >= (Date.parse(row.markAt ?? '') || 0);
-      if (prPosting.has(key) || row.reply?.posted || postedSince) throw new HttpError(409, 'That reply is posted already. Nothing was posted again.', { code: 'already-posted' });
+      // Once per comment, taken before anything is read: a second click (or a page that hasn't caught up yet) never
+      // posts it again, however the two requests interleave.
+      const key = `${slug}\0${n}\0${id}`;
+      if (prPosting.has(key)) throw new HttpError(409, 'That reply is posted already. Nothing was posted again.', { code: 'already-posted' });
       prPosting.add(key);
       try {
+        const f = await jobOf(slug);
+        const body = await prBody(slug, n);
+        const row = body?.rows?.find((r) => r.id === id) ?? null;
+        if (!row) throw new HttpError(409, 'That comment moved on since you looked: read the PR again. Nothing was posted.', { code: 'pr-moved' });
+        if (row.round) throw new HttpError(409, 'This reply goes with Push the fixes (the review round’s Send back). Nothing was posted.', { code: 'in-round' });
+        if (!ghWrites) throw new HttpError(409, `${PRODUCT} can’t write to GitHub here. Copy the reply and post it on GitHub.`, { code: 'no-writer' });
+        const kept = (await readKept(f.dir)).prs[body.number]?.rows?.[id] ?? null;
+        const postedSince = Boolean(kept?.reply?.posted) && (Date.parse(kept.at ?? '') || 0) >= (Date.parse(row.markAt ?? '') || 0);
+        if (row.reply?.posted || postedSince) throw new HttpError(409, 'That reply is posted already. Nothing was posted again.', { code: 'already-posted' });
         const facts = await prFactsOf(f);
         const repo = facts.repo?.org?.slug ?? facts.repo?.fork?.slug ?? null;
         const githubId = Number(String(row.id).slice(1));
@@ -2695,16 +2704,25 @@ export async function createRunner(config) {
         if (!res.ok) throw new HttpError(502, `GitHub didn’t take the reply: ${res.err ?? 'it failed'}. Nothing was posted.`, { code: 'gh-failed' });
         const postId = Number.isInteger(res.posted) ? `${row.kind === 'line' ? 'c' : 'i'}${res.posted}` : null;
         await markPosted(f.dir, body.number, row.id, { state: row.state === 'new' || row.state === 'fixing' ? 'answered' : row.state, commit: row.commit, why: row.why, reply: { draft: text, posted: text } }, postId);
+        await markActed(f.dir);
+        jobPages.touch(slug);
+        return { ok: true, posted: text };
       } finally {
         prPosting.delete(key);
       }
-      await markActed(f.dir);
+    },
+    /** POST …/pr/:n/draft { id, body }: his edit of a review round's drafted reply, kept in the round (it goes with Push the fixes). */
+    async draft(slug, n, { id, body: text }) {
+      const body = await prBody(slug, n);
+      const row = body?.rows?.find((r) => r.id === id) ?? null;
+      if (!row?.round) throw new HttpError(409, 'Only a review round’s reply is kept here: copy or post the others.', { code: 'not-in-round' });
+      try { await reviewRounds.act(slug, 'item', { id, reply: text }); } catch (err) { if (err instanceof ReviewRefused) throw new HttpError(err.status, err.message); throw err; }
       jobPages.touch(slug);
-      return { ok: true, posted: text };
+      return { ok: true };
     },
     /** POST …/pr/:n/pull: read GitHub now (Pull now). */
     async pull(slug) {
-      await jobOf(slug);
+      await jobPages.page(slug, null); // the job is known from the page's cache: no load of every job (and every agent's log)
       prRead(slug);
       return { reading: true };
     },
@@ -2742,7 +2760,7 @@ export async function createRunner(config) {
       // (even one that ended while startSend still ran) gives the button back and the Desk its nudge.
       const entry = { runId: run.id, endedAt: null };
       if (!prSent.has(slug)) prSent.set(slug, new Map());
-      prSent.get(slug).set(next.check, entry);
+      prSent.get(slug).set(next.key, entry);
       const nudge = ACTION_NUDGE[next.id];
       const tracked = nudge ? { featureDir: f.dir, nudge, failed: false } : null;
       if (tracked) {
@@ -2753,7 +2771,7 @@ export async function createRunner(config) {
       }
       const ended = runEnded(run.id);
       if (ended === 'error' || tracked?.failed) {
-        prSent.get(slug)?.delete(next.check);
+        prSent.get(slug)?.delete(next.key);
         if (tracked) { tracked.failed = true; await unsendNudge(f.dir, nudge); }
       } else if (ended && !entry.endedAt) {
         entry.endedAt = new Date().toISOString();

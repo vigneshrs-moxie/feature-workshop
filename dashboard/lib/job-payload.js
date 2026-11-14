@@ -505,8 +505,9 @@ function buildSteps(ctx) {
     const parts = stepParts(s.id, ctx);
     const span = page.times?.[s.id] ?? null;
     const doc = parts.outputs.find((o) => o.kind === 'doc');
-    // What the reader shows when the step is opened: a step not started (or skipped) has nothing yet.
-    const main = state === 'todo' || state === 'skipped' ? { kind: 'not-yet', id: s.id }
+    // What the reader shows when the step is opened: a step not started (or skipped) has nothing yet. Ship is its PR
+    // lines from the first commit on, before Ship starts too (Task 21, Phase 4 B1: the PR's next action is offered on any step).
+    const main = s.id === 'ship' ? { kind: 'ship', id: 'ship' } : state === 'todo' || state === 'skipped' ? { kind: 'not-yet', id: s.id }
       : parts.main ?? (doc ? { kind: 'doc', id: doc.id } : { kind: 'not-yet', id: s.id });
     return {
       row: {

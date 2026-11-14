@@ -57,6 +57,8 @@ export function gitRead(dir, args, { timeout = 15000 } = {}) {
 }
 
 export const ROUNDS_DIR = path.join('review', 'rounds');
+/** The longest reply kept and posted (lib/gh-write.js posts at most this much): never cut shorter without a word. */
+export const REPLY_MAX = 60000;
 /** Comments from one person this close together join the same round. */
 export const JOIN_MS = 10 * 60 * 1000;
 /** Remind the person who merges, from a day after the approval. */
@@ -403,7 +405,7 @@ export function applyForeman(round, report, { at = new Date().toISOString() } = 
     if (r.state && FOREMAN_ITEM_STATES.has(r.state)) item.state = r.state;
     if (r.commit) item.commit = String(r.commit).slice(0, 40);
     if (r.reason != null) item.reason = cut(r.reason, 1000);
-    if (r.reply != null && !item.replyEdited && !noReply(item)) item.reply = cut(r.reply, QUOTE_MAX);
+    if (r.reply != null && !item.replyEdited && !noReply(item)) item.reply = cut(r.reply, REPLY_MAX);
   }
   const after = JSON.stringify([round.items, round.foreman]);
   if (before !== after && round.foreman) round.foreman.at = at;
@@ -1311,7 +1313,7 @@ export function createReviewRounds(deps) {
         if (!KINDS.includes(body.kind) || body.kind === 'check' || item.type === 'check') throw new ReviewRefused(400, 'A kind is change, question or nit.');
         item.kind = body.kind; item.kindBy = 'you';
       }
-      if (typeof body.reply === 'string') { if (noReply(item)) throw new ReviewRefused(400, 'A check gets no reply.'); item.reply = cut(body.reply, QUOTE_MAX) || null; item.replyEdited = true; }
+      if (typeof body.reply === 'string') { if (noReply(item)) throw new ReviewRefused(400, 'A check gets no reply.'); item.reply = cut(body.reply, REPLY_MAX) || null; item.replyEdited = true; }
       if (typeof body.replyDropped === 'boolean') item.replyDropped = body.replyDropped;
       if (typeof body.reason === 'string') item.reason = cut(body.reason, 1000) || null;
       await saveRound(f.dir, round, { route: fx.route });
@@ -1441,7 +1443,8 @@ export function createReviewRounds(deps) {
         for (const i of list) {
           k++;
           if (i.posted?.ok) continue; // never posted twice
-          const res = await deps.write.reply({ ...ctx, repo, number, comment: { type: i.type, id: i.githubId, author: i.author, quote: i.quote }, body: i.reply });
+          // The reply exactly as drafted and shown (no @name or quote put in front: Task 21 final wave).
+          const res = await deps.write.reply({ ...ctx, repo, number, comment: { type: i.type, id: i.githubId }, body: i.reply });
           i.posted = { ok: res.ok, at: iso(), id: res.posted ?? null, err: res.err ?? null };
           await saveRound(f.dir, round, { route: fx.route });
           if (!res.ok) { deps.refresh?.(); return { ...res, failWords: `reply ${k} of ${list.length} didn’t post` }; }

@@ -569,3 +569,22 @@ test('Task 23 fix round (speed rule 2): the commit list of a job the page watche
     assert.deepEqual(spy2.calls.spawn, []);
   } finally { viewer.close(); }
 });
+
+test('Task 21 final wave: a page’s GitHub read (Pull now, the opening read) loads no job list behind its answer: the watchers take the one held', { timeout: 60_000 }, async () => {
+  assert.equal((await get(`/api/job/${SLUG}/page`)).status, 200);
+  assert.equal((await get(`/api/job/${SLUG}`)).status, 200); // the job list is held now
+  await new Promise((r) => setTimeout(r, 1700)); // older than the list's usual 1.5 s
+  const was = hooks.featuresLoaded;
+  let loads = 0;
+  hooks.featuresLoaded = () => { loads++; };
+  try {
+    const before = (await get('/api/flow')).body.fetchedAt;
+    const res = await fetch(`${base}/api/job/${SLUG}/pr/1/pull`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Starbase-Token': 't' }, body: '{}' });
+    assert.equal(res.status, 200);
+    let read = false;
+    for (let i = 0; i < 200 && !read; i++) { const f = (await get('/api/flow')).body; read = f.fetchedAt !== before && !f.refreshing; if (!read) await new Promise((r) => setTimeout(r, 50)); }
+    assert.ok(read, 'the read ended');
+    await new Promise((r) => setTimeout(r, 300)); // the watchers after the read
+    assert.equal(loads, 0, 'no load of every job (and every agent’s log) for one page’s read');
+  } finally { hooks.featuresLoaded = was; }
+});
