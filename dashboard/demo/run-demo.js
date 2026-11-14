@@ -1349,12 +1349,13 @@ async function autoJobs() {
 // review files, 2 findings, 9 commits over 14 files, a recording, three PRs not started, the gate
 // open at Review), written the way the runner finds a job: its folder (status.json, options.json,
 // the briefs and documents at their times), its branch in the demo app, and its conversation as
-// audit lines. Its times end ten minutes before the demo starts.
-async function longJob() {
+// audit lines. Its times end ten minutes before the demo starts. size 200: the same job four times as
+// long (orbit-906-crew-schedule-export-long, its own branch), for the speed checks (web/e2e/jobSpeed.mjs).
+async function longJob(size = 52) {
   const { longJobSource, LONG_JOB_START } = await import('../test/fixtures/long-job.js');
   const { describeDoc } = await import('../lib/docs.js');
-  const span = Date.parse(longJobSource({ size: 52 }).endAt) - Date.parse(LONG_JOB_START);
-  const src = longJobSource({ size: 52, start: iso(span + 10 * MIN) });
+  const span = Date.parse(longJobSource({ size }).endAt) - Date.parse(LONG_JOB_START);
+  const src = longJobSource({ size, start: iso(span + 10 * MIN) });
   const { slug, title, gate } = src;
   const dir = path.join(FEATURES, slug);
   const description = 'Let office managers download the crew schedule for a week as a CSV file.';
@@ -1401,7 +1402,7 @@ async function longJob() {
   let run = 0;
   const lines = src.audit.map((e) => ({
     ...e, featureDir: dir, slug, sessionId: null,
-    ...(e.action === 'run-ended' ? { runId: `demo-long-run-${++run}`, costUsd: 1.25 } : {}),
+    ...(e.action === 'run-ended' ? { runId: `demo-long${size === 52 ? '' : size}-run-${++run}`, costUsd: 1.25 } : {}),
     ...(e.action === 'send' ? { model: FOREMAN_MODEL } : {}),
   }));
   await fs.mkdir(path.join(ROOT, 'state'), { recursive: true });
@@ -1492,6 +1493,7 @@ export async function buildDemo({ root: asked = path.join(os.tmpdir(), 'starbase
   await playSecrets();
   await autoJobs();
   await longJob();
+  await longJob(200);
   await demoUsage();
   await (await import('./demo-stacks.js')).demoStacks({ features: FEATURES, root: ROOT }); // packet V: three demo stacks
   return { root: ROOT, features: FEATURES, projects: path.dirname(PROJECTS), acme: ACME, state: path.join(ROOT, 'state'), logFiles };

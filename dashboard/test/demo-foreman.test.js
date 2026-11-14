@@ -682,3 +682,34 @@ test('the demo has the made-up long job (test/fixtures/long-job.js) as the runne
     await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }).catch(() => {});
   }
 });
+
+test('the demo also has the 200-item long job (test/fixtures/long-job.js) for the speed checks (web/e2e/jobSpeed.mjs)', { timeout: 180_000 }, async () => {
+  const { LONG_JOB, LONG_JOB_COUNTS, longJobPage } = await import('./fixtures/long-job.js');
+  const c = LONG_JOB_COUNTS[200];
+  const slug = LONG_JOB[200].slug;
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'workshop-demo-long200-'));
+  const hadDir = Object.hasOwn(process.env, 'STARBASE_DIR');
+  const oldDir = process.env.STARBASE_DIR;
+  process.env.STARBASE_DIR = path.join(root, 'state');
+  let w = null;
+  try {
+    w = await wholeDemo(root);
+    const job = await w.runner.read.job(slug);
+    assert.equal(job.title, LONG_JOB[200].title);
+    assert.deepEqual([job.stage, job.stageState, job.gate?.briefNumber], ['review', 'waiting_for_you', c.briefs]);
+    // The whole conversation as the new page reads it (the old job read sends its newest part only).
+    const fixture = longJobPage({ size: 200 }).payload;
+    const page = await w.runner.read.jobPage(slug);
+    assert.equal(page.thread.length, c.items);
+    assert.deepEqual(page.thread.map((it) => it.kind), fixture.thread.map((it) => it.kind));
+    const { commits } = await w.runner.read.commits(slug);
+    assert.equal(commits.length, c.commits);
+    // The 52-item job is still there beside it.
+    assert.equal((await w.runner.read.job(LONG_JOB[52].slug)).thread.length, LONG_JOB_COUNTS[52].items);
+  } finally {
+    w?.runner.stop();
+    if (hadDir) process.env.STARBASE_DIR = oldDir;
+    else delete process.env.STARBASE_DIR;
+    await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }).catch(() => {});
+  }
+});
