@@ -8,7 +8,13 @@
 // #/gallery, which has every control in every state: hover, pressed, focus, disabled, busy, empty,
 // error), and opens every kind of overlay (a Peek, a dialog, a Select menu, a menu, a tooltip, the
 // command search, the keys sheet, a toast, the level sheet, Merge's confirm, a permission card and
-// the next-step bar, which are on the Job pages). It records, per visit:
+// the next-step bar, which are on the Job pages), and the new job page (jobpage/JobPage2.tsx; the
+// switch sb.jobPage is set to new for its visits only, named "New page, …"): the made-up long job
+// (orbit-905-crew-schedule-export) as it opens, with the ask's More open, at its Review step, and
+// with every reader view (the conversation with a line of his and the small events opened, the
+// ticket and goal, the decisions, the details, the plan, Changes, Checks, Findings); nightly-export
+// working, tag-colours' permission card, the reader's Older menu and the page's ⋯ menu. Under 760 px
+// those are the phone's own screens. It records, per visit:
 //   console    every console error and uncaught page error;
 //   text       words under 4.5:1 (3:1 for large text), measured against the pixels really behind
 //              them: a screenshot with the words made transparent (the "bare" view), so text on a
@@ -86,6 +92,9 @@ const WIDTHS = (process.env.WIDTHS || '1512,390').split(',').map(Number).filter(
 const PLAYS = (process.env.PLAY || 'full,off').split(',').map((s) => s.trim()).filter(Boolean);
 const ONLY = process.env.SCREENS ? process.env.SCREENS.split(',').map((s) => s.trim().toLowerCase()) : null;
 const GUIDES = ['jobs', 'desk', 'stage', 'job', 'inbox', 'telemetry', 'stack', 'stacks', 'review', 'review-round'];
+/** The new job page's switch, and the demo's made-up long job (its fixture job). */
+const NEW = { 'sb.jobPage': 'new' };
+const LONG_JOB = 'orbit-905-crew-schedule-export';
 
 // ---------- What to visit ----------
 const click = (sel) => async (page) => { await page.locator(sel).filter({ visible: true }).first().click(); };
@@ -122,6 +131,20 @@ const SCREEN_VISITS = [
   { name: 'Classic page', url: '/', wait: 1500 },
   // The gallery has no Play layer: it is swept with Play full only.
   { name: 'Gallery', hash: '#/gallery', scrolls: 12, focus: true, play: 'full' },
+  // The new job page.
+  { name: 'New page, needs you', hash: `#/job/${LONG_JOB}`, store: NEW, focus: true },
+  { name: 'New page, More open', hash: `#/job/${LONG_JOB}`, store: NEW, act: click('.jp2-card-more') },
+  { name: 'New page, Review step', hash: `#/job/${LONG_JOB}/stage/review`, store: NEW },
+  { name: 'New page, conversation', hash: `#/job/${LONG_JOB}/conversation`, store: NEW, act: async (p) => { for (const sel of ['.jp2-cv-item.is-you > .jp2-cv-line[aria-expanded="false"]', '.jp2-cv-sm-h[aria-expanded="false"]']) await p.locator(sel).filter({ visible: true }).first().click().catch(() => {}); } },
+  { name: 'New page, ticket and goal', hash: `#/job/${LONG_JOB}/overview`, store: NEW },
+  { name: 'New page, decisions', hash: `#/job/${LONG_JOB}/read/decisions/decisions`, store: NEW },
+  { name: 'New page, details', hash: `#/job/${LONG_JOB}/read/details/details`, store: NEW },
+  { name: 'New page, plan', hash: `#/job/${LONG_JOB}/read/doc/implementation-plan.md`, store: NEW },
+  { name: 'New page, Changes', hash: `#/job/${LONG_JOB}/read/changes/changes`, store: NEW, wait: 1200 },
+  { name: 'New page, Checks', hash: `#/job/${LONG_JOB}/read/checks/checks`, store: NEW },
+  { name: 'New page, Findings', hash: `#/job/${LONG_JOB}/read/findings/findings`, store: NEW },
+  { name: 'New page, working', hash: '#/job/nightly-export', store: NEW, focus: true },
+  { name: 'New page, permission card', hash: '#/job/tag-colours', store: NEW },
 ];
 
 /** Overlays: opened by a click or a key; only the overlay's own words are measured. */
@@ -145,6 +168,8 @@ const OVERLAY_VISITS = [
   { name: 'Confirm (Merge)', hash: '#/stack/invoice-export/part/5', before: async (p) => { await failWrites(p); await p.route(/\/api\/stacks\/invoice-export(\/part\/5)?(\?.*)?$/, async (route) => { if (route.request().method() !== 'GET') return route.fallback(); try { const res = await route.fetch(); const json = await res.json(); const v = json.stack ?? json; Object.assign(v, { nextToMerge: 'csv-export', autoIntegrate: false, busy: null }); await route.fulfill({ response: res, json }); } catch { /* the page moved on */ } }); }, act: async (p) => { await p.getByRole('button', { name: /^Merge part 5/ }).filter({ visible: true }).first().click(); }, scope: '.sheet', expectErrors: /status of 500/, after: async (p) => { await p.unroute(/\/api\//); await p.unroute(/\/api\/stacks\/invoice-export(\/part\/5)?(\?.*)?$/); } },
   { name: 'Hover, job card', hash: '#/', act: async (p) => { await p.locator('.job-card, .job-row').filter({ visible: true }).first().hover(); }, scope: '.job-card:hover, .job-row:hover', noTips: true },
   { name: 'Hover, settings row', hash: '#/settings/look', act: async (p) => { await p.locator('.settings-rail-row').filter({ visible: true }).nth(1).hover(); }, scope: '.settings-rail-row:hover', noTips: true },
+  { name: 'New page, Older menu', hash: `#/job/${LONG_JOB}`, store: NEW, act: click('.jp2-rv-older > button'), scope: '.jp2-rv-older [role="menu"], .jp2-rv-older .menu-list' },
+  { name: 'New page, job menu', hash: `#/job/${LONG_JOB}`, store: NEW, act: click('.jp2-menu > button'), scope: '.jp2-menu [role="menu"], .jp2-menu .menu-list' },
 ];
 
 const VISITS = [...SCREEN_VISITS, ...OVERLAY_VISITS.map((v) => ({ ...v, overlay: true }))]
@@ -219,7 +244,7 @@ async function runTheme(browser, theme, width, play) {
     const screen = v.name;
     const t0 = Date.now();
     try {
-      const store = { 'gc.jobs.layout': null, ...(v.store ?? {}) };
+      const store = { 'gc.jobs.layout': null, 'sb.jobPage': null, ...(v.store ?? {}) };
       if (!page.url().startsWith(ORIGIN)) await page.goto(BASE, { waitUntil: 'domcontentloaded' }).catch(() => {});
       await page.evaluate((s) => { for (const [k, val] of Object.entries(s)) { if (val === null) localStorage.removeItem(k); else localStorage.setItem(k, val); } }, store);
       if (v.before) await v.before(page);

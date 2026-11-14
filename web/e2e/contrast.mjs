@@ -30,6 +30,16 @@
 // OUT (a path to also write every failure as JSON), PLAYWRIGHT (the path to playwright's
 // index.mjs, when it isn't installed here).
 // It prints a table of failures and a summary line per screen and theme, and exits 1 if any fail.
+//
+// NEW_PAGE=1 checks the new job page instead (jobpage/JobPage2.tsx: the switch sb.jobPage is set to
+// new): the made-up long job (orbit-905-crew-schedule-export) as it opens, with the ask's More open,
+// at its Review step, and with the conversation (a line of his and the small events opened), the
+// ticket and goal, the decisions, the details, the plan, Changes, Checks and Findings in the reader;
+// nightly-export (working) and tag-colours (a permission card). It also lists, per theme, the worst
+// ratio of the words asked about by name: the ask's More and Look, Changes' +N and −N, the
+// conversation's tinted lines (his, a brief's, Auto's, the New mark) and the steps' result words.
+// WIDTHS (comma list, default 1512) sets the window's widths (945 px tall; 844 under 600 px wide):
+// at 760 px and under the new page is the phone's screens.
 import { readFileSync, writeFileSync } from 'node:fs';
 
 const { chromium } = await import(process.env.PLAYWRIGHT || 'playwright');
@@ -50,8 +60,41 @@ const ALL_SCREENS = [
   // Stacks is packet V's to redo (its step dots are V's); add it with SCREENS=Stacks.
 ];
 const EXTRA_SCREENS = [['Stacks', '#/stacks']];
+const NEW_PAGE = process.env.NEW_PAGE === '1';
+const LONG_JOB = 'orbit-905-crew-schedule-export';
+// [name, address, what to click first (optional, every match in turn)].
+const NEW_SCREENS = [
+  ['New job', `#/job/${LONG_JOB}`],
+  ['New job, More', `#/job/${LONG_JOB}`, '.jp2-card-more'],
+  ['New job, Review', `#/job/${LONG_JOB}/stage/review`],
+  ['Conversation', `#/job/${LONG_JOB}/conversation`, '.jp2-cv-item.is-you > .jp2-cv-line[aria-expanded="false"], .jp2-cv-sm-h[aria-expanded="false"]'],
+  ['Ticket', `#/job/${LONG_JOB}/overview`],
+  ['Decisions', `#/job/${LONG_JOB}/read/decisions/decisions`],
+  ['Details', `#/job/${LONG_JOB}/read/details/details`],
+  ['Plan', `#/job/${LONG_JOB}/read/doc/implementation-plan.md`],
+  ['Changes', `#/job/${LONG_JOB}/read/changes/changes`],
+  ['Checks', `#/job/${LONG_JOB}/read/checks/checks`],
+  ['Findings', `#/job/${LONG_JOB}/read/findings/findings`],
+  ['Working', '#/job/nightly-export'],
+  ['Permission', '#/job/tag-colours'],
+];
+/** The words asked about by name on the new page: [label, the closest ancestor (or itself) to match]. */
+const NAMED = [
+  ['the ask\'s More', '.jp2-card-more'],
+  ['the ask\'s Look', '.jp2-ym-look'],
+  ['Changes +N', '.jp2-ch-pl'],
+  ['Changes −N', '.jp2-ch-mi'],
+  ['conversation: his line', '.jp2-cv-item.is-you'],
+  ['conversation: a brief', '.jp2-cv-item.is-brief'],
+  ['conversation: Auto', '.jp2-cv-item.is-auto'],
+  ['conversation: a problem', '.jp2-cv-item.is-problem'],
+  ['conversation: New', '.jp2-cv-new'],
+  ['step result word', '.jp2-st-word'],
+];
+const WIDTHS = (process.env.WIDTHS || '1512').split(',').map((w) => Number(w.trim())).filter((w) => w > 0);
 const only = process.env.SCREENS ? process.env.SCREENS.split(',').map((s) => s.trim().toLowerCase()) : null;
-const SCREENS = only ? [...ALL_SCREENS, ...EXTRA_SCREENS].filter(([n]) => only.includes(n.toLowerCase())) : ALL_SCREENS;
+const BASE_SCREENS = NEW_PAGE ? NEW_SCREENS : ALL_SCREENS;
+const SCREENS = only ? [...BASE_SCREENS, ...EXTRA_SCREENS].filter(([n]) => only.includes(n.toLowerCase())) : BASE_SCREENS;
 const GUIDES = ['jobs', 'desk', 'stage', 'job', 'inbox', 'telemetry', 'stack', 'stacks', 'review', 'review-round'];
 
 // What counts as a mark, and how its colour is read (see measure() below).
@@ -65,6 +108,7 @@ const MARKS = {
 
 // Runs in the page: returns every failure (and the counts) for the current screen.
 function measure(MARKS) {
+  const named = [];
   // ---- Colour parsing: to sRGB 0..1 with alpha ----
   const clamp = (x) => Math.min(1, Math.max(0, x));
   const enc = (x) => (x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1 / 2.4) - 0.055);
@@ -195,7 +239,13 @@ function measure(MARKS) {
     const large = size >= 24 || (size >= 18.66 && weight >= 700);
     const chain = chainOf(el);
     texts += 1;
-    push('text', el, nodes.map((n) => n.textContent.trim()).join(' ').replace(/\s+/g, ' ').slice(0, 40), render(chain, parse(cs.color)), render(chain, null), large ? 3 : 4.5, chain);
+    const sample = nodes.map((n) => n.textContent.trim()).join(' ').replace(/\s+/g, ' ').slice(0, 40);
+    push('text', el, sample, render(chain, parse(cs.color)), render(chain, null), large ? 3 : 4.5, chain);
+    for (const [label, sel] of MARKS.named ?? []) {
+      if (!el.closest(sel)) continue;
+      const fg = render(chain, parse(cs.color)), bg = render(chain, null);
+      named.push({ label, sample, ratio: Math.round(ratio(fg, bg) * 100) / 100, need: large ? 3 : 4.5, fg: hex(fg), bg: hex(bg), path: pathOf(el) });
+    }
   }
 
   // ---- Marks ----
@@ -291,22 +341,26 @@ function measure(MARKS) {
       if (r < 3) fails.push({ kind: 'mark:focus-ring', path: `--focus-ring on ${bgTok ?? 'page'}`, sample: '', ratio: Math.round(r * 100) / 100, need: 3, fg: hex(over(ring, behind)), bg: hex(behind), img: false });
     }
   }
-  return { fails, texts, marks, theme: document.documentElement.getAttribute('data-theme') };
+  return { fails, texts, marks, named, theme: document.documentElement.getAttribute('data-theme') };
 }
 
 const browser = await chromium.launch();
 const all = [];
 const edges = [];
 const summary = [];
-for (const theme of THEMES) {
-  const ctx = await browser.newContext({ viewport: { width: 1512, height: 945 } });
-  await ctx.addInitScript(([t, g]) => {
+const namedSeen = [];
+for (const width of WIDTHS) for (const theme of THEMES) {
+  const ctx = await browser.newContext({ viewport: { width, height: width < 600 ? 844 : 945 } });
+  await ctx.addInitScript(([t, g, fresh]) => {
     try {
       localStorage.setItem('workshop.theme', t);
       localStorage.setItem('workshop.themeFollow', 'off');
       localStorage.setItem('gc.guide.seen', JSON.stringify(g));
+      if (fresh) localStorage.setItem('sb.jobPage', 'new');
     } catch { /* storage off */ }
-  }, [theme, GUIDES]);
+  }, [theme, GUIDES, NEW_PAGE]);
+  // Read only on the new page: what is clicked there only opens or folds.
+  if (NEW_PAGE) await ctx.route('**/*', (route) => (route.request().method() === 'GET' ? route.fallback() : route.abort()));
   // CRT Terminal and Gold need their unlocks: only this page is told they are there.
   await ctx.route(/\/api\/play(\?.*)?$/, async (route) => {
     if (route.request().method() !== 'GET') return route.fallback();
@@ -316,10 +370,21 @@ for (const theme of THEMES) {
     return route.fulfill({ response: res, json });
   });
   const page = await ctx.newPage();
-  for (const [name, hash] of SCREENS) {
+  const where = WIDTHS.length > 1 ? ` ${width}` : '';
+  for (const [screen, hash, act] of SCREENS) {
+    const name = `${screen}${where}`;
+    // The new page is opened from Jobs each time: while it stays mounted, an address change under 1100 px
+    // leaves the reader closed, so a screen reached by its address alone would be checked unseen.
+    if (NEW_PAGE) await page.goto(BASE + '#/', { waitUntil: 'networkidle' });
     await page.goto(BASE + hash, { waitUntil: 'networkidle' });
     await page.waitForTimeout(1200);
-    const res = await page.evaluate(measure, MARKS);
+    if (act) {
+      const n = await page.locator(act).count();
+      for (let i = 0; i < Math.min(n, 6); i++) await page.locator(act).first().click({ timeout: 2000 }).catch(() => {});
+      await page.waitForTimeout(300);
+    }
+    const res = await page.evaluate(measure, NEW_PAGE ? { ...MARKS, named: NAMED } : MARKS);
+    for (const n of res.named ?? []) namedSeen.push({ screen: name, theme, ...n });
     // One row per distinct problem: the same path, colours and ratio on many rows count once.
     const groups = new Map();
     const fails = res.fails.filter((f) => f.kind !== 'mark:field-edge');
@@ -347,6 +412,20 @@ if (all.length) {
 }
 console.log(summary.join('\n'));
 if (edges.length) console.log(`Field edges (borders, not failing): ${edges.map((e) => `${e.theme} ${e.fg} on ${e.bg} ${e.ratio}:1`).join('; ')}`);
+if (NEW_PAGE) {
+  // The words asked about by name: the worst ratio of each, per theme (and how many were measured).
+  console.log('\nAsked about by name (worst ratio per theme; "none" means none on the screens):');
+  for (const [label] of NAMED) {
+    const cells = THEMES.map((t) => {
+      const mine = namedSeen.filter((n) => n.label === label && n.theme === t);
+      if (!mine.length) return `${t} none`;
+      const worst = mine.reduce((a, b) => (b.ratio - b.need < a.ratio - a.need ? b : a));
+      return `${t} ${worst.ratio}${worst.ratio + 1e-6 < worst.need ? ` FAIL(<${worst.need} "${worst.sample}" on ${worst.screen}, ${worst.fg} on ${worst.bg})` : ''} (${mine.length})`;
+    });
+    console.log(`  ${label}: ${cells.join('; ')}`);
+  }
+  if (process.env.OUT) writeFileSync(process.env.OUT.replace(/(\.json)?$/, '.named.json'), JSON.stringify(namedSeen, null, 2));
+}
 if (process.env.OUT) writeFileSync(process.env.OUT, JSON.stringify(all, null, 2));
 console.log(all.length ? `Contrast: ${all.length} distinct failures.` : 'Contrast: everything passes.');
 process.exit(all.length ? 1 : 0);

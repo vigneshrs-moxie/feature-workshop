@@ -24,8 +24,12 @@
 // NEW_PAGE=1 checks the new job page (jobpage/JobPage2.tsx: the switch sb.jobPage is set to new
 // before every screen) instead of the old one, and adds its reader addresses for the first job (the
 // conversation, the ticket and goal, the decisions, the details) and, when the app has the made-up
-// long job (orbit-905-crew-schedule-export), its conversation, a document and its Review step. At
-// 760 px and under those are the phone's own screens: the job screen, a step's screen, the reader.
+// long job (orbit-905-crew-schedule-export), its conversation, a document, its Review and Ship steps,
+// and every other reader view: the ticket and goal, the decisions, the details, Changes, Checks,
+// Findings, a reply and a brief (their ids read from the job's page payload). At 760 px and under
+// those are the phone's own screens: the job screen, a step's screen, the reader. Its folds are
+// opened too: the ask's More, the conversation's "n small events" and lines, Findings' and Checks'
+// folds (never Start the app).
 // The check only reads: it refuses every request that is not a GET.
 //
 // Run it against a running app (the demo is best):
@@ -64,6 +68,8 @@ const isOpen = (el) => (el.tagName === 'SUMMARY' ? el.parentElement.open
   : el.hasAttribute('aria-expanded') ? el.getAttribute('aria-expanded') === 'true'
     : /Stop watching/.test(el.textContent || ''));
 const MAX_FOLDS = 60;
+// The new job page's folds (each has aria-expanded).
+const NEW_FOLDS = 'main .jp2-card-more, main .jp2-cv-sm-h, main .jp2-cv-line, main .jp2-fd-fold, main .jp2-fd-line, main .jp2-fd-rest';
 
 /** The jobs to visit, from the app's own snapshot. */
 async function jobSlugs() {
@@ -80,6 +86,15 @@ const STEPS = ['spec', 'investigate', 'plan', 'build', 'test', 'review', 'ship']
 const RECORDING_JOB = 'nightly-export';
 /** The demo's made-up long job (the new job page's fixture job). */
 const LONG_JOB = 'orbit-905-crew-schedule-export';
+/** The long job's first reply and first brief, for the reader's message view. */
+async function longJobLines() {
+  if (!NEW_PAGE || !slugs.includes(LONG_JOB)) return [];
+  const res = await fetch(new URL(`/api/job/${LONG_JOB}/page`, BASE)).catch(() => null);
+  const page = res && res.ok ? await res.json() : null;
+  const first = (kind) => (page?.thread ?? []).find((l) => l.kind === kind)?.id;
+  return [['a reply', 'message', first('reply')], ['a brief', 'brief', first('brief')]].filter(([, , id]) => id);
+}
+const lines = await longJobLines();
 const SCREENS = [
   ['Jobs', '#/'],
   ['Table', '#/table'],
@@ -108,6 +123,14 @@ const SCREENS = [
     [`Job ${LONG_JOB}: conversation`, `#/job/${LONG_JOB}/conversation`],
     [`Job ${LONG_JOB}: the plan`, `#/job/${LONG_JOB}/read/doc/implementation-plan.md`],
     [`Job ${LONG_JOB} at review`, `#/job/${LONG_JOB}/stage/review`],
+    [`Job ${LONG_JOB} at ship`, `#/job/${LONG_JOB}/stage/ship`],
+    [`Job ${LONG_JOB}: ticket and goal`, `#/job/${LONG_JOB}/overview`],
+    [`Job ${LONG_JOB}: decisions`, `#/job/${LONG_JOB}/read/decisions/decisions`],
+    [`Job ${LONG_JOB}: details`, `#/job/${LONG_JOB}/read/details/details`],
+    [`Job ${LONG_JOB}: Changes`, `#/job/${LONG_JOB}/read/changes/changes`],
+    [`Job ${LONG_JOB}: Checks`, `#/job/${LONG_JOB}/read/checks/checks`],
+    [`Job ${LONG_JOB}: Findings`, `#/job/${LONG_JOB}/read/findings/findings`],
+    ...lines.map(([what, kind, id]) => [`Job ${LONG_JOB}: ${what}`, `#/job/${LONG_JOB}/read/${kind}/${encodeURIComponent(id)}`]),
   ] : []),
 ];
 
@@ -199,7 +222,7 @@ function check() {
   // 3. Cut off sideways. Code, diffs and tables scroll sideways on purpose (their scroll bar is
   // the way to read them): code blocks and diffs, and a table's own scroll wrapper, are left out.
   // Every other scroll area counts, main and the page itself too, even when a table is inside.
-  const SIDEWAYS_OK = 'pre, code, table, .code-lines, .part-diff, .doc-source, .perm-preview, .perm-preview-page';
+  const SIDEWAYS_OK = 'pre, code, table, .code-lines, .part-diff, .jp2-ch-diff, .doc-source, .perm-preview, .perm-preview-page';
   const TABLE_WRAPS = '.table-wrap, .home-table-scroll, .tele-table-wrap, .route-table-wrap';
   for (const sc of [document.querySelector('main'), ...areas].filter(Boolean)) {
     if (sc.matches(SIDEWAYS_OK) || sc.matches(TABLE_WRAPS) || !shown(sc)) continue;
@@ -309,6 +332,9 @@ async function runAt(WIDTH) {
 
   let themeChecked = false;
   for (const [screen, hash] of SCREENS) {
+    // The new page is opened from Jobs each time: while it stays mounted, an address change under 1100 px
+    // leaves the reader closed, so a screen reached by its address alone would be checked unseen.
+    if (NEW_PAGE) await page.goto(BASE + '#/', { waitUntil: 'networkidle' }).catch(() => {});
     const opened = await page.goto(BASE + hash, { waitUntil: 'networkidle' }).then((r) => (r && !r.ok() ? `the address answered ${r.status()}` : null), (err) => `the address could not be opened (${String(err.message).split('\n')[0]})`);
     if (opened) { checks += 1; problems.push(`${screen}: ${opened}`); continue; }
     await page.waitForTimeout(700);
@@ -328,7 +354,7 @@ async function runAt(WIDTH) {
     await record(screen, 'as opened');
     // Every fold, one after another; a fold opened can show more folds, so count them each time.
     for (let i = 0; i < MAX_FOLDS; i++) {
-      const folds = page.locator(FOLDS);
+      const folds = page.locator(NEW_PAGE ? `${FOLDS}, ${NEW_FOLDS}` : FOLDS);
       if (i >= (await folds.count())) break;
       const fold = folds.nth(i);
       if (!(await fold.isVisible().catch(() => false))) continue;
