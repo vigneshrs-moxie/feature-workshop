@@ -2608,6 +2608,14 @@ export async function createRunner(config) {
   driver.on('run', (run) => { if (RUN_ENDED.has(run.status)) logTurn(turnMeter.forget(run.id, run)); });
   // A reply ended: the message waiting for the Foreman goes now (lib/queued.js, the job page's R8).
   driver.on('run', (run) => { if (RUN_ENDED.has(run.status) && run.featureDir && waitingMessages.get(run.featureDir)) flushWaiting(run.featureDir).catch(() => {}); });
+  // A message held back when it was time to send (the job's lock, a terminal) is tried again when the job changes (the lock let go).
+  on('thread', (slug) => {
+    const dir = waitingMessages.dirs().find((d) => waitingMessages.get(d)?.slug === slug && waitingMessages.get(d)?.why);
+    if (!dir) return;
+    let held = null;
+    try { held = heldElsewhere(dir); } catch { held = null; }
+    if (!held) flushWaiting(dir).catch(() => {}); // still held: nothing to try (a terminal at work changes the folder often)
+  });
   // The usage limit lifted: messages it held go.
   limits.on('change', () => { if (!limits.isLimited() && waitingMessages.dirs().length) flushAllWaiting().catch(() => {}); });
 

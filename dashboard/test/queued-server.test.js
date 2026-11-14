@@ -253,7 +253,11 @@ test('W7: the terminal’s lock still refuses when it is time to send: it stays,
     const p = await w.until(async () => { const x = await w.page(); return x.waiting?.why ? x : null; }, 'waiting to say why');
     assert.match(p.waiting.why, /open in a terminal/);
     assert.equal(sentTexts(w, 'After the terminal.').length, 0, 'nothing sent');
+    // The terminal lets go: the job's folder changes, and it goes then.
     await fs.rm(path.join(w.dir, 'lock.json'), { force: true });
+    w.hooks.featuresWatch('rename', path.join(SLUG, 'lock.json')); // what the jobs folder's watch hears (start() opens it)
+    await w.until(() => sentTexts(w, 'After the terminal.').length === 1, 'it to go once the lock is free');
+    await w.until(async () => (await w.page()).waiting === null, 'the payload to drop it');
   } finally { await w.stop(); }
 });
 
