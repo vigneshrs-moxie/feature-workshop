@@ -619,6 +619,8 @@ describe('Task 23 fix round: only the part that changed draws (speed rule 5)', (
       const last = p.thread[p.thread.length - 1];
       p.thread = [...p.thread, { ...last, id: 'reply:speed-check', kind: 'reply', mine: false, at: '2026-11-04T23:00:00.000Z', headline: 'One more reply', hash: 'h1' }];
       p.rows = { ...p.rows, conversation: { ...p.rows.conversation, count: p.rows.conversation.count + 1 } };
+      // A reply arrives as its run ends: the payload names that finished run.
+      p.run = { id: 'run-that-just-ended', status: 'done', startedAt: '2026-11-04T22:58:00.000Z', lastAction: null };
       p.v += 1;
       return p;
     };

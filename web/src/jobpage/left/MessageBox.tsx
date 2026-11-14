@@ -149,7 +149,9 @@ export const MessageBox = memo(function MessageBox({ boxRef, onOpen }: MessageBo
   const gateWaits = useJob((s) => s.payload?.move?.kind === 'gate');
   const asked = useJob((s) => s.payload?.move?.kind === 'gate' || s.payload?.move?.kind === 'question');
   const locked = useJob((s) => Boolean(s.payload?.lock));
-  const payloadRunId = useJob((s) => s.payload?.run?.id ?? null);
+  // A run that has ended is told apart from none by its status alone: its id is read only while it runs, so a
+  // reply arriving as its run ends does not draw the box again (speed rule 5).
+  const payloadRunId = useJob((s) => (ACTIVE.has(s.payload?.run?.status ?? '') ? s.payload?.run?.id ?? null : null));
   const payloadRunStatus = useJob((s) => s.payload?.run?.status ?? null);
   const liveRunId = useSyncExternalStore(app.subscribe, () => app.getState().runs[slug]?.id ?? null);
   const liveRunStatus = useSyncExternalStore(app.subscribe, () => app.getState().runs[slug]?.status ?? null);
