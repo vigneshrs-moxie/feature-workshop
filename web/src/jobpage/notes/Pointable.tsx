@@ -334,7 +334,9 @@ const ACTIVE = new Set(['starting', 'running', 'waiting_permission', 'stopping']
  */
 export function useExplainAnswers() {
   const store = useJobStore();
-  const thread = useJob((s) => s.payload?.thread);
+  // The conversation is read only while an Explain waits for its answer: otherwise a new line draws nothing here (speed rule 5).
+  const waiting = useJob((s) => s.explains.some((e) => e.answer === null && e.line === null));
+  const thread = useJob((s) => (waiting ? s.payload?.thread : undefined));
   const busy = useJob((s) => ACTIVE.has(s.payload?.run?.status ?? ''));
   const explains = useJob((s) => s.explains);
   useEffect(() => {

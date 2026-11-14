@@ -47,7 +47,12 @@ vi.mock('./left/YourMove', async (importOriginal) => {
 
 // Task 23 fix round (speed rule 5): what draws. Frame calls usePhoneMoves once per draw; every Button
 // draw is noted by its label (the reader's previous and next, the message box's Send).
-const draws = vi.hoisted(() => ({ frame: 0, buttons: [] as string[] }));
+const draws = vi.hoisted(() => ({ frame: 0, notes: 0, buttons: [] as string[] }));
+// The message box's note chips call useExplainAnswers once per draw.
+vi.mock('./notes/Pointable', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./notes/Pointable')>();
+  return { ...real, useExplainAnswers: () => { draws.notes++; return real.useExplainAnswers(); } };
+});
 vi.mock('./phone/PhoneJob2', async (importOriginal) => {
   const real = await importOriginal<typeof import('./phone/PhoneJob2')>();
   return { ...real, usePhoneMoves: (...args: Parameters<typeof real.usePhoneMoves>) => { draws.frame++; return real.usePhoneMoves(...args); } };
@@ -624,7 +629,7 @@ describe('Task 23 fix round: only the part that changed draws (speed rule 5)', (
       p.v += 1;
       return p;
     };
-    draws.frame = 0; draws.buttons = []; drawn.header = 0; drawn.move = 0;
+    draws.frame = 0; draws.notes = 0; draws.buttons = []; drawn.header = 0; drawn.move = 0;
     await act(async () => { await made.at(-1)!.store.loadPage(); });
     await settle();
     expect(screen.getByRole('button', { name: 'Conversation · 53' })).toBeInTheDocument();
@@ -633,6 +638,7 @@ describe('Task 23 fix round: only the part that changed draws (speed rule 5)', (
     expect(draws.frame).toBe(0);
     expect([drawn.header, drawn.move]).toEqual([0, 0]);
     expect(draws.buttons.filter((b) => /^(Previous|Next)\b/.test(b) || b === 'Send')).toEqual([]);
+    expect(draws.notes).toBe(0);
   });
 });
 
