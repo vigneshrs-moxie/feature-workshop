@@ -165,6 +165,8 @@ export interface PrRow {
   reply: null | { draft: string; posted: string | null };
   /** In a review round still going: its reply goes with Push the fixes (the round's Send back), never by Post it. */
   round?: true;
+  /** The round's state (asked, fixing, sending, stopped, after-pr1, …) when `round`. */
+  roundState?: string | null;
   /** Answered on GitHub by hand (his reply after the reviewer's last word). */
   onGithub?: true;
   /** When the mark it shows was made. */

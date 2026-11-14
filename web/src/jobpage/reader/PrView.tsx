@@ -26,7 +26,7 @@ import { WorkshopContext } from '../../state/store';
 import { PrLines, clockWords } from '../left/PrLines';
 import type { PrCheck, PrRow, ReaderTarget } from '../types';
 import { useJob, useJobStore } from '../useJob';
-import { findCommit, loadCommits, notOnBranch, setPick, useBranch } from './branch';
+import { findCommit, knownNotOnBranch, loadCommits, recheck, setPick, useBranch } from './branch';
 import { loadPr, setDraft, setPending, setTick, usePrHeld } from './prComments';
 import { ReaderBody } from './ReaderBody';
 import './prview.css';
@@ -58,6 +58,7 @@ export const PrView = memo(function PrView({ n, onOpen }: PrViewProps) {
   const slug = useJob((s) => s.slug);
   const hosted = useJob((s) => Boolean(s.payload?.hosted)) || Boolean(api?.hosted?.());
   const v = useJob((s) => s.payload?.prs.find((l) => l.n === n)?.comments?.v ?? null);
+  const payloadDown = useJob((s) => Boolean(s.payload?.github?.problem));
   const held = usePrHeld(store);
   useEffect(() => { if (!hosted && api) void loadPr(store, api, slug, n, v); }, [store, api, slug, n, v, hosted]);
   const view = held.views.get(n) ?? null;
@@ -97,13 +98,14 @@ export const PrView = memo(function PrView({ n, onOpen }: PrViewProps) {
 
   if (hosted) return <ReaderBody view="pr" place={`pr:${n}`}><PrLines only={n} /><p className="jp2-notyet">The comments show on your laptop.</p></ReaderBody>;
   const error = held.errors.get(n) ?? null;
+  const githubDown = Boolean(view?.github?.problem) || Boolean(payloadDown);
   const fixing = (id: string) => sending?.what === 'fix' && sending.ids.includes(id);
-  const githubDown = Boolean(view?.github?.problem);
   return (
     <ReaderBody view="pr" place={`pr:${n}`} className="jp2-prv">
       <PrLines only={n} skip="push-fixes" />
       {view?.verdict && <p className="jp2-prv-verdict">{view.verdict.by ?? 'The reviewer'} {VERDICT[view.verdict.state] ?? view.verdict.state}{view.verdict.at ? ` · ${clockWords(view.verdict.at)}` : ''}</p>}
-      {view?.problem && <p className="jp2-prv-problem" role="alert">{view.problem}</p>}
+      {/* The comments couldn't be read while the PR line's read worked (else the line above says it already). */}
+      {view?.problem && !githubDown && <p className="jp2-prv-problem" role="alert">{view.problem}</p>}
       {error && !view && <p className="jp2-prv-problem" role="alert">Couldn’t read the comments: {error}</p>}
       {(view?.checks ?? []).map((c) => <CheckRow key={c.name} slug={slug} n={n} check={c} />)}
       {view && !rows.length && <p className="jp2-notyet">No comments to answer on PR #{n}.</p>}
@@ -165,7 +167,10 @@ function FixedIn({ slug, sha, file, onOpen }: { slug: string; sha: string; file:
   const api = useContext(WorkshopContext)?.api ?? null;
   const branch = useBranch(store);
   useEffect(() => { if (api && !branch.commits) void loadCommits(store, api, slug); }, [store, api, slug, branch.commits]);
-  const gone = notOnBranch(branch, sha);
+  // A fix the list doesn't have yet (the Foreman committed after it was read): the list is read again for it.
+  const found = branch.commits ? findCommit(branch.commits, sha) : undefined;
+  useEffect(() => { if (api && branch.commits && !found) void recheck(store, api, slug, sha); }, [store, api, slug, sha, branch.commits, found]);
+  const gone = knownNotOnBranch(branch, sha);
   const words = `Fixed in ${sha.slice(0, 7)}`;
   if (gone) return <span className="jp2-prc-st" data-st="fixed" title={`Commit ${sha} is not on this branch.`}>{words} · not on this branch</span>;
   return (
@@ -174,6 +179,17 @@ function FixedIn({ slug, sha, file, onOpen }: { slug: string; sha: string; file:
       {words}
     </button>
   );
+}
+
+/** Where a review round's reply stands, by the round's state (lib/review-round.js ROUND_STATES). */
+export function roundWords(state: string | null | undefined): string {
+  switch (state) {
+    case 'sending': return 'It is being posted now, with the round’s Send back.';
+    case 'stopped': return 'Send back stopped before posting it: it goes when the round is sent back again.';
+    case 'after-pr1': return 'It is posted once the follow-up PR #1 is merged.';
+    case 'asked': case 'left': return 'It goes with the review round, once the Foreman has fixed it and the round is sent back.';
+    default: return 'It is posted with Push the fixes (the review round’s Send back).';
+  }
 }
 
 /** The drafted reply, editable in place: Copy with Open on GitHub (the default), or Post it. */
@@ -206,9 +222,11 @@ function Reply({ slug, n, row, githubDown }: { slug: string; n: number; row: PrR
   };
   return (
     <div className="jp2-prc-reply">
-      <p className="jp2-prc-rl">{posted ? 'Your reply, posted' : row.round ? 'The Foreman’s draft of a reply: edit it here. It is posted with Push the fixes (the review round’s Send back).' : 'The Foreman’s draft of a reply: edit it here'}</p>
+      <p className="jp2-prc-rl">{posted ? 'Your reply, posted' : row.round ? `The Foreman’s draft of a reply: edit it here. ${roundWords(row.roundState)}` : 'The Foreman’s draft of a reply: edit it here'}</p>
       <textarea className="jp2-prc-ta" value={text} rows={Math.min(8, Math.max(2, Math.ceil(text.length / 80)))} readOnly={Boolean(posted)}
-        onChange={(e) => { setCopied(false); setDraft(store, row.id, e.currentTarget.value); }} aria-label={`Reply to ${row.author}`} />
+        onChange={(e) => { setCopied(false); setDraft(store, row.id, e.currentTarget.value); }}
+        onBlur={() => { if (row.round && api && text.trim() && text !== row.reply?.draft) void api.post(`/api/job/${encodeURIComponent(slug)}/pr/${n}/draft`, { id: row.id, body: text }).catch(() => {}); }}
+        aria-label={`Reply to ${row.author}`} />
       <div className="jp2-prc-ra">
         {posted ? <span className="jp2-prc-posted" role="status">Posted</span> : row.round ? null : (
           <>

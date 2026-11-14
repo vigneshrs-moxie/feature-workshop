@@ -18,7 +18,7 @@ import { Button } from '../../components/Button';
 import '../answers.css';
 import { addNote, oneLine } from '../notes/chips';
 import { useWorkshop } from '../../state/store';
-import { loadCommits, notOnBranch, setPick, useBranch } from '../reader/branch';
+import { findCommit, knownNotOnBranch, loadCommits, recheck, setPick, useBranch } from '../reader/branch';
 import type { JobPagePayload, NoteAnswer, ReaderTarget } from '../types';
 import { useJob, useJobStore } from '../useJob';
 
@@ -56,7 +56,10 @@ function AskedLines({ asked, onOpen }: AskedProps) {
   // links to a commit that is not there as if it proved the change.
   useEffect(() => { if (named && !hosted) void loadCommits(store, api, slug); }, [store, api, slug, hosted, named]);
   const branch = useBranch(store);
-  const gone = (a: NoteAnswer) => Boolean(a.commit && notOnBranch(branch, a.commit.sha));
+  // A commit the list read before doesn't have (it came after): the list is read again for it (Phase 4 B3).
+  const unseen = branch.commits ? asked.notes.map((a) => a.commit?.sha).filter((sha): sha is string => Boolean(sha) && !findCommit(branch.commits!, sha!)).join(' ') : '';
+  useEffect(() => { if (!hosted && unseen) for (const sha of unseen.split(' ')) void recheck(store, api, slug, sha); }, [store, api, slug, hosted, unseen]);
+  const gone = (a: NoteAnswer) => Boolean(a.commit && knownNotOnBranch(branch, a.commit.sha));
   // The notes put back with Ask again (by number), for this answer only.
   const [again, setAgain] = useState<ReadonlySet<number>>(() => new Set());
 

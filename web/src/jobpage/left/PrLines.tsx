@@ -152,7 +152,7 @@ function Line({ slug, line, hosted, skip, bare = false }: { slug: string; line: 
       </div>
       {next && open && (
         <div ref={panelRef} tabIndex={-1} className="jp2-prl-x" role="group" aria-label={`What ${next.label} will do`}>
-          <ul className="jp2-prl-says">{next.says.map((s, i) => <li key={i} className={/^[0-9a-f]{7} /.test(s) ? 'is-commit' : undefined}>{s}</li>)}</ul>
+          <ul className="jp2-prl-says">{next.says.map((s, i) => <li key={i} className={/^[0-9a-f]{7} /.test(s) ? 'is-commit' : s.startsWith('  ') ? 'is-sub' : undefined}>{s.trim()}</li>)}</ul>
           <div className="jp2-prl-acts">
             <Button kind="primary" size="sm" onClick={() => { void go(); }} title={next.round ? `${BRAND.name} does these steps itself, on GitHub, now.` : `Sends the Foreman: “${next.sends}”`}>{next.go}</Button>
             <Button kind="quiet" size="sm" onClick={() => setOpen(false)}>Cancel</Button>
@@ -183,7 +183,7 @@ function ReadLine({ slug, github }: { slug: string; github: GithubRead }) {
   return (
     <div className="jp2-prl-read">
       {github.problem
-        ? <span className="jp2-prl-gh is-problem" role="alert">{github.problem}{github.at ? ` Last read ${clockWords(github.at)}.` : ''}</span>
+        ? <span className="jp2-prl-gh is-problem" role="alert">{github.problem}{github.at ? `${/[.!?]$/.test(github.problem) ? '' : '.'} Last read ${clockWords(github.at)}.` : ''}</span>
         : <span className="jp2-prl-gh">{reading ? 'Reading GitHub…' : github.at ? readWords(github.at) : 'not read from GitHub yet'}</span>}
       {!reading && api && <Button kind="quiet" size="sm" onClick={() => { void pull(); }} title="Reads the pull requests from GitHub now.">Pull now</Button>}
     </div>

@@ -32,6 +32,8 @@ export interface Branch {
   gone: ReadonlySet<string>;
   /** What Changes had picked (commit, file), so coming back shows it again. */
   pick: { sha: string | null; path: string | null };
+  /** Shas named elsewhere (Fixed in, What you asked) that the list was read again for, after they were named. */
+  checked: ReadonlySet<string>;
 }
 
 interface Held {
@@ -40,6 +42,7 @@ interface Held {
   subscribe: (l: () => void) => () => void;
   listAsk: Promise<void> | null;
   diffAsks: Map<string, Promise<CommitDiff | null>>;
+  rechecks: Set<string>;
   listeners: Set<() => void>;
 }
 
@@ -52,9 +55,9 @@ function heldOf(store: JobStore): Held {
   if (!h) {
     const listeners = new Set<() => void>();
     h = {
-      state: { commits: null, cut: false, gone: new Set(), note: null, error: null, diffs: new Map(), diffErrors: new Map(), pick: { sha: null, path: null } },
+      state: { commits: null, cut: false, gone: new Set(), note: null, error: null, diffs: new Map(), diffErrors: new Map(), pick: { sha: null, path: null }, checked: new Set() },
       subscribe: (l) => { listeners.add(l); return () => { listeners.delete(l); }; },
-      listAsk: null, diffAsks: new Map(), listeners,
+      listAsk: null, diffAsks: new Map(), rechecks: new Set(), listeners,
     };
     held.set(store, h);
   }
@@ -146,6 +149,29 @@ export function loadDiff(store: JobStore, api: ApiClient, slug: string, sha: str
 export function notOnBranch(b: Branch, sha: string | null): boolean {
   if (!sha || !b.commits || !b.commits.length || findCommit(b.commits, sha)) return false;
   return !b.cut || b.gone.has(sha);
+}
+
+/**
+ * A commit named after the list was read (the Foreman's `Fixed in abc1234`, a What you asked line) and not in it: the
+ * list is read again once for it (Phase 4 B3: the branch moved while the page stayed open). Until then it is unknown.
+ */
+export async function recheck(store: JobStore, api: ApiClient, slug: string, sha: string): Promise<void> {
+  const h = heldOf(store);
+  if (!sha || h.state.checked.has(sha) || h.rechecks.has(sha)) return;
+  if (h.state.commits && findCommit(h.state.commits, sha)) return;
+  h.rechecks.add(sha);
+  try {
+    if (h.listAsk) await h.listAsk; // one already out was asked before this sha was named
+    await loadCommits(store, api, slug);
+  } finally {
+    h.rechecks.delete(sha);
+    set(h, { checked: new Set(h.state.checked).add(sha) });
+  }
+}
+
+/** notOnBranch, and only once the list was read again after the sha was named (or the server said so). */
+export function knownNotOnBranch(b: Branch, sha: string | null): boolean {
+  return Boolean(sha) && notOnBranch(b, sha) && (b.checked.has(sha!) || b.gone.has(sha!));
 }
 
 /** A commit by its sha, or by a short sha as the Foreman writes it (What you asked, Task 18); undefined when it is not on the branch. */

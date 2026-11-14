@@ -280,7 +280,7 @@ describe('the PR view, fix round 1', () => {
     expect(c.querySelector('.jp2-prc-rl')!.textContent).toMatch(/posted with Push the fixes/);
     fireEvent.change(c.querySelector('textarea')!, { target: { value: 'Renamed, thanks.' } });
     fireEvent.click(within(bar()).getByRole('button', { name: 'Push the fixes (2 commits)' }));
-    expect(within(bar()).getByText('  Reply to raj on web/src/App.tsx:40', { normalizer: (x) => x })).toBeInTheDocument();
+    expect(within(bar()).getByText('Reply to raj on web/src/App.tsx:40')).toHaveClass('is-sub'); // kept under its step (Phase 4 M4)
     fireEvent.click(within(bar()).getByRole('button', { name: 'Send back' }));
     await settle();
     expect(calls(o.post, '/pr/1/go').map((x) => x[1])).toEqual([{ id: 'push-fixes', check: 'abcdefabcdef', replies: { c901: 'Renamed, thanks.' } }]);
@@ -292,5 +292,63 @@ describe('the PR view, fix round 1', () => {
     await openPr(o);
     expect(within(cardOf('raj')).queryByRole('button', { name: 'Post it' })).toBeNull();
     expect(within(cardOf('raj')).getByRole('button', { name: 'Copy' })).toBeInTheDocument();
+  });
+});
+
+describe('Phase 4 fixes', () => {
+  it('B3: a fix committed after the branch list was read is looked for again, and opens its diff, while the page stays open', async () => {
+    const NEW_SHA = 'f00dbee1234567890f00dbee1234567890f00db';
+    const o = open(payload(line1({ comments: { fresh: 0, total: 1, fixed: 1, failing: 0, v: 'v2' } })), view([row('c901', { state: 'fixed', commit: 'f00dbee', reply: { draft: 'Done.', posted: null } })]));
+    // The list held is the one from before the Foreman's commit; the next read has it.
+    let reads = 0;
+    const older = o.answer.commits;
+    o.get.mockImplementation(async (url: string) => {
+      if (url === `/api/job/${SLUG}/pr/1`) return clone(o.answer.pr);
+      if (url === `/api/job/${SLUG}/commits`) { reads++; return reads === 1 ? older : { commits: [{ sha: NEW_SHA, short: 'f00dbee', subject: 'fix: c901', date: null, files: [] }, ...(older as { commits: unknown[] }).commits], cut: false }; }
+      return { sha: NEW_SHA, truncated: false, files: [], patchFiles: [] };
+    });
+    await openPr(o);
+    await settle();
+    expect(reads).toBe(2);
+    const b = within(cardOf('raj')).getByRole('button', { name: 'Fixed in f00dbee' });
+    fireEvent.click(b);
+    await settle();
+    expect(branchOf(o.store).pick).toEqual({ sha: NEW_SHA, path: 'web/src/App.tsx' });
+  });
+
+  it('M1, M4: the read line’s problem ends its sentence before `Last read`; round reply lines stay under their step', async () => {
+    const down = { ...GH, problem: 'GitHub didn’t answer. gh isn’t signed in: run gh auth login' };
+    const o = open(payload(line1(), { github: down }), view(NEW_ROWS));
+    await openPr(o);
+    expect(document.querySelector('.jp2-prl-gh')!.textContent).toBe(`GitHub didn’t answer. gh isn’t signed in: run gh auth login. Last read ${clockWords(GH.at)}.`);
+  });
+
+  it('round rows: the label follows the round; an edit is kept in the round on blur', async () => {
+    const { roundWords } = await import('./PrView');
+    expect(roundWords('stopped')).toBe('Send back stopped before posting it: it goes when the round is sent back again.');
+    expect(roundWords('after-pr1')).toBe('It is posted once the follow-up PR #1 is merged.');
+    expect(roundWords('fixing')).toBe('It is posted with Push the fixes (the review round’s Send back).');
+    const o = open(payload(line1({ comments: { fresh: 0, total: 1, fixed: 1, failing: 0, v: 'v5' } })), view([{ ...FIXED_ROWS[0], round: true, roundState: 'after-pr1' }]));
+    await openPr(o);
+    const c = cardOf('raj');
+    expect(c.querySelector('.jp2-prc-rl')!.textContent).toMatch(/posted once the follow-up PR #1 is merged/);
+    const ta = c.querySelector('textarea')!;
+    fireEvent.change(ta, { target: { value: 'Renamed, thanks.' } });
+    fireEvent.blur(ta);
+    await settle();
+    expect(calls(o.post, '/pr/1/draft').map((x) => x[1])).toEqual([{ id: 'c901', body: 'Renamed, thanks.' }]);
+  });
+
+  it('B1: picking Ship before it starts shows the PR lines and their action', async () => {
+    const p = payload(line1({ next: NEXT_FIX }));
+    p.steps = p.steps.map((s) => (s.id === 'ship' ? { ...s, state: 'todo', main: { kind: 'ship', id: 'ship' } } : s));
+    const o = open(p, view(NEW_ROWS));
+    await settle();
+    const ship = [...document.querySelectorAll<HTMLButtonElement>('.jp2-st-row')].find((b) => b.querySelector('.jp2-st-name')?.textContent === 'Ship')!;
+    fireEvent.click(ship);
+    await settle();
+    expect(o.store.getState().ui.step).toBe('ship');
+    expect(reader().getByRole('button', { name: 'Push the fixes (2 commits)' })).toBeInTheDocument();
+    expect(reader().queryByText(/Nothing yet/)).toBeNull();
   });
 });
