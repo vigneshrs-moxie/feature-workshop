@@ -2720,30 +2720,40 @@ export const longJob200: LongJobFixture = {
         "n": 1,
         "number": null,
         "url": null,
+        "title": null,
         "state": "not-started",
         "word": "not open",
+        "at": null,
         "next": null,
+        "why": null,
         "comments": null
       },
       {
         "n": 2,
         "number": null,
         "url": null,
+        "title": null,
         "state": "not-started",
         "word": "not open",
+        "at": null,
         "next": null,
+        "why": "after PR #1 is merged",
         "comments": null
       },
       {
         "n": 3,
         "number": null,
         "url": null,
+        "title": null,
         "state": "not-started",
         "word": "not open",
+        "at": null,
         "next": null,
+        "why": "after PR #2 is merged",
         "comments": null
       }
     ],
+    "github": null,
     "hosted": false
   },
   bodies: {
