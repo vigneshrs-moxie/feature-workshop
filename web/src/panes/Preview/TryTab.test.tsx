@@ -65,3 +65,31 @@ describe('Try it', () => {
     expect(await screen.findByText('This job has no folder yet.')).toBeInTheDocument();
   });
 });
+
+describe('Try it started from the job page (startOnOpen)', () => {
+  const ready = { ...VIEW, db: null };
+  function open(view: Record<string, unknown>) {
+    const post = vi.fn(async () => ({ ok: true }));
+    const api = { get: vi.fn(async () => view), post } as unknown as ApiClient;
+    render(<WorkshopContext.Provider value={{ store: createStore(), api }}><TryTab slug="alpha" active startOnOpen /></WorkshopContext.Provider>);
+    return { post };
+  }
+
+  it('starts the app once through its own Try it action, with no second click', async () => {
+    const { post } = open(ready);
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/api/job/alpha/local', { action: 'start' }));
+    expect(post).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks first, in place, when the database needs switching (as its own button does)', async () => {
+    const { post } = open(VIEW);
+    expect(await screen.findByRole('group', { name: 'Please confirm' })).toBeInTheDocument();
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it('starts nothing when the app already runs', async () => {
+    const { post } = open({ ...ready, server: { status: 'running' } });
+    expect(await screen.findByRole('link', { name: 'Open the app ↗' })).toBeInTheDocument();
+    expect(post).not.toHaveBeenCalled();
+  });
+});

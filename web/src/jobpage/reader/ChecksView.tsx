@@ -16,7 +16,7 @@
 // `It works` and `Something is wrong…` send fixed words that come with Task 22: until then they are
 // off and their titles say what they will do.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ApiError } from '../../api/client';
 import type { EvidenceCriterion, EvidenceView, LiveEvent } from '../../api/types';
 import { BRAND } from '../../app/brand';
@@ -60,7 +60,8 @@ export function commitWords(verb: string, made: string | null, commits: BranchCo
   if (final) {
     if (sameCommit(final.sha, made) || sameCommit(final.short, made)) return `${at}, the final commit${when ? `, ${when}` : ''}.`;
     const i = commits!.findIndex((c) => sameCommit(c.sha, made) || sameCommit(c.short, made));
-    const before = i > 0 ? `That is ${i} ${i === 1 ? 'commit' : 'commits'} before the final one, ${final.short}.` : `That is an older commit than the final one, ${final.short}.`;
+    // Not on the branch now (a rebase or a squash moved it): say that, not "older".
+    const before = i > 0 ? `That is ${i} ${i === 1 ? 'commit' : 'commits'} before the final one, ${final.short}.` : `That commit is no longer on the branch; the final one is ${final.short}.`;
     return `${at}${when ? `, ${when}` : ''}. ${before}`;
   }
   if (later && !sameCommit(later, made)) return `${at}${when ? `, ${when}` : ''}. The checks ran on a later commit, ${shortSha(later)}.`;
@@ -69,15 +70,23 @@ export function commitWords(verb: string, made: string | null, commits: BranchCo
 
 // ---------- The evidence view, held per open job ----------
 
-interface HeldEvidence { view: EvidenceView | null; error: string | null; listeners: Set<() => void>; ask: Promise<void> | null }
+interface HeldEvidence { view: EvidenceView | null; error: string | null; listeners: Set<() => void>; ask: Promise<void> | null; again: boolean }
 const evidenceHeld = new WeakMap<JobStore, HeldEvidence>();
 function heldOf(store: JobStore): HeldEvidence {
   let h = evidenceHeld.get(store);
-  if (!h) { h = { view: null, error: null, listeners: new Set(), ask: null }; evidenceHeld.set(store, h); }
+  if (!h) { h = { view: null, error: null, listeners: new Set(), ask: null, again: false }; evidenceHeld.set(store, h); }
   return h;
 }
 
-function useEvidence(store: JobStore, slug: string, on: boolean) {
+/** How often the website reads the evidence again while a recording is under way (it sends no evidence event). */
+export const EVIDENCE_WHILE_RECORDING_MS = 3_000;
+
+/**
+ * The evidence view: read on open; on the laptop read again on the job's `evidence` event (sent when a
+ * recording starts, moves a line, ends or fails); on the website, which sends no such event, read again
+ * every few seconds only while a recording is under way, and not at all once it ends.
+ */
+function useEvidence(store: JobStore, slug: string, on: boolean, hosted: boolean, events: NonNullable<ChecksViewProps['events']>) {
   const { api } = useWorkshop();
   const h = heldOf(store);
   const [, redraw] = useState(0);
@@ -86,8 +95,9 @@ function useEvidence(store: JobStore, slug: string, on: boolean) {
     h.listeners.add(l);
     return () => { h.listeners.delete(l); };
   }, [h]);
-  const load = () => {
-    if (h.ask) return h.ask;
+  const load = (): Promise<void> => {
+    // A change while a read is out: read once more after it, so the last change is never missed.
+    if (h.ask) { h.again = true; return h.ask; }
     h.ask = (async () => {
       try {
         const v = await api.get<EvidenceView>(`/api/job/${encodeURIComponent(slug)}/evidence`);
@@ -98,11 +108,25 @@ function useEvidence(store: JobStore, slug: string, on: boolean) {
       } finally {
         h.ask = null;
         for (const l of [...h.listeners]) l();
+        if (h.again) { h.again = false; void load(); }
       }
     })();
     return h.ask;
   };
   useEffect(() => { if (on) void load(); }, [on, slug]);
+  useEffect(() => {
+    if (!on || hosted) return undefined;
+    return events((e) => {
+      const d = (e?.data && typeof e.data === 'object' ? e.data : {}) as { slug?: unknown };
+      if (e?.type === 'evidence' && (e.job ?? d.slug) === slug) void load();
+    });
+  }, [on, hosted, slug, events]);
+  const recording = h.view?.recording === true;
+  useEffect(() => {
+    if (!on || !hosted || !recording) return undefined;
+    const t = setInterval(() => { void load(); }, EVIDENCE_WHILE_RECORDING_MS);
+    return () => clearInterval(t);
+  }, [on, hosted, recording, slug]);
   return { view: h.view, error: h.error, load };
 }
 
@@ -116,7 +140,7 @@ export function ChecksView({ id, onOpen, events = onLiveEvent }: ChecksViewProps
   const branch = useBranch(store);
   // The final commit (laptop only): the branch's newest.
   useEffect(() => { if (!hosted) void loadCommits(store, api, slug); }, [store, api, slug, hosted]);
-  const evidence = useEvidence(store, slug, id !== 'hand-test');
+  const evidence = useEvidence(store, slug, id !== 'hand-test', hosted, events);
   const commits = hosted ? null : branch.commits;
   const place = `checks:${id}`;
   if (id === 'recording') return <ReaderBody view="checks" place={place}><Recording slug={slug} hosted={hosted} ev={evidence} commits={commits} /></ReaderBody>;
@@ -163,6 +187,13 @@ function Recording({ slug, hosted, ev, commits }: { slug: string; hosted: boolea
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<{ bad: boolean; text: string } | null>(null);
   const view = ev.view;
+  // "Recording now" ends with the recording: the note goes once the view says it is done.
+  const was = useRef(false);
+  const recordingNow = view?.recording === true;
+  useEffect(() => {
+    if (was.current && !recordingNow) setNote((n) => (n && !n.bad ? null : n));
+    was.current = recordingNow;
+  }, [recordingNow]);
   if (!view) return ev.error ? <p className="jp2-dim" role="alert">Couldn’t read the recording: {ev.error}</p> : null;
   const record = async () => {
     if (busy) return;
@@ -205,9 +236,10 @@ function Recording({ slug, hosted, ev, commits }: { slug: string; hosted: boolea
           {!view.recording && view.problem && <p className="jp2-rec-problem">{view.problem.message}{view.problem.fix && <> <code>{view.problem.fix}</code></>}</p>}
           {made && <p>{made}</p>}
           {!evd && !view.recording && !view.problem && <p>{view.wanted ? `Not recorded yet. ${BRAND.name} records it once the test report names the commit it tested.` : view.why || 'This job records no evidence.'}</p>}
-          {note && <p className={note.bad ? 'jp2-rec-problem' : 'jp2-dim'} role={note.bad ? 'alert' : 'status'}>{note.text}</p>}
+          {note && (note.bad || !view.recording) && <p className={note.bad ? 'jp2-rec-problem' : 'jp2-dim'} role={note.bad ? 'alert' : 'status'}>{note.text}</p>}
         </div>
-        {(evd || view.problem || view.wanted) && again}
+        {/* Record again only for a job that records evidence (as today's strip): the server refuses the rest. */}
+        {(hosted ? Boolean(evd || view.problem || view.wanted) : view.wanted) && again}
       </div>
       {criteria.length > 0 && (
         <div className={`jp2-rec-grid${visual ? '' : ' is-list'}`}>
@@ -264,6 +296,8 @@ function HandTest({ slug, hosted, check, commits, events }: { slug: string; host
   const auto = useJob((s) => s.payload?.auto ?? null);
   const autoDecides = auto?.on === true && !auto.stopped && auto.yours !== true;
   const [tryOpen, setTryOpen] = useState(false);
+  // Each press of Start the app is a fresh Try it that presses its own start (it asks first, in place, when it must).
+  const [starts, setStarts] = useState(0);
   const [url, setUrl] = useState<string | null>(null);
   // Try it's app: its address once it runs (laptop only); read on open and when Try it changes.
   useEffect(() => {
@@ -288,13 +322,18 @@ function HandTest({ slug, hosted, check, commits, events }: { slug: string; host
         ? <p className="jp2-dim">Try it runs on your laptop. Open the job there to start the app.</p>
         : (
           <div className="jp2-hand-acts">
-            <Button size="sm" icon="terminal" aria-expanded={tryOpen} onClick={() => setTryOpen((o) => !o)} title="Open Try it here: it sets up and starts this job’s app on your computer.">Start the app</Button>
+            <Button size="sm" icon="terminal" aria-expanded={tryOpen} onClick={() => { setTryOpen(true); setStarts((n) => n + 1); }} title="Start this job’s app on your computer with Try it (it sets up anything missing first).">Start the app</Button>
             {url
               ? <Button kind="quiet" size="sm" href={url} target="_blank" rel="noopener noreferrer" title={`Open the app at ${url} in a new tab.`}>Open it</Button>
               : <Button kind="quiet" size="sm" disabled title="Opens the app in your browser once Try it has started it.">Open it</Button>}
           </div>
         )}
-      {tryOpen && !hosted && <div className="jp2-hand-try"><TryTab slug={slug} active /></div>}
+      {tryOpen && !hosted && (
+        <div className="jp2-hand-try">
+          <TryTab key={starts} slug={slug} active startOnOpen />
+          <Button kind="quiet" size="sm" onClick={() => setTryOpen(false)} title="Fold Try it away; the app keeps running.">Close Try it</Button>
+        </div>
+      )}
       <h4>What to check{check.version ? ` · v${check.version}` : ''}</h4>
       {check.worksWhen.length === 0 && check.mustNot.length === 0 && <p className="jp2-dim">Not written yet. The Foreman writes this list with the plan.</p>}
       {check.worksWhen.length > 0 && <><p><strong>It works when</strong></p><ol>{check.worksWhen.map((w, i) => <li key={i}>{w}</li>)}</ol></>}

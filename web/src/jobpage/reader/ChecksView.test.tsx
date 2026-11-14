@@ -14,9 +14,10 @@ import { longJob } from '../fixtures/longJob';
 import { createJobStore } from '../jobStore';
 import type { JobBody, JobPagePayload, ReaderTarget } from '../types';
 import { JobStoreContext } from '../useJob';
-import { ChecksView } from './ChecksView';
+import { ChecksView, EVIDENCE_WHILE_RECORDING_MS } from './ChecksView';
 
-vi.mock('../../panes/Preview/TryTab', () => ({ TryTab: ({ slug }: { slug: string }) => <section aria-label="Try it">Try it for {slug}</section> }));
+const tryProps = vi.hoisted(() => [] as { slug: string; startOnOpen?: boolean }[]);
+vi.mock('../../panes/Preview/TryTab', () => ({ TryTab: (p: { slug: string; startOnOpen?: boolean }) => { tryProps.push(p); return <section aria-label="Try it">Try it for {p.slug}</section>; } }));
 
 const SLUG = longJob.payload.slug;
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
@@ -201,6 +202,8 @@ describe('Your hand test (R7)', () => {
     expect(openIt).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Start the app' }));
     expect(screen.getByRole('region', { name: 'Try it' })).toBeInTheDocument();
+    // One click starts it: Try it is told to press its own start.
+    expect(tryProps.at(-1)).toMatchObject({ slug: SLUG, startOnOpen: true });
     setLocal({ server: { status: 'running' }, url: 'http://127.0.0.1:4610' });
     emit({ type: 'local-state', job: SLUG, data: {} } as unknown as LiveEvent);
     await settle();
@@ -223,5 +226,61 @@ describe('Your hand test (R7)', () => {
     open({ id: 'hand-test', patch: (p) => { p.auto = { on: true, stopped: null, yours: false } as unknown as JobPagePayload['auto']; } });
     await settle();
     expect(text()).toMatch(/Auto skips your hand test on this job/);
+  });
+});
+
+describe('Fix round 1', () => {
+  it('the laptop reads the recording again on the job’s evidence event, and Recording now ends when it does', async () => {
+    const recording = evidenceView({ recording: true, progress: { commit: FINAL.short, startedAt: '2026-11-04T10:00:00.000Z', line: 2, of: 3, lines: [] } });
+    const o = open({ id: 'recording' });
+    await settle();
+    o.setEvidence(recording);
+    fireEvent.click(screen.getByRole('button', { name: 'Record again' }));
+    await settle();
+    expect(text()).toMatch(/Recording now/);
+    expect(screen.getByRole('button', { name: 'Record again' })).toBeDisabled();
+    const asks = asked(o.get, '/evidence');
+    o.emit({ type: 'evidence', job: 'another-job', data: { slug: 'another-job', outcome: 'recorded' } } as unknown as LiveEvent);
+    await settle();
+    expect(asked(o.get, '/evidence')).toBe(asks);
+    o.setEvidence(evidenceView({}, FINAL.short));
+    o.emit({ type: 'evidence', job: SLUG, data: { slug: SLUG, outcome: 'recorded' } } as unknown as LiveEvent);
+    await settle();
+    expect(asked(o.get, '/evidence')).toBe(asks + 1);
+    expect(text()).not.toMatch(/Recording now/);
+    expect(text()).toContain(`Recorded on ${FINAL.short}`);
+    expect(screen.getByRole('button', { name: 'Record again' })).toBeEnabled();
+  });
+
+  it('the website reads again every few seconds only while it records, and stops when it ends', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const o = open({ id: 'recording', hosted: true, evidence: evidenceView({ recording: true }) });
+      await settle();
+      const first = asked(o.get, '/evidence');
+      await act(async () => { vi.advanceTimersByTime(EVIDENCE_WHILE_RECORDING_MS + 10); });
+      await settle();
+      expect(asked(o.get, '/evidence')).toBe(first + 1);
+      o.setEvidence(evidenceView({ onSite: [] }));
+      await act(async () => { vi.advanceTimersByTime(EVIDENCE_WHILE_RECORDING_MS + 10); });
+      await settle();
+      const ended = asked(o.get, '/evidence');
+      expect(text()).not.toMatch(/Recording now/);
+      await act(async () => { vi.advanceTimersByTime(EVIDENCE_WHILE_RECORDING_MS * 5); });
+      await settle();
+      expect(asked(o.get, '/evidence')).toBe(ended);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('Record again shows only for a job that records evidence', async () => {
+    open({ id: 'recording', evidence: evidenceView({ wanted: false, why: 'Level 1 jobs record no evidence.' }) });
+    await settle();
+    expect(screen.queryByRole('button', { name: 'Record again' })).toBeNull();
+  });
+
+  it('a recording on a commit no longer on the branch says so, not “older”', async () => {
+    open({ id: 'recording', evidence: evidenceView({}, 'deadbeef') });
+    await settle();
+    expect(text()).toContain(`That commit is no longer on the branch; the final one is ${FINAL.short}.`);
   });
 });

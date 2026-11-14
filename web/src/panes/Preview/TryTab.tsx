@@ -3,6 +3,7 @@
 // missing and starts the app on the job's port; the steps under it (settings file, database, app)
 // each have their own button; quick commands, a command box and the output sit below. Same server
 // routes as the classic page (GET and POST /api/job/:slug/local); it polls while something runs.
+// startOnOpen presses Try it itself once the view has loaded (the new job page's `Start the app`).
 // Switching the database asks first, in place, saying what is lost.
 import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { settingsHref } from '../../app/router';
@@ -63,7 +64,8 @@ function Step({ state, n, title, children, actions }: { state: 'ok' | 'todo' | '
   );
 }
 
-export function TryTab({ slug, active }: { slug: string; active: boolean }) {
+/** startOnOpen: press Try it once its view has loaded (the new job page's `Start the app`), unless the app already runs. */
+export function TryTab({ slug, active, startOnOpen = false }: { slug: string; active: boolean; startOnOpen?: boolean }) {
   const { api } = useWorkshop();
   const [v, setV] = useState<LocalView | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -156,6 +158,15 @@ export function TryTab({ slug, active }: { slug: string; active: boolean }) {
   async function copyOut() {
     try { await navigator.clipboard.writeText(v?.cmd?.output ?? ''); setNote({ text: 'Output copied.', tone: 'good' }); } catch { setNote({ text: 'Couldn’t copy. Select the text instead.', tone: 'bad' }); }
   }
+
+  // Started from outside (startOnOpen): the same Try it as its button, once, as soon as the view is known.
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    if (!startOnOpen || autoStarted.current || !v || !v.available || !v.app) return;
+    autoStarted.current = true;
+    if (v.server?.status === 'running' || v.server?.status === 'starting') return;
+    void run('go', tryIt);
+  }, [startOnOpen, v]);
 
   if (error && !v) return <p className="try-note is-bad" role="alert">{error}</p>;
   if (!v) return <p className="muted doc-empty">Looking at the job’s folder…</p>;
