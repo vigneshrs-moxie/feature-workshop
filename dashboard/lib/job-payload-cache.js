@@ -21,7 +21,7 @@
 //   .touch(slug)           the job changed: rebuild it if a page has it open, else mark it stale
 //   .touchAll()            something changed that names no job: the same for every cached job
 //   .watched(slug)         a live page stream watches this job now
-//   .has(slug), .stats() → { builds, renders, jobs, viewers }, .close()
+//   .has(slug), .stats() → { builds, renders, jobs, viewers, buildMs }, .close()
 //
 // Open means watched: a request that names a live event stream (viewer) puts that stream on this job
 // (a stream watches one job at a time; its newest request moves it), and the stream's close takes it
@@ -69,6 +69,8 @@ export function jobPageCache({ build, onVersion = () => {}, log = console.error,
   const missing = new Map(); // slug -> until when it answers 404 without a build
   let builds = 0;
   let renders = 0;
+  /** The time builds took, start to end, in all (stats: the server's cost of keeping open pages current). */
+  let buildMs = 0;
   const watched = (slug) => { for (const s of watching.values()) if (s === slug) return true; return false; };
   /** A name that is no job, for missingMs: names past their time go first, then the oldest past MISSING_MAX. */
   function noJob(slug) {
@@ -159,6 +161,7 @@ export function jobPageCache({ build, onVersion = () => {}, log = console.error,
       e.building = null;
       e.endedAt = Date.now();
       e.lastMs = e.endedAt - started;
+      buildMs += e.lastMs;
       if (e.again && entries.get(e.slug) === e) { e.again = false; schedule(e); }
     });
     return e.building;
@@ -265,7 +268,7 @@ export function jobPageCache({ build, onVersion = () => {}, log = console.error,
     has: (slug) => entries.has(slug),
     /** A live page stream watches this job now (Task 20: the automatic tell goes only to such a job). */
     watched: (slug) => watched(slug),
-    stats: () => ({ builds, renders, jobs: entries.size, viewers: watching.size }),
+    stats: () => ({ builds, renders, jobs: entries.size, viewers: watching.size, buildMs }),
     close() { for (const e of entries.values()) clearTimeout(e.timer); },
   };
 }

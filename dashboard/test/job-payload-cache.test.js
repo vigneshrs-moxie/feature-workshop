@@ -525,3 +525,16 @@ test('final fix S6: the names kept as no job are capped, the oldest out', async 
     assert.equal(s.builds, MISSING_MAX + 2, 'the oldest went: looked for again');
   } finally { cache.close(); }
 });
+
+test('final fix S7: stats count the time builds took in all (buildMs)', async () => {
+  const s = store();
+  s.set('job-a', payloadOf('A'));
+  const cache = jobPageCache({ build: s.build });
+  try {
+    assert.equal(cache.stats().buildMs, 0);
+    await cache.page('job-a');
+    assert.equal(typeof cache.stats().buildMs, 'number');
+    assert.ok(cache.stats().buildMs >= 0);
+    assert.equal(cache.stats().builds, 1);
+  } finally { cache.close(); }
+});
