@@ -46,6 +46,8 @@ export async function refStamp(commonDir, branch) {
   const parts = branch.split('/');
   const files = [path.join(commonDir, 'logs', 'refs', 'heads', ...parts), path.join(commonDir, 'refs', 'heads', ...parts), path.join(commonDir, 'packed-refs')];
   const stamps = await Promise.all(files.map((f) => fsp.stat(f).then((s) => `${s.mtimeMs}:${s.size}`, () => '-')));
+  // None of them there (git's reftable format keeps refs elsewhere): no stamp, so nothing is kept on it.
+  if (stamps.every((x) => x === '-')) return null;
   return stamps.join('|');
 }
 

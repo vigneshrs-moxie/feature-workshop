@@ -90,3 +90,15 @@ test('a repository’s own diff drivers are not run: the counts are the file’s
   const [c] = await commitsWithFiles(own, { base: start, head: 'main' });
   assert.deepEqual(c.files.find((f) => f.path === 'two.txt'), { path: 'two.txt', added: 2, removed: 0, isNew: true });
 });
+
+test('Task 23 fix round 2: refStamp changes when the branch moves, and is null when none of its ref files is there (a reftable repository)', async () => {
+  const { commonDirOf, refStamp } = await import('../lib/git.js');
+  const common = await commonDirOf(repo);
+  assert.equal(common, path.join(repo, '.git'));
+  const one = await refStamp(common, 'feature/x');
+  assert.match(one, /\d/);
+  assert.equal(await refStamp(common, 'feature/x'), one, 'unchanged while the branch stays');
+  // No reflog, loose ref or packed-refs for it (as with git's reftable format): no stamp, so nothing is ever kept on it.
+  assert.equal(await refStamp(common, 'feature/no-such-branch'), null);
+  assert.equal(await refStamp(path.join(root, 'nowhere'), 'feature/x'), null);
+});

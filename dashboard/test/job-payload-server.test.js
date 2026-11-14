@@ -524,6 +524,8 @@ test('Task 23 fix round (speed rule 2): the commit list of a job the page watche
     const until = Date.now() + 15_000;
     while (first.status === 404 && Date.now() < until) { await sleep(250); first = await get(`/api/job/${slug}/page?viewer=${viewer.id}`); }
     assert.equal(first.status, 200, JSON.stringify(first.body));
+    // The list is read behind the page's answer (fix round 2): ready once that read lands.
+    await hooks.jobPages.commitsReady(slug);
     const spy = spies();
     let one;
     try { one = await get(`/api/job/${slug}/commits`); } finally { spy.restore(); }
@@ -538,6 +540,15 @@ test('Task 23 fix round (speed rule 2): the commit list of a job the page watche
     assert.equal(diff.status, 200, JSON.stringify(diff.body));
     assert.deepEqual(diff.body.patchFiles.map((f) => f.path), ['b.txt']);
     assert.deepEqual(spyDiff.calls.spawn, [], 'no git for the newest commit\'s diff');
+    // Fix round 2 (M1): a rebuild while the branch has not moved keeps the list it has, reading nothing.
+    const lists = hooks.commitLists;
+    const builds = hooks.jobPages.stats().builds;
+    hooks.jobPages.touch(slug);
+    const until2 = Date.now() + 10_000;
+    while (Date.now() < until2 && hooks.jobPages.stats().builds === builds) await sleep(20);
+    await sleep(100);
+    await hooks.jobPages.commitsReady(slug);
+    assert.equal(hooks.commitLists, lists, 'no read of the branch for an unmoved branch');
     // A new commit on the branch, then the job's change point: the next rebuild reads the list again.
     g('switch', '-q', 'feature/commits-from-the-page');
     await fsp.writeFile(path.join(repo, 'c.txt'), 'c\n');

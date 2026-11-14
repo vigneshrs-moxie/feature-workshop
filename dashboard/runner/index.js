@@ -672,6 +672,7 @@ export async function createRunner(config) {
   // `git rev-parse` each time.
   const commonDirs = new Map(); // codeDir -> git's common folder
   async function commitListOf(f) {
+    if (testHooks && typeof testHooks === 'object') testHooks.commitLists = (testHooks.commitLists ?? 0) + 1; // tests only: how many reads
     // A branch Starbase only guessed is read as no branch (ownBranch, ownCodeDir).
     const codeDir = ownCodeDir(f);
     const branch = ownBranch(f);
@@ -700,6 +701,18 @@ export async function createRunner(config) {
     const key = `${codeDir}|${sha}`;
     if (!newestDiffs.has(key)) keepLatest(newestDiffs, key, { sha, shown: await git.show(codeDir, sha) }, BRANCH_COMMITS_KEPT);
     return newestDiffs.get(key);
+  }
+  // The list the job page keeps (jobPageSource's commitsLater): the last one again, with no git at all, while the
+  // branch's ref files are as they were and its base and branch are the same; else read (commitListOf), with the
+  // newest commit's diff (read once per commit: a commit's diff never changes).
+  async function keptCommitsOf(f, slug) {
+    const prev = jobPages.commits(slug);
+    if (prev?.stamp && prev.list.base === (f.baseSha ?? null) && prev.list.head === ownBranch(f)
+      && prev.stamp === await git.refStamp(prev.common, prev.list.head).catch(() => null)) return prev;
+    const out = await commitListOf(f);
+    const newest = out.list.commits?.[0]?.sha;
+    if (newest) out.newest = await newestDiffOf(out.list.dir, newest).catch(() => null);
+    return out;
   }
   async function branchCommitsOf(f) {
     const base = f.baseSha ?? f.baseBranch;
@@ -2457,12 +2470,10 @@ export async function createRunner(config) {
     // The bodies the payload names no line or output for carry their hash here, so a kept copy is dropped when it moves on.
     payload.hashes = { ticket: sources.get('ticket')?.version ?? null, decisions: sources.get('decisions')?.version ?? null, findings: sources.get('findings')?.version ?? null, checks: sources.get('checks')?.version ?? null };
     // Details (lib/work-rows.js): the corrected activity, the cost rows and the replies' ends; the crew's logs are read only when Details asks.
-    // The Build step's commit list, when a step shows Changes: read here, so the route answers a pick without git.
-    const commitList = payload.hosted !== true && payload.steps.some((st) => st.outputs.some((o) => o.kind === 'changes')) ? await commitListOf(f).catch(() => null) : null;
-    // And the newest commit's diff, the first thing Changes shows (read once per commit: a commit's diff never changes).
-    const newest = commitList?.list.commits?.[0]?.sha;
-    if (commitList && newest) commitList.newest = await newestDiffOf(commitList.list.dir, newest).catch(() => null);
-    return { payload, sources, work: workFacts(detail), commits: commitList };
+    // The Build step's commit list and its newest commit's diff, when a step shows Changes: read behind the
+    // page's answer (the page never waits for them), so the routes answer a pick without git.
+    const wantsCommits = payload.hosted !== true && payload.steps.some((st) => st.outputs.some((o) => o.kind === 'changes'));
+    return { payload, sources, work: workFacts(detail), ...(wantsCommits ? { commitsLater: () => keptCommitsOf(f, slug) } : {}) };
   }
   // Each crew member's first instruction and how its log ends, for Details: kept by each log's size and time.
   const crewLogReader = crewLogs({ projectsDir: PROJECTS_DIR });
@@ -3408,7 +3419,7 @@ export async function createRunner(config) {
     async 'fetch-diff'(body) {
       // The newest commit's diff the job page's build kept (speed rule 2): answered without git while the
       // branch's ref files are as they were then (so it is still the branch's own).
-      const kept = jobPages.commits(body.slug);
+      const kept = await jobPages.commitsReady(body.slug);
       if (kept?.newest && kept.newest.sha === String(body.commit).toLowerCase() && kept.stamp !== null
         && kept.stamp === await git.refStamp(kept.common, kept.list.head).catch(() => null)) return { dir: kept.list.dir, ...kept.newest.shown };
       const f = await jobOf(body.slug);
@@ -4198,7 +4209,7 @@ export async function createRunner(config) {
     async commits(slug) {
       // The job page's build keeps the list (speed rule 2): answered from it while the branch's ref files
       // are as they were then (three stats, no git); else read now, as before.
-      const kept = await jobPages.commits(slug);
+      const kept = await jobPages.commitsReady(slug);
       if (kept && kept.stamp !== null && kept.stamp === await git.refStamp(kept.common, kept.list.head).catch(() => null)) return kept.list;
       return (await commitListOf(await jobOf(slug))).list;
     },

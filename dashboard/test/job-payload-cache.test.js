@@ -456,3 +456,36 @@ test('Task 20 fix round 1: watched(slug) is true only while a live page stream w
     assert.equal(cache.watched('job-b'), false, 'the page closed');
   } finally { cache.close(); }
 });
+
+test('Task 23 fix round 2: the page does not wait for the commit list; it lands behind the answer, and the last one stays until the next lands', async () => {
+  let release = null;
+  let lists = 0;
+  const cache = jobPageCache({
+    build: async () => ({
+      payload: payloadOf('A'),
+      sources: new Map(),
+      commitsLater: () => { lists++; const n = lists; return new Promise((r) => { release = () => r({ list: { n } }); }); },
+    }),
+    delayMs: 1, maxWaitMs: 5,
+  });
+  try {
+    // The page answers while the commit list is still being read.
+    const page = await Promise.race([cache.page('job-a'), new Promise((r) => { setTimeout(() => r('waited'), 500); })]);
+    assert.equal(page.title, 'A');
+    assert.equal(cache.commits('job-a'), null, 'nothing kept yet');
+    const ready = cache.commitsReady('job-a');
+    release();
+    assert.deepEqual(await ready, { list: { n: 1 } }, 'commitsReady waits for the one being read');
+    assert.deepEqual(cache.commits('job-a'), { list: { n: 1 } });
+    // A rebuild: the list kept stays while the next is read.
+    cache.page('job-a', null, { viewer: null });
+    cache.touch('job-a');
+    await cache.page('job-a'); // marks it seen: the stale entry rebuilds behind
+    for (let i = 0; i < 50 && lists < 2; i++) await new Promise((r) => { setTimeout(r, 10); });
+    assert.equal(lists, 2);
+    assert.deepEqual(cache.commits('job-a'), { list: { n: 1 } }, 'the last list stays while the next is read');
+    release();
+    assert.deepEqual(await cache.commitsReady('job-a'), { list: { n: 2 } });
+    assert.equal(await cache.commitsReady('no-such-job'), null);
+  } finally { cache.close(); }
+});

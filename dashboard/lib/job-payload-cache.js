@@ -14,7 +14,9 @@
 //   .item(slug, id, { viewer }?)   one body: { id, kind, version, html, text, meta }; its html is rendered
 //                          on the first ask and kept until its version changes
 //   .work(slug, { viewer }?)   the facts the build kept for Details (build's optional `work`), or null
-//   .commits(slug)         the commit list the last build kept (build's optional `commits`), or null
+//   .commits(slug)         the commit list the last build kept (build's optional `commits`), or null;
+//                          build's optional `commitsLater()` reads it behind the answer instead
+//   .commitsReady(slug)    the same, after the one being read behind the last answer has landed
 //   .viewerOpen(id), .viewerGone(id)   a page's event stream opened or closed (site/index.js)
 //   .touch(slug)           the job changed: rebuild it if a page has it open, else mark it stale
 //   .touchAll()            something changed that names no job: the same for every cached job
@@ -77,7 +79,7 @@ export function jobPageCache({ build, onVersion = () => {}, log = console.error,
     return e;
   }
 
-  function apply(e, { payload, sources, work = null, commits = null }) {
+  function apply(e, { payload, sources, work = null, commits = null, commitsLater = null }) {
     const { v: _own, ...rest } = payload ?? {};
     const json = JSON.stringify(rest);
     let moved = false;
@@ -98,7 +100,17 @@ export function jobPageCache({ build, onVersion = () => {}, log = console.error,
     e.sources = next;
     e.html = html;
     e.work = work ?? null;
-    e.commits = commits ?? null;
+    if (typeof commitsLater === 'function') {
+      // Read behind the answer (the page never waits for git): the last list stays until this one lands.
+      const p = Promise.resolve().then(commitsLater).then((c) => {
+        if (e.commitsPending === p && entries.get(e.slug) === e) e.commits = c ?? null;
+        return e.commits ?? null;
+      }, (err) => { log(`job page: ${e.slug}'s commit list couldn't be read: ${err.message}`); return e.commits ?? null; })
+        .finally(() => { if (e.commitsPending === p) e.commitsPending = null; });
+      e.commitsPending = p;
+    } else {
+      e.commits = commits ?? null;
+    }
     e.resolve();
     if (moved) {
       try { onVersion(e.slug, e.v); } catch (err) { log(`job page: ${err.message}`); }
@@ -213,10 +225,17 @@ export function jobPageCache({ build, onVersion = () => {}, log = console.error,
       const e = await warm(slug, viewer);
       return e.work ?? null;
     },
-    /** The commit list the last build kept (build's optional `commits`), or null; never starts a build. */
+    /** The commit list the last build kept (build's optional `commits`, or `commitsLater`'s answer), or null; never starts a build. */
     commits(slug) {
       const e = entries.get(slug);
       return e?.payload ? e.commits ?? null : null;
+    },
+    /** The same, once the list being read behind the last answer (if any) has landed. */
+    async commitsReady(slug) {
+      const e = entries.get(slug);
+      if (!e?.payload) return null;
+      if (e.commitsPending) await e.commitsPending;
+      return e.commits ?? null;
     },
     touch(slug) {
       if (!slug) return;
