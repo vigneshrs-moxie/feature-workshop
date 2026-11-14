@@ -100,6 +100,7 @@ import { FEEDBACK_LEAVE, FEEDBACK_SEND, cardWords, feedbackMessage } from './pr-
 import { WRITE_TOOLS_MATCHER, ownedPathsHook, sectionOwnership } from './stack.js';
 import { PRODUCT } from './brand.js';
 import { withoutMark } from './auto.js';
+import { keptReply } from './notes-block.js';
 
 /** The text without Auto's mark at its end; a text that had words and is empty without the mark is refused (F8). */
 function unmarked(text) {
@@ -418,7 +419,8 @@ export class Driver extends EventEmitter {
       try { await this.#endStatusWatch(run); } catch { /* never stops the reply from ending */ }
       run.endedAt = new Date().toISOString();
       this.#releaseLock(run);
-      const reply = (run.lastText ?? run.resultText ?? '').slice(0, 8000) || undefined;
+      // The start of the reply, and its answer blocks whole when they sit past the cut (lib/notes-block.js).
+      const reply = keptReply(run.lastText ?? run.resultText ?? '') || undefined;
       await this.state.audit({ action: 'run-ended', featureDir: run.featureDir, slug: run.slug, sessionId: run.sessionId, runId: run.id, status: run.status, costUsd: run.costUsd, error: run.error, reply, stopReason: run.stopReason ?? undefined });
       this.emit('run', this.view(run));
       // A corrective message the reply ended before reading: the same session, resumed with it.

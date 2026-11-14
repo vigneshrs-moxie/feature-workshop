@@ -28,7 +28,7 @@
 //   skipped      string[]: stages skipped
 //   parked       boolean: the gate waited past the parking time
 //   move         null | GateMove | QuestionMove | PermissionMove (below): what waits for him
-//   asked        null (R5, Task 18)
+//   asked        null | { total, done, notes: NoteAnswer[] }: the Foreman's answer to each note he sent (R5, askedOf)
 //   steps        StepRow[]: the seven steps in order
 //   rows         { conversation: { count }, decisions: { count } } (the page counts what is new itself;
 //                the cache and mirrorJobPage add conversation.more: older items left out, the website's case)
@@ -72,6 +72,7 @@ import { modelLabel } from './cost.js';
 import { slugTicketKey } from './orbit.js';
 import { EVIDENCE_JSON, WIREFRAMES_FILE, WIREFRAMES_JSON } from './docs.js';
 import { cardPaused, jobWorking } from './working.js';
+import { parseAnswered, parseNotes } from './notes-block.js';
 
 /**
  * What buildJobPage takes: what the runner already computed for the job (runner/index.js).
@@ -611,6 +612,88 @@ function openOf(state, move, steps) {
   return conversation;
 }
 
+// ---------- What you asked (R5, Task 18) ----------
+
+const KIND_WORDS = { change: 'Change', drop: 'Drop this', explain: 'Explain', pin: 'Pin' };
+const NOT_ANSWERED = 'The Foreman’s reply doesn’t answer this note.';
+const COMMIT_WHERE = /^commit\s+([0-9a-f]{7,40})$/i;
+const FILE_NAME = /[\w./-]+\.\w+/;
+
+/** The document a name with its version means (`Implementation plan v3`, `Plan v3`): that version when it is an older one. */
+function docTarget(words, steps) {
+  const m = /^(.*?)\s+v(\S+)$/.exec(words);
+  const name = (m ? m[1] : words).trim().toLowerCase();
+  const version = m ? m[2] : null;
+  if (!name) return null;
+  const docs = [];
+  for (const s of steps ?? []) for (const o of [...(s.outputs ?? []), ...(s.more ?? [])]) if (o.kind === 'doc' && !docs.some((d) => d.id === o.id)) docs.push(o);
+  const exact = docs.filter((o) => String(o.label).toLowerCase() === name);
+  const parts = name.split(/\s+/);
+  const loose = docs.filter((o) => { const w = String(o.label).toLowerCase().split(/\s+/); return parts.every((p) => w.includes(p)); });
+  const list = exact.length ? exact : loose;
+  if (!list.length) return null;
+  const now = list.find((o) => version !== null && o.version === version);
+  if (now) return { kind: 'doc', id: now.id };
+  for (const o of list) {
+    const older = (o.versions ?? []).find((v) => v.n === version || String(v.n).startsWith(`${version} `));
+    if (older) return { kind: 'doc', id: older.id };
+  }
+  return { kind: 'doc', id: list[0].id };
+}
+
+/** Where a done note's change can be seen: `commit abc1234` (Changes, at that commit and file) or a document's version. */
+function whereTarget(where, what, steps) {
+  const c = COMMIT_WHERE.exec(where);
+  if (c) return { target: { kind: 'changes', id: 'changes' }, commit: { sha: c[1].toLowerCase(), file: FILE_NAME.exec(what)?.[0] ?? null } };
+  return { target: docTarget(where, steps), commit: null };
+}
+
+/** The place a note pointed at (composed on the page, notes/Pointable.tsx describeBlock), as a reader target. */
+function placeTarget(place, steps) {
+  const line = /^(\S+?)(?::\d+)?(?: \(removed\))? \(commit ([0-9a-f]{7,40})\)$/i.exec(place);
+  if (line) return { target: { kind: 'changes', id: 'changes' }, commit: { sha: line[2].toLowerCase(), file: line[1] } };
+  const first = place.split(' · ')[0].trim();
+  if (first === 'Findings') return { target: { kind: 'findings', id: 'findings' }, commit: null };
+  if (first === 'Decisions') return { target: { kind: 'decisions', id: 'decisions' }, commit: null };
+  if (first === 'Recording') return { target: { kind: 'checks', id: 'recording' }, commit: null };
+  return { target: docTarget(first, steps), commit: null };
+}
+
+/**
+ * What you asked (R5): the Foreman's answer to each note of his last notes block, from the
+ * `--- Notes answered ---` block at the end of its newest reply (lib/notes-block.js parseAnswered),
+ * each named by the note he sent (parseNotes) and opening where its change is. null when the newest
+ * reply has no block, or a message of his came after it. `steps`: the payload's step rows (the
+ * runner calls it again once each document's older versions are stamped on them).
+ *   NoteAnswer { n, note, place, done, what, target, explained?: true, commit?: { sha, file },
+ *                ask: { kind, place, quote, note } | null (the note as sent, for `Ask again`) }
+ */
+export function askedOf(thread, steps) {
+  const items = Array.isArray(thread) ? thread : [];
+  let at = items.length - 1;
+  while (at >= 0 && items[at]?.kind !== 'reply') at--;
+  if (at < 0 || items.slice(at + 1).some((it) => it?.kind === 'you')) return null;
+  const lines = parseAnswered(items[at].reply ?? '');
+  if (!lines.length) return null;
+  let sent = [];
+  for (let i = at - 1; i >= 0 && !sent.length; i--) if (items[i]?.kind === 'you') sent = parseNotes(items[i].text);
+  const ns = [...new Set([...sent.map((s) => s.n), ...lines.map((l) => l.n)])].sort((a, b) => a - b);
+  const notes = ns.map((n) => {
+    const s = sent.find((x) => x.n === n) ?? null;
+    const l = lines.find((x) => x.n === n) ?? null;
+    const asWords = s ? (s.note || KIND_WORDS[s.kind] || `Note ${n}`) : `Note ${n}`;
+    const shown = l?.done && !l.explained && l.where ? whereTarget(l.where, l.what, steps) : s ? placeTarget(s.place, steps) : { target: null, commit: null };
+    const what = !l ? NOT_ANSWERED : l.done && !l.explained ? [l.where, l.what].filter(Boolean).join(' · ') : l.what || (l.done ? '' : 'No reason given.');
+    return {
+      n, note: asWords, place: s?.place ?? null, done: Boolean(l?.done), what, target: shown.target,
+      ...(l?.explained ? { explained: true } : {}),
+      ...(shown.commit ? { commit: shown.commit } : {}),
+      ask: s ? { kind: s.kind, place: s.place, quote: s.quote, note: s.note } : null,
+    };
+  });
+  return { total: notes.length, done: notes.filter((x) => x.done).length, notes };
+}
+
 // ---------- The payload ----------
 
 /** The waiting message as the page shows it (R8), or null. */
@@ -676,7 +759,7 @@ export function buildJobPage(facts) {
     skipped: Array.isArray(card.skipped) ? card.skipped : [],
     parked: Boolean(card.parked),
     move,
-    asked: null,
+    asked: askedOf(f.thread, steps.map((s) => s.row)),
     steps: steps.map((s) => s.row),
     rows: { conversation: { count: thread.length }, decisions: { count: decided } },
     open,

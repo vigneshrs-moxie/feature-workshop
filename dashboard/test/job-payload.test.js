@@ -3,7 +3,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildJobPage, headlineOf, stateOf } from '../lib/job-payload.js';
+import { askedOf, buildJobPage, headlineOf, stateOf } from '../lib/job-payload.js';
 
 const T = (h, m = 0) => new Date(Date.UTC(2026, 10, 12, h, m)).toISOString();
 const STATES = ['needs-you', 'working', 'waiting-github', 'paused', 'done'];
@@ -545,4 +545,83 @@ test('Task 13: a brief Auto said Go to reads `answered by Auto: Go` and its line
   assert.equal(line('brief:briefs/012-plan.md').headline, 'Brief #12 · Plan · answered: Go');
   assert.equal('by' in line('brief:briefs/012-plan.md'), false);
   assert.equal(headlineOf({ kind: 'brief', number: 4, stage: 'plan' }, { answered: 'Send back', by: 'auto' }), 'Brief #4 · Plan · answered by Auto: Send back');
+});
+
+// ---------- Task 18 (R5): what you asked ----------
+
+const SENT = [
+  'Please make changes before moving on, and stay in the current stage:',
+  '--- Notes (4) --- 1. [change] Implementation plan v2 · step 4 "Add the filter to the table" > Add the filter Note: use the existing badge',
+  '2. [change] src/EmployeesTable.tsx:88 (commit 1a2b3c4) > <Badge size="lg" /> Note: a smaller badge',
+  '3. [explain] Findings · major · Saves twice > Saves twice',
+  '4. [drop] Product spec v0.5 · acceptance line 6 > Export to PDF',
+  '--- End of notes ---',
+].join(' ');
+const ANSWER = [
+  'I made the changes you asked for.',
+  '',
+  '--- Notes answered ---',
+  '1. done · Implementation plan v3 · step 4 now uses the existing badge',
+  '2. done · commit abc1234 · EmployeesTable.tsx',
+  '3. done · explained · The save button fires twice because the form submits too.',
+  '4. not done · needs your answer: keep the PDF export for admins?',
+  '--- End ---',
+].join('\n');
+const askedJob = (thread) => atReview({ thread });
+const you = (id, text, at = T(15, 40)) => ({ id, kind: 'you', at, text, sendKind: 'changes', gateBrief: 15 });
+const reply = (id, text, at = T(16)) => ({ id, kind: 'reply', at, reply: text, stopped: false });
+
+test('Task 18: the Foreman’s answer to each note, note by note, each opening where its change is', () => {
+  const p = buildJobPage(askedJob([you('you:n', SENT), reply('reply:a', ANSWER)]));
+  assert.equal(p.asked.total, 4);
+  assert.equal(p.asked.done, 3);
+  const [plan, commit, explain, drop] = p.asked.notes;
+  assert.deepEqual(plan, {
+    n: 1, note: 'use the existing badge', place: 'Implementation plan v2 · step 4 "Add the filter to the table"', done: true,
+    what: 'Implementation plan v3 · step 4 now uses the existing badge', target: { kind: 'doc', id: 'implementation-plan.md' },
+    ask: { kind: 'change', place: 'Implementation plan v2 · step 4 "Add the filter to the table"', quote: 'Add the filter', note: 'use the existing badge' },
+  });
+  assert.equal(commit.what, 'commit abc1234 · EmployeesTable.tsx');
+  assert.deepEqual(commit.target, { kind: 'changes', id: 'changes' });
+  assert.deepEqual(commit.commit, { sha: 'abc1234', file: 'EmployeesTable.tsx' });
+  assert.equal(explain.done, true);
+  assert.equal(explain.explained, true);
+  assert.equal(explain.note, 'Explain');
+  assert.equal(explain.what, 'The save button fires twice because the form submits too.');
+  assert.deepEqual(explain.target, { kind: 'findings', id: 'findings' }, 'an answer in words opens the place he pointed at');
+  assert.equal(drop.done, false);
+  assert.equal(drop.note, 'Drop this');
+  assert.equal(drop.what, 'needs your answer: keep the PDF export for admins?');
+  assert.deepEqual(drop.target, { kind: 'doc', id: 'spec' });
+  assert.deepEqual(drop.ask, { kind: 'drop', place: 'Product spec v0.5 · acceptance line 6', quote: 'Export to PDF', note: null });
+});
+
+test('Task 18: a reply without the block gives asked: null, as does a newer reply without one or a message of his after it', () => {
+  assert.equal(buildJobPage(atReview()).asked, null);
+  assert.equal(buildJobPage(askedJob([you('you:n', SENT), reply('reply:a', 'I made the changes.')])).asked, null);
+  assert.equal(buildJobPage(askedJob([you('you:n', SENT), reply('reply:a', ANSWER), reply('reply:b', 'Anything else?', T(17))])).asked, null);
+  assert.equal(buildJobPage(askedJob([you('you:n', SENT), reply('reply:a', ANSWER), you('you:m', 'Go ahead.', T(17))])).asked, null);
+  // The website's record has no reply words (they show on the laptop): nothing to read there.
+  assert.equal(buildJobPage(askedJob([you('you:n', SENT), { id: 'reply:a', kind: 'reply', at: T(16), stopped: false }])).asked, null);
+});
+
+test('Task 18: answers with no notes block to name them, and notes the reply leaves unanswered', () => {
+  const alone = buildJobPage(askedJob([reply('reply:a', ANSWER)])).asked;
+  assert.equal(alone.total, 4);
+  assert.deepEqual(alone.notes.map((n) => [n.n, n.note, n.place, n.ask]), [[1, 'Note 1', null, null], [2, 'Note 2', null, null], [3, 'Note 3', null, null], [4, 'Note 4', null, null]]);
+  assert.deepEqual(alone.notes[0].target, { kind: 'doc', id: 'implementation-plan.md' });
+  const short = ANSWER.replace(/^4\. .*\n/m, '');
+  const missing = buildJobPage(askedJob([you('you:n', SENT), reply('reply:a', short)])).asked;
+  assert.equal(missing.total, 4);
+  assert.equal(missing.done, 3);
+  assert.equal(missing.notes[3].done, false);
+  assert.equal(missing.notes[3].what, 'The Foreman’s reply doesn’t answer this note.');
+});
+
+test('Task 18: a change shown in an older version than the one now opens that version (the versions the cache stamps)', () => {
+  const p = buildJobPage(askedJob([you('you:n', SENT), reply('reply:a', ANSWER.replace('Implementation plan v3', 'Implementation plan v2'))]));
+  const steps = p.steps.map((s) => ({ ...s, outputs: s.outputs.map((o) => (o.id === 'implementation-plan.md' ? { ...o, versions: [{ n: '2', id: 'versions/implementation-plan.v2.md' }] } : o)) }));
+  assert.deepEqual(askedOf([you('you:n', SENT), reply('reply:a', ANSWER.replace('Implementation plan v3', 'Implementation plan v2'))], steps).notes[0].target, { kind: 'doc', id: 'versions/implementation-plan.v2.md' });
+  // The Foreman's short name for it (`Plan v3`) finds it too.
+  assert.deepEqual(askedOf([reply('reply:a', ANSWER.replace('Implementation plan v3', 'Plan v3'))], p.steps).notes[0].target, { kind: 'doc', id: 'implementation-plan.md' });
 });

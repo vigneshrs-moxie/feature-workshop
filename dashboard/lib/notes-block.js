@@ -80,3 +80,131 @@ export function explainedAnswer(reply) {
   }
   return null;
 }
+
+// ---------- The answer (Task 18, R5 "See the answer to each request") ----------
+//
+// The Foreman answers every note at the very end of its final message (notes-and-comments.md):
+//
+//   --- Notes answered ---
+//   1. done · Plan v3 · step 4 removed
+//   2. done · commit abc1234 · EmployeesTable.tsx
+//   3. not done · the badge component has no small size
+//   --- End ---
+//
+// `<n>. done · explained · <the answer>` answers an `explain` note. A PR comments block
+// (`--- Comments answered ---`, Task 21) may come first; it ends with the same `--- End ---`.
+// Strict about the fence lines (each alone on its line, spelt exactly), forgiving about spacing.
+
+const NOTES_ANSWERED = '--- Notes answered ---';
+const COMMENTS_ANSWERED = '--- Comments answered ---';
+const ANSWER_END = '--- End ---';
+const ANSWER_LINE = /^(\d+)\s*\.\s*(not\s+done|done)\s*(?:·\s*(.*?))?\s*$/i;
+
+/** The lines between the last `open` fence line and the first `--- End ---` line after it, trimmed; null when there is no such block. */
+function lastBlock(text, open) {
+  const lines = String(text ?? '').split(/\r?\n/).map((l) => l.trim());
+  const start = lines.lastIndexOf(open);
+  if (start < 0) return null;
+  const end = lines.indexOf(ANSWER_END, start + 1);
+  return end < 0 ? null : lines.slice(start + 1, end);
+}
+
+/**
+ * The Foreman's answers to his notes, read from the last `--- Notes answered ---` block of its reply.
+ * A line that is not an answer is left out; no block gives [].
+ * where: the document and version, or `commit <sha>`, where he can see a change (null when not done
+ * or explained); what: what changed, the answer to an explain note, or why it was not done.
+ * @param {string | null | undefined} reply
+ * @returns {{ n: number, done: boolean, explained: boolean, where: string | null, what: string }[]}
+ */
+export function parseAnswered(reply) {
+  const block = lastBlock(reply, NOTES_ANSWERED);
+  if (!block) return [];
+  const out = [];
+  for (const line of block) {
+    const m = ANSWER_LINE.exec(line);
+    if (!m) continue;
+    const n = Number(m[1]);
+    const rest = (m[3] ?? '').trim();
+    if (/^not/i.test(m[2])) { out.push({ n, done: false, explained: false, where: null, what: rest }); continue; }
+    const dot = rest.indexOf('·');
+    const where = (dot < 0 ? rest : rest.slice(0, dot)).trim();
+    const what = dot < 0 ? '' : rest.slice(dot + 1).trim();
+    if (where.toLowerCase() === 'explained') out.push({ n, done: true, explained: true, where: null, what });
+    else out.push({ n, done: true, explained: false, where: where || null, what });
+  }
+  return out;
+}
+
+const NOTES_OPEN = /--- Notes \((\d+)\) ---/g;
+const NOTES_CLOSE = '--- End of notes ---';
+const NOTE_ITEM = new RegExp(String.raw`(?:^|\s)(\d+)\.\s\[(${NOTE_KINDS.join('|')})\]\s`, 'g');
+
+/** One sent note's words after its `n. [kind] `: the place, `> quote`, `Note: note` (on their own lines, or all on one). */
+function sentParts(body) {
+  const lines = body.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  if (lines.length > 1) {
+    const quote = lines.find((l) => l.startsWith('> '));
+    const note = lines.find((l) => l.startsWith('Note: '));
+    return { place: lines[0], quote: quote ? quote.slice(2).trim() : null, note: note ? note.slice(6).trim() || null : null };
+  }
+  // On one line (a gate reply's note: compose.js puts it on one line).
+  const flat = oneLine(body);
+  const n = flat.lastIndexOf(' Note: ');
+  const head = n < 0 ? flat : flat.slice(0, n);
+  const q = head.indexOf(' > ');
+  return { place: (q < 0 ? head : head.slice(0, q)).trim(), quote: q < 0 ? null : head.slice(q + 3).trim() || null, note: n < 0 ? null : flat.slice(n + 7).trim() || null };
+}
+
+/**
+ * The notes he sent, read back from a message of his (the last notes block in it): composeNotes's
+ * block, on its lines or on one line. [] when there is none.
+ * @param {string | null | undefined} text
+ * @returns {{ n: number, kind: string, place: string, quote: string | null, note: string | null }[]}
+ */
+export function parseNotes(text) {
+  const s = String(text ?? '');
+  let open = null;
+  for (const m of s.matchAll(NOTES_OPEN)) open = m;
+  if (!open) return [];
+  const from = open.index + open[0].length;
+  const close = s.indexOf(NOTES_CLOSE, from);
+  if (close < 0) return [];
+  const inner = s.slice(from, close);
+  const items = [...inner.matchAll(NOTE_ITEM)];
+  return items.map((m, i) => {
+    const body = inner.slice(m.index + m[0].length, i + 1 < items.length ? items[i + 1].index : inner.length);
+    return { n: Number(m[1]), kind: m[2], ...sentParts(body) };
+  });
+}
+
+/** How much of a reply the audit keeps (lib/driver.js, the `run-ended` line). */
+export const REPLY_KEPT = 8000;
+/** The answer blocks kept past that cut, at most this long (a longer end is cut as before). */
+const TAIL_KEPT = 16000;
+
+/**
+ * The reply the audit keeps: whole when it is short; else its first REPLY_KEPT characters, and when
+ * the answer blocks at its very end (`--- Comments answered ---`, `--- Notes answered ---`) would be
+ * lost by that cut, `…` and the blocks whole after it, so the page can still read them.
+ * @param {string | null | undefined} full
+ */
+export function keptReply(full) {
+  const text = String(full ?? '');
+  if (text.length <= REPLY_KEPT) return text;
+  const lines = text.split('\n');
+  let at = -1;
+  let pos = 0;
+  const found = {};
+  for (const l of lines) {
+    const t = l.trim();
+    if (t === NOTES_ANSWERED || t === COMMENTS_ANSWERED) found[t] = pos;
+    pos += l.length + 1;
+  }
+  for (const p of Object.values(found)) if (at < 0 || p < at) at = p;
+  if (at < 0) return text.slice(0, REPLY_KEPT);
+  const tail = text.slice(at);
+  if (tail.length > TAIL_KEPT) return text.slice(0, REPLY_KEPT);
+  if (at <= REPLY_KEPT) return text;
+  return `${text.slice(0, REPLY_KEPT).trimEnd()}\n\n…\n\n${tail}`;
+}

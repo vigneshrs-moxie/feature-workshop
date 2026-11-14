@@ -383,3 +383,23 @@ test('the laptop’s permission card shows the command as it is, cut at 4,000 (t
   assert.equal(describePermission('Bash', { command: 'tool --password hunter2-long-value run' }).preview, 'tool --password hunter2-long-value run');
   assert.equal(describePermission('Bash', { command: 'npm test' }).preview, 'npm test', 'an ordinary command as it is');
 });
+
+test('Task 18: a long reply keeps its notes answered block in the audit, after the start it always kept', async () => {
+  const state = await tmpState();
+  const block = '--- Notes answered ---\n1. done · Plan v3 · step 4 removed\n--- End ---';
+  const long = `${'The brief goes on. '.repeat(600)}\n\n${block}`;
+  const queryFn = fakeSession(async function* () {
+    yield { type: 'system', subtype: 'init', session_id: 's-18', model: 'claude-opus-5-5', apiKeySource: 'none' };
+    yield { type: 'assistant', parent_tool_use_id: null, message: { content: [{ type: 'text', text: long }] } };
+    yield { type: 'result', subtype: 'success', is_error: false, result: 'brief', total_cost_usd: 0, permission_denials: [] };
+  });
+  const driver = new Driver({ queryFn, state, projectsDir: '/nonexistent' });
+  driver.idleGraceMs = 30;
+  const run = await driver.start({ featureDir: '/f/t18', slug: 't18', title: 'T18', cwd: '/repo', text: 'go' });
+  assert.equal((await until(driver, run.id, ['done', 'error'])).status, 'done');
+  const ended = (await state.auditFor('/f/t18')).find((e) => e.action === 'run-ended');
+  assert.ok(long.length > 8000);
+  assert.ok(ended.reply.startsWith('The brief goes on. '));
+  assert.ok(ended.reply.endsWith(block), 'the block at the end is kept');
+  assert.ok(ended.reply.length < long.length);
+});

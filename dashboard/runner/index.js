@@ -92,7 +92,7 @@ import { keepLatest, planDone } from '../lib/job-page.js';
 import { reviewRows } from '../lib/play.js';
 import { stopOf } from '../lib/stage-view.js';
 import { checkCounts } from '../lib/job-page.js';
-import { buildJobPage } from '../lib/job-payload.js';
+import { askedOf, buildJobPage } from '../lib/job-payload.js';
 import { bodyHash, itemSources, jobPageCache } from '../lib/job-payload-cache.js';
 import { inVersionsFolder, keepVersions } from '../lib/doc-versions.js';
 import { crewLogs, jobWork, runLines, workFacts } from '../lib/work-rows.js';
@@ -2355,6 +2355,8 @@ export async function createRunner(config) {
     for (const st of payload.steps) for (const o of [...st.outputs, ...st.more]) if (o.kind === 'doc' && !versionOf.has(o.id)) versionOf.set(o.id, o.version);
     const older = await keepVersions(f.dir, docs.map((d) => ({ file: d.file, name: d.name, version: versionOf.get(d.file) ?? null, text: d.text, type: d.type }))).catch(() => new Map());
     for (const st of payload.steps) for (const o of [...st.outputs, ...st.more]) if (o.kind === 'doc') o.versions = (older.get(o.id) ?? []).map(({ n, id }) => ({ n, id }));
+    // What you asked (R5): a change the Foreman shows in a version older than the one now opens that version.
+    if (payload.asked) payload.asked = askedOf(detail.threadAll, payload.steps);
     const versionDocs = [...older.entries()].flatMap(([of, list]) => list.map((v) => ({ file: v.id, name: v.name, type: 'md', text: v.text, updatedAt: v.updatedAt, size: v.text.length, summary: null, version: v.n, of })));
     // The whole conversation is here (the website's is cut to the newest 60: mirrorJobPage says more there).
     payload.rows.conversation.more = false;
