@@ -190,14 +190,16 @@ export interface TitleRowProps {
 
 export const TitleRow = memo(function TitleRow({ target, fallback, onOpen }: TitleRowProps) {
   // Each part reads only what it shows: a new conversation line elsewhere redraws none of it.
-  const head = useJob((s) => (target ? titleOf(target, s.payload, target.kind === 'doc' ? updatedOf(s.bodies[target.id]?.meta) : null) : null), (a, b) => a === b || (!!a && !!b && sameHead(a, b)));
+  // The conversation's count is its own part (ConversationItems): a new line draws that, not this row.
+  const convo = target?.kind === 'conversation';
+  const head = useJob((s) => (target ? titleOf(target, s.payload, target.kind === 'doc' ? updatedOf(s.bodies[target.id]?.meta) : null) : null), (a, b) => a === b || (!!a && !!b && (convo ? a.title === b.title && !a.meta === !b.meta : sameHead(a, b))));
   const near = useJob((s) => (target ? neighbours(target, s.payload) : { prev: null, next: null }), sameNeighbours);
   const older = useJob((s) => (target ? olderOf(target, s.payload) : null), sameOlder);
   return (
     <div className="jp2-rv-top">
       <div className="jp2-rv-tt">
         <h2 className="jp2-rv-title">{head?.title ?? fallback}</h2>
-        {head?.meta && <span className="jp2-rv-meta">{head.meta}</span>}
+        {convo ? <ConversationItems /> : head?.meta && <span className="jp2-rv-meta">{head.meta}</span>}
       </div>
       {target?.kind === 'doc' && <SinceToggle id={target.id} />}
       {target && older && <Older key={placeKey(target)} list={older} current={target} onOpen={onOpen} />}
@@ -209,6 +211,12 @@ export const TitleRow = memo(function TitleRow({ target, fallback, onOpen }: Tit
       )}
     </div>
   );
+});
+
+/** The conversation's `n items` in the title row: drawn by itself when a line arrives. */
+const ConversationItems = memo(function ConversationItems() {
+  const n = useJob((s) => s.payload?.rows.conversation.count ?? null);
+  return n === null ? null : <span className="jp2-rv-meta">{n} items</span>;
 });
 
 /** `What changed since v2` (R5, Task 18): on a document shown as it is now that has an older version; pressed, the reader marks the lines added and removed since. */

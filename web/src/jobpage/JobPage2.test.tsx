@@ -45,6 +45,22 @@ vi.mock('./left/YourMove', async (importOriginal) => {
   return { ...real, YourMove: memo((p: Parameters<typeof real.YourMove>[0]) => { drawn.move++; return createElement(real.YourMove, p); }) };
 });
 
+// Task 23 fix round (speed rule 5): what draws. Frame calls usePhoneMoves once per draw; every Button
+// draw is noted by its label (the reader's previous and next, the message box's Send).
+const draws = vi.hoisted(() => ({ frame: 0, buttons: [] as string[] }));
+vi.mock('./phone/PhoneJob2', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./phone/PhoneJob2')>();
+  return { ...real, usePhoneMoves: (...args: Parameters<typeof real.usePhoneMoves>) => { draws.frame++; return real.usePhoneMoves(...args); } };
+});
+vi.mock('../components/Button', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../components/Button')>();
+  const { createElement, forwardRef } = await import('react');
+  const Button = forwardRef((p: Record<string, unknown>, ref) => {
+    draws.buttons.push(String(p['aria-label'] ?? (typeof p.children === 'string' ? p.children : '') ?? ''));
+    return createElement(real.Button as never, { ...p, ref });
+  });
+  return { ...real, Button };
+});
 /** The next page read's answer, when a test sets one. */
 const nextPage = vi.hoisted(() => ({ make: null as null | (() => unknown) }));
 
@@ -561,6 +577,58 @@ describe('Task 10 fix round 1: the prototype’s step rule on the page', () => {
     fireEvent.click(stepRow('Ship'));
     expect(readerTitle()).toBe('Ship');
     expect(document.querySelector('.jp2-notyet')).toHaveTextContent('Nothing yet. This step has not started.');
+  });
+});
+
+describe('Task 23 fix round: only the part that changed draws (speed rule 5)', () => {
+  it('a newer snapshot row for the job, once the payload is in, draws nothing of the page', async () => {
+    window.history.replaceState(null, '', `/#/job/${SLUG}`);
+    const c = client();
+    const value = { api: c.api, store: createStore() };
+    const view = (row: Job) => <WorkshopContext.Provider value={value}><Routed row={row} /></WorkshopContext.Provider>;
+    const { rerender } = render(view(ROW));
+    await settle();
+    expect(screen.getByRole('heading', { level: 1, name: 'Crew schedule export' })).toBeInTheDocument();
+    draws.frame = 0; drawn.header = 0; drawn.move = 0;
+    // The app's snapshot came again (another job changed): the same job's row, a new object.
+    rerender(view({ ...ROW, cost: { totalUsd: 96.4 } }));
+    rerender(view({ ...ROW, headline: 'A newer headline' }));
+    expect(draws.frame).toBe(0);
+    expect([drawn.header, drawn.move]).toEqual([0, 0]);
+  });
+
+  it('before the payload, a newer row still draws the first paint', () => {
+    window.history.replaceState(null, '', `/#/job/${SLUG}`);
+    const c = client({ hold: true });
+    const value = { api: c.api, store: createStore() };
+    const view = (row: Job) => <WorkshopContext.Provider value={value}><Routed row={row} /></WorkshopContext.Provider>;
+    const { rerender } = render(view(ROW));
+    rerender(view({ ...ROW, title: 'Crew schedule export (renamed)' }));
+    expect(screen.getByRole('heading', { level: 1, name: 'Crew schedule export (renamed)' })).toBeInTheDocument();
+  });
+
+  it('a new line in the conversation draws its count and its line: not the frame, the header, Your move, the reader\'s title row or the message box', async () => {
+    open(`#/job/${SLUG}/conversation`);
+    await settle();
+    await settle();
+    expect(readerTitle()).toBe('Conversation');
+    nextPage.make = () => {
+      const p = payload();
+      const last = p.thread[p.thread.length - 1];
+      p.thread = [...p.thread, { ...last, id: 'reply:speed-check', kind: 'reply', mine: false, at: '2026-11-04T23:00:00.000Z', headline: 'One more reply', hash: 'h1' }];
+      p.rows = { ...p.rows, conversation: { ...p.rows.conversation, count: p.rows.conversation.count + 1 } };
+      p.v += 1;
+      return p;
+    };
+    draws.frame = 0; draws.buttons = []; drawn.header = 0; drawn.move = 0;
+    await act(async () => { await made.at(-1)!.store.loadPage(); });
+    await settle();
+    expect(screen.getByRole('button', { name: 'Conversation · 53' })).toBeInTheDocument();
+    expect(document.querySelector('.jp2-rv-meta')?.textContent).toBe('53 items');
+    expect(document.querySelector('[data-id="reply:speed-check"]')).not.toBeNull();
+    expect(draws.frame).toBe(0);
+    expect([drawn.header, drawn.move]).toEqual([0, 0]);
+    expect(draws.buttons.filter((b) => /^(Previous|Next)\b/.test(b) || b === 'Send')).toEqual([]);
   });
 });
 

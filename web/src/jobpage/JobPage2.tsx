@@ -119,6 +119,7 @@ function usePageStore(slug: string, given: JobStore | undefined, first: (s: JobS
         const p = mine.store.getState().payload;
         if (p && !p.hosted && !api.hosted?.() && p.steps.some((st) => st.outputs.some((o) => o.kind === 'changes'))) void loadCommits(mine.store, api, slug);
       });
+    });
     return () => { mine.ended = true; unkeep(); mine.store.destroy(); };
     // The page is keyed by the slug: the store lives as long as the page does.
   }, []);
@@ -130,6 +131,17 @@ function idle(fn: () => void) {
   const w = window as Window & { requestIdleCallback?: (cb: () => void) => number };
   if (typeof w.requestIdleCallback === 'function') w.requestIdleCallback(fn);
   else fn();
+}
+
+/**
+ * The jobs whose open page holds its payload. From then on the snapshot row is not drawn from (Frame
+ * keeps the first one), so a newer row (the app's snapshot comes again whenever any job changes) does
+ * not even run the page: only the part that changed draws (speed rule 5).
+ */
+const settled = new Map<string, number>();
+function sameProps(a: JobPage2Props, b: JobPage2Props): boolean {
+  return a.slug === b.slug && a.step === b.step && a.view === b.view && a.read === b.read && a.store === b.store
+    && (a.job === b.job || (a.job != null && b.job != null && (settled.get(b.slug) ?? 0) > 0));
 }
 
 export const JobPage2 = memo(function JobPage2({ slug, job, step, view, read, store: given }: JobPage2Props) {
@@ -144,7 +156,7 @@ export const JobPage2 = memo(function JobPage2({ slug, job, step, view, read, st
       <Frame slug={slug} job={job} step={step} view={view} read={read} />
     </JobStoreContext.Provider>
   );
-});
+}, sameProps);
 
 function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'>) {
   const store = useJobStore();
@@ -154,6 +166,11 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
   const firstRow = useRef(row);
   if (!hasPayload) firstRow.current = row;
   const job = firstRow.current;
+  useEffect(() => {
+    if (!hasPayload) return undefined;
+    settled.set(slug, (settled.get(slug) ?? 0) + 1);
+    return () => { const n = (settled.get(slug) ?? 1) - 1; if (n > 0) settled.set(slug, n); else settled.delete(slug); };
+  }, [slug, hasPayload]);
   // Over the left pane under 1100 px: open from a pick (or an address that names a reader target).
   const [covered, setCovered] = useState(() => addressTarget(view, read) !== null);
   const [cursor, setCursor] = useState<number | null>(null);

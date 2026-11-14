@@ -2,7 +2,7 @@
 // count and what is new since his last look, Decisions made for him, Details. Built against the
 // made-up long job.
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../../api/client';
 import { writeStored } from '../../lib/stored';
 import { longJob } from '../fixtures/longJob';
@@ -11,6 +11,13 @@ import { readerOf } from '../targets';
 import type { JobPagePayload, ReaderTarget, ThreadLine } from '../types';
 import { JobStoreContext } from '../useJob';
 import { freshCount, JobRows, seenKey } from './JobRows';
+
+// Each row ends in the phone's chevron: its draws count the rows drawn (Task 23 fix round, speed rule 5).
+const chevrons = vi.hoisted(() => ({ n: 0 }));
+vi.mock('../phone/PhoneJob2', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../phone/PhoneJob2')>();
+  return { ...real, PhoneChevron: () => { chevrons.n++; return real.PhoneChevron(); } };
+});
 
 const SLUG = longJob.payload.slug;
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
@@ -93,6 +100,15 @@ describe('Task 23 fix round: a new line in the conversation', () => {
     p.v += 1;
     return p;
   };
+
+  it('redraws the Conversation row only (speed rule 5): no other row draws again', async () => {
+    writeStored(seenKey(SLUG), '2026-11-04T15:00:00.000Z');
+    const store = mountWithNext(withOneMore());
+    chevrons.n = 0;
+    await act(async () => { await store.loadPage(); });
+    expect(names()).toEqual(['Ticket and goal', 'Conversation · 53 · 1 new', 'Decisions · 13 made for you', 'Details']);
+    expect(chevrons.n).toBe(1);
+  });
 
   it('what is new sits after the row\'s name, and the count stays at the end of the row, so neither moves the other (speed rule 3)', async () => {
     writeStored(seenKey(SLUG), '2026-11-04T15:00:00.000Z');

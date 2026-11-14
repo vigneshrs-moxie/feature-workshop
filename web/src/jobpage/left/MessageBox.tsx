@@ -159,13 +159,10 @@ export const MessageBox = memo(function MessageBox({ boxRef, onOpen }: MessageBo
   const running = Boolean(run && ACTIVE.has(run.status ?? ''));
   const narrow = useNarrow();
   const hosted = useJob((s) => s.payload?.hosted === true);
-  const v = useJob((s) => s.payload?.v ?? 0);
   const waitText = useJob((s) => s.payload?.waiting?.text ?? null);
   const waitWhy = useJob((s) => s.payload?.waiting?.why ?? null);
   const waitAt = useJob((s) => s.payload?.waiting?.at ?? null);
   const waitToBox = useJob((s) => s.payload?.waiting?.toBox === true);
-  const vNow = useRef(v);
-  vNow.current = v;
   /**
    * What he made wait, shown at once, until a payload newer than the server's answer says how it stands
    * (`afterV`: the payload's v when the answer came; null: not answered yet). `cancelled` the same for Cancel.
@@ -175,6 +172,10 @@ export const MessageBox = memo(function MessageBox({ boxRef, onOpen }: MessageBo
   const [stopping, setStopping] = useState(false);
   /** His Send on a message kept or held back: on its way (until a payload newer than the answer). */
   const [going, setGoing] = useState<{ afterV: number | null } | null>(null);
+  // The payload's v, read only while something above waits on it: any other new payload (a line in the
+  // conversation) does not draw the box (speed rule 5).
+  const v = useJob((s) => (mine || cancelled || going ? s.payload?.v ?? 0 : -1));
+  const vNow = () => store.getState().payload?.v ?? 0;
   const fresh = (x: { afterV: number | null } | null) => Boolean(x && (x.afterV === null || x.afterV === v));
   // The payload's message wins when it is the same words (it may carry a why the answer did not).
   const waits: { text: string; why: string | null; toBox: boolean } | null = fresh(cancelled) ? null
@@ -306,7 +307,7 @@ export const MessageBox = memo(function MessageBox({ boxRef, onOpen }: MessageBo
     setNoTerminal(false);
     const kept = Boolean(r && typeof r === 'object' && r.waiting);
     setPhase(kept ? 'idle' : 'sent');
-    setMine(kept ? { text: message, afterV: vNow.current } : null);
+    setMine(kept ? { text: message, afterV: vNow() } : null);
     return kept ? 'waiting' : 'sent';
   }, [api, store, slug, noTerminal, focusBox]);
 
@@ -324,7 +325,7 @@ export const MessageBox = memo(function MessageBox({ boxRef, onOpen }: MessageBo
       setLine({ words: `Not cancelled: ${err instanceof TypeError ? UNREACHABLE : err instanceof Error ? err.message : String(err)}`, problem: true });
       return;
     }
-    setCancelled({ afterV: vNow.current });
+    setCancelled({ afterV: vNow() });
     if (!r?.cancelled) { setLine({ words: GONE_ALREADY, problem: false }); return; }
     const now = store.getState().ui.draft;
     if (!now.trim()) store.setDraft(text);
@@ -343,7 +344,7 @@ export const MessageBox = memo(function MessageBox({ boxRef, onOpen }: MessageBo
       setLine({ words: sendRefusal(err), problem: true });
       return;
     }
-    setGoing({ afterV: vNow.current });
+    setGoing({ afterV: vNow() });
     const why = r?.waiting?.why;
     if (why) setLine({ words: `Not sent: ${why}`, problem: true });
   }, [api, slug]);
@@ -365,7 +366,7 @@ export const MessageBox = memo(function MessageBox({ boxRef, onOpen }: MessageBo
         movedAt.current = null;
         return;
       }
-      setCancelled({ afterV: vNow.current });
+      setCancelled({ afterV: vNow() });
       if (!r?.cancelled) return;
       store.setDraft(withWordsBack(store.getState().ui.draft, text));
       setLine({ words: TO_BOX, problem: false });

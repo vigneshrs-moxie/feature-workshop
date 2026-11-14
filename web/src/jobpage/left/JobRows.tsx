@@ -7,7 +7,7 @@
 // `sb.convo.seen.<slug>` (the old page's key, job/page/ConversationPanel.tsx seenKey, so the two
 // agree); the conversation moves it on, and the count follows at once (lib/stored.ts).
 
-import { memo, useMemo } from 'react';
+import { memo } from 'react';
 import { useStored } from '../../lib/stored';
 import { CONVERSATION, DECISIONS, DETAILS, readerOf, sameTarget, TICKET } from '../targets';
 import type { ReaderTarget, ThreadLine } from '../types';
@@ -42,42 +42,63 @@ export interface JobRowsProps {
 }
 
 export const JobRows = memo(function JobRows({ cursor, first, onOpen }: JobRowsProps) {
-  const slug = useJob((s) => s.slug);
   const target = useJob(readerOf, sameTarget);
-  const convo = useJob((s) => s.payload?.rows.conversation ?? null);
   const decided = useJob((s) => s.payload?.rows.decisions.count ?? null);
-  const thread = useJob((s) => s.payload?.thread ?? null);
-  const [seenAt] = useStored(seenKey(slug));
-  const fresh = useMemo(() => (thread ? freshCount(thread, seenAt) : 0), [thread, seenAt]);
-
-  const count = convo && convo.count > 0 ? `${convo.count}${convo.more ? '+' : ''}` : null;
-  const rows: { t: ReaderTarget; name: string; more: string | null; fresh?: string | null }[] = [
+  const rows: { t: ReaderTarget; name: string; more: string | null }[] = [
     { t: TICKET, name: 'Ticket and goal', more: null },
-    { t: CONVERSATION, name: 'Conversation', more: count, fresh: count && fresh > 0 ? `${fresh} new` : null },
+    { t: CONVERSATION, name: 'Conversation', more: null },
     { t: DECISIONS, name: 'Decisions', more: decided ? `${decided} made for you` : null },
     { t: DETAILS, name: 'Details', more: null },
   ];
   return (
     <div className="jp2-jrs" role="group" aria-label="The job">
       {rows.map((r, i) => {
-        const label = [r.name, r.more, r.fresh].filter(Boolean).join(' · ');
+        const cls = `jp2-row jp2-jr${target?.kind === r.t.kind ? ' is-sel' : ''}${cursor === first + i ? ' is-cursor' : ''}`;
+        // The Conversation row draws by itself: a new line redraws it and nothing else here (speed rule 5).
+        if (r.t.kind === CONVERSATION.kind) return <ConversationRow key={r.t.kind} className={cls} line={first + i} onOpen={onOpen} />;
         return (
           <button
             key={r.t.kind}
             type="button"
-            className={`jp2-row jp2-jr${target?.kind === r.t.kind ? ' is-sel' : ''}${cursor === first + i ? ' is-cursor' : ''}`}
+            className={cls}
             data-jp-line={first + i}
-            aria-label={r.more ? label : undefined}
+            aria-label={r.more ? [r.name, r.more].join(' · ') : undefined}
             onClick={(e) => onOpen(r.t, e.currentTarget)}
           >
             {r.name}
-            {/* What is new right after the name, the count at the row's end: neither moves the other (speed rule 3). */}
-            {r.fresh && <span className="jp2-jr-new">{r.fresh}</span>}
             {r.more && <span className="jp2-jr-more">{r.more}</span>}
             <PhoneChevron />
           </button>
         );
       })}
     </div>
+  );
+});
+
+/**
+ * `Conversation · 52 · 1 new`: the count and what is new since his last look. What is new sits right
+ * after the name and the count at the row's end, so neither ever moves the other (speed rule 3).
+ */
+const ConversationRow = memo(function ConversationRow({ className, line, onOpen }: { className: string; line: number; onOpen: JobRowsProps['onOpen'] }) {
+  const slug = useJob((s) => s.slug);
+  const convo = useJob((s) => s.payload?.rows.conversation ?? null, (a, b) => a === b || (!!a && !!b && a.count === b.count && a.more === b.more));
+  const [seenAt] = useStored(seenKey(slug));
+  // A number, so only a changed count draws the row again.
+  const fresh = useJob((s) => (s.payload ? freshCount(s.payload.thread, seenAt) : 0));
+  const count = convo && convo.count > 0 ? `${convo.count}${convo.more ? '+' : ''}` : null;
+  const news = count && fresh > 0 ? `${fresh} new` : null;
+  return (
+    <button
+      type="button"
+      className={className}
+      data-jp-line={line}
+      aria-label={count ? ['Conversation', count, news].filter(Boolean).join(' · ') : undefined}
+      onClick={(e) => onOpen(CONVERSATION, e.currentTarget)}
+    >
+      Conversation
+      {news && <span className="jp2-jr-new">{news}</span>}
+      {count && <span className="jp2-jr-more">{count}</span>}
+      <PhoneChevron />
+    </button>
   );
 });
