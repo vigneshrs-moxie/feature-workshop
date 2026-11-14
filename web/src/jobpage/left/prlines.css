@@ -1,0 +1,23 @@
+/* The PR lines (left/PrLines.tsx; design brief R2; prototype rev 3 .prl): one line per PR, its one
+   button at the end; the first click opens what will go under it, with the yes and Cancel. */
+.jp2-prl { display: flex; flex-direction: column; padding: 0 8px 4px 26px; }
+.jp2-prl-line { padding: 4px 0; border-bottom: 1px solid var(--border-1); }
+.jp2-prl-line:last-of-type { border-bottom: 0; }
+.jp2-prl-l { display: flex; align-items: center; gap: 8px; min-height: 28px; font-size: 13px; line-height: 18px; }
+.jp2-prl-n { flex: none; font-weight: 600; color: var(--text-1); }
+.jp2-prl-s { min-width: 0; color: var(--text-2); overflow-wrap: anywhere; }
+.jp2-prl-b { flex: none; margin-left: auto; }
+.jp2-prl-x { margin: 6px 0 4px; padding: 8px 10px; border: 1px solid var(--border-1); border-radius: 8px; background: var(--surface-1); font-size: 13px; line-height: 19px; }
+.jp2-prl-says { margin: 0 0 8px; padding: 0; list-style: none; color: var(--text-1); overflow-wrap: anywhere; }
+.jp2-prl-says li.is-commit { padding-left: 12px; font-family: var(--font-mono); font-size: 12px; color: var(--text-2); }
+.jp2-prl-acts { display: flex; gap: 6px; }
+.jp2-prl-done { margin: 2px 0 4px; font-size: 12.5px; color: var(--text-1); }
+.jp2-prl-problem { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 2px 0 4px; font-size: 12.5px; line-height: 18px; color: var(--status-error); }
+.jp2-prl-read { display: flex; align-items: center; gap: 8px; min-height: 28px; font-size: 12px; color: var(--text-3); }
+.jp2-prl-gh.is-problem { color: var(--status-error); font-weight: 500; }
+.jp2-prl-read .btn { margin-left: auto; }
+.jp2-prl-note { margin: 10px 0 0; font-size: 12.5px; color: var(--text-3); }
+/* In the reader the lines take the reader's width, not the left pane's indent */
+.jp2-rv-body .jp2-prl { max-width: 720px; padding: 0; }
+.jp2-rv-body .jp2-prl-l { font-size: 14px; }
+.jp2[data-layout="phone"] .jp2-prl-l { min-height: 44px; font-size: 15px; }

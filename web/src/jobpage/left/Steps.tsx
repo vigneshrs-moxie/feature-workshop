@@ -15,6 +15,9 @@
 // Before the payload lands the rows come from the Jobs snapshot's row (names and states, no words
 // for done or current steps, no outputs), so they paint at once and the payload fills them in place.
 //
+// The open Ship step lists PR #1, #2 and #3 as lines with their one next action instead of its PR
+// outputs (Task 20, left/PrLines.tsx).
+//
 // On the phone's job screen (`phone`, Task 15) every step is one line ending in a › that opens the
 // step's own screen (phone/PhoneStep.tsx): no outputs under the current step, no duration.
 
@@ -28,6 +31,7 @@ import type { JobState, Output, ReaderTarget, StepRow, StopId } from '../types';
 import { useJob } from '../useJob';
 import { sinceWords } from './YourMove';
 import { PhoneChevron } from '../phone/PhoneJob2';
+import { PrLines } from './PrLines';
 
 /** The seven steps before the payload, from the snapshot row: names and states only. */
 export function stepsFromRow(job: Job | null): StepRow[] {
@@ -60,6 +64,35 @@ export function durationOf(step: StepRow): string | null {
   if (step.durationMs !== null) return spentWords(step.durationMs);
   const since = step.state === 'current' ? sinceWords(step.startedAt) : null;
   return since ? `since ${since}` : null;
+}
+
+/**
+ * The open Ship step (Task 20, R2): PR #1, #2 and #3 as lines with their one next action
+ * (left/PrLines.tsx), after any other thing it made.
+ */
+function ShipOutputs({ step, target, onOpen }: { step: StepRow; target: ReaderTarget | null; onOpen(t: ReaderTarget, from: HTMLElement): void }) {
+  const others = step.outputs.filter((o) => o.kind !== 'pr');
+  return (
+    <>
+      {others.length > 0 && (
+        <ul className="jp2-st-outs">
+          {others.map((o) => {
+            const t = outputTarget(o);
+            const meta = outMeta(o);
+            return (
+              <li key={`${o.kind}:${o.id}`}>
+                <button type="button" className={`jp2-row jp2-st-out${sameTarget(t, target) ? ' is-sel' : ''}`} onClick={(e) => onOpen(t, e.currentTarget)}>
+                  <span className="jp2-out-label">{o.label}</span>
+                  {meta && <span className="jp2-out-meta">{meta}</span>}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <PrLines />
+    </>
+  );
 }
 
 export const outMeta = (o: Output) => [o.version ? `v${o.version}` : null, o.meta].filter(Boolean).join(' · ') || null;
@@ -116,7 +149,8 @@ export const Steps = memo(function Steps({ job, cursor, onStep, onOpen, phone = 
               {word && <span className="jp2-st-word">{word}</span>}
               <PhoneChevron />
             </button>
-            {isOpen && steps && (s.outputs.length > 0 ? (
+            {isOpen && steps && s.id === 'ship' && <ShipOutputs step={s} target={target} onOpen={onOpen} />}
+            {isOpen && steps && s.id !== 'ship' && (s.outputs.length > 0 ? (
               <ul className="jp2-st-outs">
                 {s.outputs.map((o) => {
                   const t = outputTarget(o);

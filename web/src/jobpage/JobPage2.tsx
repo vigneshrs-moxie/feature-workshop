@@ -53,6 +53,7 @@ import { JobRows } from './left/JobRows';
 import { AsksRow, useAskRunner } from './left/AsksRow';
 import { MessageBox } from './left/MessageBox';
 import { Steps, stepsFromRow } from './left/Steps';
+import { usePrLead, usePrOpeningRead } from './left/PrLines';
 import { YourMove } from './left/YourMove';
 import { stepLine } from './reader/ConversationView';
 import { Reader } from './reader/Reader';
@@ -215,6 +216,11 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
     showReader(from);
   }, [store, slug, showReader, phone, moves, leavingJob]);
 
+  // R2 (Task 20, left/PrLines.tsx): GitHub is read as the page opens (when the last read is old), and the
+  // PR's next action leads the asks row while the Ship step is not the open one.
+  usePrOpeningRead();
+  const prLead = usePrLead(pickReader);
+
   /** A click (or Enter) on a step: it opens, and its main output shows in the reader (on the phone: the step's screen). */
   const openStep = useCallback((id: StopId, from?: HTMLElement | null) => {
     if (phone) leavingJob(from);
@@ -325,7 +331,7 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
             {/* Tasks 20 and 21: the phone's PR line goes here, ending in `Comments · 3 new` (it opens the PR view). */}
             <JobRows cursor={cursor} first={lines.findIndex((l) => l.target)} onOpen={pickReader} />
           </div>
-          <AsksRow runner={asks} job={job} phone={phone} />
+          <AsksRow runner={asks} job={job} phone={phone} lead={prLead.lead} onLead={prLead.onLead} />
           <MessageBox boxRef={box} onOpen={pickReader} />
         </div>
         {screenNow === 'step' && step && <PhoneStep id={step} job={job} onBack={moves.back} onOpen={pickReader} />}

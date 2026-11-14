@@ -295,19 +295,23 @@ export interface AsksRowProps {
   phone?: boolean;
   /** Tasks 20 and 22: the PR's next action, first in the row while the Ship step is not open. */
   lead?: Ask | null;
+  /** What the lead's click does instead of sending (Task 20: opens the PR's line with what will go; left/PrLines.tsx). */
+  onLead?: (a: Ask) => void;
 }
 
-export const AsksRow = memo(function AsksRow({ runner, job, phone = false, lead = null }: AsksRowProps) {
+export const AsksRow = memo(function AsksRow({ runner, job, phone = false, lead = null, onLead }: AsksRowProps) {
   const step = useJob((s) => s.ui.step ?? (s.payload ? s.payload.steps : stepsFromRow(job)).find((x) => x.state === 'current')?.id ?? null);
   const locked = useJob((s) => Boolean(s.payload?.lock));
   const line = useSyncExternalStore(runner.subscribe, runner.getState, runner.getState);
   const row = rowFor(step, lead);
   const [tip, setTip] = useState<Ask | null>(null);
   const tipId = useId();
+  // The lead never sends from the row: its click opens what it will do first (two clicks, as on its line).
+  const press: AskRunner = lead && onLead ? { ...runner, run: (a: Ask) => (a.id === lead.id ? onLead(a) : runner.run(a)) } : runner;
   return (
     <div className="jp2-asks" role="group" aria-label="Asks">
       <div className="jp2-asks-in">
-        <AskButtons key={row.map((a) => a.id).join(' ')} row={row} phone={phone} locked={locked} tipId={tipId} tip={tip} onTip={setTip} runner={runner} />
+        <AskButtons key={row.map((a) => a.id).join(' ')} row={row} phone={phone} locked={locked} tipId={tipId} tip={tip} onTip={setTip} runner={press} />
         {!phone && (
           <Button kind="quiet" size="sm" className="jp2-asks-more" onClick={() => pressKey('jp-palette')} title={`Every ask and the page’s places, with a search field (${paletteKeyLabel()}).`}>
             {paletteKeyLabel()}

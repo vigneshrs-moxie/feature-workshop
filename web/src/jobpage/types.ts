@@ -109,14 +109,44 @@ export interface PermissionMove {
 
 export type Move = GateMove | QuestionMove | PermissionMove;
 
+/** A PR line's one next action (R2, dashboard/lib/pr-lines.js): what its yes sends to the Foreman and what will go. */
+export interface PrNext {
+  id: 'push-open' | 'open-pr1' | 'push-update' | 'open-pr2' | 'request-review';
+  /** The line's button: `Push and open PR #1`, `Push update (2 commits)`, `Open PR #2`, `Request review`. */
+  label: string;
+  /** The yes button, under what will go: `Push and open`, `Push`. */
+  go: string;
+  /** What will go, line by line: the commits (`abc1234 subject`), from which branch to which, the title. */
+  says: string[];
+  /** The exact sentence the Foreman gets. */
+  sends: string;
+  /** The server sends only while the line still gives this (12 hex). */
+  check: string;
+}
+
 export interface PrLine {
   n: 1 | 2 | 3;
   number: number | null;
   url: string | null;
+  /** Absent from an older Starbase. */
+  title?: string | null;
   state: string;
   word: string;
-  next: null | { id: string; label: string; says: string[] };
+  /** Merged: when; open: when it was opened. Absent from an older Starbase. */
+  at?: string | null;
+  next: null | PrNext;
+  /** Why the line has no button, or what it waits for (`after PR #1 is merged`, `Sent to the Foreman`). */
+  why?: string | null;
   comments: null | { fresh: number; total: number };
+}
+
+/** When GitHub was last read for the PR lines (the flow map's read), and why it could not be. */
+export interface GithubRead {
+  at: string | null;
+  triedAt: string | null;
+  reading: boolean;
+  problem: string | null;
+  run: string | null;
 }
 
 /**
@@ -175,6 +205,8 @@ export interface JobPagePayload {
   /** R8 (Task 16): the one message waiting for the Foreman (dashboard/lib/queued.js); why: a refusal when it was time to send. */
   waiting: null | { text: string; at: string; why: string | null; toBox?: true };
   prs: PrLine[];
+  /** R2 (Task 20): the GitHub read the PR lines come from; null when none is known (the website). Absent from an older Starbase. */
+  github?: GithubRead | null;
   hosted: boolean;
   /** The hashes of the bodies no line or output names (the ticket and goal, the decisions list): a kept
    *  copy whose hash moved on is dropped. Absent from an older Starbase. */

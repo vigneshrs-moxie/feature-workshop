@@ -1,4 +1,4 @@
-// The new job page's two reads (dashboard/site/routes-job-page.js), through the app's own client,
+// The new job page's reads (dashboard/site/routes-job-page.js), through the app's own client,
 // so the laptop and the website ask the same way (plain GETs; the website's session cookie rides
 // along with credentials: 'same-origin').
 
@@ -10,6 +10,8 @@ export interface JobApi {
   page(slug: string, v: number | null, viewer?: string | null): Promise<JobPagePayload | SamePage>;
   /** One body by its id. */
   item(slug: string, id: string, viewer?: string | null): Promise<JobBody>;
+  /** R2 (Task 20): the page opened: GitHub is read in the background when the last read is over two minutes old (the laptop decides). */
+  prRead?(slug: string): Promise<unknown>;
 }
 
 const jobPath = (slug: string) => `/api/job/${encodeURIComponent(slug)}`;
@@ -25,6 +27,7 @@ export function jobApi(client: ApiClient): JobApi {
   return {
     page: (slug, v, viewer) => client.get(`${jobPath(slug)}/page${query({ v, viewer })}`),
     item: (slug, id, viewer) => client.get(`${jobPath(slug)}/item${query({ id, viewer })}`),
+    prRead: (slug) => client.get(`${jobPath(slug)}/pr/1?read=old`),
   };
 }
 

@@ -5,8 +5,8 @@
 // Views: a message or a brief (MessageView), a document (DocView), Ticket and goal (TicketView),
 // Decisions (DecisionsView), a step with nothing written yet (NotYet), the conversation
 // (ConversationView: one line per item, folded), Changes (ChangesView: commits, files, the diff),
-// Findings, Checks and recording with Your hand test, and Details (Task 14). The walkthrough, Ship and
-// a PR come with Task 20.
+// Findings, Checks and recording with Your hand test, and Details (Task 14). Ship (its PR lines) and a
+// PR (its line) are Task 20's (left/PrLines.tsx); the walkthrough comes later.
 //
 // Each view is drawn fresh for each thing read (keyed by it) inside ReaderBody, which keeps every
 // thing's own scroll place. A body held in the store paints in the same frame as the pick; one not held
@@ -25,6 +25,7 @@ import { DocView } from './DocView';
 import { FindingsView } from './FindingsView';
 import { MessageView } from './MessageView';
 import { PictureView } from '../notes/Pins';
+import { PrLines } from '../left/PrLines';
 import { ReaderBody } from './ReaderBody';
 import { TicketView } from './TicketView';
 import { placeKey, TitleRow } from './TitleRow';
@@ -72,10 +73,17 @@ function View({ target, searchRef, onOpen }: { target: ReaderTarget } & Pick<Rea
       return <PictureView id={target.id} />;
     case 'not-yet':
       return <ReaderBody view="not-yet" place={placeKey(target)}><NotYet id={target.id} /></ReaderBody>;
+    // Task 20 (R2): Ship is its PR lines; a PR's own view is its line (Task 21 adds its comments).
+    case 'ship':
+      return <ReaderBody view="ship" place={placeKey(target)}><PrLines note /></ReaderBody>;
+    case 'pr':
+      return <ReaderBody view="pr" place={placeKey(target)}><PrLines only={prOf(target.id)} /></ReaderBody>;
     default:
       return <ReaderBody view={target.kind} place={placeKey(target)}><p className="jp2-dim">This view comes in a later build of the new page.</p></ReaderBody>;
   }
 }
+
+const prOf = (id: string): 1 | 2 | 3 => (id === '2' ? 2 : id === '3' ? 3 : 1);
 
 /** A step that has written nothing (yet): what it is doing, said plainly. */
 function NotYet({ id }: { id: string }) {

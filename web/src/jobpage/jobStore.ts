@@ -135,6 +135,8 @@ export interface JobStore {
   loadBody(id: string): Promise<JobBody | null>;
   /** Fetch the bodies not held yet, one at a time, in prefetchOrder; stops quietly at the first failure. */
   prefetch(): Promise<void>;
+  /** R2 (Task 20): the page opened: ask the laptop to read GitHub for the PR lines when its last read is old. Never on the website. */
+  readGithubIfOld(): void;
   /** One event from the app's stream (the store taps it itself; exposed for the page and tests). */
   onEvent(e: LiveEvent): void;
   setStep(step: StopId | null): void;
@@ -542,6 +544,11 @@ export function createJobStore(slug: string, { api = createApi(), events = onLiv
     loadPage,
     loadBody,
     prefetch,
+    readGithubIfOld() {
+      if (hosted() || !reads.prRead) return;
+      // A failure (an older Starbase, no answer) changes nothing on the page.
+      void reads.prRead(slug).catch(() => {});
+    },
     onEvent,
     setStep(step) { if (state.ui.step !== step) setUi({ step }); },
     setReader(reader) { if (!sameTarget(state.ui.reader, reader)) setUi({ reader }); },
