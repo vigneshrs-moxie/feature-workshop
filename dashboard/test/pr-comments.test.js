@@ -278,3 +278,10 @@ test('the read: GitHub not answering keeps what was read and says so', async () 
   assert.equal(pr.rows.length, 4, 'the rows last read stay');
   assert.match(pr.problem, /^GitHub couldn’t be read: /);
 });
+
+test('git reads: cat-file -p and merge-base --is-ancestor only in those forms (lib/review-round.js gitRead)', async () => {
+  const { gitRead } = await import('../lib/review-round.js');
+  for (const args of [['cat-file', '--batch'], ['cat-file', '-p', '--filters', 'x'], ['cat-file', '-p', '-x'], ['merge-base', 'a', 'b'], ['merge-base', '--is-ancestor', '--fork-point', 'b'], ['push', 'origin']]) {
+    assert.equal((await gitRead(os.tmpdir(), args)).err, 'not a read', args.join(' '));
+  }
+});

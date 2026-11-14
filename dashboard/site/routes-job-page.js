@@ -16,6 +16,13 @@
 //   POST /api/job/:slug/pr/:n/go { id, check, confirmNoTerminal? }   his yes to the line's next action: its
 //                                     fixed sentence goes to the Foreman when the line still says the same
 //                                     (lib/pr-lines.js), else 409 and nothing is sent → { ok, sent, text, run }
+//   POST /api/job/:slug/pr/:n/fix { ids }        Fix these (Task 21): one message quoting each ticked comment goes to
+//                                     the Foreman; the rows show Fixing → { ok, sent, text, run }
+//   POST /api/job/:slug/pr/:n/ask { ids }        What is he asking?: the same comments, to be explained in words
+//   POST /api/job/:slug/pr/:n/leave { ids }      Leave: the rows show Left; nothing is sent
+//   POST /api/job/:slug/pr/:n/fix-check { name } Fix it: a failed check's failing lines go to the Foreman
+//   POST /api/job/:slug/pr/:n/reply { id, body } Post it: his reply posted on GitHub (lib/gh-write.js, his yes) → { ok, posted }
+//                                     (lib/pr-comments.js; only rows the page was shown: else 409 and nothing goes)
 // The PR routes are this computer's only (the runner's `local.prs`): on the website they are a 404.
 // viewer: the id of the page's event stream (its first event, `viewer` { id }, from /api/events?v=2).
 // It tells the runner this job is open, so changes rebuild it at once; without it the job is rebuilt
@@ -35,6 +42,13 @@ const viewerOf = (url) => {
 };
 
 const PR = /^\/api\/job\/([^/]+)\/pr\/([1-3])/;
+const ROW_ID = /^[cri]\d{1,20}$/;
+/** The ticked rows' ids: 1 to 100 of them, each a comment's id (`c901`, `r55`, `i77`). */
+const idsOf = (body) => {
+  const ids = Array.isArray(body?.ids) ? body.ids.filter((x) => typeof x === 'string' && ROW_ID.test(x)) : [];
+  if (!ids.length || ids.length !== body.ids.length || ids.length > 100) throw new HttpError(400, 'Say which comments (ids).');
+  return [...new Set(ids)];
+};
 const prsOf = (local) => {
   if (!local?.prs) throw new HttpError(404, `Pull requests are read and acted on from ${PRODUCT} on your own computer.`);
   return local.prs;
@@ -77,6 +91,27 @@ export default function jobPageRoutes({ read, sendJson, local }) {
         const check = str(body?.check, 40);
         if (!id || !/^[0-9a-f]{12}$/.test(check)) throw new HttpError(400, 'Say which action and the check the line gave (id, check).');
         return sendJson(res, 200, await prsOf(local).go(m[1], Number(m[2]), { id, check, confirmNoTerminal: body?.confirmNoTerminal === true }));
+      },
+    },
+    {
+      method: 'POST', path: new RegExp(`${PR.source}\\/(fix|ask|leave)$`),
+      run: async ({ res, m, body }) => sendJson(res, 200, await prsOf(local).comments(m[1], Number(m[2]), m[3], { ids: idsOf(body), confirmNoTerminal: body?.confirmNoTerminal === true })),
+    },
+    {
+      method: 'POST', path: new RegExp(`${PR.source}\\/fix-check$`),
+      run: async ({ res, m, body }) => {
+        const name = str(body?.name, 200);
+        if (!name) throw new HttpError(400, 'Say which check (name).');
+        return sendJson(res, 200, await prsOf(local).fixCheck(m[1], Number(m[2]), { name, confirmNoTerminal: body?.confirmNoTerminal === true }));
+      },
+    },
+    {
+      method: 'POST', path: new RegExp(`${PR.source}\\/reply$`),
+      run: async ({ res, m, body }) => {
+        const id = str(body?.id, 30);
+        const text = str(body?.body, 60000).trim();
+        if (!ROW_ID.test(id) || !text) throw new HttpError(400, 'Say which comment and the reply (id, body).');
+        return sendJson(res, 200, await prsOf(local).reply(m[1], Number(m[2]), { id, body: text }));
       },
     },
   ];

@@ -37,13 +37,22 @@ import { writeFileAtomic } from './atomic-write.js';
 // N's record: the items a round takes are marked 'round', so N never cards them too.
 const noteRound = (dir, key) => noteFeedback(dir, key, { state: 'round' });
 
-const READ_GIT = new Set(['rev-list', 'log', 'rev-parse', 'remote', 'status', 'diff']);
-/** Read-only git in a job's worktree (counts and commit lines for the words): never a write. */
+const READ_GIT = new Set(['rev-list', 'log', 'rev-parse', 'remote', 'status', 'diff', 'cat-file', 'merge-base']);
+/**
+ * Read-only git in a job's worktree (counts and commit lines for the words): never a write. `cat-file -p` (a file
+ * at a commit: the code lines a PR comment sits on, lib/pr-comments.js) and `merge-base --is-ancestor` (is a
+ * commit on the branch) only in those forms.
+ */
 export function gitRead(dir, args, { timeout = 15000 } = {}) {
-  if (!READ_GIT.has(args[0]) || (args[0] === 'remote' && args[1] !== 'get-url')) return Promise.resolve({ ok: false, out: '', err: 'not a read' });
+  const operands = () => args.slice(2).every((x) => !String(x).startsWith('-'));
+  const odd = (args[0] === 'remote' && args[1] !== 'get-url')
+    || (args[0] === 'cat-file' && (args[1] !== '-p' || args.length !== 3 || !operands()))
+    || (args[0] === 'merge-base' && (args[1] !== '--is-ancestor' || args.length !== 4 || !operands()));
+  if (!READ_GIT.has(args[0]) || odd) return Promise.resolve({ ok: false, out: '', err: 'not a read' });
   return new Promise((resolve) => {
     execFile('git', ['-C', dir, ...args], { timeout, maxBuffer: 4 * 1024 * 1024, windowsHide: true, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' } },
-      (err, stdout, stderr) => resolve({ ok: !err, out: String(stdout ?? ''), err: err ? String(stderr || err.message).split('\n')[0] : null }));
+      // code: git's exit code (merge-base --is-ancestor answers 1 for "no"), null when it didn't run to an end.
+      (err, stdout, stderr) => resolve({ ok: !err, out: String(stdout ?? ''), err: err ? String(stderr || err.message).split('\n')[0] : null, code: err ? (typeof err.code === 'number' ? err.code : null) : 0 }));
   });
 }
 

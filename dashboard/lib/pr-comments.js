@@ -29,6 +29,7 @@
 //
 // Nothing here writes to GitHub: Post it is lib/gh-write.js's reply, on his click (runner/index.js).
 
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { writeFileAtomic } from './atomic-write.js';
@@ -402,7 +403,7 @@ export function createPrComments(deps) {
    */
   async function factsOf(f, thread = []) {
     const prs = raw.get(f.slug);
-    if (!prs || !prs.size) return {};
+    if (!prs || !prs.size) { last.delete(f.slug); return {}; }
     const kept = await readKept(f.dir);
     const answers = answersOf(thread);
     const rounds = (await deps.rounds?.(f.dir).catch(() => [])) ?? [];
@@ -420,10 +421,16 @@ export function createPrComments(deps) {
       const verdict = round?.reviewState
         ? { by: round.reviewer ?? null, state: String(round.reviewState).toLowerCase(), at: round.reviewAt ?? null }
         : review ? { by: review.author, state: String(review.reviewState).toLowerCase(), at: review.at ?? null } : null;
-      out[p.n] = { n: p.n, number: p.number, url: p.url, rows, checks, verdict, readAt: p.readAt ?? kept.readAt, problem: p.problem, ...countsOf(rows), failing: checks.length };
+      const since = rows.filter((r) => r.state === 'new').map((r) => r.at).filter(Boolean).sort()[0] ?? null;
+      const body = { number: p.number, url: p.url, rows, checks, verdict, readAt: p.readAt ?? kept.readAt, problem: p.problem };
+      // v: the rows' version (the page asks for them again when it moves; a new read moves it, so `read just now` shows).
+      const v = createHash('sha1').update(JSON.stringify(body)).digest('hex').slice(0, 12);
+      out[p.n] = { n: p.n, ...body, ...countsOf(rows), failing: checks.length, since, v };
     }
+    last.set(f.slug, out);
     return out;
   }
+  const last = new Map(); // slug → factsOf's last answer (the PR line's yes is checked against what the page showed)
 
-  return { pass, factsOf, has: (slug) => raw.has(slug), raw, passing: () => passing };
+  return { pass, factsOf, lastOf: (slug) => last.get(slug) ?? {}, has: (slug) => raw.has(slug), raw, passing: () => passing };
 }
