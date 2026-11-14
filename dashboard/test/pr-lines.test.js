@@ -1,0 +1,261 @@
+// The job page's PR lines (lib/pr-lines.js; the job page rebuild, Task 20, R2): each of PR #1, #2 and
+// #3 with its state from GitHub and at most one next action, what that action will send and push, and
+// no button when GitHub is not there. GitHub is a pretend `gh pr list` answer read through the flow
+// map's own parsing (lib/flow.js prOf, laneOf); git is a pretend runner. Nothing real is read or written.
+
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+
+import { laneOf, prOf, githubProblem } from '../lib/flow.js';
+import { prRows } from '../lib/job-page.js';
+import { nudgesFor } from '../lib/nudges.js';
+import { mergedToTell, prLines, PR_SENTENCES, readDue, READ_MAX_AGE_MS, unpushedOf } from '../lib/pr-lines.js';
+
+const BRANCH = 'feature/orbit-9-damage-list';
+const ORG = { remote: 'moxie', slug: 'acme/portal' };
+const FORK = { remote: 'origin', slug: 'you/portal-fork' };
+const READ_AT = '2026-11-14T14:00:00.000Z';
+const GITHUB = { checkedAt: READ_AT, triedAt: READ_AT, checking: false, problem: null };
+const C = (sha, subject) => ({ sha: sha.padEnd(40, '0'), short: sha.slice(0, 7), subject });
+const TWO = [C('bbbbbbb1', 'Show the damage list'), C('aaaaaaa1', 'Add the damage table')];
+
+// gh pr list's JSON, as GitHub answers it.
+const gh = (number, base, state, extra = {}) => ({
+  number, title: extra.title ?? 'ORBIT-9: Damage list', state, isDraft: false, headRefName: BRANCH, baseRefName: base,
+  headRepositoryOwner: { login: base === BRANCH ? 'you' : 'acme' }, url: `https://github.com/acme/portal/pull/${number}`,
+  reviewDecision: extra.review ?? null, mergedAt: extra.mergedAt ?? null, mergeCommit: extra.mergeCommit ? { oid: extra.mergeCommit } : null,
+  statusCheckRollup: extra.checks ?? [], updatedAt: '2026-11-14T13:00:00Z', createdAt: extra.createdAt ?? '2026-11-14T12:00:00Z',
+});
+// The job's lane, placed from those PRs the way the flow map places it.
+const laneFrom = (list, jf = {}) => laneOf({ slug: 'x', title: 'X' }, {
+  branch: BRANCH, fork: { exists: false }, org: { exists: false }, ...jf,
+}, { org: { slug: ORG.slug }, fork: { owner: 'you' }, staging: { ref: 'moxie/staging' }, prs: list.map(prOf), inMain: {} });
+
+/** The facts the runner hands prLines, for one moment of the job. */
+function facts({ list = [], jf = {}, push = { pushed: false, head: TWO[0].sha, count: 2, commits: TWO, behind: 0 }, stage = 'review', status = [], github = GITHUB, ...over } = {}) {
+  const lane = laneFrom(list, jf);
+  return {
+    rows: prRows(status, lane), lane, repo: { org: ORG, fork: FORK }, github, push,
+    job: { slug: 'x', stage, prs: status, closed: null, title: 'ORBIT-9: Damage list', key: 'ORBIT-9' },
+    sent: [], dismissed: [], inRound: false, pending: [], hosted: false, ...over,
+  };
+}
+const line = (f, n) => prLines(f).lines[n - 1];
+
+test('pr lines: PR #1 not open, with commits → Push and open PR #1, saying every commit, where from and to, and the title', () => {
+  const l = line(facts(), 1);
+  assert.equal(l.state, 'not-started');
+  assert.equal(l.word, 'not open');
+  assert.equal(l.next.id, 'push-open');
+  assert.equal(l.next.label, 'Push and open PR #1');
+  assert.equal(l.next.go, 'Push and open');
+  assert.deepEqual(l.next.says, [
+    `Pushes 2 commits from ${BRANCH} to your fork (origin):`,
+    'bbbbbbb Show the damage list',
+    'aaaaaaa Add the damage table',
+    `Opens PR #1: you:${BRANCH} → ${BRANCH} on acme/portal`,
+    'Title: ORBIT-9: Damage list',
+    `${BRANCH} isn’t on acme/portal yet: the Foreman makes it from main first.`,
+  ]);
+  assert.equal(l.next.sends, PR_SENTENCES['push-open']({ branch: BRANCH, fork: 'origin', forkOwner: 'you', org: 'acme/portal', head: 'bbbbbbb', count: 2, title: 'ORBIT-9: Damage list', orgBranch: false }));
+  assert.match(l.next.sends, /^Please push feature\/orbit-9-damage-list to origin as it is now \(2 commits, ending at bbbbbbb\), then open PR #1/);
+  assert.match(l.next.sends, /Nothing else goes to GitHub\./);
+  assert.match(l.next.check, /^[0-9a-f]{12}$/);
+  // PR #2 and PR #3 wait for the one before: no button, and they say what for.
+  assert.equal(line(facts(), 2).next, null);
+  assert.equal(line(facts(), 2).why, 'after PR #1 is merged');
+  assert.equal(line(facts(), 3).next, null);
+  assert.equal(line(facts(), 3).why, 'after PR #2 is merged');
+});
+
+test('pr lines: the branch already on the fork with nothing new → Open PR #1, pushing nothing; no commits at all → no button', () => {
+  const up = facts({ jf: { fork: { exists: true, ahead: 0, behind: 0 }, org: { exists: true } }, push: { pushed: true, head: TWO[0].sha, count: 0, commits: [], behind: 0 } });
+  const l = line(up, 1);
+  assert.equal(l.next.id, 'open-pr1');
+  assert.equal(l.next.label, 'Open PR #1');
+  assert.deepEqual(l.next.says, [`Pushes nothing: ${BRANCH} is on your fork (origin) at bbbbbbb.`, `Opens PR #1: you:${BRANCH} → ${BRANCH} on acme/portal`, 'Title: ORBIT-9: Damage list']);
+  const none = line(facts({ push: { pushed: false, head: TWO[0].sha, count: 0, commits: [], behind: 0 } }), 1);
+  assert.equal(none.next, null);
+  assert.equal(none.why, 'No commits yet');
+});
+
+test('pr lines: PR #1 open with 2 commits not pushed → Push update (2 commits); open and pushed → no button', () => {
+  const list = [gh(247, BRANCH, 'OPEN', { checks: [{ conclusion: 'SUCCESS' }] })];
+  const f = facts({ list, jf: { fork: { exists: true, ahead: 2, behind: 0 }, org: { exists: true } }, push: { pushed: true, head: TWO[0].sha, count: 2, commits: TWO, behind: 0 }, stage: 'pr1' });
+  const l = line(f, 1);
+  assert.equal(l.state, 'open');
+  assert.equal(l.number, 247);
+  assert.equal(l.word, 'open · checks passed');
+  assert.equal(l.at, '2026-11-14T12:00:00Z', 'when it was opened');
+  assert.equal(l.next.label, 'Push update (2 commits)');
+  assert.equal(l.next.go, 'Push');
+  assert.deepEqual(l.next.says, [`Pushes 2 commits from ${BRANCH} to your fork (origin), so PR #1 (#247) has them:`, 'bbbbbbb Show the damage list', 'aaaaaaa Add the damage table']);
+  assert.match(l.next.sends, /^Please push feature\/orbit-9-damage-list to origin as it is now: 2 commits PR #1 \(#247\) doesn’t have yet, ending at bbbbbbb\. Only this push: nothing else goes to GitHub\.$/);
+  const one = line(facts({ list, jf: { fork: { exists: true, ahead: 1, behind: 0 } }, push: { pushed: true, head: TWO[0].sha, count: 1, commits: [TWO[0]], behind: 0 }, stage: 'pr1' }), 1);
+  assert.equal(one.next.label, 'Push update (1 commit)');
+  const clean = line(facts({ list, jf: { fork: { exists: true, ahead: 0, behind: 0 } }, push: { pushed: true, head: TWO[0].sha, count: 0, commits: [], behind: 0 }, stage: 'pr1' }), 1);
+  assert.equal(clean.next, null, 'nothing to push: merging stays his, on GitHub');
+  assert.equal(clean.url, 'https://github.com/acme/portal/pull/247');
+});
+
+test('pr lines: PR #1 merged → no button, with when; PR #2 → Open PR #2 only once PR #1 merged and the Foreman has it', () => {
+  const merged = [gh(247, BRANCH, 'MERGED', { mergedAt: '2026-11-14T14:02:00Z' })];
+  const told = facts({ list: merged, jf: { fork: { exists: true, ahead: 0, behind: 0 }, org: { exists: true } }, push: { pushed: true, head: TWO[0].sha, count: 0, commits: [], behind: 0 }, stage: 'pr2', status: [{ number: 1, state: 'merged' }] });
+  const l1 = line(told, 1);
+  assert.equal(l1.state, 'merged');
+  assert.equal(l1.at, '2026-11-14T14:02:00Z');
+  assert.equal(l1.next, null);
+  const l2 = line(told, 2);
+  assert.equal(l2.state, 'not-started');
+  assert.equal(l2.next.id, 'open-pr2');
+  assert.equal(l2.next.label, 'Open PR #2');
+  assert.deepEqual(l2.next.says, [`Opens PR #2: ${BRANCH} on acme/portal → staging`, 'Title: ORBIT-9: Damage list', 'Pushes nothing: PR #2 carries what PR #1 merged.']);
+  assert.match(l2.next.sends, /^Please open PR #2 \(org branch → staging\)\. From feature\/orbit-9-damage-list into staging on acme\/portal, titled "ORBIT-9: Damage list"\./, 'the nudge’s own sentence first');
+  // Merged on GitHub, but the Foreman (still at pr1, status.json not merged) hasn't been told: no Open PR #2 yet.
+  const untold = facts({ list: merged, jf: { fork: { exists: true, ahead: 0, behind: 0 }, org: { exists: true } }, push: { pushed: true, head: TWO[0].sha, count: 0, commits: [], behind: 0 }, stage: 'pr1', status: [{ number: 1, state: 'open' }] });
+  assert.equal(line(untold, 2).next, null);
+  // PR #1 still open: PR #2 waits.
+  const open = facts({ list: [gh(247, BRANCH, 'OPEN')], stage: 'pr1', push: { pushed: true, head: TWO[0].sha, count: 0, commits: [], behind: 0 } });
+  assert.equal(line(open, 2).next, null);
+  assert.equal(line(open, 2).why, 'after PR #1 is merged');
+});
+
+test('pr lines: PR #2 open → Request review, the nudge’s sentence; sent once, it says so and has no button', () => {
+  const list = [gh(247, BRANCH, 'MERGED', { mergedAt: '2026-11-14T14:02:00Z' }), gh(248, 'staging', 'OPEN', { review: 'REVIEW_REQUIRED' })];
+  const base = { list, jf: { fork: { exists: true, ahead: 0, behind: 0 }, org: { exists: true } }, push: { pushed: true, head: TWO[0].sha, count: 0, commits: [], behind: 0 }, stage: 'pr2', status: [{ number: 1, state: 'merged' }, { number: 2, state: 'open' }] };
+  const l = line(facts(base), 2);
+  assert.equal(l.state, 'open');
+  assert.equal(l.number, 248);
+  assert.equal(l.next.id, 'request-review');
+  assert.equal(l.next.label, 'Request review');
+  assert.equal(l.next.sends, 'Please request Raj’s review on PR #2.');
+  assert.equal(l.next.sends, nudgesFor({ stage: 'pr2', prs: base.status, closed: null, finish: { reached: false } }, laneFrom(list, base.jf)).find((n) => n.id === 'pr2-review').action.send);
+  assert.deepEqual(l.next.says, ['Asks Raj to review PR #2 (#248).', 'Pushes nothing.']);
+  const sent = line(facts({ ...base, sent: ['pr2-review'] }), 2);
+  assert.equal(sent.next, null);
+  assert.equal(sent.why, 'Sent to the Foreman');
+  // Approved: nothing to ask.
+  const approved = line(facts({ ...base, list: [list[0], gh(248, 'staging', 'OPEN', { review: 'APPROVED' })] }), 2);
+  assert.equal(approved.next, null);
+});
+
+test('pr lines: a sentence already sent and still on its way gives no second button', () => {
+  const f = facts();
+  const first = line(f, 1);
+  const again = line({ ...f, pending: [first.next.check] }, 1);
+  assert.equal(again.next, null);
+  assert.equal(again.why, 'Sent to the Foreman');
+  // The branch moved (a new commit): another sentence, so a button again.
+  const moved = line({ ...f, pending: [first.next.check], push: { ...f.push, head: 'ccccccc1'.padEnd(40, '0'), count: 3, commits: [C('ccccccc1', 'More'), ...TWO] } }, 1);
+  assert.equal(moved.next.label, 'Push and open PR #1');
+  assert.notEqual(moved.next.check, first.next.check);
+});
+
+test('pr lines: GitHub signed out, unreachable or never read → the lines say what is known and when, with no button', () => {
+  const signedOut = githubProblem('gh pr list: To get started with GitHub CLI, please run:  gh auth login');
+  const out = prLines(facts({ github: { checkedAt: READ_AT, triedAt: '2026-11-14T14:10:00Z', checking: false, problem: signedOut } }));
+  assert.ok(out.lines.every((l) => l.next === null));
+  assert.equal(out.lines[0].why, 'No button while GitHub isn’t answering');
+  assert.deepEqual(out.github, { at: READ_AT, triedAt: '2026-11-14T14:10:00Z', reading: false, problem: 'GitHub didn’t answer. gh isn’t signed in: run gh auth login', run: 'gh auth login' });
+  const offline = prLines(facts({ github: { checkedAt: null, triedAt: '2026-11-14T14:10:00Z', checking: false, problem: githubProblem('gh pr list: dial tcp: lookup api.github.com: network is unreachable') } }));
+  assert.ok(offline.lines.every((l) => l.next === null));
+  assert.match(offline.github.problem, /network looks down/);
+  const never = prLines(facts({ github: { checkedAt: null, triedAt: null, checking: true, problem: null } }));
+  assert.ok(never.lines.every((l) => l.next === null));
+  assert.equal(never.lines[0].why, 'GitHub not read yet');
+  assert.equal(never.github.reading, true);
+  // No GitHub line at all (an older runner, the website's copy): nothing to act on.
+  const none = prLines({ rows: prRows([], null) });
+  assert.ok(none.lines.every((l) => l.next === null));
+  assert.deepEqual(none.lines.map((l) => l.why), [null, 'after PR #1 is merged', 'after PR #2 is merged'], 'only what each waits for');
+  assert.equal(none.github, null);
+});
+
+test('pr lines: no button that cannot work: the fork ahead of the branch, a closed job, the website, an unknown fork', () => {
+  const behind = line(facts({ push: { pushed: true, head: TWO[0].sha, count: 2, commits: TWO, behind: 1 }, jf: { fork: { exists: true, ahead: 2, behind: 1 } } }), 1);
+  assert.equal(behind.next, null);
+  assert.equal(behind.why, 'Your fork has 1 commit this branch doesn’t: a push would be refused. Ask the Foreman to bring it in first.');
+  const closed = facts();
+  closed.job = { ...closed.job, closed: { as: 'done', at: READ_AT } };
+  assert.equal(line(closed, 1).next, null);
+  assert.ok(prLines(facts({ hosted: true })).lines.every((l) => l.next === null));
+  assert.ok(prLines(facts({ repo: { org: ORG, fork: null } })).lines.every((l) => l.next === null));
+  assert.equal(line(facts({ push: null }), 1).next, null, 'the branch’s commits unknown');
+});
+
+test('pr lines: a PR opened, reviewed or merged by hand shows as GitHub has it', () => {
+  // Opened by hand on GitHub while status.json still says not started.
+  const opened = line(facts({ list: [gh(250, BRANCH, 'OPEN')], status: [{ number: 1, state: 'not_started' }], push: { pushed: true, head: TWO[0].sha, count: 0, commits: [], behind: 0 } }), 1);
+  assert.equal(opened.state, 'open');
+  assert.equal(opened.number, 250);
+  const reviewed = line(facts({ list: [gh(247, BRANCH, 'MERGED'), gh(248, 'staging', 'OPEN', { review: 'CHANGES_REQUESTED' })], stage: 'pr2', status: [{ number: 1, state: 'merged' }] }), 2);
+  assert.equal(reviewed.word, 'open · changes asked');
+  assert.equal(reviewed.next, null, 'changes asked: the comments come first (Task 21)');
+});
+
+test('pr lines: a merge by hand the Foreman hasn’t seen is told with the nudge’s own sentence, once', () => {
+  const merged = [gh(247, BRANCH, 'MERGED', { mergedAt: '2026-11-14T14:02:00Z' })];
+  const lane = laneFrom(merged, { fork: { exists: true }, org: { exists: true } });
+  const card = { stage: 'pr1', prs: [{ number: 1, state: 'open' }], closed: null };
+  const tell = mergedToTell({ card, lane });
+  assert.deepEqual(tell.map((t) => t.id), ['pr1-merged']);
+  assert.equal(tell[0].text, 'PR #1 (#247) is already merged on GitHub (Starbase just checked). Update status.json and carry on from there; don\'t ask me to merge it.');
+  assert.equal(tell[0].text, nudgesFor({ ...card, finish: { reached: false } }, lane).find((n) => n.id === 'pr1-merged').action.send);
+  assert.deepEqual(mergedToTell({ card, lane, sent: ['pr1-merged'] }), [], 'already told');
+  assert.deepEqual(mergedToTell({ card, lane, dismissed: ['pr1-merged'] }), [], 'he set it aside on the Desk');
+  assert.deepEqual(mergedToTell({ card: { ...card, prs: [{ number: 1, state: 'merged' }], stage: 'pr2' }, lane }), [], 'the Foreman already has it');
+  assert.deepEqual(mergedToTell({ card: { ...card, closed: { as: 'done' } }, lane }), [], 'a closed job is told nothing');
+});
+
+test('pr lines: GitHub is read when the last read is older than two minutes, never while a read is going', () => {
+  const now = Date.parse('2026-11-14T14:10:00Z');
+  assert.equal(READ_MAX_AGE_MS, 120000);
+  assert.equal(readDue({ triedAt: null, checking: false }, now), true);
+  assert.equal(readDue({ triedAt: '2026-11-14T14:07:59Z', checking: false }, now), true);
+  assert.equal(readDue({ triedAt: '2026-11-14T14:08:30Z', checking: false }, now), false);
+  assert.equal(readDue({ triedAt: null, checking: true }, now), false);
+  assert.equal(readDue(null, now), true);
+});
+
+// ---------- the branch's commits (git, pretend) ----------
+
+/** A pretend git: answers by the command, and keeps every command it was asked. */
+function fakeGit(answers) {
+  const calls = [];
+  const git = async (dir, args) => {
+    calls.push(args);
+    const key = args.join(' ');
+    for (const [match, res] of answers) if (key.includes(match)) return typeof res === 'string' ? { ok: true, out: res, err: null } : res;
+    return { ok: false, out: '', err: 'no such ref' };
+  };
+  return { git, calls };
+}
+const LOG = (cs) => cs.map((c) => `${c.sha}\x1f${c.short}\x1f${c.subject}\x1e`).join('\n');
+
+test('pr lines: unpushedOf lists the commits the fork lacks, newest first, with read-only git', async () => {
+  const { git, calls } = fakeGit([
+    [`--verify --quiet refs/remotes/origin/${BRANCH}^{commit}`, 'f'.repeat(40)],
+    [`--verify --quiet refs/heads/${BRANCH}^{commit}`, `${TWO[0].sha}\n`],
+    [`rev-list --count refs/remotes/origin/${BRANCH}..refs/heads/${BRANCH}`, '2\n'],
+    [`rev-list --count refs/heads/${BRANCH}..refs/remotes/origin/${BRANCH}`, '0\n'],
+    [`refs/remotes/origin/${BRANCH}..refs/heads/${BRANCH}`, LOG(TWO)],
+  ]);
+  const out = await unpushedOf({ dir: '/r/wt', branch: BRANCH, base: 'abc1234', fork: 'origin', git });
+  assert.deepEqual(out, { pushed: true, head: TWO[0].sha, count: 2, commits: TWO, behind: 0 });
+  assert.ok(calls.every((a) => ['rev-parse', 'rev-list', 'log'].includes(a[0])), 'only reads');
+});
+
+test('pr lines: unpushedOf on a branch never pushed lists base..branch; a bad name or no branch reads nothing', async () => {
+  const { git } = fakeGit([
+    [`--verify --quiet refs/heads/${BRANCH}^{commit}`, `${TWO[0].sha}\n`],
+    [`rev-list --count abc1234..refs/heads/${BRANCH}`, '2\n'],
+    [`abc1234..refs/heads/${BRANCH}`, LOG(TWO)],
+  ]);
+  assert.deepEqual(await unpushedOf({ dir: '/r/wt', branch: BRANCH, base: 'abc1234', fork: 'origin', git }), { pushed: false, head: TWO[0].sha, count: 2, commits: TWO, behind: 0 });
+  assert.equal(await unpushedOf({ dir: '/r/wt', branch: BRANCH, base: null, fork: 'origin', git }), null, 'no base: what would go isn’t known');
+  const { git: none, calls } = fakeGit([]);
+  assert.equal(await unpushedOf({ dir: '/r/wt', branch: '-x', base: 'abc', fork: 'origin', git: none }), null);
+  assert.equal(await unpushedOf({ dir: '/r/wt', branch: BRANCH, base: 'abc', fork: 'origin; rm', git: none }), null);
+  assert.equal(calls.length, 0, 'a bad name runs nothing');
+  assert.equal(await unpushedOf({ dir: '/r/wt', branch: BRANCH, base: 'abc', fork: 'origin', git: none }), null, 'no such branch');
+});

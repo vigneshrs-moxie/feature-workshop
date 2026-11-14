@@ -26,6 +26,9 @@ import { PRODUCT } from './brand.js';
 export const NUDGE_IDS = ['pr1-merge', 'pr2-open', 'pr2-review', 'pr2-changes', 'pr2-merge', 'pr1-merged', 'pr2-merged'];
 /** The nudges a review round's own steps cover (packet Q). */
 export const ROUND_COVERS = ['pr1-merge', 'pr2-review', 'pr2-changes', 'pr2-merge'];
+/** The ask nudges' fixed sentences (the job page's PR lines send the same words: lib/pr-lines.js). */
+export const PR2_OPEN_SENTENCE = 'Please open PR #2 (org branch → staging).';
+export const PR2_REVIEW_SENTENCE = 'Please request Raj’s review on PR #2.';
 
 const prState = (p) => String(p?.state ?? '').toLowerCase();
 // A draft isn't ready for anyone yet: no nudge until it is marked ready.
@@ -91,7 +94,7 @@ export function nudgesFor(card, lane, { finishLine, dismissed = [], sent = [], i
   } else if (isMerged(pr1) && !unseen(1, pr1) && pr2 === null && !pastStage(card.stage, 'pr2') && (lane?.position ?? 'org') === 'org') {
     add('pr2-open', 'ask', 'Open PR #2 to staging?',
       'PR #1 is merged: your work is on the Moxie branch. Yes asks the Foreman to open PR #2 (Moxie branch → staging).',
-      { action: { send: 'Please open PR #2 (org branch → staging).' } });
+      { action: { send: PR2_OPEN_SENTENCE } });
   }
   if (isOpen(pr2)) {
     if (pr2.review === 'approved') {
@@ -105,7 +108,7 @@ export function nudgesFor(card, lane, { finishLine, dismissed = [], sent = [], i
     } else {
       add('pr2-review', 'ask', 'Ask Raj for a review?',
         `PR #2${num(pr2)} is open and has no approval yet. Yes asks the Foreman to request Raj’s review on it.`,
-        { action: { send: 'Please request Raj’s review on PR #2.' } });
+        { action: { send: PR2_REVIEW_SENTENCE } });
     }
   }
   const gone = new Set([...(Array.isArray(dismissed) ? dismissed : []), ...(Array.isArray(sent) ? sent : []), ...(inRound ? ROUND_COVERS : [])]);
