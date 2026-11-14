@@ -531,6 +531,13 @@ test('Task 23 fix round (speed rule 2): the commit list of a job the page watche
     assert.deepEqual(one.body.commits.map((c) => c.subject), ['feat: the first commit']);
     assert.deepEqual(one.body.commits[0].files.map((f) => f.path), ['b.txt']);
     assert.deepEqual(spy.calls.spawn, [], 'no git on the request: the list was read at the page build');
+    // The newest commit's diff too (what Changes shows first): read at the build, answered without git.
+    const spyDiff = spies();
+    let diff;
+    try { diff = await get(`/api/job/${slug}/commit/${one.body.commits[0].sha}`); } finally { spyDiff.restore(); }
+    assert.equal(diff.status, 200, JSON.stringify(diff.body));
+    assert.deepEqual(diff.body.patchFiles.map((f) => f.path), ['b.txt']);
+    assert.deepEqual(spyDiff.calls.spawn, [], 'no git for the newest commit\'s diff');
     // A new commit on the branch, then the job's change point: the next rebuild reads the list again.
     g('switch', '-q', 'feature/commits-from-the-page');
     await fsp.writeFile(path.join(repo, 'c.txt'), 'c\n');

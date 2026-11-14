@@ -84,6 +84,8 @@ function client({ hold = false } = {}) {
       if (hold) await new Promise<void>((r) => { release = r; });
       return nextPage.make ? nextPage.make() : payload();
     }
+    if (path.endsWith('/commits')) return { commits: [{ sha: 'abc1234def', short: 'abc1234d', subject: 'feat: the export', date: null, files: [] }] };
+    if (path.includes('/commit/')) return { sha: 'abc1234def', patchFiles: [], files: [], truncated: false };
     const id = decodeURIComponent(/[?&]id=([^&]+)/.exec(path)?.[1] ?? '');
     const b = longJob.bodies[id];
     if (!b) throw new Error('Starbase answered 404.');
@@ -638,6 +640,9 @@ describe('Task 23 fix round: the commit list is fetched ahead (speed rule 2)', (
     await settle();
     await settle();
     expect(get.mock.calls.map((c) => String(c[0])).filter((p) => p.endsWith('/commits'))).toEqual([`/api/job/${SLUG}/commits`]);
+    // And the newest commit's diff, the first thing Changes shows.
+    await settle();
+    expect(get.mock.calls.map((c) => String(c[0])).filter((p) => p.includes('/commit/'))).toEqual([`/api/job/${SLUG}/commit/abc1234def`]);
   });
 
   it('a job whose steps show no Changes yet asks for none', async () => {
