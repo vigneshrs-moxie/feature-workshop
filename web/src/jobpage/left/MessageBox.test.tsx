@@ -371,7 +371,7 @@ describe('while a reply runs', () => {
     await settle();
     expect(o.post.mock.calls.map((c) => [c[0], JSON.stringify(c[1])])).toEqual([
       [`/api/job/${SLUG}/send`, '{"kind":"message","text":"Stop, and use the old header.","queue":true,"confirmNoTerminal":false}'],
-      ['/api/runs/run-now/stop', '{}'],
+      ['/api/runs/run-now/stop', '{"then":"send-waiting"}'],
     ]);
     expect(box()).toHaveValue('');
     expect(waitRow()).toHaveTextContent('Stop, and use the old header.');
@@ -745,7 +745,7 @@ describe('Task 16: a message waits for the Foreman', () => {
     open({ move: null, patch: { run: RUNNING, waiting: waiting('Use the old header.') }, post });
     fireEvent.click(screen.getByRole('button', { name: 'Stop it and send now' }));
     await settle();
-    expect(post.mock.calls.map((c) => c[0])).toEqual(['/api/runs/run-now/stop']);
+    expect(post.mock.calls.map((c) => [c[0], JSON.stringify(c[1])])).toEqual([['/api/runs/run-now/stop', '{"then":"send-waiting"}']]);
     expect(waitRow()).toHaveTextContent('Use the old header.');
   });
 
@@ -792,5 +792,68 @@ describe('Task 16: a message waits for the Foreman', () => {
     expect(box()).toHaveValue('Also the header.');
     expect(waitRow()).toBeNull();
     expect(foot().getByRole('alert')).toHaveTextContent('Not sent: this job is being started again on another model right now.');
+  });
+});
+
+describe('Task 16 fix round 1', () => {
+  const waiting = (text: string, why: string | null = null, toBox = false) => ({ text, at: '2026-11-13T12:00:00.000Z', why, ...(toBox ? { toBox: true as const } : {}) });
+  const KEPT_STOPPED = 'Kept: you stopped the reply. Press Send to send it.';
+
+  it('a message kept after a plain stop shows Send and Cancel; Send posts …/waiting/send and the row says it is going', async () => {
+    const post = vi.fn(async () => ({ ok: true, waiting: null }));
+    open({ move: null, patch: { waiting: waiting('Use the old header.', KEPT_STOPPED) }, post });
+    const row = waitRow()!;
+    expect(row).toHaveTextContent(`Not sent yet: ${KEPT_STOPPED}`);
+    expect(within(row).getByRole('button', { name: 'Cancel' })).toBeEnabled();
+    fireEvent.click(within(row).getByRole('button', { name: 'Send' }));
+    expect(waitRow()).toHaveTextContent('Sending');
+    await settle();
+    expect(post.mock.calls.map((c) => [c[0], JSON.stringify(c[1])])).toEqual([[`/api/job/${SLUG}/waiting/send`, '{}']]);
+  });
+
+  it('Send on a kept message that is refused again says why on a line; the row stays', async () => {
+    const post = vi.fn(async () => ({ ok: true, waiting: waiting('Use the old header.', 'Claude’s 5-hour limit is reached.') }));
+    open({ move: null, patch: { waiting: waiting('Use the old header.', KEPT_STOPPED) }, post });
+    fireEvent.click(within(waitRow()!).getByRole('button', { name: 'Send' }));
+    await settle();
+    expect(foot().getByRole('alert')).toHaveTextContent('Not sent: Claude’s 5-hour limit is reached.');
+    expect(waitRow()).toHaveTextContent('Use the old header.');
+  });
+
+  it('the Foreman is asking him first: the waiting words move into the box (after what is there), the message is cancelled, and one line says so', async () => {
+    const post = vi.fn(async () => ({ ok: true, cancelled: true, text: 'Also the footer.' }));
+    const o = open({ move: null, patch: { run: RUNNING }, post });
+    type('Typed already.');
+    await refresh(o, { ...payload(), v: 2, run: { ...RUNNING, status: 'done' }, waiting: waiting('Also the footer.', 'The Foreman is asking you something first.', true) });
+    await settle();
+    expect(post.mock.calls.map((c) => c[0])).toEqual([`/api/job/${SLUG}/waiting/cancel`]);
+    expect(box()).toHaveValue('Typed already.\nAlso the footer.');
+    expect(waitRow()).toBeNull();
+    expect(document.querySelector('.jp2-mb-line')).toHaveTextContent(/^Your waiting words are in the box: the Foreman is asking you something first\.$/);
+    // The same payload again moves nothing twice.
+    await refresh(o, { ...payload(), v: 3, run: { ...RUNNING, status: 'done' }, waiting: waiting('Also the footer.', 'The Foreman is asking you something first.', true) });
+    await settle();
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(box()).toHaveValue('Typed already.\nAlso the footer.');
+  });
+
+  it('on the website words marked for the box stay read-only: nothing moves', async () => {
+    const o = open({ move: null, patch: { hosted: true, waiting: waiting('Also the footer.', 'The Foreman is asking you something first.', true) } });
+    await settle();
+    expect(o.post).not.toHaveBeenCalled();
+    expect(box()).toHaveValue('');
+    expect(waitRow()).toHaveTextContent('Also the footer.');
+    expect(within(waitRow()!).queryByRole('button')).toBeNull();
+  });
+
+  it('a payload that shows the message before the server answers is trusted: its why shows at once', async () => {
+    let answer: (v: unknown) => void = () => {};
+    const post = vi.fn((_path: string, _body?: unknown) => new Promise((r) => { answer = r; }));
+    const o = open({ move: null, patch: { run: RUNNING }, post });
+    type('Also the header.');
+    fireEvent.click(send());
+    await refresh(o, { ...payload(), v: 2, move: null, run: RUNNING, waiting: waiting('Also the header.', 'This job is open in a terminal.') });
+    await act(async () => { answer({ ok: true, waiting: waiting('Also the header.') }); });
+    expect(waitRow()).toHaveTextContent('Not sent yet: This job is open in a terminal.');
   });
 });

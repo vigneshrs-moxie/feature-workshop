@@ -156,7 +156,7 @@ export interface JobPagePayload {
   open: ReaderTarget;
   thread: ThreadLine[];
   /** R8 (Task 16): the one message waiting for the Foreman (dashboard/lib/queued.js); why: a refusal when it was time to send. */
-  waiting: null | { text: string; at: string; why: string | null };
+  waiting: null | { text: string; at: string; why: string | null; toBox?: true };
   prs: PrLine[];
   hosted: boolean;
   /** The hashes of the bodies no line or output names (the ticket and goal, the decisions list): a kept
