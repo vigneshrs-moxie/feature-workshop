@@ -8,6 +8,8 @@
 .jp2-prl-s { min-width: 0; color: var(--text-2); overflow-wrap: anywhere; }
 .jp2-prl-b { flex: none; margin-left: auto; }
 .jp2-prl-x { margin: 6px 0 4px; padding: 8px 10px; border: 1px solid var(--border-1); border-radius: 8px; background: var(--surface-1); font-size: 13px; line-height: 19px; }
+.jp2-prl-x:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.jp2-prl-x:focus:not(:focus-visible) { outline: none; }
 .jp2-prl-says { margin: 0 0 8px; padding: 0; list-style: none; color: var(--text-1); overflow-wrap: anywhere; }
 .jp2-prl-says li.is-commit { padding-left: 12px; font-family: var(--font-mono); font-size: 12px; color: var(--text-2); }
 .jp2-prl-acts { display: flex; gap: 6px; }

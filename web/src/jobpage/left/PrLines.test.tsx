@@ -227,3 +227,16 @@ describe('the reader’s Ship and the asks row', () => {
     expect(readerPane().queryByText('PR #2')).toBeNull();
   });
 });
+
+describe('fix round 1', () => {
+  it('opening the line never puts the focus on the yes (a held Enter can’t confirm); it goes to what will go', async () => {
+    open(payload({ ship: true }));
+    await settle();
+    const label = leftLines().getByRole('button', { name: 'Push and open PR #1' });
+    label.focus();
+    fireEvent.click(label);
+    const yes = leftLines().getByRole('button', { name: 'Push and open' });
+    expect(document.activeElement).not.toBe(yes);
+    expect(document.activeElement).toBe(leftLines().getByRole('group', { name: 'What Push and open PR #1 will do' }));
+  });
+});

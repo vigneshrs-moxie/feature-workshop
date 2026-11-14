@@ -94,13 +94,14 @@ function Line({ slug, line, hosted }: { slug: string; line: PrLine; hosted: bool
   const [sent, setSent] = useState<Sending>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [terminal, setTerminal] = useState(false);
-  const goRef = useRef<HTMLButtonElement>(null);
+  // The focus goes to what will go, never to the yes: a held Enter on the line's button must not confirm.
+  const panelRef = useRef<HTMLDivElement>(null);
   // The asks row's lead asked for this line: open it here.
   const heard = useSyncExternalStore((l) => { askedHeard.add(l); return () => { askedHeard.delete(l); }; }, () => asked);
   useEffect(() => {
     if (next && takeAsked(slug, line.n)) { setOpen(true); setProblem(null); }
   }, [heard, next, slug, line.n]);
-  useEffect(() => { if (open) goRef.current?.focus(); }, [open]);
+  useEffect(() => { if (open) panelRef.current?.focus(); }, [open]);
   // What was sent shows until the server's line moves on to something else.
   const showSent = sent && ((next && next.check === sent.check) || line.why === 'Sent to the Foreman') ? sent : null;
   const nextCheck = next?.check ?? null;
@@ -135,10 +136,10 @@ function Line({ slug, line, hosted }: { slug: string; line: PrLine; hosted: bool
         {!next && line.url && <Button kind="quiet" size="sm" className="jp2-prl-b" href={line.url} target="_blank" rel="noreferrer">Open on GitHub</Button>}
       </div>
       {next && open && (
-        <div className="jp2-prl-x" role="group" aria-label={`What ${next.label} will do`}>
+        <div ref={panelRef} tabIndex={-1} className="jp2-prl-x" role="group" aria-label={`What ${next.label} will do`}>
           <ul className="jp2-prl-says">{next.says.map((s, i) => <li key={i} className={/^[0-9a-f]{7} /.test(s) ? 'is-commit' : undefined}>{s}</li>)}</ul>
           <div className="jp2-prl-acts">
-            <Button ref={goRef} kind="primary" size="sm" onClick={() => { void go(); }} title={`Sends the Foreman: “${next.sends}”`}>{next.go}</Button>
+            <Button kind="primary" size="sm" onClick={() => { void go(); }} title={`Sends the Foreman: “${next.sends}”`}>{next.go}</Button>
             <Button kind="quiet" size="sm" onClick={() => setOpen(false)}>Cancel</Button>
           </div>
         </div>
