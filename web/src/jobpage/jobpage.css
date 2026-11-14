@@ -480,3 +480,56 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2-mb-replace { flex: none; margin-left: auto; }
 .jp2[data-layout="phone"] .jp2-mb:has(+ .jp2-mb-wait) { padding-bottom: 8px; }
 .jp2[data-layout="phone"] .jp2-mb-wait { padding: 0 18px 30px; font-size: 14px; line-height: 20px; }
+/* Point, then say (Task 17, R4): drawn over the reader's scroll area, never in the text's flow. */
+/* The `+` sits over the left margin, never in the block: no line height changes, no word moves. */
+.jp2-pt-plus { position: absolute; z-index: 20; display: inline-grid; place-items: center; width: 18px; height: 18px; margin: 0; padding: 0; border-radius: 5px; border: 1px solid var(--border-3); background: var(--surface-1); color: var(--text-2); font: inherit; font-size: 14px; font-weight: 600; line-height: 1; cursor: pointer; box-shadow: var(--elev-xs); }
+.jp2-pt-plus:hover, .jp2-pt-plus:focus-visible { border-color: var(--accent); background: var(--accent); color: var(--on-accent); outline: none; }
+[data-pt-marked], [data-pt-flash] { background-color: var(--accent-soft); border-radius: 4px; }
+[data-pt-noted] { position: relative; }
+[data-pt-noted]::after { content: ""; position: absolute; left: -10px; top: 2px; bottom: 2px; width: 2px; border-radius: 1px; background: var(--accent); }
+.jp2-dl[data-pt-noted]::after { left: 0; top: 0; bottom: 0; }
+/* The note box: in place under the block (its place set from script), or a sheet on the phone. */
+.jp2-nb { position: absolute; z-index: 25; display: flex; flex-direction: column; gap: 6px; width: 370px; max-width: calc(100% - 16px); padding: 10px; border-radius: 10px; border: 1px solid var(--border-2); background: var(--surface-float); box-shadow: var(--elev-lg); font-size: 13px; line-height: 18px; color: var(--text-1); }
+.jp2-nb-place { margin: 0; font-size: 11.5px; color: var(--text-2); }
+.jp2-nb-q { display: -webkit-box; margin: 0; overflow: hidden; color: var(--text-2); -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.jp2-nb-in { height: 30px; font-size: 13px; }
+.jp2-nb-in.is-need { outline: 2px solid var(--status-warn); }
+.jp2-nb-need { margin: 0; font-size: 12px; color: var(--text-1); }
+.jp2-nb-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.jp2-nb-x { margin-left: auto; }
+.jp2-nb-sheet { position: fixed; inset: 0; z-index: 60; }
+.jp2-nb-scrim { position: absolute; inset: 0; background: var(--scrim); }
+.jp2-nb.is-sheet { left: 0; right: 0; bottom: 0; width: auto; max-width: none; gap: 10px; padding: 16px 18px 34px; border-radius: 16px 16px 0 0; font-size: 14px; }
+.jp2-nb.is-sheet .jp2-nb-in { height: 40px; font-size: 16px; }
+/* Explain's answer beside the block (on a narrow reader, under it). */
+.jp2-pt-mnote { position: absolute; z-index: 15; width: 240px; max-width: calc(100% - 16px); margin: 0; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border-2); background: var(--status-info-bg); font-size: 12.5px; line-height: 18px; color: var(--text-1); }
+.jp2-pt-mnote p { margin: 0; }
+.jp2-pt-mnote-h { display: flex; align-items: center; justify-content: space-between; margin: 0 0 3px; font-size: 11px; font-weight: 650; color: var(--text-1); }
+.jp2-pt-mnote-no { color: var(--text-1); }
+.jp2-pt-lost { position: absolute; z-index: 16; left: 40px; right: 24px; display: flex; align-items: center; gap: 8px; margin: 0; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border-2); background: var(--surface-float); box-shadow: var(--elev-lg); font-size: 13px; line-height: 18px; color: var(--text-1); }
+/* Pins on a picture: a click drops the next one; the video's controls stay clear of the click area. */
+.jp2-pins { position: relative; width: fit-content; max-width: 100%; }
+.jp2-pins:has(.jp2-rec-frame) { width: auto; }
+.jp2-pins-hit { position: absolute; inset: 0; z-index: 2; cursor: crosshair; }
+.jp2-pins:has(video) .jp2-pins-hit { bottom: 48px; }
+.jp2-pin { position: absolute; z-index: 3; display: grid; place-items: center; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%; background: var(--accent); color: var(--on-accent); font-size: 12px; font-weight: 700; box-shadow: 0 0 0 2px var(--surface-0); pointer-events: none; }
+.jp2-pin.is-flash { box-shadow: 0 0 0 5px var(--accent-soft); }
+.jp2-pins-box { position: absolute; z-index: 25; width: 370px; max-width: 100%; margin-top: 16px; }
+.jp2-pins-box.is-up { transform: translateY(calc(-100% - 32px)); }
+.jp2-pins-box .jp2-nb { position: static; width: auto; max-width: none; }
+.jp2-pic { display: block; max-width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--border-1); }
+/* The notes waiting in the message box, and the exact text they go as. */
+.jp2-chips { padding: 8px 12px 0; }
+.jp2-chips-in { position: relative; display: flex; flex-wrap: wrap; gap: 4px; max-height: 64px; margin: 0; padding: 0; overflow-y: auto; list-style: none; }
+.jp2-chip { display: inline-flex; align-items: center; max-width: 100%; height: 28px; border-radius: 6px; border: 1px solid var(--border-1); background: var(--bg-2); font-size: 12px; }
+.jp2-chip.is-gone { border-style: dashed; }
+.jp2-chip-l { min-width: 0; max-width: 320px; height: 100%; margin: 0; padding: 0 4px 0 8px; overflow: hidden; border: 0; background: none; color: var(--text-1); font: inherit; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.jp2-chip-gone { color: var(--text-2); }
+.jp2-chip-x { height: 100%; margin: 0; padding: 0 7px; border: 0; background: none; color: var(--text-2); font: inherit; cursor: pointer; }
+.jp2-chip-l:hover, .jp2-chip-x:hover { color: var(--text-1); text-decoration: underline; }
+.jp2-chip-l:focus-visible, .jp2-chip-x:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.jp2-chips-f { display: flex; gap: 14px; padding: 4px 0 0; font-size: 12px; }
+.jp2-wws { position: relative; max-height: 240px; margin: 6px 0 0; padding: 8px 10px; overflow: auto; border-radius: 8px; border: 1px solid var(--border-1); background: var(--bg-1); }
+.jp2-wws-t { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: 12px; line-height: 18px; color: var(--text-1); user-select: text; -webkit-user-select: text; }
+.jp2[data-layout="phone"] .jp2-chips { padding: 8px 18px 0; }
+.jp2[data-layout="phone"] .jp2-chip { height: 32px; font-size: 13px; }

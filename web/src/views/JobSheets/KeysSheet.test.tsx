@@ -60,10 +60,10 @@ describe('the ? sheet', () => {
 
 // Task 7 review M5: a key kept for later (the new job page's n, Task 17) is bound but not listed.
 describe('the ? sheet and a key kept for later', () => {
-  it('does not list the new job page’s n until it does something', () => {
-    expect(KEYS['jp-note'].hidden).toBe(true);
+  it('lists the new job page’s n now that it adds a note (Task 17)', () => {
+    expect(keyDef('jp-note').hidden).toBeUndefined();
     render(<KeysSheet onClose={() => {}} />);
-    expect(screen.queryByText(KEYS['jp-note'].label)).toBeNull();
+    expect(screen.getByText(KEYS['jp-note'].label)).toBeInTheDocument();
     expect(within(screen.getByRole('region', { name: SCOPES.jobpage.title })).getByText('Search the conversation')).toBeInTheDocument();
   });
 });

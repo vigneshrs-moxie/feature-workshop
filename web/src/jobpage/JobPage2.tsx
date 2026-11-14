@@ -29,7 +29,7 @@
 // [ ] the step before and after; j k the next and previous line on the left (in the conversation, its
 // lines, when that is where he is); Enter opens that line;
 // / searches the conversation; g c the conversation; g t the ticket and goal; c i the message box;
-// n is kept for notes (Task 17). Their other meanings come back when the page goes.
+// n adds a note on the block under the pointer (notes/Pointable.tsx registers it). Their other meanings come back when the page goes.
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
@@ -268,9 +268,6 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
       uncover();
       box.current?.focus();
     },
-    // Kept for a note on the part under the pointer (Task 17): it does nothing yet, and no longer
-    // opens Notes and options.
-    'jp-note': () => {},
   });
 
   /** Under 1100 px: take the reader off the left pane, so a key that acts there is seen (the phone's screens go by address). */
@@ -312,7 +309,7 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
             {/* Tasks 20 and 21: the phone's PR line goes here, ending in `Comments · 3 new` (it opens the PR view). */}
             <JobRows cursor={cursor} first={lines.findIndex((l) => l.target)} onOpen={pickReader} />
           </div>
-          <MessageBox boxRef={box} />
+          <MessageBox boxRef={box} onOpen={pickReader} />
         </div>
         {screenNow === 'step' && step && <PhoneStep id={step} job={job} onBack={moves.back} onOpen={pickReader} />}
         <section

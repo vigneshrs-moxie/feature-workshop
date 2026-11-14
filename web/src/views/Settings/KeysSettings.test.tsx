@@ -50,7 +50,8 @@ describe('Settings → Keys', () => {
     const all = screen.getByRole('region', { name: 'Every key' });
     // A key kept for later (keyDef(id).hidden: the new job page's n) is bound but not listed, here as in the ? sheet.
     for (const id of KEY_IDS) if (!keyDef(id).hidden) expect(within(all).getAllByText(KEYS[id].label).length, id).toBeGreaterThan(0);
-    expect(within(all).queryByText(KEYS['jp-note'].label)).toBeNull();
+    // The new job page's n (Task 17) adds a note now, so it is listed.
+    expect(within(all).getAllByText(KEYS['jp-note'].label).length).toBeGreaterThan(0);
     expect(within(all).getByRole('region', { name: 'The Inbox' })).toHaveTextContent('Start a job on the ticket');
     expect(within(all).getByRole('region', { name: 'The open step' })).toHaveTextContent('The step after this one');
     expect(all).toHaveTextContent('never work while you type');

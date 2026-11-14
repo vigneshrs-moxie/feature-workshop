@@ -98,7 +98,7 @@ export const KEYS = {
   'jp-convo': { keys: ['g c'], label: 'Open the conversation', scope: 'jobpage' },
   'jp-ticket': { keys: ['g t'], label: 'Open the ticket and goal', scope: 'jobpage' },
   'jp-write': { keys: ['c', 'i'], label: 'Put the cursor in the message box', scope: 'jobpage' },
-  'jp-note': { keys: ['n'], label: 'Kept for a note on the part under the pointer (not built yet)', scope: 'jobpage', where: 'Notes and options are in the ⋯ menu.', hidden: true },
+  'jp-note': { keys: ['n'], label: 'Add a note on the part under the pointer: Change, Drop this or Explain', scope: 'jobpage', where: 'In the reader, with the pointer on a block. Notes and options are in the ⋯ menu.' },
   // Your move (jobpage/left/YourMove.tsx)
   'jp-go': { keys: ['Mod+Enter'], label: 'Go: send the picks shown', scope: 'jobpage', where: 'While Your move waits for your yes; from anywhere on the page, the message box too.', always: true },
   'jp-yes': { keys: ['a'], label: 'Go, or Allow once', scope: 'jobpage', where: 'While Your move waits for your yes. Never allows a hard line or a risky step.' },

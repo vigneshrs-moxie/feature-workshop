@@ -38,6 +38,7 @@ export type OlderList = OlderGroup[];
 const TITLES: Partial<Record<ReaderKind, string>> = {
   conversation: 'Conversation', ticket: 'Ticket and goal', decisions: 'Decisions', details: 'Details', changes: 'Changes',
   checks: 'Checks and recording', findings: 'Findings', walkthrough: 'Walkthrough', ship: 'Ship', permission: 'Permission', 'not-yet': 'Not yet',
+  picture: 'Pasted picture',
 };
 
 const join = (parts: (string | null | undefined)[]) => parts.filter(Boolean).join(' · ') || null;
@@ -88,6 +89,7 @@ export function titleOf(t: ReaderTarget, p: JobPagePayload | null, updatedAt: st
     return { title: t.id.split('/').pop() ?? t.id, meta: sinceWords(updatedAt) };
   }
   if (t.kind === 'pr') return { title: `PR #${t.id}`, meta: null };
+  if (t.kind === 'picture') return { title: `Pasted picture ${t.id.replace(/^p/, '')}`, meta: 'click it to drop a pin with a note' };
   if (t.kind === 'not-yet') {
     const step = steps(p).find((x) => x.id === t.id);
     const meta = !step ? null : step.state === 'skipped' ? 'skipped for this job' : step.state === 'current' ? 'under way' : step.state === 'done' ? 'done' : 'not started';

@@ -1,0 +1,126 @@
+// Pins (Task 17, R4): a click on a recording's frame drops a numbered pin with a note box; its note
+// names the picture (the check, the time, the file) so the Foreman can open it; pasting a picture into
+// the message box opens it in the reader to pin on.
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ApiClient } from '../../api/client';
+import type { EvidenceView } from '../../api/types';
+import { createStore, WorkshopContext } from '../../state/store';
+import { box, chipText, openNotes, reader, settle } from '../fixtures/notesPage';
+import { longJob } from '../fixtures/longJob';
+import { createJobStore, type JobStore } from '../jobStore';
+import { forgetRecentPages } from '../recent';
+import { ChecksView } from '../reader/ChecksView';
+import type { JobBody, JobPagePayload } from '../types';
+import { JobStoreContext } from '../useJob';
+import { composeFor } from './chips';
+import { clock, readPasted } from './Pins';
+
+const SLUG = longJob.payload.slug;
+const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
+const VIDEO = 'evidence/abc1234/AC-1/video.webm';
+const SHOT = 'evidence/abc1234/AC-2/1.png';
+const EVIDENCE: EvidenceView = {
+  evidence: {
+    version: 1, commit: 'abc1234', at: '2026-11-04T10:00:00.000Z', level: 3,
+    criteria: [
+      { id: 'AC-1', title: 'The week downloads as a file', status: 'passed', reason: null, spec: null, screenshots: [], video: VIDEO },
+      { id: 'AC-2', title: 'A night shift sits on its start day', status: 'failed', reason: 'The row did not show in time.', spec: null, screenshots: [{ file: SHOT, description: 'The week with no night row' }], video: null },
+    ],
+  },
+  commit: 'abc1234', wanted: true, why: '', recording: false, problem: null, folder: '/demo/evidence', folderUrl: 'file:///demo/evidence/', progress: null, watch: false,
+} as unknown as EvidenceView;
+
+function openRecording(): JobStore {
+  const p = clone(longJob.payload) as unknown as JobPagePayload;
+  const store = createJobStore(SLUG, { api: { page: async () => ({ same: true as const, v: p.v }), item: async () => ({ ...(longJob.bodies.checks as unknown as JobBody), version: 'c0' }) }, events: () => () => {}, viewer: () => null, initial: p });
+  const get = vi.fn(async (url: string) => {
+    if (url.endsWith('/commits')) return { commits: [] };
+    if (url.endsWith('/evidence')) return EVIDENCE;
+    throw new Error(`Not asked for: ${url}`);
+  });
+  const api = { get, post: vi.fn(), hosted: () => false } as unknown as ApiClient;
+  render(
+    <WorkshopContext.Provider value={{ api, store: createStore() }}>
+      <JobStoreContext.Provider value={store}><ChecksView id="recording" onOpen={vi.fn()} events={() => () => {}} /></JobStoreContext.Provider>
+    </WorkshopContext.Provider>,
+  );
+  return store;
+}
+
+const hit = () => document.querySelector<HTMLElement>('.jp2-pins-hit')!;
+const pinBox = () => document.querySelector<HTMLElement>('.jp2-pins-box .jp2-nb')!;
+
+beforeEach(() => {
+  vi.stubGlobal('matchMedia', (q: string) => ({ matches: /min-width/.test(q), media: q, addEventListener() {}, removeEventListener() {} }));
+  localStorage.clear(); forgetRecentPages();
+});
+afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); window.history.replaceState(null, '', '/'); });
+
+describe('pins on the recording', () => {
+  it('a click on a frame drops pin 1 with a note box; its note names the picture so the Foreman can find it', async () => {
+    const store = openRecording();
+    await settle();
+    // The failed check shows first: its picture.
+    expect(document.querySelector('.jp2-pins img')).not.toBeNull();
+    act(() => { fireEvent.click(hit()); });
+    expect(document.querySelector('.jp2-pin.is-new')).toHaveTextContent('1');
+    expect(pinBox()).toHaveTextContent(`Picture of AC-2 (${SHOT}) · pin 1 at 50% across, 50% down`);
+    fireEvent.change(within(pinBox()).getByRole('textbox'), { target: { value: 'the night row is missing here' } });
+    act(() => { fireEvent.click(within(pinBox()).getByRole('button', { name: 'Add the note' })); });
+    const notes = store.getState().ui.notes;
+    expect(notes).toMatchObject([{ kind: 'pin', chip: 'Picture AC-2', target: { kind: 'checks', id: 'recording' }, pin: { n: 1, x: 50, y: 50, picture: `shot:AC-2:${SHOT}` } }]);
+    expect(composeFor(notes, '')).toBe([
+      '--- Notes (1) ---',
+      `1. [pin] Picture of AC-2 (${SHOT}) · pin 1 at 50% across, 50% down`,
+      '   Note: the night row is missing here',
+      '--- End of notes ---',
+    ].join('\n'));
+    // The pin stays on the frame, numbered; the next one is 2.
+    expect(screen.getByRole('img', { name: 'Pin 1: the night row is missing here' })).toBeInTheDocument();
+    act(() => { fireEvent.click(hit()); });
+    expect(document.querySelector('.jp2-pin.is-new')).toHaveTextContent('2');
+  });
+
+  it('on a video the pin names the check, the time it shows and the file; the video’s controls are left out of the click area', async () => {
+    const store = openRecording();
+    await settle();
+    act(() => { fireEvent.click(screen.getByRole('button', { name: /AC-1/ })); });
+    const video = document.querySelector<HTMLVideoElement>('.jp2-pins video')!;
+    Object.defineProperty(video, 'currentTime', { value: 14.6, configurable: true });
+    act(() => { fireEvent.click(hit()); });
+    expect(pinBox()).toHaveTextContent(`Recording AC-1 at 0:14 (${VIDEO}) · pin 1 at 50% across, 50% down`);
+    fireEvent.change(within(pinBox()).getByRole('textbox'), { target: { value: 'the Apply button sits on top of the table' } });
+    act(() => { fireEvent.click(within(pinBox()).getByRole('button', { name: 'Add the note' })); });
+    expect(store.getState().ui.notes[0]).toMatchObject({ chip: 'Recording AC-1 0:14', place: `Recording AC-1 at 0:14 (${VIDEO})` });
+    expect(clock(74.9)).toBe('1:14');
+  });
+});
+
+describe('a pasted picture', () => {
+  it('pasting a picture into the message box opens it in the reader to pin on; its pin goes as a note', async () => {
+    const o = openNotes({ read: null, patch: (p) => { p.move = null; } });
+    await settle();
+    const file = new File([new Uint8Array([137, 80, 78, 71])], 'shot.png', { type: 'image/png' });
+    await act(async () => {
+      fireEvent.paste(box(), { clipboardData: { items: [{ kind: 'file', type: 'image/png', getAsFile: () => file }] } });
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    await settle();
+    expect(reader().querySelector('.jp2-rv-top h2')).toHaveTextContent('Pasted picture 1');
+    expect(reader().querySelector<HTMLImageElement>('.jp2-pins img')!.src).toMatch(/^data:image\/png/);
+    expect(readPasted(SLUG, 'p1')).toMatch(/^data:image\/png/);
+    act(() => { fireEvent.click(hit()); });
+    fireEvent.change(within(pinBox()).getByRole('textbox'), { target: { value: 'this button is cut off' } });
+    act(() => { fireEvent.click(within(pinBox()).getByRole('button', { name: 'Add the note' })); });
+    expect(chipText()).toEqual(['Pasted picture 1 · pin 1']);
+    expect(composeFor(o.store.getState().ui.notes, '')).toContain('1. [pin] Pasted picture 1 (it stays in his browser: you can’t open it) · pin 1 at 50% across, 50% down');
+  });
+
+  it('a paste with only words stays a paste of words', async () => {
+    openNotes({ read: null });
+    await settle();
+    const ev = fireEvent.paste(box(), { clipboardData: { items: [{ kind: 'string', type: 'text/plain', getAsFile: () => null }] } });
+    expect(ev).toBe(true);
+  });
+});

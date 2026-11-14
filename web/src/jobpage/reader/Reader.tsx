@@ -24,6 +24,7 @@ import { DetailsView } from './DetailsView';
 import { DocView } from './DocView';
 import { FindingsView } from './FindingsView';
 import { MessageView } from './MessageView';
+import { PictureView } from '../notes/Pins';
 import { ReaderBody } from './ReaderBody';
 import { TicketView } from './TicketView';
 import { placeKey, TitleRow } from './TitleRow';
@@ -67,6 +68,8 @@ function View({ target, searchRef, onOpen }: { target: ReaderTarget } & Pick<Rea
       return <ChecksView id={target.id} onOpen={onOpen} />;
     case 'details':
       return <DetailsView />;
+    case 'picture':
+      return <PictureView id={target.id} />;
     case 'not-yet':
       return <ReaderBody view="not-yet" place={placeKey(target)}><NotYet id={target.id} /></ReaderBody>;
     default:

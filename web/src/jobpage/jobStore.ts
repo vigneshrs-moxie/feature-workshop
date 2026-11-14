@@ -70,8 +70,9 @@ export interface PageNote {
   quote: string | null;
   note: string;
   block?: BlockAnchor | null;
-  /** A pin on a picture: its number, where (per cent from the top left) and the picture's key. */
-  pin?: { n: number; x: number; y: number; picture: string } | null;
+  /** A pin on a picture: its number, where on the picture (per cent from its top left), the picture's key,
+   *  and where on the frame's box the dot is drawn (fx, fy; the picture can be smaller than its frame). */
+  pin?: { n: number; x: number; y: number; picture: string; fx?: number; fy?: number } | null;
 }
 
 /** An `Explain` he sent at once: its answer opens beside the block when the Foreman's reply brings it. */

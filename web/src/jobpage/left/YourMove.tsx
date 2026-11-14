@@ -43,7 +43,9 @@ import { useWorkshop } from '../../state/store';
 import { isOpen, queuedOf, type QueuedView } from '../../views/Hosted/QueuedDecision';
 import type { GateMove, PermissionMove, QuestionMove, ReaderTarget } from '../types';
 import { queuedById } from '../jobStore';
+import { backLabel, composeFor, goLabel, notesWord } from '../notes/chips';
 import { useJob, useJobStore } from '../useJob';
+import { notesBack } from './MessageBox';
 import { changedCount, gateBody, OWN, pickOf, unanswered, type GatePicks } from './gateBody';
 import { STATE_WORDS, stateFromRow } from './Header';
 
@@ -321,11 +323,13 @@ function GateCard({ move, onOpen }: { move: GateMove; onOpen?: YourMoveProps['on
   const why = blocked ?? (open !== null ? `Question ${open} has no answer. Pick one, or write your own.` : null);
   /** Send back pressed with an empty message box: what to do. */
   const [hint, setHint] = useState<string | null>(null);
-  const hasWords = useJob((s) => s.ui.draft.trim() !== '');
+  const hasWords = useJob((s) => s.ui.draft.trim() !== '' || s.ui.notes.length > 0);
+  /** Notes pointed in the reader (R4): Go and Send back carry them. */
+  const noteCount = useJob((s) => s.ui.notes.length);
   useEffect(() => { if (hasWords) setHint(null); }, [hasWords]);
-  const label = move.questions.length === 0 ? `Go · ${move.goSays}` : changed ? `Go · ${changed} changed` : 'Go · all recommended';
+  const label = noteCount ? goLabel(noteCount) : move.questions.length === 0 ? `Go · ${move.goSays}` : changed ? `Go · ${changed} changed` : 'Go · all recommended';
   const confirms = move.openDecisions.length;
-  const goHint = `Go: ${move.goSays}.${move.questions.length ? ' Sends your answers' : ' Sends your go-ahead'}${confirms ? ` and confirms the ${confirms} open decision${confirms === 1 ? '' : 's'}` : ''}; words in the message box go with it as a note.`;
+  const goHint = `Go: ${move.goSays}.${move.questions.length ? ' Sends your answers' : ' Sends your go-ahead'}${changed && noteCount ? ` (${changed} changed)` : ''}${confirms ? ` and confirms the ${confirms} open decision${confirms === 1 ? '' : 's'}` : ''}; ${noteCount ? `your ${notesWord(noteCount)} go with it, for the Foreman to do as part of the go, and words in the message box too.` : 'words in the message box go with it as a note.'}`;
 
   const pick = (q: string, option: string) => {
     store.forGate(key);
@@ -347,8 +351,12 @@ function GateCard({ move, onOpen }: { move: GateMove; onOpen?: YourMoveProps['on
     const now: GatePicks = ui.picksFor === key ? { picks: ui.picks, own: ui.own } : { picks: {}, own: {} };
     if (move.stale || held || onItsWay) return;
     if (kind === 'approve' && unanswered(move, now) !== null) return;
-    const note = ui.draft;
-    // Send back needs the change in words: the cursor goes to the box, with a hint.
+    // His notes from the reader (R4) go first, as the notes block, his words after it.
+    const typed = ui.draft;
+    const notes = ui.notes;
+    // (No notes: his words as they are, byte for byte today's card's.)
+    const note = notes.length ? composeFor(notes, typed) : typed;
+    // Send back needs the change in words (or notes): the cursor goes to the box, with a hint.
     if (kind === 'changes' && !note.trim()) { setLine(null); setHint(BACK_HINT); pressKey('jp-write'); return; }
     setHint(null);
     const body = kind === 'approve'
@@ -359,16 +367,19 @@ function GateCard({ move, onOpen }: { move: GateMove; onOpen?: YourMoveProps['on
     const go = (phase: GoPhase, runIdNow: string | null = null, line = '', queuedId: string | null = null) => setGo(slug, { kind, key, stage: move.stage, phase, line, clickRun, runId: runIdNow, queuedId });
     go('sending');
     setLine(null);
-    if (carried) store.setDraft('');
+    if (carried) { store.setDraft(''); if (notes.length) store.setNotes([]); }
     /** Not sent: the card again with his picks, and his words back in the box (before anything typed since). */
     const giveBack = (words: string) => {
       setGo(slug, null);
       setLine(words);
       setRefocus((n) => n + 1);
       if (!carried) return;
+      // His words back in the box and his notes back as chips (before anything made since).
       const draft = store.getState().ui.draft;
-      if (!draft.trim()) store.setDraft(note);
-      else if (!draft.includes(note)) store.setDraft(`${note}\n\n${draft}`);
+      const back = typed.trim();
+      if (!draft.trim()) store.setDraft(typed);
+      else if (back && !draft.includes(back)) store.setDraft(`${back}\n\n${draft}`);
+      if (notes.length) store.setNotes(notesBack(store.getState().ui.notes, notes));
     };
     let r: GateResult;
     try {
@@ -503,7 +514,7 @@ function GateCard({ move, onOpen }: { move: GateMove; onOpen?: YourMoveProps['on
       )}
       <div className="jp2-ym-calls">
         <Button ref={goBtn} kind="primary" size={size} keyId="jp-go" keyShown disabled={why !== null} onClick={() => void goNow()} title={why ? `Off: ${why}` : goHint}>{label}</Button>
-        <Button size={size} keyId="jp-back" disabled={blocked !== null} onClick={() => void decide('changes')} title={blocked ? `Off: ${blocked}` : 'Send back: the words in the message box are the change. The Foreman stays at this step, revises and asks you again.'}>Send back</Button>
+        <Button size={size} keyId="jp-back" disabled={blocked !== null} onClick={() => void decide('changes')} title={blocked ? `Off: ${blocked}` : noteCount ? 'Send back: your notes, and the words in the message box, are the change. The Foreman stays at this step, revises and asks you again.' : 'Send back: the words in the message box are the change. The Foreman stays at this step, revises and asks you again.'}>{backLabel(noteCount)}</Button>
         {limited && (
           <Button kind="quiet" size={size} disabled={why !== null} onClick={() => void goNow({ startAfterReset: true })} title="Claude’s usage limit is reached: your Go waits, and goes to the Foreman when it resets.">Go after the reset</Button>
         )}

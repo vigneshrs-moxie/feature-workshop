@@ -149,7 +149,7 @@ function Diff({ sha, path, onAgain }: { sha: string; path: string | null; onAgai
   return (
     <>
       {path && <div className="jp2-ch-dh">{path}</div>}
-      {file ? <DiffLines key={`${sha}:${file.path}`} lines={file.lines} /> : <p className="jp2-dim">{diff.patchFiles.length ? 'No lines to show for this file (a binary file, or only renamed).' : 'No file changes in this commit.'}</p>}
+      {file ? <DiffLines key={`${sha}:${file.path}`} lines={file.lines} sha={sha} path={file.path} /> : <p className="jp2-dim">{diff.patchFiles.length ? 'No lines to show for this file (a binary file, or only renamed).' : 'No file changes in this commit.'}</p>}
       {diff.truncated && <p className="jp2-dim jp2-ch-cut">Only the start of this change is shown: it is very large.</p>}
     </>
   );
@@ -184,7 +184,7 @@ const Chunk = memo(function Chunk({ lines }: { lines: Line[] }) {
 });
 
 /** A file's lines in chunks: the first ones at once, the next when the end comes into view or on a click. */
-function DiffLines({ lines }: { lines: string[] }) {
+function DiffLines({ lines, sha, path }: { lines: string[]; sha: string; path: string }) {
   const shaped = useMemo(() => shapeLines(lines), [lines]);
   const [shown, setShown] = useState(Math.min(shaped.length, DIFF_FIRST_LINES));
   const end = useRef<HTMLButtonElement>(null);
@@ -203,7 +203,8 @@ function DiffLines({ lines }: { lines: string[] }) {
     return () => io.disconnect();
   }, [shaped.length, shown]);
   return (
-    <div className="jp2-ch-df">
+    // The commit and file a note on one of its lines names (notes/Pointable.tsx).
+    <div className="jp2-ch-df" data-sha={sha} data-short={sha.slice(0, 7)} data-path={path}>
       <ChunkList shaped={shaped} shown={shown} />
       {left > 0 && (
         <button ref={end} type="button" className="link-button jp2-ch-more" onClick={() => setShown((n) => Math.min(shaped.length, n + DIFF_FIRST_LINES))}>

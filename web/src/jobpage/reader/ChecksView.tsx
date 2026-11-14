@@ -32,6 +32,7 @@ import type { ReaderTarget } from '../types';
 import { useJob, useJobStore } from '../useJob';
 import { loadCommits, useBranch, type BranchCommit } from './branch';
 import { NotLoaded, ReaderBody, useBody } from './ReaderBody';
+import { clock, Pins, type Picture } from '../notes/Pins';
 
 export interface ChecksViewProps {
   id: string;
@@ -186,6 +187,13 @@ function Recording({ slug, hosted, ev, commits }: { slug: string; hosted: boolea
   const [quietOpen, setQuietOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<{ bad: boolean; text: string } | null>(null);
+  // A chip of a pin on another check's frame: that check shows (Pins then flashes the pin).
+  const pinned = useJob((s) => {
+    const n = s.seek ? s.ui.notes.find((x) => x.n === s.seek!.n) : null;
+    const m = n?.pin ? /^(?:rec|shot):([^:]+):/.exec(n.pin.picture) : null;
+    return m ? m[1] : null;
+  });
+  useEffect(() => { if (pinned) setPick(pinned); }, [pinned]);
   const view = ev.view;
   // "Recording now" ends with the recording: the note goes once the view says it is done.
   const was = useRef(false);
@@ -214,7 +222,7 @@ function Recording({ slug, hosted, ev, commits }: { slug: string; hosted: boolea
   const failed = criteria.filter((c) => c.status === 'failed');
   const passed = criteria.filter((c) => c.status === 'passed');
   const quiet = criteria.filter((c) => c.status !== 'failed' && c.status !== 'passed');
-  const shown = criteria.find((c) => c.id === pick) ?? failed[0] ?? passed[0] ?? quiet[0] ?? null;
+  const shown = criteria.find((c) => c.id === (pinned ?? pick)) ?? failed[0] ?? passed[0] ?? quiet[0] ?? null;
   // No check has a picture or a video (a recording of checks with nothing to see): the list alone, no empty frame.
   const visual = criteria.some((c) => Boolean(c.video) || (Array.isArray(c.screenshots) && c.screenshots.length > 0));
   const made = evd ? commitWords('Recorded', evd.commit, commits, view.commit, sinceWords(evd.at)) : null;
@@ -266,6 +274,21 @@ function progressWords(view: EvidenceView): string {
   return 'Recording now.';
 }
 
+/** A check's video as a pin names it: the check, the time it shows and its file, so the Foreman can open it. */
+export const recordingPicture = (id: string, file: string): Picture => ({
+  key: `rec:${id}:${file}`,
+  name: (f) => `Recording ${id} at ${clock(f instanceof HTMLVideoElement ? f.currentTime : 0)} (${file})`,
+  chip: (f) => `Recording ${id} ${clock(f instanceof HTMLVideoElement ? f.currentTime : 0)}`,
+  target: { kind: 'checks', id: 'recording' },
+});
+/** A check's picture as a pin names it. */
+export const shotPicture = (id: string, file: string): Picture => ({
+  key: `shot:${id}:${file}`,
+  name: () => `Picture of ${id} (${file})`,
+  chip: () => `Picture ${id}`,
+  target: { kind: 'checks', id: 'recording' },
+});
+
 /** The picked check, large: its video where it can play, else its pictures, else why there is none. */
 function Player({ slug, c, hosted, onSite }: { slug: string; c: EvidenceCriterion; hosted: boolean; onSite: unknown }) {
   const shots = Array.isArray(c.screenshots) ? c.screenshots.filter((s) => s && typeof s.file === 'string') : [];
@@ -273,10 +296,11 @@ function Player({ slug, c, hosted, onSite }: { slug: string; c: EvidenceCriterio
   const state = c.status === 'failed' ? `Failed: ${c.reason ?? 'no reason given.'}` : c.status === 'passed' ? 'Passed' : c.reason ?? 'Nothing to see.';
   return (
     <>
+      {/* A click on the frame drops a numbered pin with a note (R4, notes/Pins.tsx); the video's controls stay his. */}
       {video
-        ? <video key={video} className="jp2-rec-frame" src={fileUrl(slug, video)} controls muted aria-label={`The recording of ${c.id}: ${c.title}`} />
+        ? <Pins picture={recordingPicture(c.id, video)}><video key={video} className="jp2-rec-frame" src={fileUrl(slug, video)} controls muted aria-label={`The recording of ${c.id}: ${c.title}`} /></Pins>
         : shots.length
-          ? <img key={shots[0].file} className="jp2-rec-frame" src={fileUrl(slug, shots[0].file)} alt={shots[0].description} />
+          ? <Pins picture={shotPicture(c.id, shots[0].file)}><img key={shots[0].file} className="jp2-rec-frame" src={fileUrl(slug, shots[0].file)} alt={shots[0].description} /></Pins>
           : <div className="jp2-rec-frame jp2-rec-none">No recording for this check.</div>}
       <div className="jp2-rec-under">
         <b className="jp2-rec-id">{c.id}</b> {c.title}

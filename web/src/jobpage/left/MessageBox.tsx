@@ -31,7 +31,7 @@
 // Keys: c and i put the cursor here (the page's jp-write); ⌘↵ in the box is Go while a go-ahead
 // waits (Your move's jp-go), else Send.
 
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent, type RefObject } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ClipboardEvent, type KeyboardEvent, type RefObject } from 'react';
 import { ApiError } from '../../api/client';
 import { BRAND } from '../../app/brand';
 import { pressKey } from '../../app/keyRegistry';
@@ -39,7 +39,11 @@ import { Button } from '../../components/Button';
 import { Choice } from '../../components/Choice';
 import { useNarrow } from '../../components/page/Page';
 import { useWorkshop } from '../../state/store';
-import { withWordsBack } from '../jobStore';
+import { withWordsBack, type PageNote } from '../jobStore';
+import { backLabel, composeFor, sendLabel } from '../notes/chips';
+import { NoteChips } from '../notes/NoteChips';
+import { keepPasted, pastedPicture } from '../notes/Pins';
+import type { ReaderTarget } from '../types';
 import { useJob, useJobStore } from '../useJob';
 
 /** The run statuses that mean the Foreman is replying right now (panes/Foreman/thread.ts ACTIVE). */
@@ -125,13 +129,23 @@ function fit(el: HTMLTextAreaElement) {
 export interface MessageBoxProps {
   /** The page's handle on the box (c and i, quick replies and Send back put the cursor in it). */
   boxRef: RefObject<HTMLTextAreaElement | null>;
+  /** Open something in the reader (a note's chip; a pasted picture, to pin on). */
+  onOpen?(t: ReaderTarget, from?: HTMLElement | null): void;
 }
 
-export const MessageBox = memo(function MessageBox({ boxRef }: MessageBoxProps) {
+/** Notes taken out to go, back in the box after a refusal (before any made since). */
+export function notesBack(now: PageNote[], taken: PageNote[]): PageNote[] {
+  if (!taken.length) return now;
+  return [...taken, ...now.filter((n) => !taken.some((t) => t.n === n.n))];
+}
+
+export const MessageBox = memo(function MessageBox({ boxRef, onOpen }: MessageBoxProps) {
   const store = useJobStore();
   const { api, store: app } = useWorkshop();
   const slug = useJob((s) => s.slug);
   const draft = useJob((s) => s.ui.draft);
+  /** Notes pointed in the reader (R4): they go with the next Send (at a gate: Send back or Go). */
+  const noteCount = useJob((s) => s.ui.notes.length);
   const gateWaits = useJob((s) => s.payload?.move?.kind === 'gate');
   const asked = useJob((s) => s.payload?.move?.kind === 'gate' || s.payload?.move?.kind === 'question');
   const locked = useJob((s) => Boolean(s.payload?.lock));
@@ -204,14 +218,18 @@ export const MessageBox = memo(function MessageBox({ boxRef }: MessageBoxProps) 
     if (out.current) return;
     const words = store.getState().ui.draft;
     const text = words.trim();
-    if (!text) { focusBox(); return; }
+    const notes = store.getState().ui.notes;
+    if (!text && !notes.length) { focusBox(); return; }
+    // The notes block first, his words after it (notes/chips.ts: the server's composeNotes).
+    const message = composeFor(notes, words);
     out.current = true;
     setPhase('sending');
     setLine(null);
     store.clearGaveBack();
     store.setDraft('');
+    if (notes.length) store.setNotes([]);
     let r: { queued?: unknown } | null;
-    const post = () => api.post<{ queued?: unknown }>(`/api/job/${encodeURIComponent(slug)}/send`, { kind: 'message', text, confirmNoTerminal: noTerminal });
+    const post = () => api.post<{ queued?: unknown }>(`/api/job/${encodeURIComponent(slug)}/send`, { kind: 'message', text: message, confirmNoTerminal: noTerminal });
     try {
       try {
         r = await post();
@@ -227,10 +245,11 @@ export const MessageBox = memo(function MessageBox({ boxRef }: MessageBoxProps) 
     } catch (err) {
       out.current = false;
       setPhase('idle');
-      // His words back, before anything typed since.
+      // His words back, before anything typed since; his notes back as chips.
       const now = store.getState().ui.draft;
       if (!now.trim()) store.setDraft(words);
       else if (!now.includes(text)) store.setDraft(`${text}\n\n${now}`);
+      if (notes.length) store.setNotes(notesBack(store.getState().ui.notes, notes));
       setLine({ words: sendRefusal(err), problem: true });
       if (err instanceof ApiError && err.body.code === 'terminal-open') setAskTerminal(true);
       return;
@@ -243,7 +262,7 @@ export const MessageBox = memo(function MessageBox({ boxRef }: MessageBoxProps) 
     const q = r && typeof r === 'object' ? (r.queued as { id?: unknown } | undefined) : undefined;
     if (q) {
       setLine({ words: 'Queued for your laptop: it goes to the Foreman when the laptop picks it up.', problem: false });
-      if (typeof q === 'object' && typeof q.id === 'string') store.watchQueued(q.id, text);
+      if (typeof q === 'object' && typeof q.id === 'string') store.watchQueued(q.id, notes.length ? message : text);
     }
   }, [api, store, slug, noTerminal, focusBox]);
 
@@ -256,17 +275,20 @@ export const MessageBox = memo(function MessageBox({ boxRef }: MessageBoxProps) 
     if (out.current) return 'none';
     const words = store.getState().ui.draft;
     const text = words.trim();
-    if (!text) { focusBox(); return 'none'; }
+    const notes = store.getState().ui.notes;
+    if (!text && !notes.length) { focusBox(); return 'none'; }
+    const message = composeFor(notes, words);
     out.current = true;
     setPhase('waiting');
     setLine(null);
     store.clearGaveBack();
     store.setDraft('');
-    setMine({ text, afterV: null });
+    if (notes.length) store.setNotes([]);
+    setMine({ text: message, afterV: null });
     setCancelled(null);
     let r: { waiting?: unknown } | null;
     try {
-      r = await api.post<{ waiting?: unknown }>(`/api/job/${encodeURIComponent(slug)}/send`, { kind: 'message', text, queue: true, ...(replace ? { replace: true } : {}), confirmNoTerminal: noTerminal });
+      r = await api.post<{ waiting?: unknown }>(`/api/job/${encodeURIComponent(slug)}/send`, { kind: 'message', text: message, queue: true, ...(replace ? { replace: true } : {}), confirmNoTerminal: noTerminal });
     } catch (err) {
       out.current = false;
       setPhase('idle');
@@ -274,6 +296,7 @@ export const MessageBox = memo(function MessageBox({ boxRef }: MessageBoxProps) 
       const now = store.getState().ui.draft;
       if (!now.trim()) store.setDraft(words);
       else if (!now.includes(text)) store.setDraft(`${text}\n\n${now}`);
+      if (notes.length) store.setNotes(notesBack(store.getState().ui.notes, notes));
       setLine(isSecond(err) ? { words: secondRefusal(err), problem: true, replace: true } : { words: sendRefusal(err), problem: true });
       if (err instanceof ApiError && err.body.code === 'terminal-open') setAskTerminal(true);
       return 'refused';
@@ -283,7 +306,7 @@ export const MessageBox = memo(function MessageBox({ boxRef }: MessageBoxProps) 
     setNoTerminal(false);
     const kept = Boolean(r && typeof r === 'object' && r.waiting);
     setPhase(kept ? 'idle' : 'sent');
-    setMine(kept ? { text, afterV: vNow.current } : null);
+    setMine(kept ? { text: message, afterV: vNow.current } : null);
     return kept ? 'waiting' : 'sent';
   }, [api, store, slug, noTerminal, focusBox]);
 
@@ -350,8 +373,11 @@ export const MessageBox = memo(function MessageBox({ boxRef }: MessageBoxProps) 
   }, [api, store, slug, hosted, waitToBox, waitText, waitAt]);
 
   const pressSend = useCallback(() => {
-    if (!store.getState().ui.draft.trim()) { focusBox(); return; }
+    const ui = store.getState().ui;
+    if (!ui.draft.trim() && !ui.notes.length) { focusBox(); return; }
     if (locked) return;
+    // At a gate the notes are a Send back (Your move's: it carries them and the words as the change).
+    if (ui.notes.length && store.getState().payload?.move?.kind === 'gate') { pressKey('jp-back'); return; }
     if (running) {
       // The website can't keep a message waiting: the words stay in the box.
       if (hosted) { setLine({ words: KEPT, problem: false }); return; }
@@ -363,7 +389,8 @@ export const MessageBox = memo(function MessageBox({ boxRef }: MessageBoxProps) 
 
   /** Stop it and send now, on this computer: the words wait (if any), then the reply stops; the server sends them as it ends. */
   const stopThenSend = useCallback(async () => {
-    const words = store.getState().ui.draft.trim();
+    // Words, or notes, to make wait first.
+    const words = Boolean(store.getState().ui.draft.trim() || store.getState().ui.notes.length);
     if (!words && !waits) { focusBox(); setLine({ words: 'Write the message first, then Stop it and send now.', problem: false }); return; }
     if (!run?.id || stopping) return;
     if (words && (await queue()) !== 'waiting') return;
@@ -380,7 +407,7 @@ export const MessageBox = memo(function MessageBox({ boxRef }: MessageBoxProps) 
   }, [api, store, run?.id, stopping, waits, queue, focusBox]);
 
   const stopAndSend = useCallback(async () => {
-    if (!store.getState().ui.draft.trim()) { focusBox(); setLine({ words: 'Write the message first, then Stop it and send now.', problem: false }); return; }
+    if (!store.getState().ui.draft.trim() && !store.getState().ui.notes.length) { focusBox(); setLine({ words: 'Write the message first, then Stop it and send now.', problem: false }); return; }
     if (!run?.id || phase === 'stopping') return;
     setPhase('stopping');
     setLine({ words: 'Stopping the Foreman; your words go as soon as it has stopped.', problem: false });
@@ -451,8 +478,22 @@ export const MessageBox = memo(function MessageBox({ boxRef }: MessageBoxProps) 
       Stop it and send now
     </Button>
   );
+  /** A picture pasted into the box (⌘V) opens in the reader to pin on (R4). */
+  function onPaste(e: ClipboardEvent<HTMLTextAreaElement>) {
+    const file = pastedPicture(e.clipboardData);
+    if (!file) return;
+    e.preventDefault();
+    void keepPasted(slug, file).then(
+      (id) => onOpen?.({ kind: 'picture', id }, boxRef.current),
+      () => setLine({ words: 'Couldn’t keep that picture. Try pasting it again.', problem: true }),
+    );
+  }
+
+  /** At a gate with notes, the box's button is Send back (it carries the notes as the change). */
+  const backNow = gateWaits && noteCount > 0;
   return (
     <div className="jp2-mbw">
+      <NoteChips onOpen={onOpen} />
       {locked && <p className="jp2-mb-line" role="status">{LOCKED}</p>}
       {askTerminal && (
         <label className="check jp2-mb-line" title="Claude Code is open in this repository in a terminal. Two Foremen on one job would trip over each other.">
@@ -482,6 +523,7 @@ export const MessageBox = memo(function MessageBox({ boxRef }: MessageBoxProps) 
           value={draft}
           onChange={(e) => store.setDraft(e.target.value)}
           onKeyDown={onKeyDown}
+          onPaste={onPaste}
           title={gateWaits
             ? 'Your words go with Go as a note, with Send back as the change, or alone with Send as a message. Kept for this job until they go.'
             : 'Your message to this job’s Foreman. Kept for this job until it goes. ⌘↵ sends it.'}
@@ -493,9 +535,9 @@ export const MessageBox = memo(function MessageBox({ boxRef }: MessageBoxProps) 
           className="jp2-mb-send"
           disabled={locked}
           onClick={pressSend}
-          title={locked ? `Off: ${LOCKED}` : running ? (hosted ? 'The Foreman is replying: your words stay in the box until it finishes.' : 'The Foreman is replying: your message waits and goes when it finishes.') : 'Send your words to the Foreman as a message.'}
+          title={locked ? `Off: ${LOCKED}` : backNow ? 'Send back: your notes, and the words in the box, are the change. The Foreman stays at this step, revises and asks you again.' : running ? (hosted ? 'The Foreman is replying: your words stay in the box until it finishes.' : 'The Foreman is replying: your message waits and goes when it finishes.') : noteCount ? 'Send your notes, and the words in the box, to the Foreman as one message.' : 'Send your words to the Foreman as a message.'}
         >
-          {sentShown ? 'Sent' : 'Send'}
+          {sentShown ? 'Sent' : backNow ? backLabel(noteCount) : sendLabel(noteCount)}
         </Button>
       </div>
       {waits && (

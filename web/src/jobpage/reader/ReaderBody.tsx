@@ -11,6 +11,7 @@
 
 import { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
 import type { JobStore } from '../jobStore';
+import { Pointable } from '../notes/Pointable';
 import type { JobBody } from '../types';
 import { useJob, useJobStore } from '../useJob';
 
@@ -53,7 +54,8 @@ export function ReaderBody({ view, place, ready = true, className = '', children
       data-view={view}
       onScroll={ready ? (e) => { kept.set(place, e.currentTarget.scrollTop); } : undefined}
     >
-      {children}
+      {/* Every block in it can be pointed at (R4): the `+`, the note box and the margin notes. */}
+      <Pointable hostRef={ref} place={place} ready={ready}>{children}</Pointable>
     </div>
   );
 }
