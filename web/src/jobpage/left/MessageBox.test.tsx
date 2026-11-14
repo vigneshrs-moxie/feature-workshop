@@ -770,6 +770,19 @@ describe('Task 16: a message waits for the Foreman', () => {
     expect(document.querySelector('.jp2-mb-line')).toHaveTextContent(/^Kept here, not sent. Press Send when the Foreman finishes, or Stop it and send now.$/);
   });
 
+  it('a stop that is refused says so once, and the message still waits', async () => {
+    const post = vi.fn(async (path: string) => {
+      if (path.endsWith('/stop')) throw new ApiError(409, 'This reply can’t be stopped right now.');
+      return { ok: true, waiting: waiting('Use the old header.') };
+    });
+    open({ move: null, patch: { run: RUNNING }, post });
+    type('Use the old header.');
+    fireEvent.click(screen.getByRole('button', { name: 'Stop it and send now' }));
+    await settle();
+    expect(foot().getByRole('alert')).toHaveTextContent(/^Not stopped: This reply can’t be stopped right now\. Your message still waits for the Foreman\.$/);
+    expect(waitRow()).toHaveTextContent('Use the old header.');
+  });
+
   it('a refused wait gives the words back with the reason, and shows nothing waiting', async () => {
     const post = vi.fn().mockRejectedValueOnce(new ApiError(409, 'This job is being started again on another model right now. Wait for that to finish.'));
     open({ move: null, patch: { run: RUNNING }, post });

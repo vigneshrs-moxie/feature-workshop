@@ -323,7 +323,7 @@ export const MessageBox = memo(function MessageBox({ boxRef }: MessageBoxProps) 
       await api.post(`/api/runs/${encodeURIComponent(run.id)}/stop`, {});
     } catch (err) {
       // Ended by itself meanwhile (404 "already finished"): the waiting message goes as it would after a stop.
-      if (!(err instanceof ApiError && err.status === 404)) setLine({ words: `Not stopped: ${err instanceof TypeError ? UNREACHABLE : err instanceof Error ? err.message : String(err)}. Your message still waits for the Foreman.`, problem: true });
+      if (!(err instanceof ApiError && err.status === 404)) setLine({ words: `Not stopped: ${(err instanceof TypeError ? UNREACHABLE : err instanceof Error ? err.message : String(err)).replace(/[.!?]$/, '')}. Your message still waits for the Foreman.`, problem: true });
     } finally {
       setStopping(false);
     }
