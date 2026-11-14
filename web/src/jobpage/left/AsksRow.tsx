@@ -239,7 +239,7 @@ export const AsksRow = memo(function AsksRow({ runner, job, phone = false, lead 
       <div className="jp2-asks-in">
         <AskButtons key={row.map((a) => a.id).join(' ')} row={row} phone={phone} locked={locked} tipId={tipId} tip={tip} onTip={setTip} runner={runner} />
         {!phone && (
-          <Button kind="quiet" size="sm" className="jp2-ask-more" onClick={() => pressKey('jp-palette')} title={`Every ask and the page’s places, with a search field (${paletteKeyLabel()}).`}>
+          <Button kind="quiet" size="sm" className="jp2-asks-more" onClick={() => pressKey('jp-palette')} title={`Every ask and the page’s places, with a search field (${paletteKeyLabel()}).`}>
             {paletteKeyLabel()}
           </Button>
         )}
@@ -313,7 +313,7 @@ function AskButtons({ row, phone, locked, tipId, tip, onTip, runner }: AskButton
           key={a.id}
           kind="secondary"
           size={phone ? 'md' : 'sm'}
-          className="jp2-ask"
+          className="jp2-askb"
           hidden={!phone && i >= fits}
           disabled={locked && a.kind === 'send' && !a.needsWord}
           aria-describedby={tip?.id === a.id ? tipId : undefined}

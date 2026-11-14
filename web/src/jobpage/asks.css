@@ -7,9 +7,9 @@
 .jp2-asks { position: relative; flex: none; border-top: 1px solid var(--border-1); background: var(--surface-0); }
 .jp2-asks-in { display: flex; align-items: center; gap: 4px; height: 40px; padding: 0 10px; }
 .jp2-asks-fit { flex: 1; min-width: 0; display: flex; align-items: center; gap: 4px; overflow: hidden; }
-.jp2-ask, .jp2-ask-more { flex: none; }
-.jp2-ask[hidden] { display: none; }
-.jp2-ask-more { margin-left: auto; }
+.jp2-askb, .jp2-asks-more { flex: none; }
+.jp2-askb[hidden] { display: none; }
+.jp2-asks-more { margin-left: auto; }
 
 /* Sent · Undo, and what Go faster switched: over the row, so nothing below moves */
 .jp2-asks-msg { position: absolute; inset: 0; display: flex; align-items: center; gap: 8px; padding: 0 12px; background: var(--surface-0); font-size: 12.5px; line-height: 18px; color: var(--text-1); }

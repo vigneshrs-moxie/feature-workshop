@@ -88,7 +88,7 @@ function open({ patch = {}, srv = server(), beside = null }: { patch?: Partial<J
 }
 
 const row = () => within(document.querySelector<HTMLElement>('.jp2-asks')!);
-const rowLabels = () => [...document.querySelectorAll<HTMLButtonElement>('.jp2-asks .jp2-ask')].filter((b) => !b.hidden).map((b) => b.textContent);
+const rowLabels = () => [...document.querySelectorAll<HTMLButtonElement>('.jp2-asks .jp2-askb')].filter((b) => !b.hidden).map((b) => b.textContent);
 const box = () => screen.getByRole('textbox', { name: 'Message to the Foreman', hidden: true }) as HTMLTextAreaElement;
 const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
 const flush = () => act(async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); });
@@ -269,7 +269,7 @@ describe('no hidden prompts', () => {
     const seen = new Set<string>();
     for (const s of ['spec', 'investigate', 'plan', 'build', 'test', 'review', 'ship'] as const) {
       pickStep(o, s);
-      for (const b of document.querySelectorAll<HTMLButtonElement>('.jp2-asks .jp2-ask')) {
+      for (const b of document.querySelectorAll<HTMLButtonElement>('.jp2-asks .jp2-askb')) {
         const a = ASKS.find((x) => x.label === b.textContent)!;
         fireEvent.mouseEnter(b);
         const tip = screen.getByRole('tooltip');
@@ -495,5 +495,20 @@ describe('another place working on the job', () => {
     fireEvent.click(within(palette()!).getAllByRole('option').find((x) => x.querySelector('.palette-label')?.textContent === 'Stop here')!);
     expect(row().getByRole('alert')).toHaveTextContent('Not sent: another place is working on this job');
     expect(sends(o.post)).toHaveLength(0);
+  });
+});
+
+describe('the page’s other styles', () => {
+  it('draw nothing on the row’s asks (a class of the prose, .jp2-ask, once pulled them 19 px left)', async () => {
+    const { readFileSync } = await import('node:fs');
+    const path = await import('node:path');
+    const css = readFileSync(path.join(__dirname, '..', 'jobpage.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    const selectors = [...css.matchAll(/([^{}@]+)\{[^{}]*\}/g)].flatMap((m) => m[1].split(',').map((s) => s.trim())).filter(Boolean);
+    open();
+    await settle();
+    const asks = [...document.querySelectorAll<HTMLElement>('.jp2-asks .jp2-askb')];
+    expect(asks.length).toBeGreaterThan(0);
+    const drawn = selectors.filter((sel) => { try { return asks.some((b) => b.matches(sel)); } catch { return false; } });
+    expect(drawn).toEqual([]);
   });
 });

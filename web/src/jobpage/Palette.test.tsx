@@ -17,6 +17,8 @@ describe('the list', () => {
     expect(groups).toEqual(['For this step', 'Any step', 'Yours', 'Places', 'Other steps', 'Starbase']);
     expect(items.filter((i) => i.group === 'For this step').map(label)).toEqual(['How do I test this by hand?', 'Start the app', 'It works', 'Run the checks again', 'Record again']);
     expect(items.filter((i) => i.group === 'Yours').map(label)).toEqual(['check ok']);
+    // The row's order first, then the step's ⌘K-only asks.
+    expect(paletteItems('review', steps(), []).filter((i) => i.group === 'For this step').map(label)).toEqual(['Fix the open findings', 'Go faster', 'Publish the walkthrough']);
     expect(label(items.at(-1)!)).toBe('Every Starbase action');
   });
 

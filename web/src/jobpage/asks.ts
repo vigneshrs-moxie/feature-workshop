@@ -109,9 +109,10 @@ export function rowFor(step: StopId | null, lead?: Ask | null): Ask[] {
   return out;
 }
 
-/** The asks of a group, the row's first (⌘K's "For this step" and "Any step"). */
+/** The asks of a group, in its row's order first (⌘K's "For this step" and "Any step"). */
 export function asksOf(group: AskGroup): Ask[] {
-  return ASKS.filter((a) => a.steps.includes(group));
+  const row = ROWS[group].map((id) => askById(id)).filter((a): a is Ask => Boolean(a));
+  return [...row, ...ASKS.filter((a) => a.steps.includes(group) && !row.includes(a))];
 }
 
 /** The box's words with an ask's text added (after his own, on a new line), and where the gap is. */
