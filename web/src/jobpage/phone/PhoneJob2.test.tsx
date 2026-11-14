@@ -1,6 +1,6 @@
 // The phone's own three screens (Task 15): the job screen's order, screens by address, and the back
 // rows following history. On the made-up long job, at 390 px.
-import { fireEvent, screen, within } from '@testing-library/react';
+import { act, fireEvent, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { installKeyListener, resetChord } from '../../app/keyRegistry';
 import { forgetRecentPages } from '../recent';
@@ -172,5 +172,53 @@ describe('screens by address, the back rows following history', () => {
     // And back to the phone: the step's screen again.
     resizeTo(390);
     expect(page()).toHaveAttribute('data-screen', 'step');
+  });
+});
+
+describe('Task 15 fix round 1', () => {
+  const left = () => document.querySelector('.jp2-left')!;
+
+  it('a document open on the phone stays open when the phone turns sideways (760 to 1100 px), and comes back as the reader screen', async () => {
+    openAt(`#/job/${SLUG}`);
+    await settle();
+    fireEvent.click(stepRow('Plan'));
+    await settle();
+    fireEvent.click(within(screen.getByRole('region', { name: 'Step' })).getByRole('button', { name: /^Test plan/ }));
+    await settle();
+    expect(page()).toHaveAttribute('data-screen', 'reader');
+    resizeTo(900);
+    expect(page()).toHaveAttribute('data-layout', 'mid');
+    expect(page()).toHaveAttribute('data-covered');
+    expect(reader()).not.toHaveAttribute('aria-hidden');
+    expect(within(reader()).getByRole('heading', { level: 2 })).toHaveTextContent(/Test plan/);
+    resizeTo(390);
+    expect(page()).toHaveAttribute('data-screen', 'reader');
+    expect(reader()).not.toHaveAttribute('aria-hidden');
+  });
+
+  it('after Back in place to the job screen, turning sideways shows the left pane, not the reader over it', async () => {
+    openAt(`#/job/${SLUG}/conversation`);
+    await settle();
+    fireEvent.click(within(reader()).getByRole('button', { name: 'Back' }));
+    await settle();
+    expect(window.location.hash).toBe(`#/job/${SLUG}`);
+    resizeTo(900);
+    expect(page()).not.toHaveAttribute('data-covered');
+    expect(reader()).toHaveAttribute('aria-hidden', 'true');
+    expect(left()).not.toHaveAttribute('aria-hidden');
+    resizeTo(390);
+    expect(page()).toHaveAttribute('data-screen', 'job');
+  });
+
+  it('a fast double tap, before the page has drawn the new screen, adds one history entry', async () => {
+    openAt(`#/job/${SLUG}`);
+    await settle();
+    const start = window.history.length;
+    const ticket = screen.getByRole('button', { name: 'Ticket and goal' });
+    const plan = stepRow('Plan');
+    act(() => { plan.click(); ticket.click(); });
+    await settle();
+    expect(window.history.length).toBe(start + 1);
+    expect(window.location.hash).toBe(`#/job/${SLUG}/read/ticket/ticket`);
   });
 });

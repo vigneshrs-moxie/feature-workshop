@@ -17,8 +17,9 @@
 //
 // The address (app/router.ts): #/job/<slug> opens the job; /stage/<stop> opens that step;
 // /conversation and /overview open the conversation and the ticket and goal in the reader;
-// /read/<kind>/<id> opens that thing in the reader. A pick rewrites the address in place
-// (replaceHash: no history entry), so Back leaves the page and a reload comes back to it.
+// /read/<kind>/<id> opens that thing in the reader. Wider than a phone a pick rewrites the address in
+// place (replaceHash: no history entry), so Back leaves the page and a reload comes back to it; on the
+// phone moving to another screen is a history entry (phone/PhoneJob2.tsx), so Back walks the screens.
 //
 // First paint: from the Jobs snapshot's row for the job (the `job` prop: title, state, steps), so the
 // header, Your move and the steps paint before the page's own payload lands; the payload then fills
@@ -30,7 +31,7 @@
 // / searches the conversation; g c the conversation; g t the ticket and goal; c i the message box;
 // n is kept for notes (Task 17). Their other meanings come back when the page goes.
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import type { Job } from '../api/types';
 import { useKeyScope } from '../app/keyRegistry';
@@ -154,9 +155,17 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
   const moves = usePhoneMoves(slug, screenNow);
   /** On the phone: the line on the job screen that opened another screen, for Back to give the focus back to. */
   const phoneOpener = useRef<HTMLElement | null>(null);
-  const leavingJob = (from?: HTMLElement | null) => {
-    if (screenNow === 'job') phoneOpener.current = from ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
-  };
+  // The screen as of this draw, for the callbacks below to read without being made again on every
+  // screen change (only what changed redraws: speed rule 5).
+  const screenRef = useRef(screenNow);
+  screenRef.current = screenNow;
+  const leavingJob = useCallback((from?: HTMLElement | null) => {
+    if (screenRef.current === 'job') phoneOpener.current = from ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+  }, []);
+  // While on the phone the cover follows the screen, so turning a phone sideways (or a tablet, 760 to
+  // 1100 px) shows what the address names: the reader over the left pane on a reader screen, the left
+  // pane after Back.
+  useLayoutEffect(() => { if (phone) setCovered(screenNow === 'reader'); }, [phone, screenNow]);
 
   // A later change of the address (a link, Back) is a pick of what it names; the page's own picks
   // write the address first, so this finds them already done.
@@ -191,14 +200,14 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
     if (phone) { leavingJob(from); moves.toReader(t); return; }
     replaceHash(readHref(slug, t));
     showReader(from);
-  }, [store, slug, showReader, phone, moves, screenNow]);
+  }, [store, slug, showReader, phone, moves, leavingJob]);
 
   /** A click (or Enter) on a step: it opens, and its main output shows in the reader (on the phone: the step's screen). */
   const openStep = useCallback((id: StopId, from?: HTMLElement | null) => {
     if (phone) leavingJob(from);
     pickStep(id);
     if (!phone) showReader(from);
-  }, [pickStep, showReader, phone, screenNow]);
+  }, [pickStep, showReader, phone, leavingJob]);
 
   const back = useCallback(() => {
     flushSync(() => setCovered(false));

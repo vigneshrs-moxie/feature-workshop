@@ -289,7 +289,6 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2[data-layout="phone"] .jp2-mb { padding: 8px 18px 30px; }
 .jp2[data-layout="phone"] .jp2-mb-ta { min-height: 40px; max-height: 194px; font-size: 16px; line-height: 22px; padding: 8px 10px; }
 .jp2[data-layout="phone"] .jp2-mb-line { padding: 10px 18px 0; font-size: 14px; line-height: 20px; }
-.jp2[data-layout="phone"] .jp2-back { padding: 0 8px; }
 .jp2[data-layout="phone"] .jp2-rv-top { height: auto; align-items: flex-start; padding: 10px 8px 10px 16px; }
 .jp2[data-layout="phone"] .jp2-rv-tt { flex-wrap: wrap; gap: 2px 10px; white-space: normal; overflow: visible; }
 .jp2[data-layout="phone"] .jp2-rv-title { flex-basis: 100%; font-size: 18px; line-height: 24px; font-weight: 650; overflow: visible; }
@@ -350,6 +349,9 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
    step or reader. The job screen is the left pane, the header at the top of its scroll area and the
    box below it; a step's screen and the reader each take the whole page with a back row. */
 .jp2-chev { display: none; }
+/* No selection mark on the phone's rows: what the reader shows is a screen away (prototype: no data-on on the phone) */
+.jp2[data-layout="phone"] .jp2-row.is-sel { background: none; }
+.jp2[data-layout="phone"] .jp2-row.is-sel:hover { background: var(--hover-bg); }
 .jp2[data-layout="phone"] .jp2-chev { flex: none; display: inline-flex; color: var(--text-3); }
 .jp2[data-layout="phone"] .jp2-st-name + .jp2-chev, .jp2[data-layout="phone"] .jp2-jr > .jp2-chev, .jp2[data-layout="phone"] .jp2-out-label + .jp2-chev { margin-left: auto; }
 .jp2[data-layout="phone"] .jp2-jr-more + .jp2-chev, .jp2[data-layout="phone"] .jp2-out-meta + .jp2-chev { margin-left: 0; }

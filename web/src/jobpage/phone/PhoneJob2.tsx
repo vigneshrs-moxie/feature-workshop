@@ -49,9 +49,17 @@ export interface PhoneMoves {
 /** The moves between the phone's screens for the job, on the screen it is on now. */
 export function usePhoneMoves(slug: string, screen: PhoneScreen | null): PhoneMoves {
   const on = useRef(screen);
+  /** A move has pushed an entry since the screen last changed: a second tap before the page has
+   *  drawn the new screen (a fast double tap) moves in place, never a second entry. */
+  const pushed = useRef(false);
+  if (on.current !== screen) pushed.current = false;
   on.current = screen;
   return useMemo(() => {
-    const go = (href: string, here: boolean) => (here ? replaceHash(href) : pushHash(href, { [MARK]: true }));
+    const go = (href: string, here: boolean) => {
+      if (here || pushed.current) { replaceHash(href); return; }
+      pushed.current = true;
+      pushHash(href, { [MARK]: true });
+    };
     return {
       toStep: (id) => go(stageHref(slug, id), on.current === 'step'),
       toReader: (t) => go(readHref(slug, t), on.current === 'reader'),
