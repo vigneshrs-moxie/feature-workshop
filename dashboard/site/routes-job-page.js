@@ -90,7 +90,12 @@ export default function jobPageRoutes({ read, sendJson, local }) {
         const id = str(body?.id, 40);
         const check = str(body?.check, 40);
         if (!id || !/^[0-9a-f]{12}$/.test(check)) throw new HttpError(400, 'Say which action and the check the line gave (id, check).');
-        return sendJson(res, 200, await prsOf(local).go(m[1], Number(m[2]), { id, check, confirmNoTerminal: body?.confirmNoTerminal === true }));
+        // replies (Task 21, a review round's Push the fixes): his edits of the round's drafted replies, by comment id.
+        const replies = {};
+        for (const [k, v] of Object.entries(body?.replies && typeof body.replies === 'object' ? body.replies : {}).slice(0, 100)) {
+          if (ROW_ID.test(k) && typeof v === 'string' && v.trim()) replies[k] = v.slice(0, 60000);
+        }
+        return sendJson(res, 200, await prsOf(local).go(m[1], Number(m[2]), { id, check, confirmNoTerminal: body?.confirmNoTerminal === true, replies }));
       },
     },
     {

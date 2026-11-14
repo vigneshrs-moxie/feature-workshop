@@ -116,7 +116,7 @@ import { commentKey, itemSummary, lookAt, noteFeedback, readFeedback } from '../
 import { ReviewRefused, createReviewRounds, gitRead, readRounds } from '../lib/review-round.js';
 import { ACTION_NUDGE, prLines, readDue, tellMerges as tellMergesFor, unpushedOf } from '../lib/pr-lines.js';
 import { WriteRefused, createGhWrite, yes as ghYes } from '../lib/gh-write.js';
-import { askMessage, checkMessage, createPrComments, fixMessage, markCheck, markRows } from '../lib/pr-comments.js';
+import { askMessage, checkMessage, createPrComments, fixMessage, markCheck, markPosted, markRows, readKept } from '../lib/pr-comments.js';
 import { createSiteLink, siteTokenStore } from './site-link.js';
 import { PRODUCT } from '../lib/brand.js';
 
@@ -2531,13 +2531,8 @@ export async function createRunner(config) {
       // Task 21: each PR's comment rows (thread: the job's conversation, for the Foreman's answers; null: as last built),
       // and a review round ready to send back (its Send back is Push the fixes).
       comments: thread ? await prComments.factsOf(f, thread) : prComments.lastOf(f.slug),
-      round: roundStateOf(f.slug) === 'ready' ? { ready: true, number: reviewRounds.facts.get(f.slug)?.current ?? null, ...(await roundWho(f.slug)) } : null,
+      round: roundStateOf(f.slug) === 'ready' ? await reviewRounds.planFor(f.slug).catch(() => null) : null,
     };
-  }
-  /** The ready round's number and its reviewer's name, for Push the fixes' words. */
-  async function roundWho(slug) {
-    const v = await reviewRounds.view(slug).catch(() => null);
-    return { round: v?.rounds?.filter((r) => r.state !== 'done').at(-1)?.round ?? null, reviewer: v?.who?.reviewer ?? null };
   }
   /** Read GitHub now for this job's page (the flow map's network refresh; one at a time, never waited on). */
   function prRead(slug) {
@@ -2576,6 +2571,7 @@ export async function createRunner(config) {
       }
     }
   });
+  const prPosting = new Set(); // Post it on its way, by job, PR and comment: never twice at once
   /** One PR's comment rows as the page's last build made them (the cache entry's `pr:<n>` body), or null. */
   async function prBody(slug, n) {
     return (await jobPages.item(slug, `pr:${n}`).catch(() => null))?.meta ?? null;
@@ -2662,25 +2658,38 @@ export async function createRunner(config) {
       const body = await prBody(slug, n);
       const row = body?.rows?.find((r) => r.id === id) ?? null;
       if (!row) throw new HttpError(409, 'That comment moved on since you looked: read the PR again. Nothing was posted.', { code: 'pr-moved' });
+      if (row.round) throw new HttpError(409, 'This reply goes with Push the fixes (the review round’s Send back). Nothing was posted.', { code: 'in-round' });
       if (!ghWrites) throw new HttpError(409, `${PRODUCT} can’t write to GitHub here. Copy the reply and post it on GitHub.`, { code: 'no-writer' });
-      const facts = await prFactsOf(f);
-      const repo = facts.repo?.org?.slug ?? facts.repo?.fork?.slug ?? null;
-      const githubId = Number(String(row.id).slice(1));
-      let res;
+      // Once per comment: a second click (or a page that hasn't caught up yet) never posts it again.
+      const key = `${slug}\0${body.number}\0${id}`;
+      const kept = (await readKept(f.dir)).prs[body.number]?.rows?.[id] ?? null;
+      const postedSince = Boolean(kept?.reply?.posted) && (Date.parse(kept.at ?? '') || 0) >= (Date.parse(row.markAt ?? '') || 0);
+      if (prPosting.has(key) || row.reply?.posted || postedSince) throw new HttpError(409, 'That reply is posted already. Nothing was posted again.', { code: 'already-posted' });
+      prPosting.add(key);
       try {
-        res = await ghWrites.reply({
-          yes: ghYes({ what: `Post your reply to ${row.author}’s comment on PR #${n}` }), featureDir: f.dir, slug: f.slug, repo, number: body.number,
-          comment: { type: row.kind === 'line' ? 'line' : 'issue', id: githubId, author: row.author, quote: row.body }, body: text,
-        });
-      } catch (err) {
-        if (err instanceof WriteRefused) throw new HttpError(409, err.message, { code: err.code });
-        throw err;
+        const facts = await prFactsOf(f);
+        const repo = facts.repo?.org?.slug ?? facts.repo?.fork?.slug ?? null;
+        const githubId = Number(String(row.id).slice(1));
+        let res;
+        try {
+          // His words exactly: in the thread for a line comment, else a PR comment with nothing put in front.
+          res = await ghWrites.reply({
+            yes: ghYes({ what: `Post your reply to ${row.author}’s comment on PR #${n}` }), featureDir: f.dir, slug: f.slug, repo, number: body.number,
+            comment: { type: row.kind === 'line' ? 'line' : 'issue', id: githubId }, body: text,
+          });
+        } catch (err) {
+          if (err instanceof WriteRefused) throw new HttpError(409, err.message, { code: err.code });
+          throw err;
+        }
+        if (!res.ok) throw new HttpError(502, `GitHub didn’t take the reply: ${res.err ?? 'it failed'}. Nothing was posted.`, { code: 'gh-failed' });
+        const postId = Number.isInteger(res.posted) ? `${row.kind === 'line' ? 'c' : 'i'}${res.posted}` : null;
+        await markPosted(f.dir, body.number, row.id, { state: row.state === 'new' || row.state === 'fixing' ? 'answered' : row.state, commit: row.commit, why: row.why, reply: { draft: text, posted: text } }, postId);
+      } finally {
+        prPosting.delete(key);
       }
-      if (!res.ok) throw new HttpError(502, `GitHub didn’t take the reply: ${res.err ?? 'it failed'}. Nothing was posted.`, { code: 'gh-failed' });
-      await markRows(f.dir, body.number, { [row.id]: { state: row.state === 'new' || row.state === 'fixing' ? 'answered' : row.state, commit: row.commit, why: row.why, reply: { draft: text, posted: text } } });
       await markActed(f.dir);
       jobPages.touch(slug);
-      return { ok: true, posted: true };
+      return { ok: true, posted: text };
     },
     /** POST …/pr/:n/pull: read GitHub now (Pull now). */
     async pull(slug) {
@@ -2703,8 +2712,13 @@ export async function createRunner(config) {
       }
       // Task 21: a review round ready to send back: Push the fixes is the round's own Send back (lib/review-round.js:
       // push, replies, resolve, ask again), every write through lib/gh-write.js with the yes made there, on this click.
+      // The plan it runs is the one his click confirmed (expect: the steps' words, as shown); his edits of the round's
+      // drafted replies (the PR view's textareas) go in first, so what is posted is what he left there.
       if (next.round) {
-        try { await reviewRounds.act(slug, 'send', { go: true }); } catch (err) { if (err instanceof ReviewRefused) throw new HttpError(err.status, err.message); throw err; }
+        try {
+          for (const [id, text] of Object.entries(body.replies ?? {})) await reviewRounds.act(slug, 'item', { id, reply: text });
+          await reviewRounds.act(slug, 'send', { go: true, expect: facts.round?.steps ?? [] });
+        } catch (err) { if (err instanceof ReviewRefused) throw new HttpError(err.status, err.message, err.code ? { code: err.code } : {}); throw err; }
         await state.audit({ action: 'pr-line', featureDir: f.dir, slug: f.slug, pr: n, id: next.id, round: true });
         await markActed(f.dir);
         jobPages.touch(slug);

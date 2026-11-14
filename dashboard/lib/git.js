@@ -154,6 +154,34 @@ export async function prChecks(repo, number, { gh = defaultGh } = {}) {
 }
 
 const ghGet = (gh, apiPath) => gh(['api', '--method', 'GET', apiPath]);
+/** Every page of a list (`--paginate`: gh prints each page's array one after another). */
+const ghGetAll = (gh, apiPath) => gh(['api', '--method', 'GET', apiPath, '--paginate']);
+
+/** One JSON value after another (gh api --paginate's output), as an array of the values; a lone array is itself. */
+export function jsonPages(text) {
+  const out = [];
+  let depth = 0;
+  let start = -1;
+  let inString = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (ch === '\\') i++;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === '[' || ch === '{') { if (depth++ === 0) start = i; }
+    else if (ch === ']' || ch === '}') { if (--depth === 0) out.push(JSON.parse(text.slice(start, i + 1))); }
+  }
+  if (depth !== 0) throw new Error('unfinished JSON');
+  return out;
+}
+/** A paginated list read whole: every page's items in order. Throws on a gh failure or unreadable output. */
+function readPages(res, what) {
+  if (!res?.ok) throw new Error(`${what}: ${res?.err ?? 'gh failed'}`);
+  try { return jsonPages(res.out).flatMap((page) => (Array.isArray(page) ? page : [page])); } catch { throw new Error(`${what}: unreadable output`); }
+}
 
 /**
  * A PR's review comments (on a line of a file) and its reviews that have a body, oldest first:
@@ -164,8 +192,8 @@ const ghGet = (gh, apiPath) => gh(['api', '--method', 'GET', apiPath]);
  */
 export async function prComments(repo, number, { gh = defaultGh } = {}) {
   checkRepo(repo, number);
-  const lineComments = readJson(await ghGet(gh, `repos/${repo}/pulls/${number}/comments?per_page=100`), 'gh api comments');
-  const reviews = readJson(await ghGet(gh, `repos/${repo}/pulls/${number}/reviews?per_page=100`), 'gh api reviews');
+  const lineComments = readPages(await ghGetAll(gh, `repos/${repo}/pulls/${number}/comments?per_page=100`), 'gh api comments');
+  const reviews = readPages(await ghGetAll(gh, `repos/${repo}/pulls/${number}/reviews?per_page=100`), 'gh api reviews');
   const who = (u) => ({ author: String(u?.login ?? 'someone'), bot: u?.type === 'Bot' || /\[bot\]$/i.test(String(u?.login ?? '')) });
   const out = [];
   for (const c of Array.isArray(lineComments) ? lineComments : []) {
@@ -187,7 +215,7 @@ export async function prComments(repo, number, { gh = defaultGh } = {}) {
  */
 export async function prConversation(repo, number, { gh = defaultGh } = {}) {
   checkRepo(repo, number);
-  const list = readJson(await ghGet(gh, `repos/${repo}/issues/${number}/comments?per_page=100`), 'gh api issue comments');
+  const list = readPages(await ghGetAll(gh, `repos/${repo}/issues/${number}/comments?per_page=100`), 'gh api issue comments');
   const who = (u) => ({ author: String(u?.login ?? 'someone'), bot: u?.type === 'Bot' || /\[bot\]$/i.test(String(u?.login ?? '')) });
   return (Array.isArray(list) ? list : []).filter((c) => c?.id && String(c?.body ?? '').trim())
     .map((c) => ({ id: `i${c.id}`, kind: 'conversation', ...who(c.user), file: null, line: null, body: String(c.body), link: c.html_url ?? null, at: c.created_at ?? null }))

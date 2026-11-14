@@ -58,7 +58,8 @@ else if (get && /\\/pulls\\/\\d+\\/reviews/.test(args[3])) out = JSON.stringify(
 else if (get && /\\/issues\\/\\d+\\/comments/.test(args[3])) out = JSON.stringify(fx.issue);
 else if (get && args[3] === 'user') out = JSON.stringify({ login: 'you' });
 else if (args[0] === 'run' && args[1] === 'view' && args[2] === '4242' && args.includes('--log-failed')) out = fx.log;
-else if (args[0] === 'api' && args[1] === '--method' && args[2] === 'POST' && /\\/pulls\\/\\d+\\/comments\\/901\\/replies$/.test(args[3])) out = JSON.stringify({ id: 990 });
+else if (args[0] === 'api' && args[1] === '--method' && args[2] === 'POST' && /\\/pulls\\/\\d+\\/comments\\/\\d+\\/replies$/.test(args[3])) out = JSON.stringify({ id: 990 });
+else if (args[0] === 'api' && args[1] === '--method' && args[2] === 'POST' && /\\/issues\\/\\d+\\/comments$/.test(args[3])) out = JSON.stringify({ id: 991 });
 if (out === null) { process.stderr.write('fake gh: not expected: ' + args.join(' ') + '\\n'); process.exit(1); }
 process.stdout.write(out);
 `;
@@ -113,7 +114,8 @@ async function makeJob() {
   };
   const audit = () => (fsSync.existsSync(path.join(dirs.state, 'audit.jsonl')) ? fsSync.readFileSync(path.join(dirs.state, 'audit.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
   const ghCalls = () => (fsSync.existsSync(path.join(ghDir, 'calls.jsonl')) ? fsSync.readFileSync(path.join(ghDir, 'calls.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
-  return { env, audit, ghCalls, job, other, head };
+  const fixture = { read: () => JSON.parse(fsSync.readFileSync(path.join(ghDir, 'fixture.json'), 'utf8')), write: (fx) => fsSync.writeFileSync(path.join(ghDir, 'fixture.json'), JSON.stringify(fx)) };
+  return { env, audit, ghCalls, job, other, head, fixture };
 }
 
 async function startDashboard(env) {
@@ -231,4 +233,37 @@ test('server: Pull now reads at once; every unanswered comment is a row; Fix the
   assert.equal(theirs.status, 404);
   assert.equal(theirs.body.code, 'no-commit');
   assert.match(theirs.body.error, /is not on this branch\./);
+});
+
+test('server (fix round 1, I2, I3): Post it posts once however fast he clicks, exactly his words, and its comment never becomes a row', { timeout: 120_000 }, async () => {
+  const { env, ghCalls, fixture } = await makeJob();
+  const d = await startDashboard(env);
+  assert.equal((await d.get('/api/job/sample-job/page')).status, 200);
+  await d.write('/api/job/sample-job/pr/1/pull');
+  await d.waitFor(async () => ((await d.get('/api/job/sample-job/pr/1')).body.rows?.length ? true : null), 'the rows');
+  // Two clicks at once on the conversation comment: one post, the other refused.
+  const [a, b] = await Promise.all([
+    d.write('/api/job/sample-job/pr/1/reply', { id: 'i77', body: 'One query is the count.' }),
+    d.write('/api/job/sample-job/pr/1/reply', { id: 'i77', body: 'One query is the count.' }),
+  ]);
+  assert.deepEqual([a.status, b.status].sort(), [200, 409]);
+  assert.equal([a, b].find((x) => x.status === 409).body.code, 'already-posted');
+  const posts = ghCalls().filter((c) => c[2] === 'POST');
+  assert.equal(posts.length, 1);
+  assert.match(posts[0][3], /\/issues\/\d+\/comments$/);
+  assert.deepEqual(posts[0].slice(4), ['-f', 'body=One query is the count.'], 'his words exactly: no @name, no quote in front');
+  // Before the rebuild shows it, a third click is refused too (the kept mark says posted).
+  assert.equal((await d.write('/api/job/sample-job/pr/1/reply', { id: 'i77', body: 'Again?' })).status, 409);
+  // GitHub now has his comment (i991): the next read shows no row for it, and raj's comment answered.
+  const fx = fixture.read();
+  fx.issue.push({ id: 991, user: { login: 'you', type: 'User' }, body: 'One query is the count.', html_url: 'x', created_at: new Date().toISOString() });
+  fixture.write(fx);
+  const before = (await d.get('/api/job/sample-job/pr/1')).body.readAt;
+  await d.write('/api/job/sample-job/pr/1/pull');
+  const v = await d.waitFor(async () => { const r = (await d.get('/api/job/sample-job/pr/1')).body; return r.readAt !== before ? r : null; }, 'the next read');
+  assert.ok(!v.rows.some((r) => r.id === 'i991'), 'Post it’s comment is no row');
+  const i77 = v.rows.find((r) => r.id === 'i77');
+  assert.equal(i77.state, 'answered');
+  assert.equal(i77.reply.posted, 'One query is the count.');
+  assert.equal(ghCalls().filter((c) => c[2] === 'POST').length, 1);
 });

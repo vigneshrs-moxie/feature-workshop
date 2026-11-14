@@ -371,15 +371,42 @@ test('pr lines (Task 21): a line carries its comment counts; fixed comments make
   assert.notEqual(fixed.next.check, fresh.next.check);
 });
 
-test('pr lines (Task 21): a review round ready to send back → `Push the fixes (n commits)` that runs the round’s Send back', () => {
+test('pr lines (Task 21): a review round ready to send back → `Push the fixes (n commits)` saying the round’s own steps', async () => {
+  const { sendPlan } = await import('../lib/review-round.js');
+  const round = { reviewer: 'raj', prLabel: 'PR #1', pr: 1, requestedAt: null, items: [
+    { id: 'c901', type: 'line', included: true, added: true, reply: 'Done.', state: 'fixed', resolved: false, author: 'raj', file: 'a.ts', line: 4 },
+  ] };
+  const steps = sendPlan(round, { ahead: 2, fork: 'origin', branch: BRANCH, orgRemote: 'moxie', twoStep: true, mergeFollowUp: true }).map((p) => p.words);
   const list = [gh(247, BRANCH, 'OPEN', { checks: [{ conclusion: 'SUCCESS' }], review: 'CHANGES_REQUESTED' })];
-  const f = facts({ list, jf: { fork: { exists: true, ahead: 2, behind: 0 }, org: { exists: true } }, push: { pushed: true, head: TWO[0].sha, count: 2, commits: TWO, behind: 0 }, stage: 'pr1', inRound: true, round: { ready: true, number: 247, round: 2, reviewer: 'Raj' } });
+  const f = facts({ list, jf: { fork: { exists: true, ahead: 2, behind: 0 }, org: { exists: true } }, push: { pushed: true, head: TWO[0].sha, count: 2, commits: TWO, behind: 0 }, stage: 'pr1', inRound: true,
+    round: { ready: true, number: 247, round: 2, reviewer: 'raj', ahead: 2, steps, replies: [{ id: 'c901', words: 'to raj on a.ts:4' }] } });
   const l = line(f, 1);
   assert.equal(l.next.id, 'push-fixes');
   assert.equal(l.next.round, true);
   assert.equal(l.next.label, 'Push the fixes (2 commits)');
   assert.equal(l.next.go, 'Send back');
-  assert.deepEqual(l.next.says, ['Sends back round 2 on PR #1 (#247):', `Pushes 2 commits from ${BRANCH} to your fork (origin):`, 'bbbbbbb Show the damage list', 'aaaaaaa Add the damage table', 'Posts each reply, marks the threads resolved and asks Raj to review again.']);
-  assert.match(l.next.sends, /^Starbase sends back round 2 on PR #1 \(#247\)/);
-  assert.equal(line({ ...f, round: { ready: false, number: 247 } }, 1).next.id, 'push-update', 'not ready: the plain update');
+  assert.deepEqual(l.next.says, ['Sends back round 2 on PR #1 (#247), 4 steps:', 'Push 2 commits to your fork', 'Reply on GitHub to each of raj’s 1 comment', '  Reply to raj on a.ts:4', 'Mark the 1 fixed comment resolved', 'Ask raj to review PR #1 again']);
+  assert.match(l.next.sends, /^Starbase sends back round 2 on PR #1 \(#247\): Push 2 commits to your fork; Reply on GitHub/);
+  const other = line({ ...f, round: { ...f.round, steps: steps.slice(1) } }, 1);
+  assert.notEqual(other.next.check, l.next.check, 'another plan, another check');
+  assert.equal(line({ ...f, round: null }, 1).next.id, 'push-update', 'not ready: the plain update');
+});
+
+test('pr lines (Task 21 fix round 1, C1): a round on PR #2 of a two-step repository says the follow-up PR #1 and its merge', async () => {
+  const { sendPlan } = await import('../lib/review-round.js');
+  const round = { reviewer: 'raj', prLabel: 'PR #2', pr: 2, requestedAt: null, items: [
+    { id: 'c901', type: 'line', included: true, added: true, reply: 'Done.', state: 'fixed', resolved: false, author: 'raj', file: 'a.ts', line: 4 },
+  ] };
+  const list = [gh(247, BRANCH, 'MERGED', { mergedAt: '2026-11-14T14:02:00Z' }), gh(248, 'staging', 'OPEN', { review: 'CHANGES_REQUESTED' })];
+  const base = { list, jf: { fork: { exists: true, ahead: 2, behind: 0 }, org: { exists: true } }, push: { pushed: true, head: TWO[0].sha, count: 2, commits: TWO, behind: 0 }, stage: 'pr2', status: [{ number: 1, state: 'merged' }, { number: 2, state: 'open' }], inRound: true };
+  for (const merge of [true, false]) {
+    const steps = sendPlan(round, { ahead: 2, fork: 'origin', branch: BRANCH, orgRemote: 'moxie', twoStep: true, mergeFollowUp: merge }).map((p) => p.words);
+    const l = line(facts({ ...base, round: { ready: true, number: 248, round: 3, reviewer: 'raj', ahead: 2, steps, replies: [] } }), 2);
+    assert.equal(l.next.id, 'push-fixes');
+    assert.deepEqual(l.next.says.slice(1), steps, 'every step, word for word');
+    const follow = l.next.says.find((w) => /follow-up PR #1/.test(w));
+    assert.ok(follow, 'the follow-up PR #1 is said');
+    assert.equal(/and merge it once its checks pass$/.test(follow), merge, 'and its merge, when the setting says so');
+    assert.ok(l.next.sends.includes(follow));
+  }
 });

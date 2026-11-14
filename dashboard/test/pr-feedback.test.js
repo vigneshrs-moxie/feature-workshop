@@ -39,7 +39,8 @@ function fakeGh({ head = 'abc111', lint = 'FAILURE' } = {}) {
   const calls = [];
   const gh = async (args) => {
     calls.push(args);
-    const a = args.join(' ');
+    // The comment lists are read whole (--paginate, Task 21 fix round 1): the same answer here.
+    const a = args.join(' ').replace(/ --paginate$/, '');
     if (a.startsWith('pr view 7 --repo acme/app --json statusCheckRollup,headRefOid')) return { ok: true, out: ROLLUP(head, lint), err: null };
     if (a === 'api --method GET repos/acme/app/pulls/7/comments?per_page=100') return { ok: true, out: LINE_COMMENTS, err: null };
     if (a === 'api --method GET repos/acme/app/pulls/7/reviews?per_page=100') return { ok: true, out: REVIEWS, err: null };

@@ -123,9 +123,9 @@ const dirtyLine = (lane) => (lane?.dirty > 0 ? [`${plural(lane.dirty, 'changed f
  *            lib/hard-lines.js goAheadCovers); otherwise `says` ends with `Starbase will ask you once more …`
  *   comments (Task 21, lib/pr-comments.js) by line n: { fresh, total, fixed, failing, v }: the line's `comments`;
  *            fixed rows on PR #1 make its push `Push the fixes (n commits)` (id 'push-fixes', the Foreman pushes)
- *   round    { ready, number, round, reviewer }: a review round ready to send back on that PR: its line's action
- *            is `Push the fixes (n commits)` with `round: true`, which runs the round's Send back
- *            (lib/review-round.js: push, replies, resolve, ask again), every write through lib/gh-write.js
+ *   round    lib/review-round.js planFor: { ready, number, round, reviewer, ahead, steps, replies }: a review round
+ *            ready to send back on that PR: its line's action is `Push the fixes (n commits)` with `round: true`,
+ *            saying the round's own steps word for word; it runs that Send back, every write through lib/gh-write.js
  */
 export function prLines(facts = {}) {
   const { rows = [], lane = null, repo = null, push = null, job = {}, sent = [], inRound = false, pending = [], hosted = false, covered = false, comments = {}, round = null } = facts;
@@ -180,16 +180,20 @@ export function prLines(facts = {}) {
       ?? { why: p2.state === 'not-started' && p1.state !== 'merged' ? 'after PR #1 is merged' : null };
   }
 
-  /** A review round ready to send back on this PR: its Send back is the push of the fixes (Starbase writes, on his yes). */
+  /**
+   * A review round ready to send back on this PR: its Send back is the push of the fixes (Starbase writes, on his yes).
+   * What it says is the round's own plan (lib/review-round.js planFor: sendPlan's steps, word for word, with the
+   * follow-up PR #1 and its merge when they apply, and where each reply goes); the runner sends it with
+   * `expect: round.steps`, so Send back refuses any other plan.
+   */
   function sendBack(row) {
-    const count = push?.count ?? 0;
-    const who = round.reviewer ? String(round.reviewer) : 'the reviewer';
+    const count = round.ahead ?? push?.count ?? 0;
     const which = `${round.round ? `round ${round.round}` : 'the round'} on PR #${row.n}${row.number ? ` (#${row.number})` : ''}`;
-    return { next: action('push-fixes', { ...x, count }, [
-      `Sends back ${which}:`,
-      ...(count > 0 ? [`Pushes ${plural(count, 'commit')} from ${branch} to your fork (${fork}):`, ...commitLines(push.commits), ...moreLine(push)] : []),
-      `Posts each reply, marks the threads resolved and asks ${who} to review again.`,
-    ], { sends: `${PRODUCT} sends back ${which}: the push, the replies, the resolved threads and the ask to review again.`, go: 'Send back', round: true }), push: count > 0 };
+    const steps = Array.isArray(round.steps) ? round.steps.map(String) : [];
+    const replies = (Array.isArray(round.replies) ? round.replies : []).map((r) => `  Reply ${String(r.words ?? '')}`);
+    const at = steps.findIndex((w) => /^Reply on GitHub/.test(w));
+    const says = [`Sends back ${which}, ${plural(steps.length, 'step')}:`, ...(at < 0 ? steps : [...steps.slice(0, at + 1), ...replies, ...steps.slice(at + 1)])];
+    return { next: action('push-fixes', { ...x, count }, says, { sends: `${PRODUCT} sends back ${which}: ${steps.join('; ')}.`, go: 'Send back', round: true }), push: false };
   }
 
   const lines = [1, 2, 3].map((n) => {

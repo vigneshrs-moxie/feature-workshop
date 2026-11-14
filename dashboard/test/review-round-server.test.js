@@ -89,7 +89,8 @@ const prView = (over = {}) => ({
 });
 const user = (login) => ({ login, type: 'User' });
 
-async function makeJob() {
+// at: the PR the round is on (2: PR #2 into staging, the usual one; 1: PR #1, Task 21's plain case).
+async function makeJob({ at = 2 } = {}) {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'gc-review-server-')));
   roots.push(root);
   const featuresDir = path.join(root, 'feature-work');
@@ -114,7 +115,7 @@ async function makeJob() {
   const job = path.join(featuresDir, 'sample-job');
   await fs.mkdir(path.join(job, 'briefs'), { recursive: true });
   const status = {
-    schema_version: 1, slug: 'sample-job', title: 'Sample job', route: 'small', stage: 'pr2', stage_state: 'in_progress',
+    schema_version: 1, slug: 'sample-job', title: 'Sample job', route: 'small', stage: `pr${at}`, stage_state: 'in_progress',
     repo: { path: clone }, branch: 'feature/sample-job', worktree: clone, updated_at: '2026-10-28T09:00:00Z',
   };
   await fs.writeFile(path.join(job, 'status.json'), JSON.stringify(status, null, 2));
@@ -123,8 +124,8 @@ async function makeJob() {
 
   await fs.writeFile(path.join(ghDir, 'fixture.json'), JSON.stringify({
     prs: {
-      [PR2]: {
-        view: prView(),
+      [at === 2 ? PR2 : PR1]: {
+        view: at === 2 ? prView() : prView({ number: PR1, baseRefName: 'feature/sample-job', url: `https://github.com/${REPO}/pull/${PR1}` }),
         reviews: [{ id: 5001, user: user('raj-moxie'), state: 'CHANGES_REQUESTED', body: 'A few things before this goes in.', submitted_at: '2026-10-28T09:00:00Z', commit_id: HEAD0, html_url: `https://github.com/${REPO}/pull/${PR2}#pullrequestreview-5001` }],
         comments: [
           { id: 7001, user: user('raj-moxie'), path: 'App.tsx', line: 1, position: 1, body: 'Please rename this to feedbackId.', pull_request_review_id: 5001, commit_id: HEAD0, created_at: '2026-10-28T08:59:00Z', html_url: `https://github.com/${REPO}/pull/${PR2}#discussion_r7001` },
@@ -316,3 +317,81 @@ test('a round at PR #2: one card, Fix with the Foreman, the report in status.jso
   assert.ok(!output.join('').includes('not expected'), output.join('').slice(-2000));
   await d.stop();
 });
+
+// ---------- Task 21 fix round 1 (C1, I1): the job page's Push the fixes during a round ----------
+
+/** The round to ready (as the test above): Fix with the Foreman, the reply stopped, two commits and the report. */
+async function roundReady(j, c, at) {
+  await c.waitFor(async () => ((await c.get('/api/review/sample-job')).state === 'asked' ? true : null), 'round 1');
+  const fix = await c.write('/api/review/sample-job/fix', {});
+  assert.equal(fix.status, 200, JSON.stringify(fix.body));
+  const send = await c.waitFor(() => j.audit().find((e) => e.action === 'send' && e.kind === 'review-round'), 'the round’s message');
+  await c.waitFor(async () => (await c.get('/api/runs')).runs.find((r) => r.id === send.runId), 'the reply');
+  await c.write(`/api/runs/${send.runId}/stop`);
+  await c.waitFor(async () => { const r = (await c.get('/api/runs')).runs.find((x) => x.id === send.runId); return !r || !['running', 'starting', 'waiting', 'waiting_permission'].includes(r.status); }, 'the reply to end');
+  await sleep(500);
+  await fs.writeFile(path.join(j.clone, 'App.tsx'), 'let feedbackId = 1;\n');
+  await sh(j.clone, ['commit', '-q', '-am', 'Rename id to feedbackId (review: c7001)']);
+  const fix1 = (await sh(j.clone, ['rev-parse', 'HEAD'])).slice(0, 7);
+  await fs.writeFile(path.join(j.clone, 'App.tsx'), 'let feedbackId = 1;\nexport const id = feedbackId;\n');
+  await sh(j.clone, ['commit', '-q', '-am', 'Keep id as an alias']);
+  const st = JSON.parse(await fs.readFile(path.join(j.job, 'status.json'), 'utf8'));
+  st.prs = [{ number: at, rounds: [{ round: 1, state: 'ready', doing: null, next: null, checks: 'npm test passes.', items: [
+    { id: 'c7001', kind: 'change', plan: 'fix', state: 'fixed', commit: fix1, reply: `Fixed in ${fix1}: renamed to feedbackId.` },
+    { id: 'c7002', kind: 'question', plan: 'answer', state: 'answered', reply: 'It is reassigned below, so it stays a let.' },
+    { id: 'r5001', kind: 'change', plan: 'answer', state: 'answered', reply: 'Thanks: both done.' },
+  ] }] }];
+  await fs.writeFile(path.join(j.job, 'status.json'), JSON.stringify(st, null, 2));
+  return c.waitFor(async () => { const x = await c.get('/api/review/sample-job'); return x.state === 'ready' ? x : null; }, 'ready to send back');
+}
+
+for (const at of [2, 1]) {
+  test(`Task 21 fix round 1: Push the fixes during a round on PR #${at} says the round’s own steps word for word, runs exactly them, and posts his edited reply once`, async () => {
+    const j = await makeJob({ at });
+    const output = [];
+    const d = await startDashboard({ env: j.env, stateDir: j.stateDir, output });
+    dashboards.push(d);
+    const c = client(d, output);
+    const r = await roundReady(j, c, at);
+    const steps = r.send.steps.map((s) => s.words);
+    if (at === 2) {
+      assert.deepEqual(r.send.steps.map((s) => s.id), ['push', 'follow-up', 'replies', 'resolve', 'request']);
+      assert.match(steps[1], /open the follow-up PR #1, your fork → the .* branch, and merge it once its checks pass$/);
+    } else {
+      assert.deepEqual(r.send.steps.map((s) => s.id), ['push', 'replies', 'resolve'], 'PR #1: no follow-up (and you review it)');
+    }
+    // The job page has the job (Pull now reads its comments); its PR line's one action is the round's Send back, saying every step.
+    await c.get('/api/job/sample-job/page');
+    await c.write(`/api/job/sample-job/pr/${at}/pull`);
+    await c.waitFor(async () => ((await c.get(`/api/job/sample-job/pr/${at}`)).rows?.length ? true : null), 'the comment rows');
+    const line = await c.waitFor(async () => { const v = await c.get(`/api/job/sample-job/pr/${at}`); return v.line?.next?.id === 'push-fixes' ? v.line : null; }, 'Push the fixes');
+    assert.equal(line.next.round, true);
+    assert.equal(line.next.label, 'Push the fixes (2 commits)');
+    assert.equal(line.next.go, 'Send back');
+    assert.deepEqual(line.next.says.filter((w) => !w.startsWith('  ')).slice(1), steps, 'every step, word for word');
+    assert.deepEqual(line.next.says.filter((w) => w.startsWith('  Reply to')), ['  Reply to raj-moxie on App.tsx:1', '  Reply to raj-moxie on App.tsx:1', '  Reply to raj-moxie']);
+    // His yes to another check: nothing runs.
+    const stale = await c.write(`/api/job/sample-job/pr/${at}/go`, { id: 'push-fixes', check: '0123456789ab' });
+    assert.equal(stale.status, 409);
+    assert.deepEqual(j.ghCalls().filter((x) => !isRead(x)), [], 'nothing written');
+    // The PR view's row of a round item: the round's draft; Post it is refused for it.
+    const pv = await c.get(`/api/job/sample-job/pr/${at}`);
+    const row = pv.rows.find((x) => x.id === 'c7001');
+    assert.equal(row?.round, true, JSON.stringify(pv.rows.map((x) => [x.id, x.state, x.round])));
+    const refused = await c.write(`/api/job/sample-job/pr/${at}/reply`, { id: 'c7001', body: 'Posted on its own?' });
+    assert.equal(refused.status, 409);
+    assert.equal(refused.body.code, 'in-round');
+    // His yes with his edit of one reply: the round's Send back, with that text, each reply once.
+    const go = await c.write(`/api/job/sample-job/pr/${at}/go`, { id: 'push-fixes', check: line.next.check, replies: { c7001: 'Renamed to feedbackId, thanks.' } });
+    assert.equal(go.status, 200, JSON.stringify(go.body));
+    assert.equal(go.body.sendBack, true);
+    await c.waitFor(async () => { const x = await c.get('/api/review/sample-job'); return ['waiting', 'stopped'].includes(x.state) ? x : null; }, 'round 1 sent');
+    const writes = j.ghCalls().filter((x) => !isRead(x));
+    const replyTo7001 = writes.filter((w) => w[2] === 'POST' && /\/comments\/7001\/replies$/.test(w[3]));
+    assert.deepEqual(replyTo7001.map((w) => w.slice(4)), [['-f', 'body=Renamed to feedbackId, thanks.']]);
+    assert.equal(writes.some((w) => w[0] === 'pr' && w[1] === 'create'), at === 2, 'a follow-up PR #1 only where the words said so');
+    assert.equal(writes.some((w) => w[0] === 'pr' && w[1] === 'merge'), at === 2);
+    assert.ok(j.audit().filter((e) => e.action === 'gh-write').every((e) => e.yes === `Send back round 1 on PR #${at}`));
+    await d.stop();
+  });
+}

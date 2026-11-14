@@ -1527,7 +1527,7 @@ export function createReviewRounds(deps) {
 
   Object.assign(actions, {
     /** Send back: every step listed first, one go runs them in order. */
-    async send(slug, { go, mergeFollowUp } = {}) {
+    async send(slug, { go, mergeFollowUp, expect } = {}) {
       if (go !== true) throw new ReviewRefused(400, 'Send back runs only on your go.');
       const { f, fx, round } = await load(slug);
       needRound(round, ['fixing'], `Round ${round?.round} isn’t ready to send back.`);
@@ -1540,6 +1540,8 @@ export function createReviewRounds(deps) {
       const merge = typeof mergeFollowUp === 'boolean' ? mergeFollowUp : s.mergeFollowUp;
       const plan = sendPlan(round, { ahead: await aheadOf(f, fx), fork: fx.fork, branch: fx.lane?.branch ?? f.branch, orgRemote: fx.org, twoStep: fx.twoStep, followUp: openFollowUp(fx), mergeFollowUp: merge }, { route: fx.route });
       if (!plan.length) throw new ReviewRefused(409, 'There is nothing to send back.');
+      // The job page's Push the fixes (Task 21): the steps it showed him, word for word, or nothing runs.
+      if (Array.isArray(expect) && JSON.stringify(plan.map((p) => p.words)) !== JSON.stringify(expect)) throw new ReviewRefused(409, 'The round’s steps changed since you looked: read them again. Nothing was sent.', { code: 'pr-moved' });
       const what = `Send back round ${round.round} on ${round.prLabel}`;
       round.send = { startedAt: iso(), steps: plan.map((p) => ({ ...p, state: 'will' })), stopAfter: false, mergeFollowUp: merge, yes: what };
       round.state = 'sending';
@@ -1758,6 +1760,27 @@ export function createReviewRounds(deps) {
     async view(slug) {
       await jobOf(slug);
       return views.get(slug) ?? { slug, state: null };
+    },
+    /**
+     * The job page's Push the fixes during a round (Task 21): what Send back would do now, or null when the round isn't
+     * ready to send back. steps: sendPlan's words, in order (with the follow-up PR #1 and its merge when they apply);
+     * replies: who and where each reply goes. The same plan `send` runs; `send({ expect: steps })` refuses another one.
+     */
+    async planFor(slug) {
+      const fx = facts.get(slug);
+      if (!fx) return null;
+      const f = (await deps.jobs()).find((j) => j.slug === slug);
+      if (!f || f.guess) return null;
+      const rounds = await readRounds(f.dir);
+      const round = currentRound(rounds);
+      if (!round || round.state !== 'fixing' || !foremanReady(round) || round.items.some((i) => i.late && !i.added)) return null;
+      const s = await settings();
+      const ahead = await aheadOf(f, fx);
+      const plan = sendPlan(round, { ahead, fork: fx.fork, branch: fx.lane?.branch ?? f.branch, orgRemote: fx.org, twoStep: fx.twoStep, followUp: openFollowUp(fx), mergeFollowUp: s.mergeFollowUp }, { route: fx.route });
+      if (!plan.length) return null;
+      const replies = round.items.filter((i) => i.included && i.added && !noReply(i) && i.reply && !i.replyDropped && !i.posted?.ok)
+        .map((i) => ({ id: i.id, words: `to ${i.author ?? 'the reviewer'}${i.file ? ` on ${i.file}${i.line ? `:${i.line}` : ''}` : ''}` }));
+      return { ready: true, number: round.prNumber, round: round.round, reviewer: nameFor(round.reviewer, fx.route), ahead, steps: plan.map((p) => p.words), replies };
     },
     async act(slug, action, body = {}) {
       const fn = actions[action];
