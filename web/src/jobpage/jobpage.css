@@ -126,7 +126,8 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2-st-dur { font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .jp2-st-none { display: flex; align-items: center; height: 26px; margin: 0; padding: 0 8px 2px 34px; font-size: 13px; color: var(--text-3); }
 .jp2-jr-more { margin-left: auto; font-size: 12px; font-weight: 400; color: var(--text-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.jp2-jr-new { color: var(--text-1); font-weight: 600; }
+/* What is new sits right after the name (the count stays at the row's end): its arrival moves nothing (speed rule 3). */
+.jp2-jr-new { font-size: 12px; color: var(--text-1); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* The message box, docked at the foot of the left pane */
 .jp2-mbw { flex: none; border-top: 1px solid var(--border-1); background: var(--surface-0); }
@@ -211,7 +212,9 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2-cv-sbox:focus-within { outline: 2px solid var(--focus-ring); outline-offset: -1px; }
 .jp2-cv-search { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text-1); font: inherit; font-size: 13px; }
 .jp2-cv-count { font-size: 12px; }
-.jp2-cv-latest { margin-left: auto; }
+/* Wide enough for `Jump to latest · 99 new` from the start, its words at its left: a new line's count grows into
+   room already there and moves nothing (speed rule 3). */
+.jp2-cv-latest { margin-left: auto; min-width: calc(23ch + 20px); justify-content: flex-start; }
 /* The conversation (reader/ConversationView.tsx): one line per item; only the view's own code moves
    the scroll (no browser scroll anchoring), so nothing he reads is pushed */
 .jp2-cv-body { padding-top: 4px; overflow-anchor: none; }
@@ -289,7 +292,7 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2[data-layout="phone"] .jp2-st-word { font-size: 13px; }
 .jp2[data-layout="phone"] .jp2-st-out { height: 44px; font-size: 15px; }
 .jp2[data-layout="phone"] .jp2-st-none { height: 44px; font-size: 15px; }
-.jp2[data-layout="phone"] .jp2-jr-more { font-size: 13px; }
+.jp2[data-layout="phone"] .jp2-jr-more, .jp2[data-layout="phone"] .jp2-jr-new { font-size: 13px; }
 .jp2[data-layout="phone"] .jp2-jrs { padding: 0 8px 12px; border-bottom: 0; }
 .jp2[data-layout="phone"] .jp2-mb { padding: 8px 18px 30px; }
 .jp2[data-layout="phone"] .jp2-mb-ta { min-height: 40px; max-height: 194px; font-size: 16px; line-height: 22px; padding: 8px 10px; }

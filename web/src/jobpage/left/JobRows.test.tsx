@@ -76,3 +76,33 @@ describe('the job rows', () => {
     expect(names()).toEqual(['Ticket and goal', 'Conversation', 'Decisions', 'Details']);
   });
 });
+
+describe('Task 23 fix round: a new line in the conversation', () => {
+  /** A store whose next page read answers `next`. */
+  function mountWithNext(next: JobPagePayload) {
+    const api = { get: async () => next, post: async () => ({}), hosted: () => false } as unknown as ApiClient;
+    const store: JobStore = createJobStore(SLUG, { api, initial: payload(), events: () => () => {} });
+    render(<JobStoreContext.Provider value={store}><JobRows cursor={null} first={7} onOpen={() => {}} /></JobStoreContext.Provider>);
+    return store;
+  }
+  const withOneMore = (): JobPagePayload => {
+    const p = payload();
+    const last = p.thread[p.thread.length - 1];
+    p.thread = [...p.thread, { ...last, id: 'reply:speed-check', kind: 'reply', mine: false, at: '2026-11-04T23:00:00.000Z', headline: 'One more reply', hash: 'h1' }];
+    p.rows = { ...p.rows, conversation: { ...p.rows.conversation, count: p.rows.conversation.count + 1 } };
+    p.v += 1;
+    return p;
+  };
+
+  it('what is new sits after the row\'s name, and the count stays at the end of the row, so neither moves the other (speed rule 3)', async () => {
+    writeStored(seenKey(SLUG), '2026-11-04T15:00:00.000Z');
+    const store = mountWithNext(withOneMore());
+    await act(async () => { await store.loadPage(); });
+    const row = screen.getByRole('button', { name: 'Conversation · 53 · 1 new' });
+    const parts = [...row.children].map((c) => c.className);
+    expect(parts.indexOf('jp2-jr-new')).toBeGreaterThanOrEqual(0);
+    expect(parts.indexOf('jp2-jr-new')).toBeLessThan(parts.indexOf('jp2-jr-more'));
+    expect(row.querySelector('.jp2-jr-more')!.textContent).toBe('53');
+    expect(row.querySelector('.jp2-jr-new')!.textContent).toBe('1 new');
+  });
+});

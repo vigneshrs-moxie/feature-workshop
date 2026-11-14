@@ -71,12 +71,9 @@ export const JobRows = memo(function JobRows({ cursor, first, onOpen }: JobRowsP
             onClick={(e) => onOpen(r.t, e.currentTarget)}
           >
             {r.name}
-            {r.more && (
-              <span className="jp2-jr-more">
-                {r.more}
-                {r.fresh && <> · <span className="jp2-jr-new">{r.fresh}</span></>}
-              </span>
-            )}
+            {/* What is new right after the name, the count at the row's end: neither moves the other (speed rule 3). */}
+            {r.fresh && <span className="jp2-jr-new">{r.fresh}</span>}
+            {r.more && <span className="jp2-jr-more">{r.more}</span>}
             <PhoneChevron />
           </button>
         );
