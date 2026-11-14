@@ -111,7 +111,11 @@ describe('Task 18 fix round 1: a commit the Foreman names that is not on the bra
     const o = openNotes({ read: null, patch: withAsked([DONE3[1], { ...DONE3[1], n: 4, note: 'the real one', what: 'commit b81b49e · week.ts', commit: { sha: 'b81b49e', file: 'week.ts' } }]) });
     await settle();
     const commits = [{ sha: 'b81b49e7f5a657e2d701ccca3e5a3a455ed7b41b', short: 'b81b49e7', subject: 's', date: null, files: [{ path: 'app/offices/week.ts', added: 1, removed: 0 }] }];
+    // The page reads the list again for the sha it does not find (B3); that read answers too (final W9:
+    // a re-read that fails leaves the line unknown).
+    o.get.mockImplementation(async () => ({ commits }));
     await act(async () => { await loadCommits(o.store, { get: async () => ({ commits }) } as unknown as ApiClient, SLUG); });
+    await settle();
     const [gone, there] = lines();
     expect(within(gone).queryByRole('button')).toBeNull();
     expect(gone.querySelector('.jp2-asked-warn')!.textContent).toBe('Commit abc1234 is not on this branch');

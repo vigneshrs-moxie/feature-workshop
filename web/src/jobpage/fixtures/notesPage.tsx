@@ -32,6 +32,8 @@ export interface NotesPage {
   /** The payload the next load answers, and the bodies the item route answers from now on. */
   serve(p: JobPagePayload, bodies?: Record<string, JobBody>): Promise<void>;
   unmount(): void;
+  /** The app client's GET (it answers nothing unless a test says what). */
+  get: ReturnType<typeof vi.fn>;
 }
 
 /** The page, reading `read` in the reader, with a store kept in this browser (drafts, notes). */
@@ -62,7 +64,7 @@ export function openNotes({ read = { kind: 'doc', id: PLAN }, patch, post = okPo
     </WorkshopContext.Provider>,
   );
   return {
-    store, post, unmount: utils.unmount,
+    store, post, unmount: utils.unmount, get: api.get as unknown as ReturnType<typeof vi.fn>,
     async serve(p, more = {}) {
       current = p;
       extra = { ...extra, ...more };

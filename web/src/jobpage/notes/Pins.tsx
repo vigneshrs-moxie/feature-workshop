@@ -217,10 +217,13 @@ export async function keepPasted(slug: string, file: Blob, api: Poster): Promise
   return id;
 }
 
+/** The answers that mean a kept picture will never be taken. */
+const GIVE_UP = new Set([400, 413, 415]);
+
 /**
  * Pictures an earlier build kept in this browser for this job (sb.pasted.<slug>.p<n>): each is saved in
  * the job's folder, the notes pinned on it now name the saved file, and the browser's copy goes. One
- * that can't be saved stays for the next time. Laptop only.
+ * refused for what it is (GIVE_UP) is given up; one that can't be saved now stays for the next time. Laptop only.
  */
 export async function adoptPasted(slug: string, api: NonNullable<Poster>, store: JobStore): Promise<number> {
   const prefix = `sb.pasted.${slug}.`;
@@ -233,9 +236,10 @@ export async function adoptPasted(slug: string, api: NonNullable<Poster>, store:
     if (!url) { writeStored(key, null); continue; }
     let name: string;
     try { name = await upload(slug, url, api); } catch (err) {
-      // Refused (not a picture it takes, too big): it never will be, so it is given up and its pins say
-      // so. Starbase not reached: kept for next time.
-      if (!(err instanceof ApiError && err.status >= 400 && err.status < 500)) continue;
+      // Refused for what it is (400 not a picture it takes, 413 too big, 415 not a kind it takes): it
+      // never will be, so it is given up and its pins say so. Anything else (403 a token gone stale after
+      // a restart, 404/405 an older Starbase, no answer) may pass later: kept for next time.
+      if (!(err instanceof ApiError && GIVE_UP.has(err.status))) continue;
       store.setNotes(store.getState().ui.notes.map((n) => (n.pin?.picture === `pasted:${old}` ? { ...n, place: `Pasted picture ${old.slice(1)} (it could not be saved for the Foreman: you can’t open it)` } : n)));
       writeStored(key, null);
       continue;

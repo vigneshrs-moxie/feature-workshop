@@ -352,3 +352,24 @@ describe('Phase 4 fixes', () => {
     expect(reader().queryByText(/Nothing yet/)).toBeNull();
   });
 });
+
+describe('final W9: a re-read that fails leaves the sha unknown', () => {
+  it('a failed re-read does not mark the sha checked; the next good one does', async () => {
+    const { knownNotOnBranch, loadCommits, recheck } = await import('./branch');
+    const store = createJobStore(SLUG, { api: { page: () => new Promise(() => {}), item: async () => { throw new Error('no'); } }, events: () => () => {}, viewer: () => null });
+    const list = { commits: [{ sha: 'aaaa1111bbbb2222', short: 'aaaa111', subject: 'feat: one', date: null, files: [] }], cut: false };
+    let fail = false;
+    const get = vi.fn(async () => { if (fail) throw new Error('Starbase isn’t answering.'); return list; });
+    const api = { get, post: vi.fn(), hosted: () => false } as unknown as ApiClient;
+    await loadCommits(store, api, SLUG);
+    fail = true;
+    await recheck(store, api, SLUG, 'f00dbee');
+    expect(branchOf(store).checked.has('f00dbee')).toBe(false);
+    expect(knownNotOnBranch(branchOf(store), 'f00dbee')).toBe(false);
+    fail = false;
+    await recheck(store, api, SLUG, 'f00dbee');
+    expect(get).toHaveBeenCalledTimes(3);
+    expect(branchOf(store).checked.has('f00dbee')).toBe(true);
+    expect(knownNotOnBranch(branchOf(store), 'f00dbee')).toBe(true);
+  });
+});

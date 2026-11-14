@@ -857,3 +857,18 @@ describe('Task 16 fix round 1', () => {
     expect(waitRow()).toHaveTextContent('Not sent yet: This job is open in a terminal.');
   });
 });
+
+describe('final W10: the website shows his waiting message without Cancel or Send', () => {
+  const waiting = (text: string, why: string | null = null, toBox = false) => ({ text, at: '2026-11-13T12:00:00.000Z', why, ...(toBox ? { toBox: true as const } : {}) });
+  it('held back with a reason: no Send and no Cancel; moved to the box at a question: nothing is posted from the website', async () => {
+    const a = open({ move: null, patch: { hosted: true, waiting: waiting('Use the old header.', 'Claude’s 5-hour limit is reached.') } });
+    await settle();
+    expect(waitRow()).toHaveTextContent('Not sent yet: Claude’s 5-hour limit is reached.');
+    expect(within(waitRow()!).queryAllByRole('button')).toEqual([]);
+    a.unmount();
+    const b = open({ move: null, patch: { hosted: true, waiting: waiting('Use the old header.', null, true) } });
+    await settle();
+    expect(within(waitRow()!).queryAllByRole('button')).toEqual([]);
+    expect(b.post.mock.calls.filter((c: unknown[]) => String(c[0]).includes('/waiting/'))).toEqual([]);
+  });
+});

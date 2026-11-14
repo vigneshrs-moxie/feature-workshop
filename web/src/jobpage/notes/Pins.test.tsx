@@ -192,3 +192,23 @@ describe('a pasted picture', () => {
     expect(ev).toBe(true);
   });
 });
+
+describe('final W6: a picture kept in the browser is given up only when refused for what it is', () => {
+  it('400, 413 and 415 give it up; 403, 404, 405 and no answer keep it for next time', async () => {
+    const { ApiError } = await import('../../api/client');
+    const { adoptPasted } = await import('./Pins');
+    const PNG = 'data:image/png;base64,iVBORw0KGgo=';
+    const outcome = async (err: unknown) => {
+      localStorage.clear();
+      localStorage.setItem(`sb.pasted.${SLUG}.p1`, PNG);
+      const store = createJobStore(SLUG, { api: { page: () => new Promise(() => {}), item: async () => { throw new Error('no'); } }, events: () => () => {}, viewer: () => null });
+      const api = { post: vi.fn(async () => { throw err; }) };
+      await adoptPasted(SLUG, api, store);
+      return localStorage.getItem(`sb.pasted.${SLUG}.p1`) === null ? 'given up' : 'kept';
+    };
+    for (const status of [400, 413, 415]) expect(await outcome(new ApiError(status, 'No.')), String(status)).toBe('given up');
+    for (const status of [403, 404, 405]) expect(await outcome(new ApiError(status, 'No.')), String(status)).toBe('kept');
+    expect(await outcome(new TypeError('Failed to fetch')), 'network').toBe('kept');
+    localStorage.clear();
+  });
+});

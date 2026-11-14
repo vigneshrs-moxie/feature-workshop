@@ -153,19 +153,24 @@ export function notOnBranch(b: Branch, sha: string | null): boolean {
 
 /**
  * A commit named after the list was read (the Foreman's `Fixed in abc1234`, a What you asked line) and not in it: the
- * list is read again once for it (Phase 4 B3: the branch moved while the page stayed open). Until then it is unknown.
+ * list is read again once for it (Phase 4 B3: the branch moved while the page stayed open). Until then (or
+ * when that read fails) it is unknown.
  */
 export async function recheck(store: JobStore, api: ApiClient, slug: string, sha: string): Promise<void> {
   const h = heldOf(store);
   if (!sha || h.state.checked.has(sha) || h.rechecks.has(sha)) return;
   if (h.state.commits && findCommit(h.state.commits, sha)) return;
   h.rechecks.add(sha);
+  let read = false;
   try {
     if (h.listAsk) await h.listAsk; // one already out was asked before this sha was named
     await loadCommits(store, api, slug);
+    // loadCommits keeps what it held on a failure and sets `error`: only a list read again counts.
+    read = h.state.error === null;
   } finally {
     h.rechecks.delete(sha);
-    set(h, { checked: new Set(h.state.checked).add(sha) });
+    // A read that failed leaves it unknown, so the next look (the next list read, or opening it again) asks again.
+    if (read) set(h, { checked: new Set(h.state.checked).add(sha) });
   }
 }
 
