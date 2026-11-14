@@ -114,6 +114,7 @@ import { removeServiceFile, writeServiceFile } from './service-file.js';
 import { createStacks } from './stacks.js';
 import { itemSummary, lookAt, noteFeedback, readFeedback } from '../lib/pr-feedback.js';
 import { ReviewRefused, createReviewRounds, gitRead } from '../lib/review-round.js';
+import { ACTION_NUDGE, mergedToTell, prLines, readDue, unpushedOf } from '../lib/pr-lines.js';
 import { createGhWrite } from '../lib/gh-write.js';
 import { createSiteLink, siteTokenStore } from './site-link.js';
 import { PRODUCT } from '../lib/brand.js';
@@ -1644,6 +1645,25 @@ export async function createRunner(config) {
     invalidate();
     broadcast('change', { at: Date.now() }); events.emit('change', null, { at: Date.now() });
   }
+  /**
+   * A nudge's sentence to the job's Foreman, exactly as a message from the box goes (sendPlan, startSend),
+   * remembered as sent once the reply has started (see the nudge command), audited. by: 'starbase' when
+   * Starbase tells the Foreman itself (a merge by hand, lib/pr-lines.js mergedToTell), else his yes.
+   */
+  async function sendNudge(f, id, text, body = {}, { by = null } = {}) {
+    const drive = await driveState(f);
+    const out = sendPlan(f, drive, body, text);
+    const run = await startSend(f, out, { kind: 'nudge' });
+    const tracked = { featureDir: f.dir, nudge: id, failed: false };
+    nudgeRuns.set(run.id, tracked);
+    const saved = await state.sessionFor(f.dir);
+    const sent = Array.isArray(saved?.sentNudges) ? saved.sentNudges : [];
+    await state.setSession(f.dir, { sentNudges: [...new Set([...sent, id])] });
+    invalidate();
+    if (tracked.failed) await unsendNudge(f.dir, id); // the reply already ended in error (a spawn failure): not sent after all
+    await state.audit({ action: 'nudge', featureDir: f.dir, slug: f.slug, nudge: id, text, runId: run.id, ...(by ? { by } : {}) });
+    return { run, tracked };
+  }
   driver.on('run', (run) => {
     const tracked = run.kind === 'nudge' ? nudgeRuns.get(run.id) : null;
     if (!tracked || ACTIVE_RUN.has(run.status)) return;
@@ -2342,6 +2362,8 @@ export async function createRunner(config) {
       card, lane: card.lane ?? null, laneReason: card.laneReason ?? null, lanePaused: card.paused === true,
       detail, thread: detail.threadAll, commits, evidence: evidence?.evidence || evidence?.recording ? evidence : null,
       usage: limits.view(), key, orbitUrl, hosted: false,
+      // R2 (Task 20): the PR lines' facts: the flow map's lane and GitHub line, the commits a push carries (git).
+      prFacts: await prFactsOf(f).catch(() => null),
     });
     // The documents the steps list and the ones only the reader reaches (a step's `more`).
     const files = [...new Set(payload.steps.flatMap((st) => [...st.outputs, ...st.more]).filter((o) => o.kind === 'doc').map((o) => o.id))];
@@ -2399,6 +2421,129 @@ export async function createRunner(config) {
       if (job) jobPages.touch(job); else if (type === 'change') jobPages.touchAll();
     }
   });
+
+  // ---------- The job page's PR lines (lib/pr-lines.js; the job page rebuild, Task 20, R2; phase4-design.md) ----------
+  // Each PR's line and its one next action are built with the job's payload (jobPageSource): the flow map's
+  // lane and GitHub line, and the commits a push would carry (read-only git, at the rebuild). GitHub is read
+  // by the flow map only (flow.refresh({ network: true })): when a page opens a job and the last read is over
+  // two minutes old (the page's one POST …/pull { ifOld: true } as it opens), and on Pull now; never on the
+  // page's request for its payload (speed rule 6) and never on a timer of the page's. A button's yes sends its fixed sentence to the Foreman (prs.go below), which does
+  // the git work under the hard lines and the PR steps' go-ahead as they are: nothing here pushes or writes to GitHub.
+  const prSent = new Map(); // slug -> Map(check -> { runId, endedAt }): PR sentences on their way to the Foreman
+  const prAsked = new Set(); // jobs whose page asked for a read: rebuilt when it ends, so `read` moves
+  /** The checks of the sentences still on their way: until the reply ends in error, or GitHub was read after it ended. */
+  function prPending(slug) {
+    const m = prSent.get(slug);
+    if (!m) return [];
+    const readAt = Date.parse(flow.view().github?.checkedAt ?? '');
+    for (const [check, e] of m) if (e.endedAt && Number.isFinite(readAt) && readAt > Date.parse(e.endedAt)) m.delete(check);
+    if (!m.size) prSent.delete(slug);
+    return [...m.keys()];
+  }
+  /** What lib/pr-lines.js prLines needs for this job, but its rows (jobDetail's page.prs). */
+  async function prFactsOf(f) {
+    const view = flow.view();
+    const lane = ownLane(f, flowLanes);
+    const repo = lane ? view.repos.find((r) => r.lanes.some((l) => l.slug === f.slug)) ?? null : null;
+    const fork = repo?.fork?.remote ?? null;
+    const dir = fork ? ownCodeDir(f) : null;
+    const push = dir ? await unpushedOf({ dir, branch: ownBranch(f), base: f.baseSha ?? f.baseBranch ?? null, fork, git: gitRead }).catch(() => null) : null;
+    const saved = await state.sessionFor(f.dir);
+    const list = (k) => (Array.isArray(saved?.[k]) ? saved[k] : []);
+    return {
+      lane, repo: repo ? { org: repo.org ?? null, fork: repo.fork ?? null } : null, github: view.github ?? null, push,
+      job: { stage: f.stage ?? null, prs: f.prs ?? null, closed: closedOff(f) ? f.closed : null, title: f.title ?? null, key: slugTicketKey(f.slug) ?? null },
+      sent: list('sentNudges'), dismissed: list('dismissedNudges'), inRound: roundStateOf(f.slug) !== null, pending: prPending(f.slug),
+    };
+  }
+  /** Read GitHub now for this job's page (the flow map's network refresh; one at a time, never waited on). */
+  function prRead(slug) {
+    prAsked.add(slug);
+    flow.refresh({ network: true }).catch(() => {});
+    jobPages.touch(slug); // its line says GitHub is being read
+  }
+  // A read ended: the pages that asked see it. A network read that worked: a merge by hand the Foreman hasn't
+  // seen is told with its nudge's own sentence, on a job the new page has open or cached (mergedToTell).
+  let prToldAfter = null;
+  flow.on('flow', (view) => {
+    if (view.refreshing) return;
+    if (prAsked.size) { for (const slug of prAsked) jobPages.touch(slug); prAsked.clear(); }
+    if (!view.fetchedAt || view.fetchedAt === prToldAfter || view.github?.problem) return;
+    prToldAfter = view.fetchedAt;
+    tellMerges().catch((err) => console.error('pr lines:', err.message));
+  });
+  async function tellMerges() {
+    for (const f of await featuresShared()) {
+      if (!jobPages.has(f.slug) || closedOff(f) || f.locate?.branchGuessed) continue;
+      const saved = await state.sessionFor(f.dir);
+      const list = (k) => (Array.isArray(saved?.[k]) ? saved[k] : []);
+      const tell = mergedToTell({ card: { stage: f.stage ?? null, prs: f.prs ?? null, closed: null }, lane: ownLane(f, flowLanes), sent: list('sentNudges'), dismissed: list('dismissedNudges') })[0];
+      if (!tell) continue;
+      // Only to a Foreman that has a session here and is free now: anything else waits for the next read (the Desk keeps the nudge).
+      const drive = await driveState(f);
+      if (drive.mode !== 'workshop' || !drive.sessionId || limits.isLimited()) continue;
+      try { await sendNudge(f, tell.id, tell.text, {}, { by: 'starbase' }); } catch { /* busy or refused: the next read tries again */ }
+      jobPages.touch(f.slug);
+    }
+  }
+  // A PR sentence's reply ended: in error it never went, so its button comes back; else GitHub is read
+  // again so the line shows what the Foreman did.
+  driver.on('run', (run) => {
+    if (ACTIVE_RUN.has(run.status)) return;
+    for (const [slug, m] of prSent) {
+      for (const [check, e] of m) {
+        if (e.runId !== run.id || e.endedAt) continue;
+        if (run.status === 'error') m.delete(check); else e.endedAt = new Date().toISOString();
+        if (run.status === 'error') jobPages.touch(slug); else prRead(slug);
+      }
+    }
+  });
+  const prs = {
+    /** GET /api/job/:slug/pr/:n: the line and the GitHub read, from the warm cache (Task 21 adds the comment rows). */
+    async view(slug, n) {
+      const p = await jobPages.page(slug, null);
+      const line = (p.prs ?? []).find((l) => l.n === n) ?? null;
+      if (!line) throw new HttpError(404, 'This job has no such pull request line.');
+      return { n, line, github: p.github ?? null, rows: [], verdict: null };
+    },
+    /** POST …/pr/:n/pull: read GitHub now (Pull now); ifOld (the page opening): only when the last read is over two minutes old. */
+    async pull(slug, { ifOld = false } = {}) {
+      await jobOf(slug);
+      if (ifOld && !readDue(flow.view().github)) return { reading: false };
+      prRead(slug);
+      return { reading: true };
+    },
+    /**
+     * POST …/pr/:n/go { id, check }: his yes. The line is built again now; only when it gives the same action
+     * and sentence (check) does the sentence go to the Foreman, as a nudge's does. Refused in plain words otherwise.
+     */
+    async go(slug, n, body = {}) {
+      const f = await jobOf(slug);
+      const facts = await prFactsOf(f);
+      const line = prLines({ ...facts, rows: prRows(f.prs, facts.lane) }).lines.find((l) => l.n === n) ?? null;
+      const next = line?.next ?? null;
+      if (!next || next.id !== body.id || next.check !== body.check) {
+        const sent = line?.why === 'Sent to the Foreman';
+        throw new HttpError(409, sent ? 'That was already sent to the Foreman. Nothing was sent again.' : 'That PR moved on since you looked: read its line again. Nothing was sent.', { code: sent ? 'pr-sent' : 'pr-moved' });
+      }
+      const drive = await driveState(f);
+      const out = sendPlan(f, drive, { confirmNoTerminal: body.confirmNoTerminal === true }, next.sends);
+      const run = await startSend(f, out, { kind: 'nudge' });
+      if (!prSent.has(slug)) prSent.set(slug, new Map());
+      prSent.get(slug).set(next.check, { runId: run.id, endedAt: null });
+      const nudge = ACTION_NUDGE[next.id];
+      if (nudge) {
+        const saved = await state.sessionFor(f.dir);
+        const sent = Array.isArray(saved?.sentNudges) ? saved.sentNudges : [];
+        await state.setSession(f.dir, { sentNudges: [...new Set([...sent, nudge])] });
+      }
+      await state.audit({ action: 'pr-line', featureDir: f.dir, slug: f.slug, pr: n, id: next.id, text: next.sends, runId: run.id });
+      await markActed(f.dir);
+      invalidate();
+      jobPages.touch(slug);
+      return { ok: true, sent: true, text: next.sends, run };
+    },
+  };
 
   /** What a watched folder's change does; `ignore` names the changes that do nothing. */
   function watchHandler(onFile = null, ignore = null) {
@@ -3599,15 +3744,7 @@ export async function createRunner(config) {
       const nudge = nudgesFor({ stage: f.stage, prs: f.prs, closed: f.closed }, ownLane(f, flowLanes), { finishLine: finishLineNow }).find((n) => n.id === id);
       if (!nudge) throw new HttpError(409, 'That nudge no longer applies: the PRs have moved on. Nothing was sent.', { code: 'stale-nudge' });
       if (!nudge.action) throw new HttpError(400, 'That nudge is a link to GitHub; there is nothing to send.');
-      const drive = await driveState(f);
-      const out = sendPlan(f, drive, body, nudge.action.send);
-      const run = await startSend(f, out, { kind: 'nudge' });
-      const tracked = { featureDir: f.dir, nudge: id, failed: false };
-      nudgeRuns.set(run.id, tracked);
-      await state.setSession(f.dir, { sentNudges: [...new Set([...listOf('sentNudges'), id])] });
-      invalidate();
-      if (tracked.failed) await unsendNudge(f.dir, id); // the reply already ended in error (a spawn failure): not sent after all
-      await state.audit({ action: 'nudge', featureDir: f.dir, slug: f.slug, nudge: id, text: nudge.action.send, runId: run.id });
+      const { run, tracked } = await sendNudge(f, id, nudge.action.send, body);
       if (!tracked.failed) await markActed(f.dir); // his yes, on its way to the Foreman
       return { ok: true, sent: true, text: nudge.action.send, run };
     },
@@ -3936,6 +4073,8 @@ export async function createRunner(config) {
   const local_ = {
     /** The page's event streams opening and closing (site/index.js): which jobs an open page watches (lib/job-payload-cache.js). */
     jobPageViewers: { open: (id) => jobPages.viewerOpen(id), gone: (id) => jobPages.viewerGone(id) },
+    /** The job page's PR lines (Task 20): the line, Pull now, and his yes to a line's next action (site/routes-job-page.js). */
+    prs,
     /** The page is visible: notifications that it shows anyway don't pop on macOS meanwhile. */
     presence(visible) {
       if (visible === true) notifier.seen();

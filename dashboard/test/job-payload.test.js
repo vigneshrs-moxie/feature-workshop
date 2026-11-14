@@ -282,7 +282,7 @@ test('Ship’s word is its newest PR that has started, and failed checks lead th
   const p = buildJobPage(f);
   assert.equal(p.steps.find((s) => s.id === 'ship').word, 'PR #1 open');
   assert.equal(p.steps.find((s) => s.id === 'test').word, '2 failed');
-  assert.deepEqual(p.prs[0], { n: 1, number: 247, url: 'https://github.com/x/y/pull/247', state: 'open', word: 'open · checks passed', next: null, comments: null });
+  assert.deepEqual(p.prs[0], { n: 1, number: 247, url: 'https://github.com/x/y/pull/247', title: null, state: 'open', word: 'open · checks passed', at: null, next: null, why: null, comments: null });
   assert.equal(p.prs[1].word, 'not open');
 });
 
@@ -644,4 +644,25 @@ test('Task 18 fix round 1: Starbase’s own sends (a nudge, a resume, a status f
 test('Task 18 fix round 1: the file a commit line names is the last code file in its words', () => {
   const p = buildJobPage(askedJob([you('you:n', SENT), reply('reply:a', ANSWER.replace('commit abc1234 · EmployeesTable.tsx', 'commit abc1234 · v3.1 bump in api.ts'))]));
   assert.deepEqual(p.asked.notes[1].commit, { sha: 'abc1234', file: 'api.ts' });
+});
+
+test('Task 20: the PR lines come from what the runner read: one next action, what it says, and the GitHub line; none on the website', () => {
+  const f = atReview();
+  f.detail.page.prs = [{ n: 1, state: 'not-started' }, { n: 2, state: 'not-started' }, { n: 3, state: 'not-started' }];
+  f.prFacts = {
+    lane: { branch: 'feature/widget-export', orgBranch: true, dirty: 0, pr1: null, pr2: null, position: 'local' },
+    repo: { org: { remote: 'moxie', slug: 'acme/widgets' }, fork: { remote: 'origin', slug: 'you/widgets' } },
+    github: { checkedAt: T(14), triedAt: T(14), checking: false, problem: null },
+    push: { pushed: false, head: 'c'.repeat(40), count: 1, commits: [{ sha: 'c'.repeat(40), short: 'ccccccc', subject: 'Export the widgets' }], behind: 0 },
+    job: { stage: 'review', prs: null, closed: null, title: 'Widget export', key: null },
+    sent: [], inRound: false, pending: [],
+  };
+  const p = buildJobPage(f);
+  assert.equal(p.prs[0].next.label, 'Push and open PR #1');
+  assert.deepEqual(p.prs[0].next.says.slice(0, 2), ['Pushes 1 commit from feature/widget-export to your fork (origin):', 'ccccccc Export the widgets']);
+  assert.equal(p.prs[1].why, 'after PR #1 is merged');
+  assert.deepEqual(p.github, { at: T(14), triedAt: T(14), reading: false, problem: null, run: null });
+  const site = buildJobPage({ ...f, hosted: true });
+  assert.ok(site.prs.every((l) => l.next === null), 'nothing to act on from the website');
+  assert.equal(buildJobPage(atReview()).github, null, 'no read known: no GitHub line');
 });

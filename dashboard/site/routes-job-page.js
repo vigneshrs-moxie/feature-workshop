@@ -8,6 +8,15 @@
 //   GET /api/job/:slug/work?viewer=<id>           Details: { rows, costs, note } (lib/work-rows.js); reads
 //                                     each crew member's log only here, once while it is unchanged.
 //                                     On the website: what the mirror has, or no rows and a reason
+//   GET  /api/job/:slug/pr/:n                   one PR's line and the GitHub read it comes from (Task 20; Task 21
+//                                     adds its comment rows): { n, line, github, rows, verdict }
+//   POST /api/job/:slug/pr/:n/pull { ifOld? }   Pull now: GitHub is read now, in the background → { reading: true };
+//                                     ifOld (the page opening a job): only when the last read is over two
+//                                     minutes old, else { reading: false }. The payload's request never reads it.
+//   POST /api/job/:slug/pr/:n/go { id, check, confirmNoTerminal? }   his yes to the line's next action: its
+//                                     fixed sentence goes to the Foreman when the line still says the same
+//                                     (lib/pr-lines.js), else 409 and nothing is sent → { ok, sent, text, run }
+// The PR routes are this computer's only (the runner's `local.prs`): on the website they are a 404.
 // viewer: the id of the page's event stream (its first event, `viewer` { id }, from /api/events?v=2).
 // It tells the runner this job is open, so changes rebuild it at once; without it the job is rebuilt
 // only behind its next request. Anything that is not such an id is ignored.
@@ -16,6 +25,7 @@
 // answer these with a 404.
 
 import { HttpError } from '../lib/http-guard.js';
+import { PRODUCT } from '../lib/brand.js';
 
 const NO_ID = 'Say which part of the job to show (?id=…).';
 const str = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
@@ -24,7 +34,13 @@ const viewerOf = (url) => {
   return v && /^[0-9a-f]{16,32}$/.test(v) ? v : null;
 };
 
-export default function jobPageRoutes({ read, sendJson }) {
+const PR = /^\/api\/job\/([^/]+)\/pr\/([1-3])/;
+const prsOf = (local) => {
+  if (!local?.prs) throw new HttpError(404, `Pull requests are read and acted on from ${PRODUCT} on your own computer.`);
+  return local.prs;
+};
+
+export default function jobPageRoutes({ read, sendJson, local }) {
   return [
     {
       method: 'GET', path: /^\/api\/job\/([^/]+)\/page$/,
@@ -45,6 +61,23 @@ export default function jobPageRoutes({ read, sendJson }) {
     {
       method: 'GET', path: /^\/api\/job\/([^/]+)\/work$/,
       run: async ({ res, url, m }) => sendJson(res, 200, await read.jobWork(m[1], { viewer: viewerOf(url) })),
+    },
+    {
+      method: 'GET', path: new RegExp(`${PR.source}$`),
+      run: async ({ res, m }) => sendJson(res, 200, await prsOf(local).view(m[1], Number(m[2]))),
+    },
+    {
+      method: 'POST', path: new RegExp(`${PR.source}\\/pull$`),
+      run: async ({ res, m, body }) => sendJson(res, 200, await prsOf(local).pull(m[1], { ifOld: body?.ifOld === true })),
+    },
+    {
+      method: 'POST', path: new RegExp(`${PR.source}\\/go$`),
+      run: async ({ res, m, body }) => {
+        const id = str(body?.id, 40);
+        const check = str(body?.check, 40);
+        if (!id || !/^[0-9a-f]{12}$/.test(check)) throw new HttpError(400, 'Say which action and the check the line gave (id, check).');
+        return sendJson(res, 200, await prsOf(local).go(m[1], Number(m[2]), { id, check, confirmNoTerminal: body?.confirmNoTerminal === true }));
+      },
     },
   ];
 }

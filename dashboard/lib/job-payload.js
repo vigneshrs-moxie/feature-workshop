@@ -37,7 +37,8 @@
 //   waiting      null | { text, at, why, toBox? }: the one message waiting for the Foreman (R8, lib/queued.js); why: a
 //                refusal when it was time to send (the usage limit, the terminal, a plain stop), else null; toBox: the
 //                Foreman asks him something first, so the page moves the words into the box
-//   prs          PrLine[]: always three
+//   prs          PrLine[]: always three (lib/pr-lines.js prLines)
+//   github       null | { at, triedAt, reading, problem, run }: the GitHub read the PR lines come from (null: none known)
 //   hosted       boolean: built on the website (mirrorJobPage, which leaves out drive, lock and local: LOCAL_ONLY)
 //
 //   StepRow      { id: 'spec' | … | 'ship', label, state: 'done' | 'current' | 'todo' | 'skipped',
@@ -61,7 +62,8 @@
 //   QuestionMove { kind: 'question', ask, since, quick: string[], itemId }
 //   PermissionMove { kind: 'permission', id, card: 'permission' | 'question', what, command, questions,
 //                  risk, since, canAllowForRun, hardLine, defaultToNo, canAlwaysAllow }
-//   PrLine       { n: 1 | 2 | 3, number, url, state, word, next: null, comments: null }
+//   PrLine       { n: 1 | 2 | 3, number, url, title, state, word, at, next: null | { id, label, go, says, sends,
+//                  check }, why: string | null, comments: null } (lib/pr-lines.js)
 //   ReaderKind   'message' | 'brief' | 'permission' | 'doc' | 'changes' | 'checks' | 'findings'
 //                | 'walkthrough' | 'ship' | 'pr' | 'ticket' | 'conversation' | 'decisions' | 'details' | 'not-yet'
 
@@ -74,6 +76,7 @@ import { EVIDENCE_JSON, WIREFRAMES_FILE, WIREFRAMES_JSON } from './docs.js';
 import { cardPaused, jobWorking } from './working.js';
 import { parseAnswered, parseNotes } from './notes-block.js';
 import { OWN_SENDS } from './auto.js';
+import { prLines, prWord } from './pr-lines.js';
 
 /**
  * What buildJobPage takes: what the runner already computed for the job (runner/index.js).
@@ -97,6 +100,8 @@ import { OWN_SENDS } from './auto.js';
  * @property {string|null} [keyUrl]
  * @property {string|null} [orbitUrl]   Orbit's address, for the ticket's link
  * @property {boolean} [hosted]         built on the website
+ * @property {object} [prFacts]         what the PR lines need (lib/pr-lines.js prLines' facts but rows): lane, repo,
+ *                                      github, push, job, sent, dismissed, inRound, pending
  */
 
 const STATE_WORDS = { 'needs-you': 'Waiting for you', working: 'Working', 'waiting-github': 'Waiting on GitHub', paused: 'Paused', done: 'Done' };
@@ -404,14 +409,6 @@ function findingsWord(review) {
   return open ? `${open} open` : 'nothing open';
 }
 
-/** A PR's state in a few words: `not open`, `open · checks passed · approved`, `merged`. */
-function prWord(pr) {
-  switch (pr?.state) {
-    case 'open': return ['open', pr.checks ? `checks ${pr.checks}` : null, pr.review === 'approved' ? 'approved' : pr.review === 'changes' ? 'changes asked' : null].filter(Boolean).join(' · ');
-    case 'draft': case 'merged': case 'closed': return pr.state;
-    default: return 'not open';
-  }
-}
 
 const docVersion = (docs, files) => (docs ?? []).find((d) => files.includes(d?.file) && d.version != null)?.version ?? null;
 
@@ -741,6 +738,8 @@ export function buildJobPage(facts) {
     : null;
   const decided = (detail.decidedOnYourBehalf ?? []).length + (Array.isArray(detail.auto?.decided) ? detail.auto.decided.length : 0);
   const model = detail.drive?.model ? modelLabel(detail.drive.model) : null;
+  // R2 (Task 20, lib/pr-lines.js): each PR's line and its one next action, from what the runner read (prFacts).
+  const prs = prLines({ ...(f.prFacts ?? {}), rows: Array.isArray(page.prs) ? page.prs : [], hosted: Boolean(f.hosted) });
 
   return {
     v: Number.isInteger(f.v) ? f.v : 0,
@@ -776,7 +775,8 @@ export function buildJobPage(facts) {
     open,
     thread,
     waiting: waitingOf(detail.waiting),
-    prs: (Array.isArray(page.prs) ? page.prs : []).map((p) => ({ n: p.n, number: p.number ?? null, url: p.url ?? null, state: p.state ?? 'not-started', word: prWord(p), next: null, comments: null })),
+    prs: prs.lines,
+    github: prs.github,
     hosted: Boolean(f.hosted),
   };
 }
