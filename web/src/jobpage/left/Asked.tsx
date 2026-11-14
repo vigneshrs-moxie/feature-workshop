@@ -16,10 +16,10 @@ import { Button } from '../../components/Button';
 import '../answers.css';
 import { addNote, oneLine } from '../notes/chips';
 import { setPick } from '../reader/branch';
-import type { NoteAnswer, ReaderTarget } from '../types';
+import type { JobPagePayload, NoteAnswer, ReaderTarget } from '../types';
 import { useJob, useJobStore } from '../useJob';
 
-type Asked = NonNullable<import('../types').JobPagePayload['asked']>;
+type Asked = NonNullable<JobPagePayload['asked']>;
 
 const CHIP_MOST = 48;
 /** A chip's words for a place as sent (`Product spec v0.5 · acceptance line 6` → `Product spec v0.5 acceptance line 6`). */
