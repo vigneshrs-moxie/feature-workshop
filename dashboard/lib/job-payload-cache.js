@@ -102,8 +102,11 @@ export function jobPageCache({ build, onVersion = () => {}, log = console.error,
     e.work = work ?? null;
     if (typeof commitsLater === 'function') {
       // Read behind the answer (the page never waits for git): the last list stays until this one lands.
+      // A newer read may start before this one lands: each keeps its number, and only a newer one replaces the list.
+      const seq = (e.commitsSeq ?? 0) + 1;
+      e.commitsSeq = seq;
       const p = Promise.resolve().then(commitsLater).then((c) => {
-        if (e.commitsPending === p && entries.get(e.slug) === e) e.commits = c ?? null;
+        if (entries.get(e.slug) === e && seq > (e.commitsLanded ?? 0)) { e.commits = c ?? null; e.commitsLanded = seq; }
         return e.commits ?? null;
       }, (err) => { log(`job page: ${e.slug}'s commit list couldn't be read: ${err.message}`); return e.commits ?? null; })
         .finally(() => { if (e.commitsPending === p) e.commitsPending = null; });
@@ -234,7 +237,8 @@ export function jobPageCache({ build, onVersion = () => {}, log = console.error,
     async commitsReady(slug) {
       const e = entries.get(slug);
       if (!e?.payload) return null;
-      if (e.commitsPending) await e.commitsPending;
+      // Until no read is out (one may start while another is being waited for).
+      for (let i = 0; i < 5 && e.commitsPending; i++) await e.commitsPending;
       return e.commits ?? null;
     },
     touch(slug) {

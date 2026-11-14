@@ -489,3 +489,26 @@ test('Task 23 fix round 2: the page does not wait for the commit list; it lands 
     assert.equal(await cache.commitsReady('no-such-job'), null);
   } finally { cache.close(); }
 });
+
+test('Task 23 fix round 2: a commit list read that a newer rebuild overtakes still lands, and commitsReady waits for the newest', async () => {
+  const releases = [];
+  const cache = jobPageCache({
+    build: async () => ({ payload: payloadOf('A'), sources: new Map(), commitsLater: () => new Promise((r) => { const n = releases.length + 1; releases.push(() => r({ n })); }) }),
+    delayMs: 1, maxWaitMs: 5,
+  });
+  try {
+    await cache.page('job-a');
+    const V2 = 'c3'.repeat(8);
+    cache.viewerOpen(V2);
+    await cache.page('job-a', null, { viewer: V2 }); // watched: a change rebuilds at once
+    cache.touch('job-a');
+    for (let i = 0; i < 50 && releases.length < 2; i++) await new Promise((r) => { setTimeout(r, 10); });
+    assert.equal(releases.length, 2, 'a second read started before the first landed');
+    const ready = cache.commitsReady('job-a');
+    releases[0]();
+    await new Promise((r) => { setTimeout(r, 10); });
+    assert.deepEqual(cache.commits('job-a'), { n: 1 }, 'the overtaken read still gives a list (none was kept before)');
+    releases[1]();
+    assert.deepEqual(await ready, { n: 2 }, 'commitsReady waits until no read is out');
+  } finally { cache.close(); }
+});
