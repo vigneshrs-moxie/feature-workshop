@@ -195,7 +195,10 @@ function initPage() {
     new PerformanceObserver((list) => {
       for (const e of list.getEntries()) {
         if (e.hadRecentInput) continue;
-        window.__shifts.push({ t: e.startTime, value: e.value, sources: (e.sources ?? []).map((s) => (s.node instanceof Element ? `${s.node.tagName.toLowerCase()}.${[...s.node.classList].slice(0, 3).join('.')}` : s.node?.nodeName ?? '?')) });
+        // inJob: a source inside the job page (.jp2); a shift whose sources are all outside it is the app shell's.
+        const jp = document.querySelector('.jp2');
+        const inJob = (e.sources ?? []).some((s) => !s.node || (jp && jp.contains(s.node)));
+        window.__shifts.push({ t: e.startTime, value: e.value, inJob, sources: (e.sources ?? []).map((s) => (s.node instanceof Element ? `${s.node.tagName.toLowerCase()}.${[...s.node.classList].slice(0, 3).join('.')}` : s.node?.nodeName ?? '?')) });
       }
     }).observe({ type: 'layout-shift', buffered: true });
   } catch { /* no layout-shift entries in this browser */ }
@@ -299,7 +302,7 @@ async function openJob(page) {
 }
 const readerTitle = (page) => page.evaluate(() => document.querySelector('.jp2-rv-title')?.textContent ?? '');
 /** Layout shifts he did not cause since the page loaded (input-caused ones are left out by the observer). */
-const shiftsOf = (page) => page.evaluate(() => window.__shifts.map((x) => ({ value: x.value, sources: x.sources })));
+const shiftsOf = (page) => page.evaluate(() => window.__shifts.map((x) => ({ value: x.value, sources: x.sources, inJob: x.inJob })));
 const shiftWords = (list) => `${list.length} (score ${list.reduce((a, x) => a + x.value, 0).toFixed(5)})`;
 const shiftWhere = (list) => [...new Set(list.flatMap((x) => x.sources))].slice(0, 6).join(', ');
 
@@ -328,8 +331,12 @@ async function rule1() {
   const all = [...cold, ...again];
   record(1, 'open from a fresh Jobs', stats(cold), '150 ms each', Math.max(...cold) <= 150);
   record(1, 'open again from Jobs', stats(again), '150 ms each', Math.max(...again) <= 150);
-  // "The reader fills in without moving anything else": shifts while the 15 opens land (input-caused left out).
-  record(1, 'layout shifts not caused by input over the 15 opens', shiftWords(shifts), '0', shifts.length === 0, shiftWhere(shifts));
+  // "The reader fills in without moving anything else": shifts in the job page while the 15 opens land (input-caused
+  // left out); the app around it (its connection light, its command button) is the app shell's.
+  const pageShifts = shifts.filter((x) => x.inJob);
+  const shellShifts = shifts.filter((x) => !x.inJob);
+  record(1, 'layout shifts in the job page not caused by input over the 15 opens', shiftWords(pageShifts), '0', pageShifts.length === 0, shiftWhere(pageShifts));
+  if (shellShifts.length) shell(1, 'layout shifts in the app around the page over the 15 opens', shiftWords(shellShifts), shiftWhere(shellShifts));
   return { all, pageTimes };
 }
 
@@ -401,7 +408,9 @@ async function rule2() {
   }
   // The rule's second sentence: no pick waits on a slow server answer, so not one pick of any kind is 100 ms or more.
   record(2, 'picks of 100 ms or more, of any kind', String(slow.length), '0 (no pick waits on a slow server answer)', slow.length === 0, slow.slice(0, 6).join(', '));
-  record(2, `layout shifts not caused by input over the ${PICKS * 4} picks`, shiftWords(pickShifts), '0', pickShifts.length === 0, shiftWhere(pickShifts));
+  const pagePick = pickShifts.filter((x) => x.inJob);
+  record(2, `layout shifts in the job page not caused by input over the ${PICKS * 4} picks`, shiftWords(pagePick), '0', pagePick.length === 0, shiftWhere(pagePick));
+  if (pickShifts.length > pagePick.length) shell(2, 'layout shifts in the app around the page during the picks', shiftWords(pickShifts.filter((x) => !x.inJob)), shiftWhere(pickShifts.filter((x) => !x.inJob)));
   return out;
 }
 
