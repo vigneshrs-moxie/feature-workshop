@@ -668,3 +668,27 @@ describe('Task 23 fix round: the commit list is fetched ahead (speed rule 2)', (
     expect(get.mock.calls.map((c) => String(c[0])).filter((p) => p.endsWith('/commits'))).toEqual([]);
   });
 });
+
+describe('final fix W3: a job that fails to load says why', () => {
+  it('a 404 says there is no such job, with Try again; a 500 says what Starbase said; Try again that works fills the page', async () => {
+    const { ApiError } = await import('../api/client');
+    nextPage.make = () => { throw new ApiError(404, 'No job by that name.'); };
+    open(`#/job/${SLUG}`, { row: null });
+    await settle();
+    const alert = within(page()).getByRole('alert');
+    expect(alert).toHaveTextContent('Starbase has no job by this name. It may have been removed, or the address has a typo.');
+    nextPage.make = () => { throw new ApiError(500, 'The job folder could not be read'); };
+    await act(async () => { fireEvent.click(within(alert).getByRole('button', { name: 'Try again' })); });
+    await settle();
+    expect(within(page()).getByRole('alert')).toHaveTextContent('Starbase couldn’t load this job: The job folder could not be read.');
+    nextPage.make = () => { throw new TypeError('Failed to fetch'); };
+    await act(async () => { fireEvent.click(within(page()).getByRole('button', { name: 'Try again' })); });
+    await settle();
+    expect(within(page()).getByRole('alert')).toHaveTextContent('Starbase isn’t answering. Check that it is running, then try again.');
+    nextPage.make = null;
+    await act(async () => { fireEvent.click(within(page()).getByRole('button', { name: 'Try again' })); });
+    await settle();
+    expect(page().querySelector('.jp2-pageproblem')).toBeNull();
+    expect(screen.getByRole('heading', { level: 1, name: 'Crew schedule export' })).toBeInTheDocument();
+  });
+});

@@ -367,6 +367,7 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
           <div className="jp2-lscroll">
             {/* On the phone the header is the top of the job screen and scrolls with it. */}
             {phone && <Header job={job} />}
+            <PageProblem />
             <YourMove job={job} onOpen={pickReader} />
             <Steps job={job} cursor={cursor} onStep={openStep} onOpen={pickReader} phone={phone} />
             {/* Task 21: the phone's PR line, ending in `Comments · 3 new` (it opens the PR view). */}
@@ -403,6 +404,24 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
       </div>
       <Palette runner={asks} job={job} phone={phone} onStep={openStep} onOpen={pickReader} />
     </main>
+  );
+}
+
+/** The job failed to load and nothing of it is held: why, in plain words, and Try again (final fix W3). */
+function PageProblem() {
+  const store = useJobStore();
+  const problem = useJob((s) => (s.payload ? null : s.pageProblem));
+  const [trying, setTrying] = useState(false);
+  if (!problem) return null;
+  const tryAgain = () => {
+    setTrying(true);
+    void store.loadPage().finally(() => setTrying(false));
+  };
+  return (
+    <div className="jp2-pageproblem" role="alert">
+      <p className="jp2-pageproblem-says">{problem}</p>
+      <Button size="sm" onClick={tryAgain} disabled={trying} title="Ask Starbase for this job again.">{trying ? 'Trying again…' : 'Try again'}</Button>
+    </div>
   );
 }
 
