@@ -31,7 +31,8 @@
 // / searches the conversation; g c the conversation; g t the ticket and goal; c i the message box;
 // n adds a note on the block under the pointer (notes/Pointable.tsx registers it); ⌘K the asks and
 // places (Palette.tsx; on the phone ⌘K stays the app's). Their other meanings come back when the page goes.
-// The asks row (left/AsksRow.tsx) sits above the message box; it and ⌘K share one runner.
+// The asks row (left/AsksRow.tsx) sits above the message box; it, ⌘K and the hand test's two calls in
+// the reader (AsksContext) share one runner.
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
@@ -50,7 +51,7 @@ import { CONVERSATION, DECISIONS, DETAILS, TICKET } from './targets';
 import type { JobPagePayload, ReaderTarget, StopId } from './types';
 import { Header } from './left/Header';
 import { JobRows } from './left/JobRows';
-import { AsksRow, useAskRunner } from './left/AsksRow';
+import { AsksContext, AsksRow, useAskRunner } from './left/AsksRow';
 import { MessageBox } from './left/MessageBox';
 import { Steps, stepsFromRow } from './left/Steps';
 import { PhonePrLines, usePrLead, usePrOpeningRead } from './left/PrLines';
@@ -183,8 +184,6 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
   const reader = useRef<HTMLElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   const search = useRef<HTMLInputElement>(null);
-  /** The asks' runner: the row and ⌘K send through it (R6). */
-  const asks = useAskRunner(box);
   /** The control that opened the reader, for the back row to give the focus back to. */
   const opener = useRef<HTMLElement | null>(null);
   const single = layout !== 'wide';
@@ -252,6 +251,9 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
   // PR's next action leads the asks row while the Ship step is not the open one.
   usePrOpeningRead();
   const prLead = usePrLead(pickReader);
+  /** The asks' runner: the row, ⌘K and the hand test's two calls send through it (R6, R7). */
+  const asks = useAskRunner(box, pickReader);
+  const asksHere = useMemo(() => ({ runner: asks, phone }), [asks, phone]);
 
   /** A click (or Enter) on a step: it opens, and its main output shows in the reader (on the phone: the step's screen). */
   const openStep = useCallback((id: StopId, from?: HTMLElement | null) => {
@@ -319,6 +321,13 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
     'jp-convo': () => { pickReader(CONVERSATION); },
     'jp-ticket': () => { pickReader(TICKET); },
     'jp-write': () => {
+      // The phone: the box is on the job screen (an ask that needs a word, from the reader's hand
+      // test); the screen's own focus rule then gives the focus to the box.
+      if (phone && screenRef.current !== 'job') {
+        phoneOpener.current = box.current;
+        replaceHash(jobHref(slug));
+        return;
+      }
       uncover();
       box.current?.focus();
     },
@@ -387,7 +396,9 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
             </div>
           )}
           {phone && <PhoneReader onBack={moves.back} />}
-          <Reader fallback={job?.title ?? ''} searchRef={search} onOpen={pickReader} />
+          <AsksContext.Provider value={asksHere}>
+            <Reader fallback={job?.title ?? ''} searchRef={search} onOpen={pickReader} />
+          </AsksContext.Provider>
         </section>
       </div>
       <Palette runner={asks} job={job} phone={phone} onStep={openStep} onOpen={pickReader} />

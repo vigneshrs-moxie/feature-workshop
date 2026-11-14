@@ -15,7 +15,7 @@ describe('the list', () => {
     const items = paletteItems('test', steps(), ['check ok']);
     const groups = [...new Set(items.map((i) => i.group))];
     expect(groups).toEqual(['For this step', 'Any step', 'Yours', 'Places', 'Other steps', 'Starbase']);
-    expect(items.filter((i) => i.group === 'For this step').map(label)).toEqual(['How do I test this by hand?', 'Start the app', 'It works', 'Run the checks again', 'Record again']);
+    expect(items.filter((i) => i.group === 'For this step').map(label)).toEqual(['How do I test this by hand?', 'Start the app', 'It works', 'Run the checks again', 'Record again', 'Something is wrong…']);
     expect(items.filter((i) => i.group === 'Yours').map(label)).toEqual(['check ok']);
     // The row's order first, then the step's ⌘K-only asks.
     expect(paletteItems('review', steps(), []).filter((i) => i.group === 'For this step').map(label)).toEqual(['Fix the open findings', 'Go faster', 'Publish the walkthrough']);
@@ -60,5 +60,22 @@ describe('the search', () => {
     expect(find('CHECKS again')).toEqual(['Run the checks again', 'Record again']);
     expect(find('')).toHaveLength(items.length);
     expect(find('nothing like this')).toEqual([]);
+  });
+});
+
+describe('the Ship asks (Task 22)', () => {
+  it('For this step on Ship: the row’s three, then Test steps for stakeholders, Fix the ticket number…, New branch with only this change', () => {
+    expect(paletteItems('ship', steps(), []).filter((i) => i.group === 'For this step').map(label)).toEqual([
+      'Pull PR comments', 'Shorten the PR text', 'Mark done', 'Test steps for stakeholders', 'Fix the ticket number…', 'New branch with only this change',
+    ]);
+  });
+
+  it('the website lists neither Pull PR comments nor Mark done, on any step', () => {
+    for (const step of ['ship', 'test', null] as const) {
+      const labels = paletteItems(step, steps(), [], true).filter((i) => i.kind === 'ask').map(label);
+      expect(labels).not.toContain('Pull PR comments');
+      expect(labels).not.toContain('Mark done');
+      expect(labels).toContain('Shorten the PR text');
+    }
   });
 });

@@ -36,12 +36,12 @@ type Item =
 
 const GROUP = { step: 'For this step', any: 'Any step', yours: 'Yours', places: 'Places', other: 'Other steps', app: BRAND.name } as const;
 
-/** Every item, in the box's order (pure: the box filters it). */
-export function paletteItems(step: StopId | null, steps: StepRow[], kept: string[]): Item[] {
+/** Every item, in the box's order (pure: the box filters it). `hosted`: the website, without the laptop's asks. */
+export function paletteItems(step: StopId | null, steps: StepRow[], kept: string[], hosted = false): Item[] {
   const group = stepGroup(step);
   const out: Item[] = [];
   const seen = new Set<string>();
-  const addAsk = (g: string, a: Ask) => { if (seen.has(a.id)) return; seen.add(a.id); out.push({ kind: 'ask', key: `ask:${a.id}`, group: g, ask: a }); };
+  const addAsk = (g: string, a: Ask) => { if (seen.has(a.id) || (hosted && a.laptop)) return; seen.add(a.id); out.push({ kind: 'ask', key: `ask:${a.id}`, group: g, ask: a }); };
   if (group !== 'any') for (const a of asksOf(group)) addAsk(GROUP.step, a);
   for (const a of asksOf('any')) addAsk(GROUP.any, a);
   kept.forEach((text, i) => out.push({ kind: 'ask', key: `kept:${i}`, group: GROUP.yours, ask: keptAsk(text, i) }));
@@ -121,7 +121,7 @@ function PaletteBox({ job, onClose, onPick }: { job: Job | null; onClose(): void
     const s = store.getState();
     const steps = s.payload ? s.payload.steps : stepsFromRow(job);
     const step = s.ui.step ?? steps.find((x) => x.state === 'current')?.id ?? null;
-    return paletteItems(step, steps, keptAsks());
+    return paletteItems(step, steps, keptAsks(), s.payload?.hosted === true);
   }, [store, job]);
   const shown = useMemo(() => all.filter((i) => matches(i, query)), [all, query]);
   const at = shown.length ? Math.min(active, shown.length - 1) : -1;

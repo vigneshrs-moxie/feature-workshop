@@ -1,7 +1,7 @@
 // The asks table (R6): one click for what he types again and again. The table is the brief's, word
 // for word; the row fits the open step and holds at most four; a kept ask lives in this browser.
 import { afterEach, describe, expect, it } from 'vitest';
-import { ASKS, GAP, KEPT_KEY, askById, fastOptions, fillGap, keepAsk, keptAsks, rowFor, stepGroup, FAST_SAYS } from './asks';
+import { ASKS, GAP, KEPT_KEY, MARK_DONE_SAYS, PULL_SAYS, askById, askSays, asksOf, fastOptions, fillGap, keepAsk, keptAsks, rowFor, stepGroup, FAST_SAYS } from './asks';
 
 afterEach(() => { localStorage.clear(); });
 
@@ -13,6 +13,8 @@ describe('the asks table', () => {
       'Summarise for approval', 'Drop something…', 'Reuse what exists',
       'How do I test this by hand?', 'Start the app', 'It works', 'Run the checks again', 'Record again',
       'Fix the open findings', 'Publish the walkthrough',
+      'Pull PR comments', 'Shorten the PR text', 'Mark done',
+      'Test steps for stakeholders', 'Fix the ticket number…', 'New branch with only this change', 'Something is wrong…',
     ]);
     // Every ask has an id, a step group, an exact text, and says whether it needs a word.
     for (const a of ASKS) {
@@ -140,5 +142,48 @@ describe('asks sent together (fix round 2)', () => {
     expect(splitAsks(two)).toEqual(['A.', 'B.']);
     expect(splitAsks('2 asks: x; y\n\nA.\n\nB.\n\nC.')).toBeNull();
     expect(splitAsks('Where are we?')).toBeNull();
+  });
+});
+
+describe('the Ship asks and the hand test (Task 22)', () => {
+  it('the Ship row: Pull PR comments, Shorten the PR text, Mark done, then the ones for any step', () => {
+    expect(rowFor('ship').map((a) => a.id)).toEqual(['pull', 'shorten', 'done', 'where']);
+    // The PR's next action leads only while Ship is not the open step (usePrLead gives no lead there).
+    const lead = { id: 'pr-1-push-open', label: 'Push and open PR #1', text: 'Push.', steps: ['any'], inRow: true, needsWord: false, kind: 'send' } as const;
+    expect(rowFor('build', lead).map((a) => a.id)).toEqual(['pr-1-push-open', 'where', 'fast', 'explain']);
+  });
+
+  it('each says exactly what it does: Shorten sends its words; Pull and Mark done are not messages', () => {
+    expect(askById('shorten')).toMatchObject({ kind: 'send', needsWord: false, inRow: true, steps: ['ship'] });
+    expect(askById('shorten')!.text).toBe('The PR text is longer than anyone will read. Cut it to what changed, how to test it, and the deploy note.');
+    expect(askById('pull')).toMatchObject({ kind: 'pull', needsWord: false, inRow: true, laptop: true });
+    expect(askById('pull')!.text).toBe(PULL_SAYS);
+    expect(askById('done')).toMatchObject({ kind: 'mark-done', needsWord: false, inRow: true, laptop: true });
+    expect(askById('done')!.text).toBe(MARK_DONE_SAYS);
+    expect(askSays(askById('pull')!)).toBe('Not a message.');
+    expect(askSays(askById('done')!)).toBe('Not a message.');
+    expect(askSays(askById('shorten')!)).toBe('Sends:');
+  });
+
+  it('the Ship asks only in ⌘K, as the brief lists them', () => {
+    expect(askById('stake')).toMatchObject({ inRow: false, steps: ['ship'], needsWord: false });
+    expect(askById('stake')!.text).toBe('Write clear steps for the stakeholders to test this on staging.');
+    expect(askById('ticket')).toMatchObject({ inRow: false, steps: ['ship'], needsWord: true });
+    expect(askById('ticket')!.text).toBe(`The ticket number is ${GAP}. Update the branch name and every place that uses the old one.`);
+    expect(askById('newbranch')).toMatchObject({ inRow: false, steps: ['ship'], needsWord: false });
+    expect(askById('newbranch')!.text).toBe('Create a new branch with only this latest change, so the PR into staging is cleaner.');
+    expect(asksOf('ship').map((a) => a.id)).toEqual(['pull', 'shorten', 'done', 'stake', 'ticket', 'newbranch']);
+  });
+
+  it('the website has no Pull PR comments or Mark done (GitHub is read and a job marked on the laptop)', () => {
+    expect(rowFor('ship', null, true).map((a) => a.id)).toEqual(['shorten', 'where', 'explain', 'fast']);
+    expect(rowFor('test', null, true).map((a) => a.id)).toEqual(['howtest', 'start', 'works', 'rerun']);
+  });
+
+  it('the hand test: It works sends its words; Something is wrong… puts its words in the box for his', () => {
+    expect(askById('works')!.text).toBe('It works. I tested it by hand.');
+    expect(askById('wrong')).toMatchObject({ label: 'Something is wrong…', inRow: false, steps: ['test'], needsWord: true, kind: 'send' });
+    expect(askById('wrong')!.text).toBe(`I tested it by hand and something is wrong: ${GAP}`);
+    expect(fillGap('', askById('wrong')!.text)).toEqual({ draft: 'I tested it by hand and something is wrong: ', cursor: 'I tested it by hand and something is wrong: '.length });
   });
 });

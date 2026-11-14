@@ -7,9 +7,14 @@
 // are the revision 3 prototype's. The row (left/AsksRow.tsx) shows at most four, fitted to the open
 // step: the step's own asks first, then the ones for any step. ⌘K (Palette.tsx) lists all of them.
 //
-// The Ship row (the PR's next action, Pull PR comments, Shorten the PR text, Mark done) and its ⌘K
-// asks come with Tasks 20 and 22: the PR's next action goes first in the row through rowFor's `lead`,
-// and only while the Ship step is not the open step (plan "Open with the owner").
+// The Ship row (Task 22): the PR's next action goes first in the row through rowFor's `lead`, and only
+// while the Ship step is not the open step (plan "Open with the owner"; left/PrLines.tsx usePrLead), so
+// with Ship open the row is Pull PR comments, Shorten the PR text, Mark done. Two of them are not
+// messages: Pull PR comments reads GitHub now (as the PR view's Pull now) and opens the PR, and Mark done
+// opens the same Mark done sheet the header's ⋯ menu opens (never marks in one click). Both are laptop
+// only (`laptop`): the website reads no GitHub and marks no job.
+// The hand test (R7, reader/ChecksView.tsx): `It works` and `Something is wrong…` are asks of this table
+// too; Something is wrong… puts its words in the box for his (the box takes a pasted screenshot, R4).
 //
 // `Go faster` is not a message: it changes the job's options from the next step (fastOptions).
 // `Keep as an ask` (the conversation) keeps a message he sent under sb.asks.kept in this browser
@@ -24,8 +29,11 @@ export const GAP = '▮';
 /** The brief's step groups: Spec and Plan share one (Investigate goes with them). */
 export type AskGroup = 'any' | 'spec-plan' | 'build' | 'test' | 'review' | 'ship';
 
-/** send: sends its text; fast: changes the job's options (Go faster). */
-export type AskKind = 'send' | 'fast';
+/**
+ * send: sends its text; fast: changes the job's options (Go faster); pull: reads GitHub now and opens the
+ * PR (Pull PR comments); mark-done: opens the Mark done sheet (Mark done).
+ */
+export type AskKind = 'send' | 'fast' | 'pull' | 'mark-done';
 
 export interface Ask {
   id: string;
@@ -39,13 +47,19 @@ export interface Ask {
   /** Its text has a gap for his word: it fills the box instead of sending. */
   needsWord: boolean;
   kind: AskKind;
+  /** Only on the laptop: the website leaves it out of the row and ⌘K. */
+  laptop?: boolean;
 }
 
 /** What Go faster says when it switched both. */
 export const FAST_SAYS = 'Fast from the next step: 1 reviewer, no second looks';
+/** What Pull PR comments does (it sends nothing). */
+export const PULL_SAYS = 'Reads the PR comments and reviews from GitHub now, as Pull now does, then opens the PR.';
+/** What Mark done does (it sends nothing, and marks nothing by itself). */
+export const MARK_DONE_SAYS = 'Opens Mark done or dropped, as the ⋯ menu does: pick done or dropped, with an optional note. Nothing is marked until you choose there.';
 
-const ask = (id: string, label: string, text: string, steps: AskGroup[], inRow: boolean, kind: AskKind = 'send'): Ask =>
-  ({ id, label, text, steps, inRow, needsWord: text.includes(GAP), kind });
+const ask = (id: string, label: string, text: string, steps: AskGroup[], inRow: boolean, kind: AskKind = 'send', laptop = false): Ask =>
+  ({ id, label, text, steps, inRow, needsWord: text.includes(GAP), kind, ...(laptop ? { laptop } : {}) });
 
 /** The table, in the brief's order: the row's asks of each group, then its ⌘K-only ones. */
 export const ASKS: readonly Ask[] = [
@@ -68,6 +82,15 @@ export const ASKS: readonly Ask[] = [
   // Review
   ask('fixfind', 'Fix the open findings', 'Fix the open findings from the review, one commit each, then run the checks.', ['review'], true),
   ask('walkthrough', 'Publish the walkthrough', 'Publish the review walkthrough.', ['review'], false),
+  // Ship (Task 22). The PR's next action is the row's lead (rowFor), not a row of this table.
+  ask('pull', 'Pull PR comments', PULL_SAYS, ['ship'], true, 'pull', true),
+  ask('shorten', 'Shorten the PR text', 'The PR text is longer than anyone will read. Cut it to what changed, how to test it, and the deploy note.', ['ship'], true),
+  ask('done', 'Mark done', MARK_DONE_SAYS, ['ship'], true, 'mark-done', true),
+  ask('stake', 'Test steps for stakeholders', 'Write clear steps for the stakeholders to test this on staging.', ['ship'], false),
+  ask('ticket', 'Fix the ticket number…', `The ticket number is ${GAP}. Update the branch name and every place that uses the old one.`, ['ship'], false),
+  ask('newbranch', 'New branch with only this change', 'Create a new branch with only this latest change, so the PR into staging is cleaner.', ['ship'], false),
+  // The hand test's second call (R7): in the reader beside It works, and in ⌘K on the Test step.
+  ask('wrong', 'Something is wrong…', `I tested it by hand and something is wrong: ${GAP}`, ['test'], false),
 ];
 
 /** Each group's row, in the brief's order (Build lists `Where are we?` first, then `Go faster`). */
@@ -77,8 +100,8 @@ const ROWS: Record<AskGroup, readonly string[]> = {
   build: ['where', 'fast'],
   test: ['howtest', 'start', 'works', 'rerun'],
   review: ['fixfind', 'fast'],
-  // Tasks 20 and 22: the PR's next action, Pull PR comments, Shorten the PR text, Mark done.
-  ship: [],
+  // The PR's next action leads it only while Ship is not open, so not here (rowFor's `lead`).
+  ship: ['pull', 'shorten', 'done'],
 };
 
 /** The most the row holds. */
@@ -95,16 +118,16 @@ export function stepGroup(step: StopId | null): AskGroup {
 
 /**
  * The row for the open step: `lead` first when given (the PR's next action), then the step's own
- * asks, then the ones for any step, at most four.
+ * asks, then the ones for any step, at most four. `hosted`: the website, without the laptop's asks.
  */
-export function rowFor(step: StopId | null, lead?: Ask | null): Ask[] {
+export function rowFor(step: StopId | null, lead?: Ask | null, hosted = false): Ask[] {
   const group = stepGroup(step);
   const ids = [...(group === 'any' ? [] : ROWS[group]), ...ROWS.any];
   const out: Ask[] = lead ? [lead] : [];
   for (const id of ids) {
     if (out.length >= ROW_MAX) break;
     const a = askById(id);
-    if (a && !out.some((x) => x.id === a.id)) out.push(a);
+    if (a && !(hosted && a.laptop) && !out.some((x) => x.id === a.id)) out.push(a);
   }
   return out;
 }
@@ -126,6 +149,7 @@ export function fillGap(draft: string, text: string): { draft: string; cursor: n
 /** How a hover says what an ask does, then its exact text. */
 export function askSays(a: Pick<Ask, 'kind' | 'needsWord'>): string {
   if (a.kind === 'fast') return 'Not a message. Changes this job’s options:';
+  if (a.kind === 'pull' || a.kind === 'mark-done') return 'Not a message.';
   return a.needsWord ? 'Puts in the box, for your word:' : 'Sends:';
 }
 

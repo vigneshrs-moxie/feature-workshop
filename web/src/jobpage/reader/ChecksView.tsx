@@ -13,8 +13,9 @@
 // route (GET /api/job/:slug/evidence), held per open job so coming back paints at once, and read again
 // on open. On the website Record again, Start the app and Open it are not drawn (plan decision 8;
 // today's page hides them there too) and a video plays only once the laptop has put it on the site.
-// `It works` and `Something is wrong…` send fixed words that come with Task 22: until then they are
-// off and their titles say what they will do.
+// `It works` and `Something is wrong…` are asks (asks.ts, Task 22) run by the page's runner
+// (left/AsksRow.tsx AsksInPlace): It works sends its fixed words with Sent · Undo; Something is wrong…
+// puts its words in the message box with the cursor in the gap (the box takes a pasted screenshot, R4).
 
 import { useEffect, useRef, useState } from 'react';
 import { ApiError } from '../../api/client';
@@ -26,7 +27,9 @@ import { TryTab } from '../../panes/Preview/TryTab';
 import { onLiveEvent } from '../../state/live';
 import { useWorkshop } from '../../state/store';
 import { AUTO_SKIPS_HAND_TEST } from '../../views/JobDrawer/OptionsEditor';
+import { askById } from '../asks';
 import type { JobStore } from '../jobStore';
+import { AsksInPlace } from '../left/AsksRow';
 import { sinceWords } from '../left/YourMove';
 import type { ReaderTarget } from '../types';
 import { useJob, useJobStore } from '../useJob';
@@ -315,6 +318,9 @@ function Player({ slug, c, hosted, onSite }: { slug: string; c: EvidenceCriterio
 
 // ---------- Your hand test (R7) ----------
 
+/** The hand test's two calls: It works, Something is wrong…. */
+const HAND_ASKS = [askById('works')!, askById('wrong')!];
+
 function HandTest({ slug, hosted, check, commits, events }: { slug: string; hosted: boolean; check: Check; commits: BranchCommit[] | null; events: NonNullable<ChecksViewProps['events']> }) {
   const { api } = useWorkshop();
   const auto = useJob((s) => s.payload?.auto ?? null);
@@ -362,10 +368,7 @@ function HandTest({ slug, hosted, check, commits, events }: { slug: string; host
       {check.worksWhen.length === 0 && check.mustNot.length === 0 && <p className="jp2-dim">Not written yet. The Foreman writes this list with the plan.</p>}
       {check.worksWhen.length > 0 && <><p><strong>It works when</strong></p><ol>{check.worksWhen.map((w, i) => <li key={i}>{w}</li>)}</ol></>}
       {check.mustNot.length > 0 && <><p><strong>It must not</strong></p><ul>{check.mustNot.map((w, i) => <li key={i}>{w}</li>)}</ul></>}
-      <div className="jp2-hand-acts">
-        <Button kind="primary" size="sm" disabled title="Tells the Foreman it works: you tested it by hand. Comes in a later build of the new page.">It works</Button>
-        <Button size="sm" disabled title="Opens a note to say what is wrong, with a pasted screenshot, for the Foreman. Comes in a later build of the new page.">Something is wrong…</Button>
-      </div>
+      <AsksInPlace asks={HAND_ASKS} primary="works" className="jp2-hand-acts" />
     </div>
   );
 }

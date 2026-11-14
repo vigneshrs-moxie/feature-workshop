@@ -51,3 +51,11 @@
 .jp2-cv-item.is-you:hover > .jp2-cv-line time { visibility: hidden; }
 .jp2-cv-item.is-you:has(> .jp2-cv-keep:focus-visible) > .jp2-cv-line time, .jp2-cv-item.is-you:has(> .jp2-cv-keep.is-kept) > .jp2-cv-line time { visibility: hidden; }
 .jp2[data-layout="phone"] .jp2-cv-keep { display: none; }
+
+/* Asks drawn in place, outside the row (the hand test's two calls, R7): the row's tip over them, and the
+   line their click causes lying over them, so nothing below moves */
+.jp2-asks-here { position: relative; }
+.jp2-asks-here .jp2-asks-tip { left: 0; right: auto; max-width: 520px; }
+.jp2-asks-here .jp2-asks-msg { padding: 0; background: var(--bg-0); }
+.jp2-asks-here .jp2-asks-msg.is-problem { padding: 0; }
+.jp2[data-layout="phone"] .jp2-asks-here .jp2-asks-msg, .jp2[data-layout="phone"] .jp2-asks-here .jp2-asks-msg.is-problem { padding: 0; }

@@ -189,10 +189,12 @@ describe('Your hand test (R7)', () => {
     expect(lists[0]).toMatch(/^AC-1: /);
     expect(text()).toContain(`On the final commit, ${FINAL.short}.`);
     for (const name of ['Start the app', 'Open it', 'It works', 'Something is wrong…']) expect(screen.getByRole('button', { name })).toBeInTheDocument();
-    // What they will send comes later: off, and the title says what each will do.
+    // Drawn alone, without the page's runner (Task 22: left/AsksRow.test.tsx runs them on the page): off, and
+    // the title still shows exactly what each sends.
     expect(screen.getByRole('button', { name: 'It works' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'It works' }).getAttribute('title')).toMatch(/Tells the Foreman/);
+    expect(screen.getByRole('button', { name: 'It works' }).getAttribute('title')).toBe('Sends: It works. I tested it by hand.');
     expect(screen.getByRole('button', { name: 'Something is wrong…' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Something is wrong…' }).getAttribute('title')).toBe('Puts in the box, for your word: I tested it by hand and something is wrong: ▮');
   });
 
   it('Start the app opens Try it in place; Open it opens the app once Try it says it runs', async () => {

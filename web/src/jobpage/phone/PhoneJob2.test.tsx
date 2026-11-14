@@ -278,3 +278,34 @@ describe('Task 21: the phone’s PR line', () => {
     expect(page()).toHaveAttribute('data-screen', 'reader');
   });
 });
+
+describe('the hand test on the phone (Task 22)', () => {
+  const HAND = `#/job/${SLUG}/read/checks/hand-test`;
+  const WORDS = 'I tested it by hand and something is wrong: ';
+
+  it('Something is wrong… goes to the job screen with its words in the box and the cursor in the gap', async () => {
+    const o = openAt(HAND);
+    await settle();
+    expect(page()).toHaveAttribute('data-screen', 'reader');
+    fireEvent.click(within(reader()).getByRole('button', { name: 'Something is wrong…' }));
+    await afterHistory(HAND);
+    expect(window.location.hash).toBe(`#/job/${SLUG}`);
+    expect(page()).toHaveAttribute('data-screen', 'job');
+    const box = screen.getByRole('textbox', { name: 'Message to the Foreman' }) as HTMLTextAreaElement;
+    expect(box).toHaveValue(WORDS);
+    expect(document.activeElement).toBe(box);
+    expect(box.selectionStart).toBe(WORDS.length);
+    expect(o.api.post).not.toHaveBeenCalled();
+  });
+
+  it('It works shows the exact words it holds where he tapped: Sent: “…” · Undo', async () => {
+    const o = openAt(HAND);
+    await settle();
+    (o.api.post as ReturnType<typeof vi.fn>).mockResolvedValue({ run: { id: 'r1' } });
+    fireEvent.click(within(reader()).getByRole('button', { name: 'It works' }));
+    const msg = reader().querySelector<HTMLElement>('.jp2-hand .jp2-asks-msg')!;
+    expect(msg).toHaveTextContent('Sent:“It works. I tested it by hand.”·Undo');
+    fireEvent.click(within(msg).getByRole('button', { name: 'Undo' }));
+    expect(reader().querySelector('.jp2-hand .jp2-asks-msg')).toBeNull();
+  });
+});

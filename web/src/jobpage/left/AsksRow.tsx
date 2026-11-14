@@ -21,24 +21,36 @@
 //   - Go faster: not a message. It reads the job's options (GET /api/job/:slug), posts them back with
 //     one reviewer a round and no second looks (POST …/options, from the next step), and says what
 //     it switched, with Undo for four seconds: Undo posts back the options it replaced.
+//   - Pull PR comments (Task 22): not a message. GitHub is read now, as the PR view's Pull now does
+//     (POST …/pr/1/pull), and the reader opens the newest open PR (the pull requests when none is
+//     open). A failed read says why in the row.
+//   - Mark done (Task 22): not a message. It opens the same Mark done sheet the header's ⋯ menu opens
+//     (never marks in one click); while the Foreman replies, or on a job already marked, it says why.
+//
+// Asks drawn outside the row (AsksInPlace: the hand test's `It works` and `Something is wrong…`, R7) run
+// through the same runner (AsksContext) and follow the same rules: hover or focus shows the exact
+// text, and the line they cause (Sent · Undo) shows in place under them too.
 //
 // The row never changes height: the `Sent · Undo` line lies over it. On a laptop the row shows only
 // the asks that fit beside ⌘K (the prototype's fit; the rest are in ⌘K); on the phone it scrolls
 // sideways and has no ⌘K.
 
-import { memo, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
+import { createContext, memo, useContext, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
 import { flushSync } from 'react-dom';
 import { ApiError, type ApiClient } from '../../api/client';
 import type { Job, JobDetail, JobOptions, OptionsResult } from '../../api/types';
 import { BRAND } from '../../app/brand';
 import { paletteKeyLabel, pressKey } from '../../app/keyRegistry';
+import { useUi, type SheetState } from '../../app/ui';
 import { Button } from '../../components/Button';
 import { useWorkshop, type Store } from '../../state/store';
 import { askSays, fastOptions, fillGap, joinAsks, rowFor, type Ask } from '../asks';
 import { withWordsBack, type JobStore } from '../jobStore';
+import type { ReaderTarget } from '../types';
 import { useJob, useJobStore } from '../useJob';
 import { stepsFromRow } from './Steps';
 import { sendRefusal } from './MessageBox';
+import { SHIP } from './PrLines';
 import '../asks.css';
 
 /** How long an ask is held (and its line shown) before it goes. */
@@ -76,6 +88,10 @@ export const ALREADY_FAST = 'Already fast: 1 reviewer, no second looks';
 export const QUEUED = 'Queued for your laptop: it goes to the Foreman when the laptop picks it up.';
 /** The website while the Foreman works: like a typed message there, the words stay in the box. */
 export const KEPT = 'Kept in the box, not sent: the Foreman is working. Press Send when it finishes.';
+/** Mark done while the Foreman replies (the ⋯ menu's words). */
+export const DONE_RUNNING = 'The Foreman is replying. Stop the reply first, then mark the job.';
+/** Mark done on a job already marked done or dropped. */
+export const DONE_ALREADY = 'Already marked done or dropped. Reopen it from the ⋯ menu.';
 /** The run statuses that mean the Foreman is replying right now (as MessageBox's ACTIVE). */
 const ACTIVE = new Set(['starting', 'running', 'waiting_permission', 'stopping']);
 
@@ -98,9 +114,13 @@ export interface AskRunnerDeps {
   running?: () => boolean;
   /** The clock (tests). */
   now?: () => number;
+  /** Open something in the reader (Pull PR comments opens the PR). */
+  open?: (t: ReaderTarget) => void;
+  /** Open one of the app's sheets (Mark done opens the Mark done sheet). */
+  openSheet?: (s: SheetState) => void;
 }
 
-export function createAskRunner({ api, store, box, running = () => false, now: clock = () => Date.now() }: AskRunnerDeps): AskRunner {
+export function createAskRunner({ api, store, box, running = () => false, now: clock = () => Date.now(), open, openSheet }: AskRunnerDeps): AskRunner {
   let line: AskLine | null = null;
   const listeners = new Set<() => void>();
   const say = (next: AskLine | null) => { line = next; for (const l of [...listeners]) l(); };
@@ -233,10 +253,29 @@ export function createAskRunner({ api, store, box, running = () => false, now: c
     brief({ words: fast.says, undo: 'options', problem: false });
   }
 
+  /** Pull PR comments: GitHub is read now (the PR view's Pull now), and the newest open PR opens. */
+  function pull() {
+    if (hosted()) return;
+    const live = [...(store.getState().payload?.prs ?? [])].reverse().find((l) => l.state === 'open' || l.state === 'draft');
+    api.post(path('/pr/1/pull'), {}).catch((err: unknown) => { if (!ended) say({ words: `Not read: ${failure(err)}`, problem: true, undo: null }); });
+    open?.(live ? { kind: 'pr', id: String(live.n) } : SHIP);
+  }
+
+  /** Mark done: the ⋯ menu's Mark done sheet, on the same terms as the menu. */
+  function markDone() {
+    const p = store.getState().payload;
+    if (hosted() || !p) return;
+    if (p.closed) { say({ words: DONE_ALREADY, problem: true, undo: null }); return; }
+    if (running()) { say({ words: DONE_RUNNING, problem: true, undo: null }); return; }
+    openSheet?.({ kind: 'close-job', slug: slug(), worktree: p.local?.worktree ?? null });
+  }
+
   return {
     getState: () => line,
     subscribe(l) { listeners.add(l); return () => { listeners.delete(l); }; },
     run(a) {
+      if (a.kind === 'pull') { pull(); return; }
+      if (a.kind === 'mark-done') { markDone(); return; }
       if (a.needsWord) { fill(a.text); return; }
       // Go faster changes the options, which another place working on the job does not stop.
       if (a.kind === 'fast') { void goFaster(); return; }
@@ -271,11 +310,19 @@ function runningNow(app: Store, store: JobStore): boolean {
   return on(run);
 }
 
-/** The page's runner: made once, ended (held asks sent) when the page goes. */
-export function useAskRunner(box: RefObject<HTMLTextAreaElement | null>): AskRunner {
+/** The page's runner: made once, ended (held asks sent) when the page goes. `open`: the page's reader pick. */
+export function useAskRunner(box: RefObject<HTMLTextAreaElement | null>, open?: (t: ReaderTarget) => void): AskRunner {
   const { api, store: app } = useWorkshop();
   const store = useJobStore();
-  const make = () => createAskRunner({ api, store, box, running: () => runningNow(app, store) });
+  const ui = useUi();
+  // The runner is made once; what it opens is read when it runs.
+  const to = useRef({ open, sheet: ui.openSheet });
+  useLayoutEffect(() => { to.current = { open, sheet: ui.openSheet }; });
+  const make = () => createAskRunner({
+    api, store, box, running: () => runningNow(app, store),
+    open: (t) => to.current.open?.(t),
+    openSheet: (s) => to.current.sheet(s),
+  });
   const made = useRef<AskRunner | null>(null);
   if (!made.current) made.current = make();
   const [runner, setRunner] = useState(made.current);
@@ -302,8 +349,9 @@ export interface AsksRowProps {
 export const AsksRow = memo(function AsksRow({ runner, job, phone = false, lead = null, onLead }: AsksRowProps) {
   const step = useJob((s) => s.ui.step ?? (s.payload ? s.payload.steps : stepsFromRow(job)).find((x) => x.state === 'current')?.id ?? null);
   const locked = useJob((s) => Boolean(s.payload?.lock));
+  const hosted = useJob((s) => s.payload?.hosted === true);
   const line = useSyncExternalStore(runner.subscribe, runner.getState, runner.getState);
-  const row = rowFor(step, lead);
+  const row = rowFor(step, lead, hosted);
   const [tip, setTip] = useState<Ask | null>(null);
   const tipId = useId();
   // The lead never sends from the row: its click opens what it will do first (two clicks, as on its line).
@@ -327,6 +375,57 @@ export const AsksRow = memo(function AsksRow({ runner, job, phone = false, lead 
     </div>
   );
 });
+
+/** The page's runner and whether it is the phone, for asks drawn outside the row (AsksInPlace). */
+export const AsksContext = createContext<{ runner: AskRunner; phone: boolean } | null>(null);
+
+const noSubscribe = () => () => {};
+const noLine = () => null;
+
+/**
+ * Asks drawn in place, outside the row (the hand test's `It works` and `Something is wrong…`, R7): the
+ * page's runner, the row's rules. Hovering or focusing one shows the exact text it sends; the line its
+ * click causes (Sent · Undo, or why it did not go) shows here under them as well as in the row, so it is
+ * seen where he clicked (the row may be under the reader). Off without the page's runner.
+ */
+export function AsksInPlace({ asks, primary, className }: { asks: Ask[]; primary?: string; className?: string }) {
+  const ctx = useContext(AsksContext);
+  const runner = ctx?.runner ?? null;
+  const locked = useJob((s) => Boolean(s.payload?.lock));
+  const line = useSyncExternalStore(runner?.subscribe ?? noSubscribe, runner?.getState ?? noLine, runner?.getState ?? noLine);
+  const [tip, setTip] = useState<Ask | null>(null);
+  const tipId = useId();
+  /** The line shown is one these asks caused, until it goes. */
+  const [mine, setMine] = useState(false);
+  useEffect(() => { if (!line) setMine(false); }, [line]);
+  return (
+    <div className={`jp2-asks-here${className ? ` ${className}` : ''}`}>
+      {asks.map((a) => (
+        <Button
+          key={a.id}
+          kind={a.id === primary ? 'primary' : 'secondary'}
+          size="sm"
+          disabled={!runner || (locked && a.kind === 'send' && !a.needsWord)}
+          title={runner ? undefined : `${askSays(a)} ${a.text}`}
+          aria-describedby={tip?.id === a.id ? tipId : undefined}
+          onMouseEnter={() => setTip(a)}
+          onMouseLeave={() => setTip(null)}
+          onFocus={() => setTip(a)}
+          onBlur={() => setTip(null)}
+          onClick={() => { setTip(null); if (!a.needsWord) setMine(true); runner?.run(a); }}
+        >
+          {a.label}
+        </Button>
+      ))}
+      {mine && line && runner && <AskLineView key={`${line.words}|${(line.held ?? []).join('|')}`} line={line} phone={ctx?.phone ?? false} runner={runner} />}
+      {tip && (
+        <div className="jp2-asks-tip" role="tooltip" id={tipId}>
+          <span className="jp2-asks-says">{askSays(tip)}</span> {tip.text}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /**
  * The row's line. On the phone (no hover) a held ask's exact words are in it: `Sent: “…” · Undo`,

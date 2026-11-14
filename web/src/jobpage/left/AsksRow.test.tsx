@@ -9,7 +9,7 @@ import { clearAllSent } from '../../lib/sentState';
 import { clearGateSent } from '../../panes/Foreman/gateSent';
 import { createStore, WorkshopContext } from '../../state/store';
 import { LEVELS, snapshot } from '../../state/test-fixtures';
-import { ASKS, FAST_SAYS, GAP, KEPT_KEY, askById, rowFor } from '../asks';
+import { ASKS, FAST_SAYS, GAP, KEPT_KEY, MARK_DONE_SAYS, PULL_SAYS, askById, rowFor } from '../asks';
 import { longJob } from '../fixtures/longJob';
 import { browserDrafts, createJobStore, type JobStore } from '../jobStore';
 import { JobPage2 } from '../JobPage2';
@@ -841,5 +841,179 @@ describe('fix round 2', () => {
     } finally {
       longJob.bodies[id].text = was;
     }
+  });
+});
+
+describe('the Ship asks and the hand test (Task 22)', () => {
+  const NEXT = { id: 'push-open', label: 'Push and open PR #1', go: 'Push and open', says: ['abc1234 Add the export'], sends: 'Push the branch to my fork and open PR #1.', check: '0123456789ab' } as const;
+  const prs = (over: Partial<JobPagePayload['prs'][number]>) => { const p = payload().prs; p[0] = { ...p[0], ...over }; return p; };
+  const hand = () => document.querySelector<HTMLElement>('.jp2-hand')!;
+  const openHand = async (o: Opened) => { act(() => { o.store.setReader({ kind: 'checks', id: 'hand-test' }); }); await settle(); };
+
+  it('with Ship open the row is Pull PR comments, Shorten the PR text, Mark done; the PR’s next action leads only on the other steps', async () => {
+    const o = open({ patch: { prs: prs({ next: NEXT as unknown as JobPagePayload['prs'][number]['next'] }) } });
+    await settle();
+    pickStep(o, 'ship');
+    expect(rowLabels()).toEqual(['Pull PR comments', 'Shorten the PR text', 'Mark done', 'Where are we?']);
+    pickStep(o, 'build');
+    expect(rowLabels()[0]).toBe('Push and open PR #1');
+    expect(rowLabels()).not.toContain('Pull PR comments');
+  });
+
+  it('Shorten the PR text says Sent · Undo, then sends its exact words', async () => {
+    const o = open();
+    await settle();
+    pickStep(o, 'ship');
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    fireEvent.click(row().getByRole('button', { name: 'Shorten the PR text' }));
+    expect(document.querySelector('.jp2-asks-msg')).toHaveTextContent(/^Sent·Undo$/);
+    act(() => { vi.advanceTimersByTime(HOLD_MS); });
+    await flush();
+    expect(sends(o.post)[0][1]).toEqual({ kind: 'message', text: askById('shorten')!.text, queue: true });
+  });
+
+  it('Pull PR comments reads GitHub now, as Pull now does, and opens the open PR; nothing goes to the Foreman', async () => {
+    const o = open({ patch: { prs: prs({ state: 'open', word: 'open', number: 12 }) } });
+    await settle();
+    pickStep(o, 'ship');
+    fireEvent.click(row().getByRole('button', { name: 'Pull PR comments' }));
+    await flush();
+    expect(o.post).toHaveBeenCalledWith(`/api/job/${SLUG}/pr/1/pull`, {});
+    expect(sends(o.post)).toHaveLength(0);
+    expect(o.store.getState().ui.reader).toEqual({ kind: 'pr', id: '1' });
+    expect(document.querySelector('.jp2-asks-msg')).toBeNull();
+  });
+
+  it('Pull PR comments with no PR open opens the pull requests; a failed read says why', async () => {
+    const srv = server();
+    srv.post.mockImplementation(async (path: string) => { if (path.endsWith('/pull')) throw new ApiError(502, 'GitHub didn’t answer.', {}); return { ok: true }; });
+    const o = open({ srv });
+    await settle();
+    pickStep(o, 'ship');
+    fireEvent.click(row().getByRole('button', { name: 'Pull PR comments' }));
+    await flush();
+    expect(o.store.getState().ui.reader).toEqual({ kind: 'ship', id: 'ship' });
+    expect(document.querySelector('.jp2-asks-msg')).toHaveTextContent('Not read: GitHub didn’t answer.');
+  });
+
+  it('Mark done opens the same Mark done sheet the ⋯ menu opens; nothing is marked or sent', async () => {
+    let sheet: unknown = null;
+    function Probe() { const ui = useUi(); sheet = ui.sheet; return null; }
+    const local = { ...payload().local!, worktree: '/demo/worktrees/crew', dir: '/demo/crew' };
+    const o = open({ patch: { local }, beside: <Probe /> });
+    await settle();
+    fireEvent.click(screen.getByRole('button', { name: 'More for this job' }));
+    fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Mark done or dropped' }));
+    const fromMenu = sheet;
+    expect(fromMenu).toMatchObject({ kind: 'close-job', slug: SLUG });
+    sheet = null;
+    pickStep(o, 'ship');
+    fireEvent.click(row().getByRole('button', { name: 'Mark done' }));
+    await flush();
+    expect(sheet).toEqual(fromMenu);
+    expect(o.post).not.toHaveBeenCalled();
+    expect(document.querySelector('.jp2-asks-msg')).toBeNull();
+  });
+
+  it('Mark done while the Foreman replies, or on a job already marked, says why and opens nothing', async () => {
+    let sheet: unknown = null;
+    function Probe() { const ui = useUi(); sheet = ui.sheet; return null; }
+    const a = open({ patch: { run: RUNNING_RUN } as Partial<JobPagePayload>, beside: <Probe /> });
+    await settle();
+    pickStep(a, 'ship');
+    fireEvent.click(row().getByRole('button', { name: 'Mark done' }));
+    expect(sheet).toBeNull();
+    expect(document.querySelector('.jp2-asks-msg')).toHaveTextContent('The Foreman is replying. Stop the reply first, then mark the job.');
+    a.unmount();
+    const b = open({ patch: { closed: { as: 'done', at: '2026-11-05T10:00:00.000Z' } } as Partial<JobPagePayload>, beside: <Probe /> });
+    await settle();
+    pickStep(b, 'ship');
+    fireEvent.click(row().getByRole('button', { name: 'Mark done' }));
+    expect(sheet).toBeNull();
+    expect(document.querySelector('.jp2-asks-msg')).toHaveTextContent('Already marked done or dropped. Reopen it from the ⋯ menu.');
+  });
+
+  it('the website’s Ship row has no Pull PR comments or Mark done, and ⌘K neither', async () => {
+    const o = open({ patch: { hosted: true } });
+    await settle();
+    pickStep(o, 'ship');
+    expect(rowLabels()).toEqual(['Shorten the PR text', 'Where are we?', 'Explain this step', 'Go faster']);
+    cmdK();
+    const labels = within(palette()!).getAllByRole('option').map((x) => x.querySelector('.palette-label')?.textContent);
+    expect(labels).not.toContain('Pull PR comments');
+    expect(labels).not.toContain('Mark done');
+    expect(labels).toContain('Fix the ticket number…');
+  });
+
+  it('hovering or focusing each Ship ask shows exactly what it does', async () => {
+    const o = open();
+    await settle();
+    pickStep(o, 'ship');
+    const tipOf = (name: string) => { fireEvent.mouseEnter(row().getByRole('button', { name })); const t = screen.getByRole('tooltip').textContent; fireEvent.mouseLeave(row().getByRole('button', { name })); return t; };
+    expect(tipOf('Pull PR comments')).toBe(`Not a message. ${PULL_SAYS}`);
+    expect(tipOf('Mark done')).toBe(`Not a message. ${MARK_DONE_SAYS}`);
+    expect(tipOf('Shorten the PR text')).toBe(`Sends: ${askById('shorten')!.text}`);
+    act(() => { row().getByRole('button', { name: 'Mark done' }).focus(); });
+    expect(screen.getByRole('tooltip').textContent).toBe(`Not a message. ${MARK_DONE_SAYS}`);
+  });
+
+  it('the hand test’s It works shows its exact words on hover, Sent · Undo where he clicked, then sends them', async () => {
+    const o = open();
+    await settle();
+    await openHand(o);
+    const works = within(hand()).getByRole('button', { name: 'It works' });
+    expect(works).toBeEnabled();
+    fireEvent.mouseEnter(works);
+    expect(within(hand()).getByRole('tooltip').textContent).toBe(`Sends: ${askById('works')!.text}`);
+    expect(works).toHaveAttribute('aria-describedby', within(hand()).getByRole('tooltip').id);
+    fireEvent.mouseLeave(works);
+    expect(within(hand()).queryByRole('tooltip')).toBeNull();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    fireEvent.click(works);
+    expect(hand().querySelector('.jp2-asks-msg')).toHaveTextContent(/^Sent·Undo$/);
+    act(() => { vi.advanceTimersByTime(HOLD_MS); });
+    await flush();
+    expect(sends(o.post)).toHaveLength(1);
+    expect(sends(o.post)[0][1]).toEqual({ kind: 'message', text: 'It works. I tested it by hand.', queue: true });
+    expect(hand().querySelector('.jp2-asks-msg')).toBeNull();
+  });
+
+  it('the hand test’s Undo takes It works back before it leaves', async () => {
+    const o = open();
+    await settle();
+    await openHand(o);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    fireEvent.click(within(hand()).getByRole('button', { name: 'It works' }));
+    fireEvent.click(within(hand()).getByRole('button', { name: 'Undo' }));
+    expect(hand().querySelector('.jp2-asks-msg')).toBeNull();
+    act(() => { vi.advanceTimersByTime(10_000); });
+    await flush();
+    expect(sends(o.post)).toHaveLength(0);
+  });
+
+  it('the hand test’s Something is wrong… puts its words in the box with the cursor in the gap; nothing is sent', async () => {
+    const o = open();
+    await settle();
+    await openHand(o);
+    const wrong = within(hand()).getByRole('button', { name: 'Something is wrong…' });
+    fireEvent.focus(wrong);
+    expect(within(hand()).getByRole('tooltip').textContent).toBe(`Puts in the box, for your word: ${askById('wrong')!.text}`);
+    fireEvent.blur(wrong);
+    fireEvent.click(wrong);
+    const el = box();
+    const words = 'I tested it by hand and something is wrong: ';
+    expect(el).toHaveValue(words);
+    expect(document.activeElement).toBe(el);
+    expect(el.selectionStart).toBe(words.length);
+    await flush();
+    expect(sends(o.post)).toHaveLength(0);
+  });
+
+  it('the hand test’s It works is off while another place works on the job; Something is wrong… still fills the box', async () => {
+    const o = open({ patch: { lock: { owner: 'terminal', pid: 4242, branch: null, acquiredAt: null } } });
+    await settle();
+    await openHand(o);
+    expect(within(hand()).getByRole('button', { name: 'It works' })).toBeDisabled();
+    expect(within(hand()).getByRole('button', { name: 'Something is wrong…' })).toBeEnabled();
   });
 });
