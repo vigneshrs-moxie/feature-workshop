@@ -54,8 +54,19 @@ const prsOf = (local) => {
   return local.prs;
 };
 
-export default function jobPageRoutes({ read, sendJson, local }) {
+export default function jobPageRoutes({ read, sendJson, local, runner, LOCAL }) {
   return [
+    // The Build step's commits and one commit's diff, here (before routes-jobs.js) with no job-list check
+    // first: the list the job page keeps answers at once (speed rules 2 and 6); an unknown job is the
+    // runner's own 404. The same answers as before.
+    {
+      method: 'GET', path: /^\/api\/job\/([^/]+)\/commits$/,
+      run: async ({ res, m }) => sendJson(res, 200, await read.commits(m[1])),
+    },
+    {
+      method: 'GET', path: /^\/api\/job\/([^/]+)\/commit\/([0-9a-fA-F]{4,40})$/,
+      run: async ({ res, m }) => sendJson(res, 200, await runner.handle({ type: 'fetch-diff', slug: m[1], commit: m[2] }, LOCAL)),
+    },
     {
       method: 'GET', path: /^\/api\/job\/([^/]+)\/page$/,
       run: async ({ res, url, m }) => {

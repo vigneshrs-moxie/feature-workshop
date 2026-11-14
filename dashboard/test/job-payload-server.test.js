@@ -526,6 +526,7 @@ test('Task 23 fix round (speed rule 2): the commit list of a job the page watche
     assert.equal(first.status, 200, JSON.stringify(first.body));
     // The list is read behind the page's answer (fix round 2): ready once that read lands.
     await hooks.jobPages.commitsReady(slug);
+    await sleep(1600); // past the runner's 1.5 s job list: a route that asked for it would load every job again
     const spy = spies();
     let one;
     try { one = await get(`/api/job/${slug}/commits`); } finally { spy.restore(); }
@@ -540,6 +541,7 @@ test('Task 23 fix round (speed rule 2): the commit list of a job the page watche
     assert.equal(diff.status, 200, JSON.stringify(diff.body));
     assert.deepEqual(diff.body.patchFiles.map((f) => f.path), ['b.txt']);
     assert.deepEqual(spyDiff.calls.spawn, [], 'no git for the newest commit\'s diff');
+    assert.equal(spy.calls.loads + spyDiff.calls.loads, 0, 'no load of every job (no job-list check before the kept answer)');
     // Fix round 2 (M1): a rebuild while the branch has not moved keeps the list it has, reading nothing.
     const lists = hooks.commitLists;
     const builds = hooks.jobPages.stats().builds;
