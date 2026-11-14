@@ -43,6 +43,9 @@ export function chipLine(chip: unknown): string | null;
 /** The chips worth sending: malformed ones and repeats left out, one level change at most, at most MAX_CHIPS. */
 export function cleanChips(chips: unknown): GateChip[];
 
+/** A gate note's lines as the reply carries them: a notes block on its lines, words on one line. */
+export function noteLines(note: string | null | undefined): string[];
+
 export function composeReply(args: {
   kind: ComposeKind;
   status?: ComposeStatus;

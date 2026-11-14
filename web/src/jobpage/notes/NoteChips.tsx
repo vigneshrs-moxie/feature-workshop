@@ -9,6 +9,7 @@ import { memo, useEffect, useId, useState } from 'react';
 import type { PageNote } from '../jobStore';
 import type { ReaderTarget } from '../types';
 import { useJob, useJobStore } from '../useJob';
+import { noteLines } from '../../../../dashboard/lib/compose.js';
 import { bodyToRead, chipWords, composeFor, goneFrom } from './chips';
 import { adoptPasted } from './Pins';
 import { useExplainAnswers } from './Pointable';
@@ -53,9 +54,13 @@ export const NoteChips = memo(function NoteChips({ onOpen }: NoteChipsProps) {
 /** The exact text, his words in the box after the block. */
 function Sent({ id, notes }: { id: string; notes: PageNote[] }) {
   const draft = useJob((s) => s.ui.draft);
+  // At a gate they go as the decision's note, which the reply carries as noteLines puts it (the block on
+  // its lines, his words on one line): the same code shows it here.
+  const atGate = useJob((s) => s.payload?.move?.kind === 'gate');
+  const text = composeFor(notes, draft);
   return (
     <div className="jp2-wws" id={id} role="region" aria-label="What will be sent">
-      <pre className="jp2-wws-t">{composeFor(notes, draft)}</pre>
+      <pre className="jp2-wws-t">{atGate ? noteLines(text).join('\n') : text}</pre>
     </div>
   );
 }

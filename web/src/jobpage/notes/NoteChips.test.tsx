@@ -102,6 +102,21 @@ describe('what is sent', () => {
     expect(screen.getByRole('region', { name: 'What will be sent' }).querySelector('pre')!.textContent).toBe(`${THREE_TEXT}\n\nAnd keep the old export.`);
   });
 
+  it('at a gate it shows what the gate sends: the block on its lines, his words after it on one line', async () => {
+    keep(THREE);
+    const o = openNotes({ read: null });
+    await settle();
+    act(() => { fireEvent.change(box(), { target: { value: 'And keep\nthe old export.' } }); });
+    act(() => { fireEvent.click(screen.getByRole('button', { name: 'Show what will be sent' })); });
+    const shown = screen.getByRole('region', { name: 'What will be sent' }).querySelector('pre')!.textContent;
+    expect(shown).toBe(`${THREE_TEXT}\n\nAnd keep the old export.`);
+    await act(async () => { fireEvent.click(card().getByRole('button', { name: /Send back · 3 notes/ })); });
+    // The server composes the reply from that note (lib/compose.js): its note lines are what was shown.
+    const { composeReply } = await import('../../../../dashboard/lib/compose.js');
+    const note = (o.post.mock.calls.find((c) => String(c[0]).endsWith('/gate'))![1] as { note: string }).note;
+    expect(composeReply({ kind: 'changes', note })).toBe(`Please make changes before moving on, and stay in the current stage:\n${shown}`);
+  });
+
   it('Send · 3 notes posts exactly that text, once; the chips and the box empty', async () => {
     keep(THREE);
     const o = openNotes({ read: null, patch: (p) => { p.move = null; } });

@@ -8,8 +8,8 @@ const line = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
 // without a whole block, are one line as before.
 const NOTES_OPEN = /^--- Notes \(\d+\) ---$/;
 const NOTES_CLOSE = '--- End of notes ---';
-/** The note's lines: the notes block as written, then his words on one line ('' and nothing when none). */
-function noteLines(note) {
+/** The note's lines: the notes block as written, then his words on one line ('' and nothing when none). The job page shows these as what a gate sends. */
+export function noteLines(note) {
   const lines = String(note ?? '').trim().split(/\r?\n/);
   const end = lines.findIndex((l) => l.trim() === NOTES_CLOSE);
   if (!NOTES_OPEN.test(lines[0]?.trim() ?? '') || end < 0) { const w = line(note); return w ? [w] : []; }

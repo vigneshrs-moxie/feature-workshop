@@ -13,6 +13,7 @@
 
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { pinPlace } from '../../../../dashboard/lib/notes-block.js';
+import { ApiError } from '../../api/client';
 import { readStored, writeStored } from '../../lib/stored';
 import type { JobStore } from '../jobStore';
 import type { ReaderTarget } from '../types';
@@ -231,7 +232,14 @@ export async function adoptPasted(slug: string, api: NonNullable<Poster>, store:
     const url = readStored(key);
     if (!url) { writeStored(key, null); continue; }
     let name: string;
-    try { name = await upload(slug, url, api); } catch { continue; }
+    try { name = await upload(slug, url, api); } catch (err) {
+      // Refused (not a picture it takes, too big): it never will be, so it is given up and its pins say
+      // so. Starbase not reached: kept for next time.
+      if (!(err instanceof ApiError && err.status >= 400 && err.status < 500)) continue;
+      store.setNotes(store.getState().ui.notes.map((n) => (n.pin?.picture === `pasted:${old}` ? { ...n, place: `Pasted picture ${old.slice(1)} (it could not be saved for the Foreman: you can’t open it)` } : n)));
+      writeStored(key, null);
+      continue;
+    }
     const notes = store.getState().ui.notes.map((n) => (n.pin?.picture === `pasted:${old}`
       ? { ...n, target: { kind: 'picture' as const, id: name }, place: savedName(name), chip: SAVED_CHIP, pin: { ...n.pin, picture: `pasted:${name}` } }
       : n));

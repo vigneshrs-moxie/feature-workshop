@@ -163,6 +163,28 @@ describe('a pasted picture', () => {
     expect(o.store.getState().ui.notes[0]).toMatchObject({ target: { kind: 'picture', id: NAME }, place: `Pasted picture (pictures/${NAME} in the job’s folder)`, pin: { picture: `pasted:${NAME}` } });
   });
 
+  it('an old picture the job’s folder refuses is given up: its copy goes, and its pin says the Foreman can’t open it', async () => {
+    const { ApiError } = await import('../../api/client');
+    localStorage.setItem(`sb.pasted.${SLUG}.p2`, 'data:image/bmp;base64,Qk0=');
+    localStorage.setItem(`sb.notes.${SLUG}`, JSON.stringify({ explains: [], notes: [{ n: 1, kind: 'pin', target: { kind: 'picture', id: 'p2' }, place: 'Pasted picture 2 (it stays in his browser: you can’t open it)', chip: 'Pasted picture 2', quote: null, note: 'cut off', pin: { n: 1, x: 10, y: 20, picture: 'pasted:p2' } }] }));
+    const post = vi.fn(async (_path: string, _body?: unknown) => { throw new ApiError(415, 'Only a PNG, JPEG, WebP or GIF picture can be saved.', {}); });
+    const o = openNotes({ read: null, post, patch: (p) => { p.move = null; } });
+    await settle();
+    await settle();
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem(`sb.pasted.${SLUG}.p2`)).toBeNull();
+    expect(o.store.getState().ui.notes[0].place).toBe('Pasted picture 2 (it could not be saved for the Foreman: you can’t open it)');
+  });
+
+  it('an old picture is kept for next time when Starbase can’t be reached', async () => {
+    localStorage.setItem(`sb.pasted.${SLUG}.p3`, 'data:image/png;base64,iVBORw==');
+    const post = vi.fn(async (_path: string, _body?: unknown) => { throw new TypeError('Failed to fetch'); });
+    openNotes({ read: null, post, patch: (p) => { p.move = null; } });
+    await settle();
+    await settle();
+    expect(localStorage.getItem(`sb.pasted.${SLUG}.p3`)).not.toBeNull();
+  });
+
   it('a paste with only words stays a paste of words', async () => {
     openNotes({ read: null });
     await settle();

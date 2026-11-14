@@ -548,3 +548,24 @@ test('pictures: POST saves a pasted picture as pictures/<sha256>.<ext> in the jo
   }
   assert.deepEqual(await fs.readdir(path.join(featuresDir, 'picture-job', 'pictures')), [`${sha}.png`]);
 });
+
+// Fix round 2 (M5): a body longer than any 10 MB picture's base64 is cut off while it streams in (413),
+// before it is read whole or parsed.
+test('pictures: a body past the limit is refused as it streams in (413); nothing is saved', { timeout: 60_000 }, async () => {
+  const before = await fs.readdir(path.join(featuresDir, 'picture-job', 'pictures')).catch(() => []);
+  const huge = JSON.stringify({ data: 'A'.repeat(14_500_000) });
+  let status = null;
+  try {
+    const res = await fetch(`${base}/api/job/picture-job/pictures`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Starbase-Token': token }, body: huge });
+    status = res.status;
+    assert.match((await res.json()).error, /too big: at most 10 MB/);
+  } catch (err) {
+    // The server may close the connection on the rest of the upload once it has answered.
+    assert.match(String(err?.cause?.code ?? err?.message), /EPIPE|ECONNRESET|fetch failed|other side closed/);
+  }
+  if (status !== null) assert.equal(status, 413);
+  assert.deepEqual(await fs.readdir(path.join(featuresDir, 'picture-job', 'pictures')).catch(() => []), before);
+  // Still answering afterwards (on a fresh connection: the cut-off one is closed).
+  const after = await fetch(`${base}/api/job/picture-job/pictures/${'a'.repeat(64)}.png`).catch(() => fetch(`${base}/api/job/picture-job/pictures/${'a'.repeat(64)}.png`));
+  assert.equal(after.status, 404);
+});

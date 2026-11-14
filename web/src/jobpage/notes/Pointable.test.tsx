@@ -197,16 +197,21 @@ describe('Explain', () => {
     const o = await opened({ post });
     act(() => { fireEvent.mouseMove(para(S1)); });
     act(() => { fireEvent.click(plus()!); });
+    fireEvent.change(field(), { target: { value: 'why here and not in the export?' } });
     await act(async () => { fireEvent.click(button('Explain')); });
+    expect(String((post.mock.calls[0][1] as { text: string }).text)).toContain('   Note: why here and not in the export?');
     const note = () => reader().querySelector<HTMLElement>('.jp2-pt-mnote');
     expect(note()).toHaveTextContent('Not sent: Claude’s usage limit is reached.');
     expect(note()).not.toHaveTextContent('Asked');
     expect(o.store.getState().explains).toEqual([]);
     expect(localStorage.getItem(`sb.notes.${o.store.getState().slug}`)).toBeNull();
-    // Ask again sends it again.
+    // Ask again sends it again, his words with it.
     await act(async () => { fireEvent.click(within(note()!).getByRole('button', { name: 'Ask again' })); });
     expect(post).toHaveBeenCalledTimes(2);
     expect(post.mock.calls[1][1]).toEqual(post.mock.calls[0][1]);
+    // Refused again: Ask again still carries them.
+    await act(async () => { fireEvent.click(within(note()!).getByRole('button', { name: 'Ask again' })); });
+    expect(post.mock.calls[2][1]).toEqual(post.mock.calls[0][1]);
     // A reply that lands later is not taken for its answer.
     const next = payload();
     next.v = 2;

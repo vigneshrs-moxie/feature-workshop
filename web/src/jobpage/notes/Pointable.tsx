@@ -278,7 +278,13 @@ function findKept(kept: Map<string, Found>, root: HTMLElement, note: { target: R
   const was = kept.get(key);
   const a = note.block;
   if (!a) return null;
-  if (was?.el && was.el.isConnected && root.contains(was.el) && (a.key ? true : words(was.el).slice(0, 300) === a.text)) return was.el;
+  // A diff line is still that line when its number, commit and file still say so (React may reuse the node).
+  const same = (el: HTMLElement) => {
+    if (!a.key) return words(el).slice(0, 300) === a.text;
+    const df = el.closest<HTMLElement>('[data-sha][data-path]');
+    return Boolean(df && el.dataset.ln && a.key === dlKey(df.dataset.sha ?? '', df.dataset.path ?? '', el.dataset.ln));
+  };
+  if (was?.el && was.el.isConnected && root.contains(was.el) && same(was.el)) return was.el;
   pass.stamp ??= root.getElementsByTagName('*').length;
   if (was && !was.el && was.stamp === pass.stamp) return null;
   let el: HTMLElement | null = null;
@@ -405,7 +411,7 @@ export function Pointable({ hostRef, place, ready, children }: PointableProps) {
   const [margins, setMargins] = useState<{ ex: Explained; top: number; left: number; side: boolean }[]>([]);
   const [tick, setTick] = useState(0);
   /** Explains the server refused: never kept (nothing was sent), shown with why and Ask again until closed. */
-  const [refused, setRefused] = useState<(Explained & { why: string })[]>([]);
+  const [refused, setRefused] = useState<(Explained & { why: string; words: string })[]>([]);
   const notes = useJob((s) => s.ui.notes);
   const explains = useJob((s) => s.explains);
   const seek = useJob((s) => s.seek);
@@ -536,7 +542,7 @@ export function Pointable({ hostRef, place, ready, children }: PointableProps) {
     } catch (err) {
       // Not sent: it is not kept (a reload never shows it as asked), and says why here, with Ask again.
       store.setExplains(store.getState().explains.filter((e) => e.n !== n));
-      setRefused((r) => [...r, { ...ex, why: sendRefusal(err).replace(' Your words are back in the box; send them once it resets.', '').replace(/ Your words are back in the box[^.]*\./, '') }]);
+      setRefused((r) => [...r, { ...ex, words, why: sendRefusal(err).replace(' Your words are back in the box; send them once it resets.', '').replace(/ Your words are back in the box[^.]*\./, '') }]);
     }
   }
 
@@ -671,7 +677,7 @@ export function Pointable({ hostRef, place, ready, children }: PointableProps) {
           {'why' in ex ? (
             <p className="jp2-pt-mnote-no" role="alert">
               {String(ex.why)}{' '}
-              <button type="button" className="link-button" onClick={() => void explain(ex, '')}>Ask again</button>
+              <button type="button" className="link-button" onClick={() => void explain(ex, 'words' in ex ? String(ex.words) : '')}>Ask again</button>
             </p>
           ) : ex.answer ? <p>{ex.answer}</p>
               : ex.line ? <p>The Foreman answered in its reply. <button type="button" className="link-button" onClick={() => openReply(ex.line!)}>Read the reply</button></p>
