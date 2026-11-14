@@ -91,8 +91,8 @@ export const KEYS = {
   // keys' other meanings (j k next job, g t the Table, c New job, n Notes and options) come back after.
   'jp-step-prev': { keys: ['['], label: 'Open the step before', scope: 'jobpage' },
   'jp-step-next': { keys: [']'], label: 'Open the step after', scope: 'jobpage' },
-  'jp-line-next': { keys: ['j'], label: 'Move to the next line', scope: 'jobpage', where: 'The steps and the job’s rows on the left.' },
-  'jp-line-prev': { keys: ['k'], label: 'Move to the line before', scope: 'jobpage', where: 'The steps and the job’s rows on the left.' },
+  'jp-line-next': { keys: ['j'], label: 'Move to the next line', scope: 'jobpage', where: 'The steps and the job’s rows on the left; the conversation’s lines when you are in it.' },
+  'jp-line-prev': { keys: ['k'], label: 'Move to the line before', scope: 'jobpage', where: 'The steps and the job’s rows on the left; the conversation’s lines when you are in it.' },
   'jp-open': { keys: ['Enter'], label: 'Open that line in the reader', scope: 'jobpage', where: 'On the line j or k moved to (they move the focus).', always: true },
   'jp-search': { keys: ['/'], label: 'Search the conversation', scope: 'jobpage' },
   'jp-convo': { keys: ['g c'], label: 'Open the conversation', scope: 'jobpage' },

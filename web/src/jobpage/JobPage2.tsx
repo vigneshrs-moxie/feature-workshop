@@ -25,7 +25,8 @@
 // them in place. The reader is reader/Reader.tsx.
 //
 // Keys (app/keyRegistry.ts, scope 'jobpage', which wins over the others while the page is mounted):
-// [ ] the step before and after; j k the next and previous line on the left; Enter opens that line;
+// [ ] the step before and after; j k the next and previous line on the left (in the conversation, its
+// lines, when that is where he is); Enter opens that line;
 // / searches the conversation; g c the conversation; g t the ticket and goal; c i the message box;
 // n is kept for notes (Task 17). Their other meanings come back when the page goes.
 
@@ -49,6 +50,7 @@ import { JobRows } from './left/JobRows';
 import { MessageBox } from './left/MessageBox';
 import { Steps, stepsFromRow } from './left/Steps';
 import { YourMove } from './left/YourMove';
+import { stepLine } from './reader/ConversationView';
 import { Reader } from './reader/Reader';
 import { JobStoreContext, useJob, useJobStore } from './useJob';
 import './jobpage.css';
@@ -235,8 +237,9 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
   useKeyScope('jobpage', {
     'jp-step-prev': () => { uncover(); stepBy(-1); },
     'jp-step-next': () => { uncover(); stepBy(1); },
-    'jp-line-next': () => { if (!leftHidden) moveCursor(1); },
-    'jp-line-prev': () => { if (!leftHidden) moveCursor(-1); },
+    // In the conversation (the focus in the reader, or the reader over the left pane): its lines.
+    'jp-line-next': () => { if (stepLine(reader.current, 1, leftHidden)) return; if (!leftHidden) moveCursor(1); },
+    'jp-line-prev': () => { if (stepLine(reader.current, -1, leftHidden)) return; if (!leftHidden) moveCursor(-1); },
     // Enter on a line opens that line (j and k move the focus to it); elsewhere it belongs to the control.
     'jp-open': (e) => {
       if (leftHidden) return false;

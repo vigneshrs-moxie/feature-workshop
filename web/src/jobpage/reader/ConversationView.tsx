@@ -11,32 +11,37 @@
 //   `n small events` in dim text, which opens them.
 // - A click on a line opens the item in place, under its line; a second click folds it. `Open all in
 //   this step` opens (then folds) every item of that step.
-// - On arrival the last exchange (his last message and what came after it) is open and scrolled into
-//   view (with a little of what came before above it), unless the view has a scroll place of its own
-//   from an earlier visit (ReaderBody keeps it); a `New` line marks where the lines newer than his
-//   last look start.
-// - A filter box narrows the lines as he types (by their headlines: most bodies are not fetched, so a
-//   search in them would find only some); `Jump to latest` goes to the end.
+// - On arrival the last exchange (his last message and what came after it) is open and put 120 px
+//   from the top of the view, unless the view has a scroll place of its own from an earlier visit
+//   (ReaderBody keeps it). Its bodies are often not loaded yet, so the list can end too soon for that
+//   scroll: the place is aimed again as each body lands, until he scrolls, clicks or presses a key.
+//   A `New` line marks where the lines newer than his last look start.
+// - A filter box narrows the lines as he types: by headline, and by the text of any body already
+//   loaded (the box says so); `Jump to latest` goes to the end and says how many below are new.
+// - j and k move between the lines when the conversation is what he is in (stepLine, used by
+//   JobPage2's keys); Enter on a line opens or folds it (it is a button).
 //
 // Nothing he reads moves (speed rule 3). The browser's own scroll anchoring is off for this list
-// (jobpage.css), and the view keeps one anchor itself: the line under the pointer, else the one he
-// last clicked, else the first line in view. After anything changes the list (a new message, an item
-// opened or folded, a body that lands late, Open all), the anchor is put back where it was on screen.
-// A new message adds a folded line at the end and never pulls the view down to it.
+// (jobpage.css), and the view keeps one anchor itself: the line under the pointer (while it is in
+// view), else the one he last clicked, else the first line in view. After anything changes the list
+// (a new message, an item opened or folded, a body that lands late, Open all, a width change), the
+// anchor is put back where it was on screen. A new message adds a folded line at the end and never
+// pulls the view down to it.
 //
 // Fast on a long job (speed rules 2 and 5): only lines are drawn, each a memoised row; a body is
-// fetched and drawn only for an open item (useBody), so 200 items cost 200 lines and two bodies.
+// fetched and drawn only for an open item (useBody), so 200 items cost 200 lines and a few bodies.
 //
 // His last look is the browser's `sb.convo.seen.<slug>` (left/JobRows.tsx seenKey, the old page's
-// key): while the view can be seen (the page in front, the reader not behind the left pane) the
-// newest line's time is written there, only ever forward, as the old ConversationPanel does, so the
-// job row's `· N new` clears. The `New` line keeps to his look from before this view.
+// key): while the view can be seen (the page in front, the reader not behind the left pane) it moves
+// on, only ever forward, to the newest line that has been in view, so the job row's `· N new` counts
+// only what he has not had on screen (a message that arrives while he reads higher up stays new).
+// The `New` line keeps to his look from before this view.
 
 import { createContext, memo, useCallback, useContext, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from 'react';
 import { Button } from '../../components/Button';
 import { Icon } from '../../components/Icon';
-import { readStored, writeStored } from '../../lib/stored';
-import { seenKey } from '../left/JobRows';
+import { readStored, useStored, writeStored } from '../../lib/stored';
+import { freshCount, seenKey } from '../left/JobRows';
 import type { ReaderTarget, StepRow, StopId, ThreadLine } from '../types';
 import { useJob, useJobStore } from '../useJob';
 import { prepareMessage, Prose } from './Prose';
@@ -150,17 +155,6 @@ export function firstNew(thread: readonly ThreadLine[], lastLook: string | null)
   return null;
 }
 
-/** The newest line's time (any kind), or null. */
-function newestAt(thread: readonly ThreadLine[] | null | undefined): string | null {
-  let best: string | null = null;
-  let bestT = -Infinity;
-  for (const l of thread ?? []) {
-    const t = l.at ? Date.parse(l.at) : NaN;
-    if (Number.isFinite(t) && t > bestT) { bestT = t; best = l.at; }
-  }
-  return best;
-}
-
 // ---------- Keeping the anchor ----------
 
 /** Puts the anchor back where it was on screen; an open item calls it when its body lands. */
@@ -179,6 +173,11 @@ function anchorKeeper(root: RefObject<HTMLDivElement | null>) {
   const hover: { current: string | null } = { current: null };
   /** The scrollTop this view last set itself: its scroll event is not his scroll. */
   const own: { current: number | null } = { current: null };
+  /** On arrival the anchor's top is where it should be (120 px down), not where the short list let it
+   *  go: it is aimed again as bodies land, until he scrolls, clicks or presses a key. */
+  let held = false;
+  /** Told after every scroll (his or the view's own): the seen marking reads what is in view then. */
+  const afterScroll: { current: () => void } = { current: () => {} };
   const scroller = () => root.current?.closest<HTMLElement>('.jp2-rv-body') ?? null;
   const keyed = () => [...(root.current?.querySelectorAll<HTMLElement>('[data-cv-key]') ?? [])];
   const find = (key: string) => keyed().find((el) => el.dataset.cvKey === key) ?? null;
@@ -199,10 +198,46 @@ function anchorKeeper(root: RefObject<HTMLDivElement | null>) {
     return all[lo];
   };
 
-  /** Hold this row (else the one under the pointer, else the first in view) where it is now. */
+  /** Whether a row is (partly) inside the view; a view with no size (not laid out, hidden) shows nothing. */
+  const inView = (el: HTMLElement): boolean => {
+    const sc = scroller();
+    if (!sc) return false;
+    const v = sc.getBoundingClientRect();
+    if (v.height <= 0) return false;
+    const r = el.getBoundingClientRect();
+    return r.bottom > v.top && r.top < v.bottom;
+  };
+
+  /** The newest time (`data-at`) of the rows in view: lines, and a group's small events by their toggle. */
+  const newestInView = (): string | null => {
+    const sc = scroller();
+    const start = firstInView();
+    if (!sc || !start || !inView(start)) return null;
+    const bottom = sc.getBoundingClientRect().bottom;
+    let best: string | null = null;
+    let bestT = -Infinity;
+    for (let el: Element | null = start, all = keyed(), i = all.indexOf(start); el && i < all.length; el = all[++i] ?? null) {
+      const row = el as HTMLElement;
+      if (row.getBoundingClientRect().top >= bottom) break;
+      const at = row.dataset.at;
+      const t = at ? Date.parse(at) : NaN;
+      if (at && Number.isFinite(t) && t > bestT) { bestT = t; best = at; }
+    }
+    return best;
+  };
+
+  /** Hold this row (else the one under the pointer while it is in view, else the first in view) where it is now. */
   const remember = (key?: string | null) => {
-    const el = (key ? find(key) : null) ?? (hover.current ? find(hover.current) : null) ?? firstInView();
+    held = false;
+    const hovered = hover.current ? find(hover.current) : null;
+    const el = (key ? find(key) : null) ?? (hovered && inView(hovered) ? hovered : null) ?? firstInView();
     anchor.current = el?.dataset.cvKey ? { key: el.dataset.cvKey, top: el.getBoundingClientRect().top } : null;
+  };
+
+  /** Arrival: this row belongs `top` px from the top of the page, even before the list is long enough. */
+  const aim = (key: string, top: number) => {
+    anchor.current = { key, top };
+    held = true;
   };
 
   /** The view scrolled by this view's own hand: remember it, so its scroll event is not taken for his. */
@@ -219,14 +254,16 @@ function anchorKeeper(root: RefObject<HTMLDivElement | null>) {
     if (!el) { anchor.current = null; return; }
     const by = el.getBoundingClientRect().top - a.top;
     if (Math.abs(by) >= 1) scrollTo(sc, sc.scrollTop + by);
-    a.top = el.getBoundingClientRect().top;
+    // Held (arrival): keep the top it should have, so the next body that lands moves it there.
+    if (!held) a.top = el.getBoundingClientRect().top;
   };
 
   const onScroll = () => {
     const sc = scroller();
-    if (sc && own.current !== null && Math.abs(sc.scrollTop - own.current) < 1) { own.current = null; return; }
+    if (sc && own.current !== null && Math.abs(sc.scrollTop - own.current) < 1) { own.current = null; afterScroll.current(); return; }
     own.current = null;
     remember();
+    afterScroll.current();
   };
 
   const onPointer = (e: ReactMouseEvent<HTMLElement>) => {
@@ -236,11 +273,12 @@ function anchorKeeper(root: RefObject<HTMLDivElement | null>) {
     const key = el?.dataset.cvKey ?? null;
     if (key === hover.current) return;
     hover.current = key;
-    if (key) remember(key);
+    // While the arrival is held, a pointer resting on the page (or a line moving under it) does not take over.
+    if (key && !held) remember(key);
   };
   const onLeave = () => { hover.current = null; };
 
-  return { remember, restore, scrollTo, scroller, onScroll, onPointer, onLeave, hover };
+  return { remember, aim, restore, scrollTo, scroller, onScroll, onPointer, onLeave, hover, newestInView, afterScroll };
 }
 
 // ---------- The view ----------
@@ -250,12 +288,12 @@ export function ConversationView({ searchRef, onOpen }: ConversationViewProps) {
   const slug = useJob((s) => s.slug);
   const thread = useJob((s) => s.payload?.thread ?? null);
   const steps = useJob((s) => s.payload?.steps ?? null);
-  const newest = useJob((s) => newestAt(s.payload?.thread));
   const root = useRef<HTMLDivElement>(null);
   const a = useAnchor(root);
 
-  // His last look from before this view: the New line stays put while he reads.
-  const [lastLook] = useState(() => readStored(seenKey(slug)));
+  // His last look from before this view: the New line stays put while he reads. Never looked before:
+  // the first look this view writes, so what arrives after it is marked.
+  const [lastLook, setLastLook] = useState(() => readStored(seenKey(slug)));
   const [open, setOpen] = useState<ReadonlySet<string> | null>(() => (thread ? new Set(lastExchange(thread)) : null));
   if (open === null && thread) setOpen(new Set(lastExchange(thread)));
   const opened = open ?? EMPTY;
@@ -271,12 +309,13 @@ export function ConversationView({ searchRef, onOpen }: ConversationViewProps) {
   const total = useMemo(() => (thread ?? []).filter(isMain).length, [thread]);
   const newId = useMemo(() => firstNew(thread ?? [], lastLook), [thread, lastLook]);
 
-  // The filter: the groups with only the lines whose headline has the words.
+  // The filter: the groups with only the lines whose headline, or whose body when it is loaded, has the words.
+  const bodies = useJob((s) => (q ? s.bodies : null));
   const shown = useMemo(() => {
     if (!q) return groups;
-    const has = (l: ThreadLine) => l.headline.toLowerCase().includes(q);
+    const has = (l: ThreadLine) => l.headline.toLowerCase().includes(q) || (bodies?.[l.id]?.text ?? '').toLowerCase().includes(q);
     return groups.map((g) => ({ ...g, lines: g.lines.filter(has) })).filter((g) => g.lines.length > 0);
-  }, [groups, q]);
+  }, [groups, q, bodies]);
   const count = useMemo(() => shown.reduce((n, g) => n + g.lines.length, 0), [shown]);
   /** Each step's lines as shown: what Open all in this step opens. */
   const byStep = useMemo(() => {
@@ -318,15 +357,47 @@ export function ConversationView({ searchRef, onOpen }: ConversationViewProps) {
     if (!sc || !thread) return;
     if (!arrived.current) {
       arrived.current = true;
-      if (!hasPlace(store, PLACE)) {
-        const to = root.current?.querySelector<HTMLElement>('.jp2-cv-line[aria-expanded="true"]');
-        if (to) a.scrollTo(sc, to.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop - CONTEXT_PX);
+      const to = hasPlace(store, PLACE) ? null : root.current?.querySelector<HTMLElement>('.jp2-cv-line[aria-expanded="true"]');
+      if (to?.dataset.cvKey) {
+        // Aimed, not scrolled once: the open bodies have not landed yet, so the list may end too soon
+        // for the scroll; each body that lands aims it again (held until he scrolls, clicks or types).
+        a.aim(to.dataset.cvKey, sc.getBoundingClientRect().top + CONTEXT_PX);
+        a.restore();
+      } else {
+        a.remember();
       }
-      a.remember();
       return;
     }
     a.restore();
   });
+
+  // His last look moves on to the newest line that has been in view (never to one below it he has not
+  // scrolled to), after every change and every scroll, while the view can be seen.
+  const [seenAt] = useStored(seenKey(slug));
+  if (lastLook === null && seenAt !== null) setLastLook(seenAt);
+  const markSeen = useRef(() => {});
+  markSeen.current = () => {
+    const el = root.current;
+    if (!el || document.visibilityState === 'hidden' || el.closest('[inert]')) return;
+    const at = a.newestInView();
+    if (!at) return;
+    const key = seenKey(slug);
+    if (!(Date.parse(readStored(key) ?? '') >= Date.parse(at))) writeStored(key, at);
+  };
+  a.afterScroll.current = () => markSeen.current();
+  useEffect(() => { markSeen.current(); });
+  const unseen = useMemo(() => (thread ? freshCount(thread, seenAt) : 0), [thread, seenAt]);
+
+  // A width change rewraps the open texts: what he reads stays where it is.
+  useEffect(() => {
+    const el = root.current;
+    const sc = a.scroller();
+    if (!el || !sc || typeof ResizeObserver === 'undefined') return undefined;
+    const watch = new ResizeObserver(() => { a.restore(); markSeen.current(); });
+    watch.observe(el);
+    watch.observe(sc);
+    return () => watch.disconnect();
+  }, []);
 
   // New words start at the top of what they found; cleared, the line that was first in view keeps its
   // place among all the lines (the anchor). A re-run of the effect with the same words does nothing.
@@ -348,21 +419,15 @@ export function ConversationView({ searchRef, onOpen }: ConversationViewProps) {
     return () => sc.removeEventListener('scroll', a.onScroll);
   }, []);
 
-  // Seen: while the view can be seen, the newest line's time is his last look (only ever forward).
+  // Seen, again, when the view comes into sight (the reader over the left pane, the page in front).
   useEffect(() => {
-    const key = seenKey(slug);
-    const look = () => {
-      const el = root.current;
-      if (!newest || !el || document.visibilityState === 'hidden' || el.closest('[inert]')) return;
-      if (!(Date.parse(readStored(key) ?? '') >= Date.parse(newest))) writeStored(key, newest);
-    };
-    look();
+    const look = () => markSeen.current();
     const pane = root.current?.closest('.jp2-reader');
     const watch = pane && typeof MutationObserver !== 'undefined' ? new MutationObserver(look) : null;
     if (pane) watch?.observe(pane, { attributes: true, attributeFilter: ['inert'] });
     document.addEventListener('visibilitychange', look);
     return () => { watch?.disconnect(); document.removeEventListener('visibilitychange', look); };
-  }, [slug, newest]);
+  }, []);
 
   function jumpToLatest() {
     const sc = a.scroller();
@@ -370,6 +435,7 @@ export function ConversationView({ searchRef, onOpen }: ConversationViewProps) {
     a.scrollTo(sc, sc.scrollHeight - sc.clientHeight);
     a.hover.current = null;
     a.remember();
+    markSeen.current();
   }
 
   const filtering = q !== '';
@@ -383,14 +449,14 @@ export function ConversationView({ searchRef, onOpen }: ConversationViewProps) {
             className="jp2-cv-search"
             type="search"
             aria-label="Search the conversation"
-            placeholder="Search the conversation"
+            placeholder="Find in headlines and opened messages"
             value={words}
             onChange={(e) => setWords(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Escape' && words) { e.stopPropagation(); setWords(''); } }}
           />
         </label>
         {filtering && <span className="jp2-dim jp2-cv-count" role="status">{`${count} of ${total} lines`}</span>}
-        <Button kind="quiet" size="sm" className="jp2-cv-latest" onClick={jumpToLatest} title="Go to the end of the conversation.">Jump to latest</Button>
+        <Button kind="quiet" size="sm" className="jp2-cv-latest" onClick={jumpToLatest} title="Go to the end of the conversation.">{unseen > 0 ? `Jump to latest · ${unseen} new` : 'Jump to latest'}</Button>
       </div>
       <ReaderBody view="conversation" place={PLACE} className="jp2-cv-body">
         <KeepContext.Provider value={a.restore}>
@@ -456,7 +522,7 @@ const GroupView = memo(function GroupView({ group: g, open, allOpen, stepIds, ne
       </ul>
       {showSmall && n > 0 && (
         <div className="jp2-cv-small">
-          <button type="button" className="jp2-cv-sm-h" data-cv-key={`s:${g.key}`} aria-expanded={smallOpen} onClick={() => onSmall(g.key)}>
+          <button type="button" className="jp2-cv-sm-h" data-cv-key={`s:${g.key}`} data-at={g.small.at(-1)?.at ?? undefined} aria-expanded={smallOpen} onClick={() => onSmall(g.key)}>
             {n === 1 ? '1 small event' : `${n} small events`}
           </button>
           {smallOpen && (
@@ -496,7 +562,7 @@ const Item = memo(function Item({ line: l, open, onToggle, onOpen }: ItemProps) 
   const brief = l.kind === 'brief' ? BRIEF_NO.exec(l.headline) : null;
   return (
     <li className={`jp2-cv-item ${who}${l.by === 'auto' ? ' is-auto' : ''}`} data-id={l.id}>
-      <button type="button" className="jp2-cv-line" data-cv-key={`l:${l.id}`} aria-expanded={open} onClick={() => onToggle(l.id)}>
+      <button type="button" className="jp2-cv-line" data-cv-key={`l:${l.id}`} data-at={l.at ?? undefined} aria-expanded={open} onClick={() => onToggle(l.id)}>
         {l.kind === 'you' && l.by === 'auto' && <span className="jp2-cv-auto">Auto</span>}
         <span className="jp2-cv-h">{brief ? <><b>{brief[1]}</b>{brief[2]}</> : l.headline}</span>
         {l.at && <time dateTime={l.at}>{timeWords(l.at)}</time>}
@@ -524,4 +590,31 @@ function ItemBody({ line, onOpen }: { line: ThreadLine; onOpen: ItemProps['onOpe
       )}
     </div>
   );
+}
+
+/**
+ * j and k in the conversation (JobPage2's keys): the focus moves to the next or previous line, which
+ * scrolls into view only as far as it must. Works when the reader shows the conversation and the
+ * focus is in the reader, or when `always` (the reader covers the left pane). From no line it starts
+ * at the first line in view (or the last one, going up). False when it did not apply.
+ */
+export function stepLine(reader: HTMLElement | null, by: 1 | -1, always: boolean): boolean {
+  const view = reader?.querySelector<HTMLElement>('[data-view="conversation"]');
+  if (!reader || !view) return false;
+  const focus = document.activeElement;
+  if (!always && !(focus && reader.contains(focus))) return false;
+  const lines = [...view.querySelectorAll<HTMLElement>('.jp2-cv-line')];
+  if (!lines.length) return false;
+  const on = focus instanceof Element ? focus.closest<HTMLElement>('.jp2-cv-line') : null;
+  let at = on ? lines.indexOf(on) : -1;
+  if (at < 0) {
+    const v = view.getBoundingClientRect();
+    const shown = lines.filter((l) => { const r = l.getBoundingClientRect(); return r.bottom > v.top && r.top < v.bottom; });
+    const from = by > 0 ? shown[0] : shown[shown.length - 1];
+    at = from ? lines.indexOf(from) - by : (by > 0 ? -1 : lines.length);
+  }
+  const next = lines[Math.max(0, Math.min(lines.length - 1, at + by))];
+  next.focus({ preventScroll: true });
+  next.scrollIntoView?.({ block: 'nearest' });
+  return true;
 }
