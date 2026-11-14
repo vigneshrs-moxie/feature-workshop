@@ -16,7 +16,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createRunner } from '../runner/index.js';
 import { createSite } from '../site/index.js';
-import { autoRecord } from '../lib/auto.js';
+import { YOURS_NOW, autoRecord } from '../lib/auto.js';
 import { OPUS } from '../lib/options.js';
 import { WAITING_FILE } from '../lib/queued.js';
 import { LOCAL_COMMANDS, REMOTE_COMMANDS } from '../lib/protocol.js';
@@ -37,7 +37,10 @@ function heldQuery(texts, ends) {
       const it = prompt[Symbol.asyncIterator]();
       const first = await it.next();
       texts.push(String(first.value?.message?.content ?? ''));
-      await Promise.race([new Promise((r) => { ends.push(r); }), stopped]);
+      let mine = null;
+      await Promise.race([new Promise((r) => { mine = r; ends.push(r); }), stopped]);
+      const at = ends.indexOf(mine);
+      if (at >= 0) ends.splice(at, 1); // stopped: its turn in the list goes too
       yield { type: 'result', subtype: 'success', is_error: false, result: 'ok', total_cost_usd: 0, session_id: sid, permission_denials: [] };
       yield { type: 'system', subtype: 'session_state_changed', state: 'idle', session_id: sid };
       while (!(await it.next()).done) { /* until the dashboard closes its input */ }
@@ -56,8 +59,17 @@ const gateStatus = () => ({
   suggested_level: 1, level_reason: 'Small.', updated_at: OLD,
 });
 
-/** A started job (a Foreman session saved) on temp folders, a runner and a site; `auto`: the job is in Auto. */
-async function world({ auto = false } = {}) {
+/** The same job working (no go-ahead waits): a waiting message goes when the reply ends. */
+const workingStatus = () => {
+  const { waiting_for: _w, waiting_since: _s, ...rest } = gateStatus();
+  return { ...rest, stage_state: 'working' };
+};
+
+/**
+ * A started job (a Foreman session saved) on temp folders, a runner and a site; `auto`: the job is in Auto; `gate`:
+ * it waits at a go-ahead (else it is working).
+ */
+async function world({ auto = false, gate = false } = {}) {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'sb-queued-srv-')));
   const dirs = Object.fromEntries(['claude', 'features', 'projects', 'agents', 'skills', 'state', 'repo'].map((n) => [n, path.join(root, n)]));
   for (const d of Object.values(dirs)) await fs.mkdir(d, { recursive: true });
@@ -67,7 +79,7 @@ async function world({ auto = false } = {}) {
   git('add', '.'); git('commit', '-q', '-m', 'base');
   const dir = path.join(dirs.features, SLUG);
   await fs.mkdir(path.join(dir, 'briefs'), { recursive: true });
-  await fs.writeFile(path.join(dir, 'status.json'), JSON.stringify(gateStatus(), null, 2));
+  await fs.writeFile(path.join(dir, 'status.json'), JSON.stringify(gate ? gateStatus() : workingStatus(), null, 2));
   await fs.writeFile(path.join(dir, 'briefs', '001-plan.md'), '**Visit audit · plan v1 ready**\n');
   await fs.writeFile(path.join(dir, 'options.json'), JSON.stringify({ schema_version: 2, level: 1, flow: 'quick', title: 'Visit audit columns' }, null, 2));
   await fs.writeFile(path.join(dirs.state, 'sessions.json'), JSON.stringify({
@@ -122,6 +134,18 @@ async function world({ auto = false } = {}) {
       const r = await post(`/api/job/${SLUG}/send`, { kind: 'message', text });
       assert.equal(r.status, 200, JSON.stringify(r.body));
       await until(() => ends.length > n, 'the Foreman to have the message');
+    },
+    /** A reply of Starbase's own (a resume, not a message of his), held until end(). */
+    async busyOwn() {
+      const n = ends.length;
+      const sess = JSON.parse(await fs.readFile(path.join(dirs.state, 'sessions.json'), 'utf8'))[dir];
+      await hooks.driver.start({ featureDir: dir, slug: SLUG, title: 'Visit audit columns', cwd: dirs.repo, sessionId: sess.sessionId, model: OPUS, text: 'Carry on.', kind: 'resume' });
+      await until(() => ends.length > n, 'the Foreman to have it');
+    },
+    /** Stop the reply going: plainly, or as Stop it and send now (then: 'send-waiting'). */
+    async stopReply(body = {}) {
+      const run = (await runs()).find((r) => ACTIVE.has(r.status));
+      return post(`/api/runs/${run.id}/stop`, body);
     },
     /** Let the oldest held reply end. */
     end() { ends.shift()?.(); },
@@ -261,25 +285,23 @@ test('W7: the terminal’s lock still refuses when it is time to send: it stays,
   } finally { await w.stop(); }
 });
 
-test('W8: Auto never queues: its answer while the Foreman works is refused, and nothing waits', { timeout: 60_000 }, async () => {
-  const w = await world({ auto: true });
+test('W8: Auto never queues: its answer while the Foreman works is refused, nothing waits; and it never answers ahead of his message that can still go', { timeout: 60_000 }, async () => {
+  const w = await world({ auto: true, gate: true });
   try {
     await w.busy();
     await assert.rejects(w.hooks.decideGate('approve', { slug: SLUG, briefNumber: 1, answers: { 1: { choice: 'a' } }, note: 'Auto: go' }, { by: 'auto' }), (err) => err.status === 409);
     assert.equal((await w.page()).waiting, null);
     assert.deepEqual(await w.file(), {});
-    // His message waits (held back after the reply by a terminal); Auto never answers ahead of it.
+    // His message waits; Starbase restarts before it goes: until it goes, Auto's answer is "not now".
     await w.post(`/api/job/${SLUG}/send`, { kind: 'message', text: 'Mine first.', queue: true });
-    await fs.writeFile(path.join(w.dir, 'lock.json'), JSON.stringify({ owner: 'terminal', pid: process.ppid, branch: null, acquiredAt: new Date().toISOString() }));
-    w.end();
-    await w.until(async () => (await w.page()).waiting?.why, 'his message to be held back');
+    await w.restart();
     await assert.rejects(w.hooks.decideGate('approve', { slug: SLUG, briefNumber: 1, answers: { 1: { choice: 'a' } }, note: 'Auto: go' }, { by: 'auto' }), (err) => {
       assert.equal(err.status, 409);
+      assert.equal(err.extra.code, 'busy');
       assert.match(err.message, /Your message waiting for the Foreman goes first/);
       return true;
     });
-    await fs.rm(path.join(w.dir, 'lock.json'), { force: true });
-    assert.equal(w.texts.length, 1, 'nothing more went to the Foreman');
+    assert.equal(sentTexts(w, 'Auto: go').length, 0);
   } finally { await w.stop(); }
 });
 
@@ -293,5 +315,94 @@ test('W9: queue when nothing runs sends at once (200, a run); queueing and cance
     assert.equal((await w.page()).waiting, null);
     assert.ok(Object.hasOwn(LOCAL_COMMANDS, 'queue-message') && Object.hasOwn(LOCAL_COMMANDS, 'cancel-waiting'));
     assert.equal(Object.hasOwn(REMOTE_COMMANDS, 'queue-message'), false, 'the website never queues on the laptop');
+  } finally { await w.stop(); }
+});
+
+// ---------- Fix round 1 ----------
+
+test('F1 (I1, I2): Stop it and send now (then: send-waiting) stops the reply, and the message goes once', { timeout: 60_000 }, async () => {
+  const w = await world();
+  try {
+    await w.busy();
+    await w.post(`/api/job/${SLUG}/send`, { kind: 'message', text: 'Stop and use this.', queue: true });
+    const r = await w.stopReply({ then: 'send-waiting' });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    await w.until(() => sentTexts(w, 'Stop and use this.').length === 1, 'the message to go after the stop');
+    await w.until(async () => (await w.page()).waiting === null, 'the payload to drop it');
+    w.end();
+    await w.idle();
+    await new Promise((res) => setTimeout(res, 300));
+    assert.equal(sentTexts(w, 'Stop and use this.').length, 1, 'once');
+  } finally { await w.stop(); }
+});
+
+test('F2 (I1, I2): a plain stop keeps the message, says so, and nothing sends it but his Send', { timeout: 60_000 }, async () => {
+  const w = await world();
+  try {
+    await w.busy();
+    await w.post(`/api/job/${SLUG}/send`, { kind: 'message', text: 'Not yet.', queue: true });
+    assert.equal((await w.stopReply()).status, 200);
+    const p = await w.until(async () => { const x = await w.page(); return x.waiting?.why ? x : null; }, 'the message to be kept');
+    assert.equal(p.waiting.why, 'Kept: you stopped the reply. Press Send to send it.');
+    assert.equal(p.waiting.text, 'Not yet.');
+    await w.hooks.flushWaiting(); // start()'s look, as after a restart
+    await w.restart();
+    await w.hooks.flushWaiting();
+    await new Promise((res) => setTimeout(res, 300));
+    assert.equal(sentTexts(w, 'Not yet.').length, 0, 'kept over a restart, never sent by itself');
+    assert.equal((await w.page()).waiting.why, 'Kept: you stopped the reply. Press Send to send it.');
+    const s = await w.post(`/api/job/${SLUG}/waiting/send`, {});
+    assert.equal(s.status, 200, JSON.stringify(s.body));
+    assert.equal(s.body.waiting, null);
+    await w.until(() => sentTexts(w, 'Not yet.').length === 1, 'his Send to send it');
+  } finally { await w.stop(); }
+});
+
+test('F3 (M4): a reply that ends at a go-ahead never sends the message: it is marked for the box; Auto’s rules run as usual', { timeout: 60_000 }, async () => {
+  const w = await world({ auto: true, gate: true });
+  try {
+    await w.busyOwn();
+    await w.post(`/api/job/${SLUG}/send`, { kind: 'message', text: 'For the box.', queue: true });
+    w.end();
+    const p = await w.until(async () => { const x = await w.page(); return x.waiting?.toBox ? x : null; }, 'it to be marked for the box');
+    assert.deepEqual(p.waiting, { text: 'For the box.', at: p.waiting.at, why: 'The Foreman is asking you something first.', toBox: true });
+    assert.equal(sentTexts(w, 'For the box.').length, 0);
+    // Auto is not held back by words on their way to the box: its pass answers the go-ahead as usual.
+    await w.runner.auto.pass();
+    await w.until(() => w.texts.some((t) => t.includes('Sent by Starbase')), 'Auto to answer the go-ahead');
+    assert.equal(sentTexts(w, 'For the box.').length, 0, 'still never sent');
+  } finally { await w.stop(); }
+});
+
+test('F4 (M1): a pause dropped after a restart (a terminal took the job) does not leave the message stuck: it says why', { timeout: 60_000 }, async () => {
+  const w = await world();
+  try {
+    await w.busy();
+    await w.post(`/api/job/${SLUG}/send`, { kind: 'message', text: 'After the restart.', queue: true });
+    await w.restart();
+    await w.hooks.replay(); // the clean stop paused the reply: it carries on first
+    await w.hooks.flushWaiting();
+    assert.equal((await w.page()).waiting.why, null, 'waits for the carry-on');
+    // A terminal picks the job up before the carry-on: the pause is dropped without a reply.
+    await fs.mkdir(path.join(w.dirs.state, 'hook-events'), { recursive: true });
+    await fs.writeFile(path.join(w.dirs.state, 'hook-events', 'events.jsonl'), `${new Date().toISOString()}\t${JSON.stringify({ session_id: 'term-1', hook_event_name: 'UserPromptSubmit', cwd: w.dirs.repo, prompt: `carry on with feature-work/${SLUG}` })}\n`);
+    await w.hooks.carryOn();
+    const p = await w.until(async () => { const x = await w.page(); return x.waiting?.why ? x : null; }, 'the message to say why');
+    assert.match(p.waiting.why, /terminal/);
+    assert.equal(sentTexts(w, 'After the restart.').length, 0);
+  } finally { await w.stop(); }
+});
+
+test('F5 (M1): a message that can’t go is his: Auto stops at the go-ahead as yours now, without asking the Approver', { timeout: 60_000 }, async () => {
+  const w = await world({ auto: true, gate: true });
+  try {
+    await w.busyOwn();
+    await w.post(`/api/job/${SLUG}/send`, { kind: 'message', text: 'Kept by the stop.', queue: true });
+    await w.stopReply();
+    await w.until(async () => (await w.page()).waiting?.why, 'the message to be kept');
+    await w.runner.auto.pass();
+    const rec = await w.until(async () => JSON.parse(await fs.readFile(path.join(w.dirs.state, 'sessions.json'), 'utf8'))[w.dir]?.auto?.stopped, 'Auto to stop');
+    assert.equal(rec.reason, YOURS_NOW);
+    assert.equal(w.asks.length, 0, 'the Approver was not asked');
   } finally { await w.stop(); }
 });

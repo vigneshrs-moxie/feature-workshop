@@ -159,6 +159,8 @@ export default function jobRoutes({ runner, read, send, sendJson, needJob, wiref
       }
       return command(res, { type: 'reply', slug, via: 'box', text, kind, gateBrief, ...sendFields(body) });
     }),
+    // His Send on the waiting message (kept after a plain stop, or held back): { waiting } as it stands after.
+    post(/^\/api\/job\/([^/]+)\/waiting\/send$/, async ({ res, m }) => command(res, { type: 'send-waiting', slug: await needJob(m[1]) })),
     // The message waiting for the Foreman, cancelled: { cancelled, text } (text: the words removed, or null).
     post(/^\/api\/job\/([^/]+)\/waiting\/cancel$/, async ({ res, m }) => command(res, { type: 'cancel-waiting', slug: await needJob(m[1]) })),
     post(/^\/api\/job\/([^/]+)\/nudge\/([\w-]+)\/(dismiss|yes)$/, async ({ res, m, body }) => {
@@ -231,8 +233,10 @@ export default function jobRoutes({ runner, read, send, sendJson, needJob, wiref
         return command(res, { type: 'notes', slug, text: body.text });
       },
     },
-    post(/^\/api\/runs\/([\w-]+)\/stop$/, ({ res, m }) => {
+    post(/^\/api\/runs\/([\w-]+)\/stop$/, ({ res, m, body }) => {
       if (m[1].length > 128) throw new HttpError(404, 'That reply already finished.');
+      // then: 'send-waiting' (Stop it and send now): the message waiting for the Foreman goes as the reply stops.
+      if (body?.then === 'send-waiting') return command(res, { type: 'stop-then-send', runId: m[1] });
       return command(res, { type: 'pause', runId: m[1] });
     }),
     post(/^\/api\/runs\/([\w-]+)\/steer$/, ({ res, m, body }) => {

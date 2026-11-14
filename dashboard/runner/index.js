@@ -1375,17 +1375,27 @@ export async function createRunner(config) {
   /** A refusal at send time, in its own plain words (the payload's waiting.why). */
   const whyNot = (err) => String(err?.message ?? err).split('\n')[0].slice(0, 600);
   const flushing = new Set(); // job folders whose waiting message is being sent now
-  const flushAgain = new Set(); // ... and asked for again meanwhile (a reply ended during the look)
+  const flushAgain = new Map(); // ... and asked for again meanwhile (a reply ended during the look): dir -> asked
+  /** After a plain stop (Pause, Take over, a stop before Done): kept until his Send. Plain words, shown in its place. */
+  const KEPT_STOPPED = 'Kept: you stopped the reply. Press Send to send it.';
+  /** The reply ended at a go-ahead, a question or a card: the page moves the words into the box (M4). */
+  const ASKED_FIRST = 'The Foreman is asking you something first.';
+  /** Run ids stopped by Stop it and send now: their stopped end sends the waiting message. */
+  const sendAfterStop = new Set();
 
   /**
    * The job's waiting message goes now, once, unless something stops it: the same checks as a message from
    * the box (sendPlan: a restart or close under way, the usage limit, the terminal) and the job's lock. A
    * refusal keeps it, with why. A reply that is going (another start came first) keeps it for that reply's
-   * end; so does a reply the last clean stop paused, which carries on first.
+   * end; so does a reply the last clean stop paused, which carries on first. One kept after a plain stop
+   * (held) or moved to the box (toBox) waits for him. When the Foreman is asking him something (a go-ahead,
+   * a question), it does not go: its words go to the box (toBox) unless he asked for it (asked: his Send,
+   * Stop it and send now).
    */
-  async function flushWaiting(dir) {
+  async function flushWaiting(dir, { asked = false } = {}) {
+    if (stopping) return; // Starbase is stopping: it waits for the next start
+    if (flushing.has(dir)) { flushAgain.set(dir, asked || flushAgain.get(dir) === true); return; }
     if (!waitingMessages.get(dir)) return;
-    if (flushing.has(dir)) { flushAgain.add(dir); return; }
     flushing.add(dir);
     let slug = null;
     try {
@@ -1393,8 +1403,14 @@ export async function createRunner(config) {
       const f = (await features()).find((x) => x.dir === dir) ?? null;
       if (!w || !f) return;
       slug = f.slug;
+      if (!asked && (w.held || w.toBox)) return;
       const drive = await driveState(f);
       if (drive.mode === 'running' || restartPaused.get(dir)?.how === 'clean') return;
+      if (!asked && f.needsYou === true && !f.closed) {
+        await waitingMessages.refuse(dir, ASKED_FIRST, { toBox: true });
+        waitingMoved(slug);
+        return;
+      }
       let out;
       try {
         if (f.closed) throw new Error('This job is marked done. Nothing was sent.');
@@ -1406,6 +1422,10 @@ export async function createRunner(config) {
         if (w.why !== whyNot(err)) { await waitingMessages.refuse(dir, whyNot(err)); waitingMoved(slug); }
         return;
       }
+      // Kept by a plain stop (or marked for the box) while this look was under way: it stays.
+      // So does everything once Starbase is stopping (the next start sends it).
+      const still = waitingMessages.get(dir);
+      if (stopping || !still || (!asked && (still.held || still.toBox))) return;
       const taken = await waitingMessages.take(dir);
       if (!taken) return;
       waitingMoved(slug);
@@ -1423,12 +1443,23 @@ export async function createRunner(config) {
       console.error(`waiting message (${slug ?? dir}):`, err?.message ?? err);
     } finally {
       flushing.delete(dir);
-      if (flushAgain.delete(dir)) flushWaiting(dir).catch(() => {});
+      if (flushAgain.has(dir)) {
+        const again = flushAgain.get(dir);
+        flushAgain.delete(dir);
+        flushWaiting(dir, { asked: again }).catch(() => {});
+      }
     }
   }
-  /** Every job's waiting message, one job after another (at the start, after the usage limit lifts). */
+  /** Every job's waiting message, one job after another (at the start, after the usage limit lifts, after a restart's carry-on). */
   async function flushAllWaiting() {
     for (const dir of waitingMessages.dirs()) await flushWaiting(dir);
+  }
+  /** A plain stop ended the reply: the waiting message is kept until his Send (I1). */
+  async function keepAfterStop(dir) {
+    const w = waitingMessages.get(dir);
+    if (!w || w.held) return; // a look under way checks again before it sends
+    await waitingMessages.refuse(dir, KEPT_STOPPED, { held: true });
+    waitingMoved(w.slug);
   }
 
   async function reopenIfClosed(f) {
@@ -2048,6 +2079,8 @@ export async function createRunner(config) {
         briefAt: cb?.at ?? null,
         artifacts: (f.recordedArtifacts ?? []).map((a) => a?.path).filter((x) => typeof x === 'string' && x),
         running: Boolean(driver.activeRunFor({ featureDir: f.dir })), locked: Boolean(locked), restarting: restarting.has(f.dir), paused: limits.isLimited(),
+        // His message waiting for the Foreman that can't go now (kept after a stop, held back): his, as a message he wrote.
+        waitingHeld: Boolean(waitingMessages.get(f.dir)?.why && !waitingMessages.get(f.dir)?.toBox),
         // A reply cut off by a crash or a restart that could not carry it on: it waits for Resume, which only the person presses.
         cutOff: restartPaused.get(f.dir)?.how === 'crash',
         worktrees, specDirs,
@@ -2607,10 +2640,24 @@ export async function createRunner(config) {
   // A reply stopped before its result: what it used so far is a turn too (an estimate).
   driver.on('run', (run) => { if (RUN_ENDED.has(run.status)) logTurn(turnMeter.forget(run.id, run)); });
   // A reply ended: the message waiting for the Foreman goes now (lib/queued.js, the job page's R8).
-  driver.on('run', (run) => { if (RUN_ENDED.has(run.status) && run.featureDir && waitingMessages.get(run.featureDir)) flushWaiting(run.featureDir).catch(() => {}); });
+  // Not after a plain stop (Pause, Take over, a stop before Done): kept until his Send. Stop it and send now sends it;
+  // a usage-limit pause is the limit's (held back with its why); Starbase stopping leaves it for the next start.
+  driver.on('run', (run) => {
+    if (!RUN_ENDED.has(run.status) || !run.featureDir) return;
+    const asked = sendAfterStop.delete(run.id);
+    if (run.status === 'stopped' && !asked && run.stopReason !== 'usage-limit') {
+      if (!stopping) keepAfterStop(run.featureDir).catch(() => {});
+      return;
+    }
+    if (asked && waitingMessages.get(run.featureDir)) {
+      waitingMessages.release(run.featureDir).then(() => flushWaiting(run.featureDir, { asked: true })).catch(() => {});
+      return;
+    }
+    flushWaiting(run.featureDir).catch(() => {});
+  });
   // A message held back when it was time to send (the job's lock, a terminal) is tried again when the job changes (the lock let go).
   on('thread', (slug) => {
-    const dir = waitingMessages.dirs().find((d) => waitingMessages.get(d)?.slug === slug && waitingMessages.get(d)?.why);
+    const dir = waitingMessages.dirs().find((d) => path.basename(d) === slug && waitingMessages.get(d)?.why);
     if (!dir) return;
     let held = null;
     try { held = heldElsewhere(dir); } catch { held = null; }
@@ -2669,7 +2716,10 @@ export async function createRunner(config) {
     const reply = { ok: true, text, chipsDropped: g.chips.length - chips.length, ...(options ? { options, summary: describeOptions(options) } : {}) };
     const drive = await driveState(f);
     // Auto never queues, and never answers ahead of his message waiting for the Foreman: that goes first.
-    if (auto && drive.mode !== 'running' && waitingMessages.get(f.dir)) throw new HttpError(409, 'Your message waiting for the Foreman goes first.', { code: 'busy' });
+    // A message that can't go now (kept after a stop, held back, moved to the box) is his instead: Auto's pass
+    // reads it as his message (autoJobs waitingHeld → yours now) or, moved to the box, runs its rules as usual.
+    const waits = waitingMessages.get(f.dir);
+    if (auto && drive.mode !== 'running' && (flushing.has(f.dir) || (waits && !waits.why))) throw new HttpError(409, 'Your message waiting for the Foreman goes first.', { code: 'busy' });
     if (drive.mode === 'running') {
       if (auto) throw new HttpError(409, 'The Foreman is still working on your last message. Wait for it, or pause it first.', { code: 'busy' });
       await saveChipOptions(f, options);
@@ -2919,6 +2969,25 @@ export async function createRunner(config) {
       // The reply may have ended while it was saved: then it goes now.
       flushWaiting(f.dir).catch(() => {});
       return { ok: true, waiting };
+    },
+    // POST /api/job/:slug/waiting/send: his Send on a waiting message kept or held back: it goes now (or when the reply going ends).
+    async 'send-waiting'(body) {
+      const f = await jobOf(body.slug);
+      if (!waitingMessages.get(f.dir)) return { ok: true, waiting: null };
+      await waitingMessages.release(f.dir);
+      waitingMoved(f.slug);
+      await flushWaiting(f.dir, { asked: true });
+      return { ok: true, waiting: waitingMessages.view(f.dir) };
+    },
+    // POST /api/runs/:id/stop with then: 'send-waiting' (Stop it and send now): the stopped end sends the waiting message.
+    async 'stop-then-send'(body) {
+      sendAfterStop.add(body.runId);
+      try {
+        return await HANDLERS.pause({ runId: body.runId });
+      } catch (err) {
+        sendAfterStop.delete(body.runId);
+        throw err;
+      }
     },
     // POST /api/job/:slug/waiting/cancel: the waiting message removed; text: its words (null when none waited).
     async 'cancel-waiting'(body) {
@@ -4014,6 +4083,8 @@ export async function createRunner(config) {
     } finally {
       resuming = false;
     }
+    // A pause dropped without a reply (a terminal took it, no folder, the start failed): its waiting message goes now or says why.
+    flushAllWaiting().catch(() => {});
     testHooks?.carriedOn?.(); // tests only: one pass is done
     if (![...restartPaused.values()].some((p) => p.how === 'clean') && resumeTimer) { clearInterval(resumeTimer); resumeTimer = null; }
   }
@@ -4042,6 +4113,7 @@ export async function createRunner(config) {
     testHooks.startJob = (body, internal) => HANDLERS.start(body, internal);
     testHooks.checkParked = checkParkedGates; // one look for parked gates, without start()'s timer
     testHooks.flushWaiting = flushAllWaiting; // start()'s look at the messages waiting for the Foreman
+    testHooks.carryOn = carryOnAfterRestart; // one pass of the carry-on after a restart, without start()'s timer
   }
 
   // ---------- Start and stop ----------
@@ -4082,6 +4154,8 @@ export async function createRunner(config) {
     // Replies the last clean stop paused carry on.
     startCarryingOn();
     // Messages waiting for the Foreman at the last stop go now (one whose reply carries on first goes when it ends).
+    // One for a job folder that is gone is dropped.
+    for (const dir of waitingMessages.dirs()) if (!fs.existsSync(dir)) await waitingMessages.cancel(dir).catch(() => {});
     flushAllWaiting().catch((err) => console.error('waiting messages:', err.message));
     // The hosted site (packet 2A): idle until `starbase login` pairs this laptop.
     if (siteLinkOn) startSiteLink().catch((err) => console.error('site link:', err.message));

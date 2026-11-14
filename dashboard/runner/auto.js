@@ -404,6 +404,8 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
    * All of the job's lines are read: the Foreman's reply to that message can write many. The rule is lib/auto.js wroteWhileWaiting.
    */
   async function youWroteWhileWaiting(job) {
+    // His message waiting for the Foreman that can't go now counts as one he wrote (the job page's R8).
+    if (job.waitingHeld === true) return true;
     return wroteWhileWaiting(await state.auditFor(job.dir, Infinity), { briefAt: job.briefAt, since: job.auto?.since });
   }
   /**

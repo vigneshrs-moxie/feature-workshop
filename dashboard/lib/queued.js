@@ -17,7 +17,9 @@
 //   put(featureDir, { slug, text, confirmNoTerminal }, { replace })   → view; WaitingExists when one waits
 //   cancel(featureDir)                  → the message removed, or null
 //   take(featureDir)                    → the message, removed (for sending: only one caller gets it), or null
-//   refuse(featureDir, why)             keep it, saying why it did not go
+//   refuse(featureDir, why, { held, toBox })   keep it, saying why it did not go (held: after a plain stop,
+//                                       only his Send sends it; toBox: the Foreman asks him first, the page moves it)
+//   release(featureDir)                 his Send on a held message: no why, goes at the next chance
 //   putBack(featureDir, message, why)   a send that failed after take: back, unless a newer one waits
 
 import fs from 'node:fs/promises';
@@ -35,7 +37,7 @@ export class WaitingExists extends Error {
   }
 }
 
-const viewOf = (m) => (m ? { text: m.text, at: m.at, why: m.why ?? null } : null);
+const viewOf = (m) => (m ? { text: m.text, at: m.at, why: m.why ?? null, ...(m.toBox ? { toBox: true } : {}) } : null);
 
 export class WaitingMessages {
   constructor({ file, now = () => new Date().toISOString() }) {
@@ -51,7 +53,7 @@ export class WaitingMessages {
       this.all = {};
       if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
         for (const [dir, m] of Object.entries(raw)) {
-          if (m && typeof m.text === 'string' && m.text) this.all[dir] = { slug: String(m.slug ?? ''), text: m.text, at: String(m.at ?? ''), why: typeof m.why === 'string' ? m.why : null, confirmNoTerminal: m.confirmNoTerminal === true };
+          if (m && typeof m.text === 'string' && m.text) this.all[dir] = { slug: String(m.slug ?? ''), text: m.text, at: String(m.at ?? ''), why: typeof m.why === 'string' ? m.why : null, confirmNoTerminal: m.confirmNoTerminal === true, held: m.held === true, toBox: m.toBox === true };
         }
       }
     } catch {
@@ -66,7 +68,7 @@ export class WaitingMessages {
   async put(featureDir, { slug, text, confirmNoTerminal = false }, { replace = false } = {}) {
     const was = this.get(featureDir);
     if (was && !replace) throw new WaitingExists(viewOf(was));
-    this.all[featureDir] = { slug: String(slug ?? ''), text, at: this.now(), why: null, confirmNoTerminal: confirmNoTerminal === true };
+    this.all[featureDir] = { slug: String(slug ?? ''), text, at: this.now(), why: null, confirmNoTerminal: confirmNoTerminal === true, held: false, toBox: false };
     await this.#save();
     return this.view(featureDir);
   }
@@ -84,16 +86,32 @@ export class WaitingMessages {
     return this.cancel(featureDir);
   }
 
-  async refuse(featureDir, why) {
+  /**
+   * held: kept after a plain stop: only his Send (release) sends it. toBox: the Foreman is asking him something
+   * first: the page moves the words into the box and cancels it.
+   */
+  async refuse(featureDir, why, { held = false, toBox = false } = {}) {
     const m = this.get(featureDir);
     if (!m) return;
     m.why = why ?? null;
+    m.held = held === true;
+    m.toBox = toBox === true;
+    await this.#save();
+  }
+
+  /** His Send on a held message: it goes at the next chance again. */
+  async release(featureDir) {
+    const m = this.get(featureDir);
+    if (!m) return;
+    m.why = null;
+    m.held = false;
+    m.toBox = false;
     await this.#save();
   }
 
   async putBack(featureDir, message, why) {
     if (!message || this.get(featureDir)) return;
-    this.all[featureDir] = { ...message, why: why ?? null };
+    this.all[featureDir] = { ...message, why: why ?? null, held: false, toBox: false };
     await this.#save();
   }
 

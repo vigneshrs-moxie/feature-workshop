@@ -116,3 +116,29 @@ test('Q5: a refusal at send time keeps it with why; put back after a failed star
     assert.equal(w.view(JOB).why, null, 'a new message has no old why');
   } finally { await t.done(); }
 });
+
+test('Q6 (fix round 1): held after a plain stop, or moved to the box at a question; release clears both; both survive a restart', async () => {
+  const t = await tmp();
+  try {
+    const w = new WaitingMessages({ file: t.file, now: clock() });
+    await w.load();
+    await w.put(JOB, { slug: 'visit-audit', text: 'Hold me.' });
+    await w.refuse(JOB, 'Kept: you stopped the reply. Press Send to send it.', { held: true });
+    assert.equal(w.get(JOB).held, true);
+    assert.deepEqual(w.view(JOB), { text: 'Hold me.', at: '2026-11-13T12:00:00.000Z', why: 'Kept: you stopped the reply. Press Send to send it.' });
+    const b = new WaitingMessages({ file: t.file });
+    await b.load();
+    assert.equal(b.get(JOB).held, true, 'held over a restart');
+    await w.release(JOB);
+    assert.equal(w.get(JOB).held, false);
+    assert.equal(w.view(JOB).why, null);
+    await w.refuse(JOB, 'The Foreman is asking you something first.', { toBox: true });
+    assert.deepEqual(w.view(JOB), { text: 'Hold me.', at: '2026-11-13T12:00:00.000Z', why: 'The Foreman is asking you something first.', toBox: true });
+    const c = new WaitingMessages({ file: t.file });
+    await c.load();
+    assert.equal(c.view(JOB).toBox, true);
+    await w.put(JOB, { slug: 'visit-audit', text: 'New.' }, { replace: true });
+    assert.equal(w.get(JOB).held, false);
+    assert.equal(w.view(JOB).toBox, undefined);
+  } finally { await t.done(); }
+});

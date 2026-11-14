@@ -142,6 +142,10 @@ export const LOCAL_COMMANDS = freeze({
   // page's R8); with nothing running it goes now. One per job: replace puts it in place of the one waiting. Cancel removes it.
   'queue-message': { slug: required(FIELD.slug), text: required(FIELD.text), replace: FIELD.bool, model: str(100), despiteLimit: FIELD.bool, confirmNoTerminal: FIELD.bool },
   'cancel-waiting': { slug: required(FIELD.slug) },
+  // His Send on a waiting message kept after a plain stop or held back: it goes now (or when the reply going ends).
+  'send-waiting': { slug: required(FIELD.slug) },
+  // Stop it and send now: the reply stops, and its stopped end sends the waiting message (a plain stop keeps it).
+  'stop-then-send': { runId: required(FIELD.id) },
 });
 
 const fieldsOf = (type) => (Object.hasOwn(REMOTE_COMMANDS, type) ? REMOTE_COMMANDS[type] : Object.hasOwn(LOCAL_COMMANDS, type) ? LOCAL_COMMANDS[type] : null);
