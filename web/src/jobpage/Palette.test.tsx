@@ -15,7 +15,7 @@ describe('the list', () => {
     const items = paletteItems('test', steps(), ['check ok']);
     const groups = [...new Set(items.map((i) => i.group))];
     expect(groups).toEqual(['For this step', 'Any step', 'Yours', 'Places', 'Other steps', 'Starbase']);
-    expect(items.filter((i) => i.group === 'For this step').map(label)).toEqual(['How do I test this by hand?', 'Start the app', 'It works', 'Run the checks again', 'Record again', 'Something is wrong…']);
+    expect(items.filter((i) => i.group === 'For this step').map(label)).toEqual(['How do I test this by hand?', 'Ask to start the app', 'It works', 'Run the checks again', 'Record again', 'Something is wrong…']);
     expect(items.filter((i) => i.group === 'Yours').map(label)).toEqual(['check ok']);
     // The row's order first, then the step's ⌘K-only asks.
     expect(paletteItems('review', steps(), []).filter((i) => i.group === 'For this step').map(label)).toEqual(['Fix the open findings', 'Go faster', 'Publish the walkthrough']);
@@ -77,5 +77,12 @@ describe('the Ship asks (Task 22)', () => {
       expect(labels).not.toContain('Mark done');
       expect(labels).toContain('Shorten the PR text');
     }
+  });
+});
+
+describe('final W4: the website', () => {
+  it('lists no Ask to start the app (no Try it there), and the laptop does', () => {
+    expect(paletteItems('test', steps(), [], true).map(label)).not.toContain('Ask to start the app');
+    expect(paletteItems('test', steps(), []).map(label)).toContain('Ask to start the app');
   });
 });

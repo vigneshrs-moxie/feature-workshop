@@ -15,7 +15,7 @@ import { browserDrafts, createJobStore, type JobStore } from '../jobStore';
 import { JobPage2 } from '../JobPage2';
 import { forgetRecentPages } from '../recent';
 import type { JobBody, JobPagePayload, StopId } from '../types';
-import { ALREADY_FAST, BACK_TO_OWN, HOLD_MS, KEPT, QUEUED } from './AsksRow';
+import { ALREADY_FAST, BACK_TO_OWN, createAskRunner, DONE_LOADING, HOLD_MS, KEPT, QUEUED } from './AsksRow';
 import { forgetSentGo } from './YourMove';
 
 const SLUG = longJob.payload.slug;
@@ -111,7 +111,7 @@ describe('the row', () => {
     // The long job is at Review.
     expect(rowLabels()).toEqual(['Fix the open findings', 'Go faster', 'Where are we?', 'Explain this step']);
     pickStep(o, 'test');
-    expect(rowLabels()).toEqual(['How do I test this by hand?', 'Start the app', 'It works', 'Run the checks again']);
+    expect(rowLabels()).toEqual(['How do I test this by hand?', 'Ask to start the app', 'It works', 'Run the checks again']);
     pickStep(o, 'plan');
     expect(rowLabels()).toEqual(['Summarise for approval', 'Drop something…', 'Go faster', 'Where are we?']);
     for (const s of ['spec', 'investigate', 'plan', 'build', 'test', 'review', 'ship'] as const) {
@@ -1015,5 +1015,48 @@ describe('the Ship asks and the hand test (Task 22)', () => {
     await openHand(o);
     expect(within(hand()).getByRole('button', { name: 'It works' })).toBeDisabled();
     expect(within(hand()).getByRole('button', { name: 'Something is wrong…' })).toBeEnabled();
+  });
+});
+
+describe('final W7: Mark done before the job loads, the Pull hover, and a row first drawn hidden', () => {
+  it('Mark done before the payload lands says why and opens nothing', () => {
+    const store = createJobStore(SLUG, { api: { page: () => new Promise(() => {}), item: async () => { throw new Error('no'); } }, events: () => () => {}, viewer: () => null });
+    const opened: unknown[] = [];
+    const api = { get: vi.fn(), post: vi.fn(), hosted: () => false } as unknown as ApiClient;
+    const r = createAskRunner({ api, store, box: { current: null }, openSheet: (s) => opened.push(s) });
+    r.run(askById('done')!);
+    expect(r.getState()?.words).toBe(DONE_LOADING);
+    expect(r.getState()?.problem).toBe(true);
+    expect(opened).toEqual([]);
+    r.destroy();
+  });
+
+  it('Pull PR comments says Fix these comes next in the PR view', () => {
+    expect(PULL_SAYS).toMatch(/Fix these comes next/);
+  });
+
+  it('a row drawn while hidden measures its asks when it first shows', async () => {
+    const size = { w: 0, room: 0 };
+    const fits: (() => void)[] = [];
+    vi.stubGlobal('ResizeObserver', class { fn: () => void; constructor(fn: () => void) { this.fn = fn; } observe(el: Element) { if (el.classList.contains('jp2-asks-fit')) fits.push(this.fn); } disconnect() {} });
+    const ow = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth');
+    const cw = Object.getOwnPropertyDescriptor(Element.prototype, 'clientWidth');
+    Object.defineProperty(HTMLElement.prototype, 'offsetWidth', { configurable: true, get() { return (this as HTMLElement).classList.contains('jp2-askb') ? size.w : 0; } });
+    Object.defineProperty(Element.prototype, 'clientWidth', { configurable: true, get() { return (this as Element).classList.contains('jp2-asks-fit') ? size.room : 0; } });
+    try {
+      const o = open();
+      await settle();
+      // Hidden: nothing measured, all four still drawn.
+      expect(rowLabels()).toHaveLength(rowFor('review').length);
+      size.w = 100;
+      size.room = 250;
+      expect(fits.length).toBeGreaterThan(0);
+      act(() => { for (const fn of fits) fn(); });
+      expect(rowLabels()).toHaveLength(2);
+      o.unmount();
+    } finally {
+      if (ow) Object.defineProperty(HTMLElement.prototype, 'offsetWidth', ow);
+      if (cw) Object.defineProperty(Element.prototype, 'clientWidth', cw);
+    }
   });
 });

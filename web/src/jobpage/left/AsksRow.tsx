@@ -92,6 +92,8 @@ export const KEPT = 'Kept in the box, not sent: the Foreman is working. Press Se
 export const DONE_RUNNING = 'The Foreman is replying. Stop the reply first, then mark the job.';
 /** Mark done on a job already marked done or dropped. */
 export const DONE_ALREADY = 'Already marked done or dropped. Reopen it from the ⋯ menu.';
+/** Mark done before the job's page has loaded (whether it runs or is marked is not known yet). */
+export const DONE_LOADING = 'Still loading the job. Try Mark done again in a moment.';
 /** The run statuses that mean the Foreman is replying right now (as MessageBox's ACTIVE). */
 const ACTIVE = new Set(['starting', 'running', 'waiting_permission', 'stopping']);
 
@@ -264,7 +266,8 @@ export function createAskRunner({ api, store, box, running = () => false, now: c
   /** Mark done: the ⋯ menu's Mark done sheet, on the same terms as the menu. */
   function markDone() {
     const p = store.getState().payload;
-    if (hosted() || !p) return;
+    if (hosted()) return;
+    if (!p) { say({ words: DONE_LOADING, problem: true, undo: null }); return; }
     if (p.closed) { say({ words: DONE_ALREADY, problem: true, undo: null }); return; }
     if (running()) { say({ words: DONE_RUNNING, problem: true, undo: null }); return; }
     openSheet?.({ kind: 'close-job', slug: slug(), worktree: p.local?.worktree ?? null });
@@ -472,12 +475,17 @@ function AskButtons({ row, phone, locked, tipId, tip, onTip, runner }: AskButton
   useLayoutEffect(() => {
     const el = fit.current;
     if (phone || !el) return undefined;
-    widths.current = [...el.children].map((c) => (c as HTMLElement).offsetWidth);
+    const read = () => { widths.current = [...el.children].map((c) => (c as HTMLElement).offsetWidth); };
+    read();
     const gap = parseFloat(getComputedStyle(el).columnGap) || 4;
     const measure = () => {
       const room = el.clientWidth;
+      if (!room) return;
+      // A row first drawn hidden measured nothing: measure the asks when it first shows (all of them
+      // are still shown then, since nothing was fitted).
+      if (!widths.current || widths.current.every((w) => !w)) read();
       const ws = widths.current;
-      if (!room || !ws || ws.every((w) => !w)) return;
+      if (!ws || ws.every((w) => !w)) return;
       let used = 0;
       let n = 0;
       for (const w of ws) {

@@ -54,7 +54,7 @@ export interface Ask {
 /** What Go faster says when it switched both. */
 export const FAST_SAYS = 'Fast from the next step: 1 reviewer, no second looks';
 /** What Pull PR comments does (it sends nothing). */
-export const PULL_SAYS = 'Reads the PR comments and reviews from GitHub now, as Pull now does, then opens the PR.';
+export const PULL_SAYS = 'Reads the PR comments and reviews from GitHub now, as Pull now does, then opens the PR, where Fix these comes next.';
 /** What Mark done does (it sends nothing, and marks nothing by itself). */
 export const MARK_DONE_SAYS = 'Opens Mark done or dropped, as the ⋯ menu does: pick done or dropped, with an optional note. Nothing is marked until you choose there.';
 
@@ -75,7 +75,9 @@ export const ASKS: readonly Ask[] = [
   ask('reuse', 'Reuse what exists', 'Reuse components and styles that already exist in the repo. Don’t add new ones unless you have to.', ['spec-plan'], false),
   // Test
   ask('howtest', 'How do I test this by hand?', 'Give me numbered steps to test this by hand on my laptop, including which user to sign in as.', ['test'], true),
-  ask('start', 'Start the app', 'Start Try it for this job.', ['test'], true),
+  // A message asking the Foreman to start Try it (the hand test's own `Start the app` starts it in place);
+  // laptop only: the website has no Try it (Decision 8).
+  ask('start', 'Ask to start the app', 'Start Try it for this job.', ['test'], true, 'send', true),
   ask('works', 'It works', 'It works. I tested it by hand.', ['test'], true),
   ask('rerun', 'Run the checks again', 'Run the checks again on the latest commit and tell me the result.', ['test'], true),
   ask('record', 'Record again', 'Record the browser checks again on the latest commit.', ['test'], false),
@@ -88,7 +90,7 @@ export const ASKS: readonly Ask[] = [
   ask('done', 'Mark done', MARK_DONE_SAYS, ['ship'], true, 'mark-done', true),
   ask('stake', 'Test steps for stakeholders', 'Write clear steps for the stakeholders to test this on staging.', ['ship'], false),
   ask('ticket', 'Fix the ticket number…', `The ticket number is ${GAP}. Update the branch name and every place that uses the old one.`, ['ship'], false),
-  ask('newbranch', 'New branch with only this change', 'Create a new branch with only this latest change, so the PR into staging is cleaner.', ['ship'], false),
+  ask('newbranch', 'New branch with only this change', 'Create a new branch with only this latest change, so the PR into staging is cleaner. Don’t push, and leave the current branch as it is.', ['ship'], false),
   // The hand test's second call (R7): in the reader beside It works, and in ⌘K on the Test step.
   ask('wrong', 'Something is wrong…', `I tested it by hand and something is wrong: ${GAP}`, ['test'], false),
 ];

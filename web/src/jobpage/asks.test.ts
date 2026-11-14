@@ -11,7 +11,7 @@ describe('the asks table', () => {
     expect(labels).toEqual([
       'Where are we?', 'Explain this step', 'Go faster', 'Stop here', 'Make this the rule next time…',
       'Summarise for approval', 'Drop something…', 'Reuse what exists',
-      'How do I test this by hand?', 'Start the app', 'It works', 'Run the checks again', 'Record again',
+      'How do I test this by hand?', 'Ask to start the app', 'It works', 'Run the checks again', 'Record again',
       'Fix the open findings', 'Publish the walkthrough',
       'Pull PR comments', 'Shorten the PR text', 'Mark done',
       'Test steps for stakeholders', 'Fix the ticket number…', 'New branch with only this change', 'Something is wrong…',
@@ -171,13 +171,21 @@ describe('the Ship asks and the hand test (Task 22)', () => {
     expect(askById('ticket')).toMatchObject({ inRow: false, steps: ['ship'], needsWord: true });
     expect(askById('ticket')!.text).toBe(`The ticket number is ${GAP}. Update the branch name and every place that uses the old one.`);
     expect(askById('newbranch')).toMatchObject({ inRow: false, steps: ['ship'], needsWord: false });
-    expect(askById('newbranch')!.text).toBe('Create a new branch with only this latest change, so the PR into staging is cleaner.');
+    expect(askById('newbranch')!.text).toBe('Create a new branch with only this latest change, so the PR into staging is cleaner. Don’t push, and leave the current branch as it is.');
     expect(asksOf('ship').map((a) => a.id)).toEqual(['pull', 'shorten', 'done', 'stake', 'ticket', 'newbranch']);
   });
 
   it('the website has no Pull PR comments or Mark done (GitHub is read and a job marked on the laptop)', () => {
     expect(rowFor('ship', null, true).map((a) => a.id)).toEqual(['shorten', 'where', 'explain', 'fast']);
-    expect(rowFor('test', null, true).map((a) => a.id)).toEqual(['howtest', 'start', 'works', 'rerun']);
+    // Final W4: and no Ask to start the app (the website has no Try it, Decision 8).
+    expect(rowFor('test', null, true).map((a) => a.id)).toEqual(['howtest', 'works', 'rerun', 'where']);
+  });
+
+  it('final W4: the row’s start ask says it is a message and is the laptop’s only; the hand test keeps `Start the app`', () => {
+    expect(askById('start')).toMatchObject({ label: 'Ask to start the app', kind: 'send', laptop: true });
+    expect(askSays(askById('start')!)).toBe('Sends:');
+    expect(rowFor('test').map((a) => a.label)).toContain('Ask to start the app');
+    expect(ASKS.some((a) => a.label === 'Start the app')).toBe(false);
   });
 
   it('the hand test: It works sends its words; Something is wrong… puts its words in the box for his', () => {
