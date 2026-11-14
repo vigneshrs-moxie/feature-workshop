@@ -337,7 +337,11 @@ export function ConversationView({ searchRef, onOpen }: ConversationViewProps) {
       return next;
     });
   }, []);
-  const toggleAll = useCallback((groupKey: string, ids: string[], close: boolean) => {
+  // The step's lines read when he clicks (not passed down): a new line in a step draws its own group only.
+  const byStepNow = useRef(byStep);
+  byStepNow.current = byStep;
+  const toggleAll = useCallback((groupKey: string, step: StopId | null, close: boolean) => {
+    const ids = byStepNow.current.get(step ?? '') ?? [];
     a.remember(groupKey);
     setOpen((was) => {
       const next = new Set(was ?? EMPTY);
@@ -474,7 +478,6 @@ export function ConversationView({ searchRef, onOpen }: ConversationViewProps) {
                   group={g}
                   open={opened}
                   allOpen={ids.length > 0 && ids.every((id) => opened.has(id))}
-                  stepIds={ids}
                   newId={!filtering && newId && g.lines.some((l) => l.id === newId) ? newId : null}
                   smallOpen={!filtering && smallOpen.has(g.key)}
                   showSmall={!filtering}
@@ -498,12 +501,11 @@ interface GroupViewProps {
   group: Group;
   open: ReadonlySet<string>;
   allOpen: boolean;
-  stepIds: string[];
   newId: string | null;
   smallOpen: boolean;
   showSmall: boolean;
   onToggle(id: string): void;
-  onAll(groupKey: string, ids: string[], close: boolean): void;
+  onAll(groupKey: string, step: StopId | null, close: boolean): void;
   onSmall(groupKey: string): void;
   onOpen(t: ReaderTarget, from?: HTMLElement | null): void;
 }
@@ -516,18 +518,18 @@ const sameList = <T,>(a: readonly T[], b: readonly T[]) => a === b || (a.length 
 export function sameGroupProps(a: GroupViewProps, b: GroupViewProps): boolean {
   const g = a.group, h = b.group;
   return (g === h || (g.key === h.key && g.step === h.step && g.label === h.label && g.day === h.day && sameList(g.lines, h.lines) && sameList(g.small, h.small)))
-    && a.open === b.open && a.allOpen === b.allOpen && sameList(a.stepIds, b.stepIds) && a.newId === b.newId
+    && a.open === b.open && a.allOpen === b.allOpen && a.newId === b.newId
     && a.smallOpen === b.smallOpen && a.showSmall === b.showSmall
     && a.onToggle === b.onToggle && a.onAll === b.onAll && a.onSmall === b.onSmall && a.onOpen === b.onOpen;
 }
 
-const GroupView = memo(function GroupView({ group: g, open, allOpen, stepIds, newId, smallOpen, showSmall, onToggle, onAll, onSmall, onOpen }: GroupViewProps) {
+const GroupView = memo(function GroupView({ group: g, open, allOpen, newId, smallOpen, showSmall, onToggle, onAll, onSmall, onOpen }: GroupViewProps) {
   const n = g.small.length;
   return (
     <section className="jp2-cv-group">
       <div className="jp2-cv-gh" data-cv-key={g.key}>
         <h3 className="jp2-cv-gt"><b>{g.label}</b>{g.day ? ` · ${g.day}` : ''}</h3>
-        <button type="button" className="link-button jp2-cv-openall" onClick={() => onAll(g.key, stepIds, allOpen)}>
+        <button type="button" className="link-button jp2-cv-openall" onClick={() => onAll(g.key, g.step, allOpen)}>
           {allOpen ? 'Fold all in this step' : 'Open all in this step'}
         </button>
       </div>

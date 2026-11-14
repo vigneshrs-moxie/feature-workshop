@@ -628,14 +628,19 @@ describe('Task 23 fix round 2: a new line draws its own group only (speed rule 5
   const a = line('a');
   const b = line('b');
   const fns = { onToggle: () => {}, onAll: () => {}, onSmall: () => {}, onOpen: () => {} };
-  const props = (lines: ThreadLine[], ids: string[], newId: string | null = null) => ({
+  // (ids: the step's lines, which are no prop of a group: a new line elsewhere in its step does not draw it.)
+  const props = (lines: ThreadLine[], _ids: string[], newId: string | null = null) => ({
     group: { key: 'g:a', step: null, label: 'Start', day: 'Tuesday', lines, small: [] },
-    open: EMPTY_OPEN, allOpen: false, stepIds: ids, newId, smallOpen: false, showSmall: true, ...fns,
+    open: EMPTY_OPEN, allOpen: false, newId, smallOpen: false, showSmall: true, ...fns,
   });
   const EMPTY_OPEN: ReadonlySet<string> = new Set();
 
   it('a group made again from a newer payload with the same lines (new arrays) does not draw again', () => {
     expect(sameGroupProps(props([a, b], ['a', 'b']), props([a, b], ['a', 'b']))).toBe(true);
+  });
+
+  it('a new line in another group of the same step does not draw this one', () => {
+    expect(sameGroupProps(props([a], ['a']), props([a], ['a', 'b']))).toBe(true);
   });
 
   it('a group whose lines changed, or that gains the New mark, draws again', () => {
