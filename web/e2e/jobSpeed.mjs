@@ -66,6 +66,11 @@ const shell = (rule, what, number, note = '') => {
   results.push({ rule, what, number, limit: '-', pass: true, shell: true, note });
   console.log(`  [app shell] rule ${rule}: ${what}: ${number}${note ? ` · ${note}` : ''}`);
 };
+/** A number reported with no limit of the plan's (the cold first open's payload): printed and in the table, never a miss. */
+const reported = (rule, what, number, note = '') => {
+  results.push({ rule, what, number, limit: '-', pass: true, reported: true, note });
+  console.log(`  [reported] rule ${rule}: ${what}: ${number}${note ? ` · ${note}` : ''}`);
+};
 const want = (n) => !ONLY || ONLY.has(n);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const round = (x) => (Number.isFinite(x) ? Math.round(x * 10) / 10 : x);
@@ -178,7 +183,8 @@ function initPage() {
       if (!rc.detail) return;
       const out = [];
       try { walk(root.current, root.current.alternate, out); } catch { /* a shape this walk does not know */ }
-      rc.rendered.push(out.slice(0, 400).map((f) => { const h = hostOf(f); return { name: nameOf(f), host: describe(h), el: h }; }));
+      // Every fiber that drew (no cut: a big app shell commit must not push the job page's out of the count).
+      rc.rendered.push(out.map((f) => { const h = hostOf(f); return { name: nameOf(f), host: describe(h), el: h }; }));
     },
     onCommitFiberUnmount() {}, onPostCommitFiberRoot() {}, onScheduleFiberRoot() {}, checkDCE() {},
   };
@@ -198,7 +204,16 @@ function initPage() {
   const preds = {
     open: (title) => {
       const t = document.querySelector('.jp2-head .jp2-title');
-      return Boolean(t && t.textContent.includes(title) && document.querySelector('.jp2-ym') && document.querySelectorAll('.jp2-st-row').length >= 7);
+      // Your move with its words in it: an empty box does not count.
+      const ym = document.querySelector('.jp2-ym');
+      return Boolean(t && t.textContent.includes(title) && ym && ym.textContent.trim().length > 0 && document.querySelectorAll('.jp2-st-row').length >= 7);
+    },
+    // The payload is in: the reader has its words and Your move its card or its line (the cold open's second number).
+    filled: (title) => {
+      if (!preds.open(title)) return false;
+      const body = document.querySelector('.jp2-rv-body');
+      if (!body || body.textContent.trim().length === 0) return false;
+      return ![...body.querySelectorAll('[role="status"]')].some((x) => /^(Reading|Loading)/.test(x.textContent.trim()));
     },
     reader: (was) => {
       const title = document.querySelector('.jp2-rv-title')?.textContent ?? '';
@@ -214,14 +229,15 @@ function initPage() {
     conversation: () => document.querySelectorAll('[data-view="conversation"] .jp2-cv-line').length > 0,
     sent: () => Boolean(document.querySelector('.jp2-ym-sent')),
   };
+  window.__waits = {};
   window.__arm = (kind, arg) => {
     let t0 = null;
     const onClick = (e) => { if (t0 === null) t0 = e.timeStamp; };
     window.addEventListener('click', onClick, true);
-    window.__wait = new Promise((resolve) => {
+    window.__wait = window.__waits[kind] = new Promise((resolve) => {
       const started = performance.now();
       const tick = () => {
-        if (performance.now() - started > 8000) { window.removeEventListener('click', onClick, true); resolve(Infinity); return; }
+        if (performance.now() - started > 20_000) { window.removeEventListener('click', onClick, true); resolve(Infinity); return; }
         if (t0 !== null && preds[kind](arg)) {
           window.removeEventListener('click', onClick, true);
           const mc = new MessageChannel();
@@ -282,6 +298,10 @@ async function openJob(page) {
   return ms;
 }
 const readerTitle = (page) => page.evaluate(() => document.querySelector('.jp2-rv-title')?.textContent ?? '');
+/** Layout shifts he did not cause since the page loaded (input-caused ones are left out by the observer). */
+const shiftsOf = (page) => page.evaluate(() => window.__shifts.map((x) => ({ value: x.value, sources: x.sources })));
+const shiftWords = (list) => `${list.length} (score ${list.reduce((a, x) => a + x.value, 0).toFixed(5)})`;
+const shiftWhere = (list) => [...new Set(list.flatMap((x) => x.sources))].slice(0, 6).join(', ');
 
 // ---------- the checks ----------
 
@@ -290,6 +310,7 @@ async function rule1() {
   const cold = [];
   const again = [];
   const pageTimes = [];
+  const shifts = [];
   for (let i = 0; i < 5; i++) {
     const { ctx, page } = await newPage();
     cold.push(await openJob(page));
@@ -301,11 +322,14 @@ async function rule1() {
       await page.waitForTimeout(800);
     }
     pageTimes.push(...await page.evaluate(() => performance.getEntriesByType('resource').filter((e) => /\/api\/job\/[^/]+\/page/.test(e.name)).map((e) => e.responseEnd - e.startTime)));
+    shifts.push(...await shiftsOf(page));
     await ctx.close();
   }
   const all = [...cold, ...again];
   record(1, 'open from a fresh Jobs', stats(cold), '150 ms each', Math.max(...cold) <= 150);
   record(1, 'open again from Jobs', stats(again), '150 ms each', Math.max(...again) <= 150);
+  // "The reader fills in without moving anything else": shifts while the 15 opens land (input-caused left out).
+  record(1, 'layout shifts not caused by input over the 15 opens', shiftWords(shifts), '0', shifts.length === 0, shiftWhere(shifts));
   return { all, pageTimes };
 }
 
@@ -313,6 +337,7 @@ async function rule2() {
   console.log(`Rule 2: picks (${PICKS} of each)`);
   const { ctx, page } = await newPage();
   await openJob(page);
+  const shifts0 = (await shiftsOf(page)).length;
   const out = {};
   // Steps: each pick a different step than the last.
   const steps = page.locator('.jp2-st-row');
@@ -367,6 +392,7 @@ async function rule2() {
     await line.click();
     await page.waitForTimeout(100);
   }
+  const pickShifts = (await shiftsOf(page)).slice(shifts0);
   await ctx.close();
   for (const kind of ['step', 'document', 'message', 'conversation']) {
     const xs = out[kind];
@@ -375,6 +401,7 @@ async function rule2() {
   }
   // The rule's second sentence: no pick waits on a slow server answer, so not one pick of any kind is 100 ms or more.
   record(2, 'picks of 100 ms or more, of any kind', String(slow.length), '0 (no pick waits on a slow server answer)', slow.length === 0, slow.slice(0, 6).join(', '));
+  record(2, `layout shifts not caused by input over the ${PICKS * 4} picks`, shiftWords(pickShifts), '0', pickShifts.length === 0, shiftWhere(pickShifts));
   return out;
 }
 
@@ -466,11 +493,14 @@ async function rule5() {
     window.__muts = [];
     window.__mo = new MutationObserver((list) => { for (const m of list) window.__muts.push(m.target instanceof Element ? m.target : m.target.parentElement); });
     window.__mo.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
-    window.__zones = (allowedSel) => {
+    // allowedSel: elements whose whole inside may draw; exactSel: elements that may draw themselves only (a
+    // list's own element when a line is added to it, never the lines already in it).
+    window.__zones = (allowedSel, exactSel = () => []) => {
       const jp = document.querySelector('.jp2');
       const allowed = allowedSel();
+      const exact = exactSel();
       const inJob = (el) => el instanceof Element && jp && jp.contains(el);
-      const ok = (el) => el instanceof Element && allowed.some((a) => a === el || a.contains(el));
+      const ok = (el) => el instanceof Element && (allowed.some((a) => a === el || a.contains(el)) || exact.includes(el));
       const describe = (el) => (el instanceof Element ? `${el.tagName.toLowerCase()}${el.classList.length ? '.' + [...el.classList].slice(0, 2).join('.') : ''}` : String(el));
       const commits = window.__rc.rendered;
       const comps = commits.flat();
@@ -484,6 +514,8 @@ async function rule5() {
         jobMuts: [...new Set(window.__muts.filter((el) => inJob(el) && !ok(el)).map(describe))],
         shellMuts: [...new Set(window.__muts.filter((el) => el && !inJob(el)).map(describe))],
         okMuts: window.__muts.filter((el) => ok(el)).length,
+        // Conversation lines (their li) drawn that are not allowed: the old lines a new one must leave alone.
+        oldLines: comps.filter((c) => c.el instanceof Element && c.el.matches?.('li.jp2-cv-item') && !ok(c.el)).length,
       };
       window.__rc.rendered = []; window.__muts = [];
       return out;
@@ -506,22 +538,40 @@ async function rule5() {
   shell(5, `app shell requests in ${IDLE_SECONDS} s idle (but the event stream)`, String(others.length), byPath(others));
 
   // One message arriving: only the conversation's count (its row, and the reader's "n items") and its lines may redraw.
-  const lines0 = await page.evaluate(() => document.querySelectorAll('[data-view="conversation"] .jp2-cv-item').length);
+  const lines0 = await page.evaluate(() => {
+    window.__before = { items: new Set(document.querySelectorAll('[data-view="conversation"] li.jp2-cv-item')), groups: new Set(document.querySelectorAll('[data-view="conversation"] .jp2-cv-group')) };
+    return window.__before.items.size;
+  });
   await page.evaluate(() => window.__zones(() => [])); // a clean start
   await hooks(`/talk?slug=${SLUG}`);
   const landed = await page.waitForFunction((n) => document.querySelectorAll('[data-view="conversation"] .jp2-cv-item').length > n, lines0, { timeout: 15_000 }).then(() => true, () => false);
   await page.waitForTimeout(2500);
-  const seen = await page.evaluate(() => window.__zones(() => [
-    [...document.querySelectorAll('.jp2-jr')].find((r) => /^\s*Conversation/.test(r.textContent)),
-    document.querySelector('.jp2-rv-body[data-view="conversation"]'),
-    document.querySelector('.jp2-cv-tools'),
-    document.querySelector('[data-view="conversation"]') ? document.querySelector('.jp2-rv-meta') : null,
-  ].filter(Boolean)));
+  // Allowed: the Conversation row and the reader's "n items" (the count), the conversation's tools (Jump to
+  // latest · n new), the new line's item; the group it lands in, its list and the view's own elements may
+  // draw themselves only. A new group (a new day) may draw whole. Every older line drawn again is a miss.
+  const seen = await page.evaluate(() => {
+    const fresh = [...document.querySelectorAll('[data-view="conversation"] li.jp2-cv-item')].filter((li) => !window.__before.items.has(li));
+    const groups = fresh.map((li) => li.closest('.jp2-cv-group')).filter(Boolean);
+    const newGroups = groups.filter((g) => !window.__before.groups.has(g));
+    return window.__zones(() => [
+      [...document.querySelectorAll('.jp2-jr')].find((r) => /^\s*Conversation/.test(r.textContent)),
+      document.querySelector('.jp2-cv-tools'),
+      document.querySelector('[data-view="conversation"]') ? document.querySelector('.jp2-rv-meta') : null,
+      ...fresh, ...newGroups,
+    ].filter(Boolean), () => [
+      document.querySelector('.jp2-rv-body[data-view="conversation"]'),
+      document.querySelector('[data-view="conversation"] .jp2-cv'),
+      ...groups, ...groups.map((g) => g.querySelector('.jp2-cv-lines')),
+      ...[...document.querySelectorAll('[data-view="conversation"] .jp2-cv-new')],
+    ].filter(Boolean));
+  });
   await ctx.close();
   const arrived = landed ? `arrived; ${seen.commits} commits, ${seen.components} components drawn, ${seen.okMuts} changes in the conversation's count and lines` : 'DID NOT ARRIVE';
-  record(5, 'one arriving message: job page parts drawn other than the conversation count and lines', String(seen.jobOther.length), '0', landed && seen.jobOther.length === 0,
+  record(5, 'one arriving message: job page parts drawn other than the conversation count and the new line', String(seen.jobOther.length), '0', landed && seen.jobOther.length === 0,
     `${arrived}${seen.jobOther.length ? `; drawn: ${few(seen.jobOther)}` : ''}${seen.jobMuts.length ? `; changed: ${few(seen.jobMuts, 6)}` : ''}`);
-  shell(5, 'one arriving message: app parts around the job page drawn', String(seen.shell.length),
+  record(5, 'one arriving message: older conversation lines drawn again', String(seen.oldLines), '0', landed && seen.oldLines === 0);
+  // Ruled app shell (Task 23 fix round 2): the app around the page drawing on this job's own message (the top bar from the snapshot).
+  shell(5, 'one arriving message: app parts around the job page drawn (incl. the snapshot after this job\'s own message)', String(seen.shell.length),
     `${seen.shell.length ? few(seen.shell, 6) : ''}${seen.shellMuts.length ? `; changed: ${few(seen.shellMuts, 6)}` : ''}`);
   return { idle, asked, seen };
 }
@@ -533,11 +583,19 @@ async function rule6() {
   // Jobs while the demo's other jobs change.
   const { ctx, page } = await newPage();
   const scenes = [];
-  const openWatched = async (name, before) => {
+  let cold = null;
+  const openWatched = async (name, before, timeIt = false) => {
     await jobsLoaded(page);
     if (before) await before();
     await hooks('/io/reset');
-    await jobLink(page).click();
+    if (timeIt) {
+      // The cold first open (rule 1 "cold"): the first paint from the row, then the payload in (the build ran inline).
+      await page.evaluate((title) => { window.__arm('open', title); window.__arm('filled', title); }, TITLE);
+      await jobLink(page).click();
+      cold = await page.evaluate(async () => ({ open: await window.__waits.open, filled: await window.__waits.filled }));
+    } else {
+      await jobLink(page).click();
+    }
     await page.locator('.jp2-st-row').first().waitFor();
     await page.waitForTimeout(2500);
     const io = await hooks('/io');
@@ -552,13 +610,18 @@ async function rule6() {
     const other = busy.filter((e) => !own(e)).map(say);
     scenes.push({ name, bad, behind, other, keys: Object.keys(io.requests) });
   };
-  await openWatched('first open since the demo started');
+  await openWatched('first open since the demo started', null, true);
   await openWatched('open again');
   await openWatched('open after 20 s on Jobs', () => page.waitForTimeout(20_000));
   await ctx.close();
   const [first, ...warm] = scenes;
   const info = (s) => `${s.bad.length ? s.bad.join('; ') : 'nothing before the answers'}${s.behind.length ? `; behind the answer: ${s.behind.join('; ')}` : ''}${s.other.length ? `; not the page's own: ${s.other.join('; ')}` : ''}`;
   console.log(`  (info) ${first.name}: ${info(first)} (the plan's accepted cold case)`);
+  if (cold) {
+    record(1, 'cold first open since the demo started: header, Your move, steps', `${round(cold.open)} ms`, '150 ms', cold.open <= 150);
+    const programs = first.bad.length ? first.bad.join('; ') : 'none before the answer';
+    reported(1, 'cold first open: the payload in (the reader\'s words)', `${round(cold.filled)} ms`, `the page request waited on: ${programs}`);
+  }
   for (const s of warm) {
     record(6, `${s.name}: requests that started a program or read a log`, String(s.bad.length), '0', s.bad.length === 0, s.bad.join('; ').slice(0, 400));
     if (s.behind.length || s.other.length) console.log(`  (info) ${s.name}: ${info(s)}`);
@@ -636,8 +699,8 @@ await browser.close();
 console.log(`\nSpeed table (${LABEL}, ${Math.round((Date.now() - t0) / 1000)} s):`);
 console.log('| rule | measure | number | limit | result |');
 console.log('|---|---|---|---|---|');
-for (const r of results) console.log(`| ${r.rule} | ${r.what} | ${r.number} | ${r.limit} | ${r.shell ? 'app shell (outside the page)' : r.pass ? 'pass' : 'MISS'}${r.note ? ` (${r.note.replace(/\|/g, '/')})` : ''} |`);
+for (const r of results) console.log(`| ${r.rule} | ${r.what} | ${r.number} | ${r.limit} | ${r.shell ? 'app shell (outside the page)' : r.reported ? 'reported' : r.pass ? 'pass' : 'MISS'}${r.note ? ` (${r.note.replace(/\|/g, '/')})` : ''} |`);
 const missed = results.filter((r) => !r.pass);
-const counted = results.filter((r) => !r.shell).length;
-console.log(missed.length ? `\n${missed.length} of ${counted} measures missed.` : `\nAll ${counted} measures pass (and ${results.length - counted} app shell numbers noted).`);
+const counted = results.filter((r) => !r.shell && !r.reported).length;
+console.log(missed.length ? `\n${missed.length} of ${counted} measures missed.` : `\nAll ${counted} measures pass (and ${results.length - counted} app shell or reported numbers noted).`);
 process.exit(missed.length ? 1 : 0);
