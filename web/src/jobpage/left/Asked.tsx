@@ -7,15 +7,17 @@
 // - A line: his note, then what changed (`Plan v3 · step 4 removed`, `commit abc1234 ·
 //   EmployeesTable.tsx`), the answer to an Explain, or why it was not done. A click opens that exact
 //   change in the reader: the document's version, or the commit and its file in Changes; an answer
-//   in words, or a note not done, opens the place he pointed at.
+//   in words, or a note not done, opens the place he pointed at. The words are the Foreman's (the
+//   heading says so); a commit it names that is not on the branch says so and opens nothing.
 // - A note not done has `Ask again`: the note goes back into the message box as a chip, as he sent
 //   it, once.
 
-import { memo, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { Button } from '../../components/Button';
 import '../answers.css';
 import { addNote, oneLine } from '../notes/chips';
-import { setPick } from '../reader/branch';
+import { useWorkshop } from '../../state/store';
+import { findCommit, loadCommits, setPick, useBranch } from '../reader/branch';
 import type { JobPagePayload, NoteAnswer, ReaderTarget } from '../types';
 import { useJob, useJobStore } from '../useJob';
 
@@ -45,6 +47,15 @@ export const AskedList = memo(function AskedList({ asked, onOpen }: AskedProps) 
 
 function AskedLines({ asked, onOpen }: AskedProps) {
   const store = useJobStore();
+  const { api } = useWorkshop();
+  const slug = useJob((s) => s.slug);
+  const hosted = useJob((s) => Boolean(s.payload?.hosted)) || Boolean(api.hosted?.());
+  const named = asked.notes.some((a) => a.commit);
+  // A commit the Foreman names is looked for on the branch (the list Changes reads), so a line never
+  // links to a commit that is not there as if it proved the change.
+  useEffect(() => { if (named && !hosted) void loadCommits(store, api, slug); }, [store, api, slug, hosted, named]);
+  const commits = useBranch(store).commits;
+  const gone = (a: NoteAnswer) => Boolean(a.commit && commits && !findCommit(commits, a.commit.sha));
   // The notes put back with Ask again (by number), for this answer only.
   const [again, setAgain] = useState<ReadonlySet<number>>(() => new Set());
 
@@ -66,19 +77,21 @@ function AskedLines({ asked, onOpen }: AskedProps) {
 
   return (
     <section className="jp2-asked" aria-label="What you asked">
-      <p className="jp2-asked-h">What you asked · {asked.done} of {asked.total} done</p>
+      <p className="jp2-asked-h" title="As the Foreman reports it: Starbase doesn’t check each answer.">What you asked · the Foreman says {asked.done} of {asked.total} done</p>
       <ul className="jp2-asked-l">
         {asked.notes.map((a) => {
+          const missing = gone(a);
           const words = (
             <>
               <span className={`jp2-asked-tag${a.done ? '' : ' is-not'}`}>{tagOf(a)}</span>
               <span className="jp2-asked-note">{a.note}</span>
               <span className="jp2-asked-what">{a.what}</span>
+              {missing && <span className="jp2-asked-warn">Commit {a.commit!.sha} is not on this branch</span>}
             </>
           );
           return (
             <li key={a.n} className={`jp2-asked-i ${a.done ? 'is-done' : 'is-not'}`}>
-              {a.target
+              {a.target && !missing
                 ? <button type="button" className="jp2-asked-open" title={titleOf(a)} onClick={(e) => open(a, e.currentTarget)}>{words}</button>
                 : <div className="jp2-asked-open is-static">{words}</div>}
               {!a.done && a.ask && (again.has(a.n)

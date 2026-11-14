@@ -31,3 +31,10 @@ button.jp2-asked-open:focus-visible { outline: 2px solid var(--focus-ring); outl
 .jp2-dd-l.is-add::before, .jp2-dd-l.is-del::before { position: absolute; left: 7px; color: var(--text-2); }
 .jp2-dd-l.is-add::before { content: '+'; }
 .jp2-dd-l.is-del::before { content: '−'; }
+
+/* A commit or file the Foreman names that is not there (What you asked, Changes) */
+.jp2-asked-warn { flex-basis: 100%; font-size: 12px; line-height: 16px; font-weight: 600; color: var(--status-error); }
+.jp2-ch-gone { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 16px; }
+.jp2-ch-nofile { margin: 0; padding: 6px 10px; font-size: 13px; line-height: 18px; }
+/* A long What changed draws in chunks the browser skips while out of view (as Changes' .jp2-dl-chunk) */
+.jp2-dd-chunk { display: flex; flex-direction: column; content-visibility: auto; contain-intrinsic-block-size: auto 3800px; }

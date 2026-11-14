@@ -11,6 +11,8 @@
 //   again, and the browser skips the ones out of view (content-visibility), so 5,000 lines never
 //   freeze the reader.
 // - On the website the commits stay on the laptop (plan decision 8): one line, nothing asked.
+// - A commit or file named elsewhere (What you asked: a short sha, a file name) that is not there is
+//   said plainly (`Commit abc1234 is not on this branch.`); the newest commit is never shown in its place.
 
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { BRAND } from '../../app/brand';
@@ -18,7 +20,7 @@ import { Button } from '../../components/Button';
 import { useWorkshop } from '../../state/store';
 import { sinceWords } from '../left/YourMove';
 import { useJob, useJobStore } from '../useJob';
-import { loadCommits, loadDiff, setPick, useBranch, type BranchCommit, type BranchFile } from './branch';
+import { findCommit, findFile, loadCommits, loadDiff, setPick, useBranch, type BranchCommit, type BranchFile } from './branch';
 import { ReaderBody } from './ReaderBody';
 
 /** Lines in one chunk of a diff, and how many draw at first. */
@@ -26,10 +28,6 @@ export const DIFF_CHUNK = 200;
 export const DIFF_FIRST_LINES = 2 * DIFF_CHUNK;
 
 const nameOf = (p: string) => p.split('/').pop() ?? p;
-/** The picked commit: by its sha, or by a short sha as the Foreman writes it (What you asked, Task 18). */
-const pickedCommit = (commits: BranchCommit[], sha: string | null) => (sha ? commits.find((c) => c.sha === sha) ?? (sha.length >= 7 ? commits.find((c) => c.sha.startsWith(sha)) : undefined) : undefined);
-/** The picked file: by its path, or by the end of it (`EmployeesTable.tsx`, `src/EmployeesTable.tsx`). */
-const pickedFile = (files: BranchFile[], path: string | null) => (path ? files.find((f) => f.path === path) ?? files.find((f) => f.path.endsWith(`/${path}`)) : undefined);
 const folderOf = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
 
 export function ChangesView() {
@@ -43,7 +41,10 @@ export function ChangesView() {
   useEffect(() => { if (!hosted) void loadCommits(store, api, slug); }, [store, api, slug, hosted]);
 
   const commits = branch.commits ?? [];
-  const commit = pickedCommit(commits, branch.pick.sha) ?? commits[0] ?? null;
+  const found = findCommit(commits, branch.pick.sha);
+  // A commit named (by the Foreman, What you asked) that is not on the branch: said plainly, never the newest in its place.
+  const missing = branch.pick.sha && branch.commits && commits.length && !found ? branch.pick.sha : null;
+  const commit = missing ? null : found ?? commits[0] ?? null;
   // The newest commit's diff, fetched ahead of any pick.
   useEffect(() => { if (!hosted && commit) void loadDiff(store, api, slug, commit.sha); }, [store, api, slug, hosted, commit?.sha]);
   // The commit first shown stays shown: a newer one arriving on the list's re-read never replaces what he reads.
@@ -61,7 +62,9 @@ export function ChangesView() {
 
   const diff = commit ? branch.diffs.get(commit.sha) ?? null : null;
   const files: BranchFile[] = commit && commit.files.length ? commit.files : diff?.files.length ? diff.files : (diff?.patchFiles ?? []).map((f) => ({ path: f.path, added: null, removed: null }));
-  const path = pickedFile(files, branch.pick.path)?.path ?? files[0]?.path ?? null;
+  const named = findFile(files, branch.pick.path);
+  const path = named?.path ?? files[0]?.path ?? null;
+  const noFile = branch.pick.path && files.length && !named ? branch.pick.path : null;
   const pickCommit = (c: BranchCommit) => setPick(store, { sha: c.sha, path: null });
   const pickFile = (p: string) => setPick(store, { sha: commit?.sha ?? null, path: p });
 
@@ -72,12 +75,22 @@ export function ChangesView() {
           <CommitRow key={c.sha} c={c} on={c.sha === commit?.sha} onPick={pickCommit} onAhead={(x) => void loadDiff(store, api, slug, x.sha)} />
         ))}
       </div>
-      <div className="jp2-ch-p">
-        <FileList files={files} on={path} onPick={pickFile} />
-        <DiffColumn place={commit ? `${commit.sha}:${path ?? ''}` : ''}>
-          {commit && <Diff sha={commit.sha} path={path} onAgain={() => void loadDiff(store, api, slug, commit.sha)} />}
-        </DiffColumn>
-      </div>
+      {missing ? (
+        <div className="jp2-ch-p">
+          <div className="jp2-ch-gone">
+            <p className="jp2-notyet jp2-ch-missing" role="status">Commit {missing} is not on this branch.</p>
+            <Button size="sm" onClick={() => setPick(store, { sha: commits[0].sha, path: null })} title="Show the branch's newest commit.">Show the newest commit</Button>
+          </div>
+        </div>
+      ) : (
+        <div className="jp2-ch-p">
+          <FileList files={files} on={path} onPick={pickFile} />
+          <DiffColumn place={commit ? `${commit.sha}:${path ?? ''}` : ''}>
+            {noFile && <p className="jp2-dim jp2-ch-nofile" role="status">{noFile} is not in this commit. Showing its first file.</p>}
+            {commit && <Diff sha={commit.sha} path={path} onAgain={() => void loadDiff(store, api, slug, commit.sha)} />}
+          </DiffColumn>
+        </div>
+      )}
     </ReaderBody>
   );
 }

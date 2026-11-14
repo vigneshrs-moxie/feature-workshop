@@ -309,3 +309,26 @@ describe('Task 18: opened from What you asked', () => {
     expect(file.getAttribute('title') ?? file.textContent).toMatch(/offices/);
   });
 });
+
+describe('Task 18 fix round 1: a commit or file the Foreman names that is not there', () => {
+  it('a commit not on the branch says so plainly; nothing else is shown in its place until he asks for the newest', async () => {
+    const o = open();
+    act(() => { setPick(o.store, { sha: 'deadbee', path: 'EmployeesTable.tsx' }); });
+    await settle();
+    expect(q('.jp2-ch-missing')!.textContent).toBe('Commit deadbee is not on this branch.');
+    expect(qa('.jp2-ch-c').some((r) => r.getAttribute('aria-current') === 'true')).toBe(false);
+    expect(q('.jp2-ch-f')).toBeNull();
+    expect(diffAsks(o.get)).toEqual([]);
+    act(() => { fireEvent.click([...document.querySelectorAll('button')].find((b) => b.textContent === 'Show the newest commit')!); });
+    await settle();
+    expect(q('.jp2-ch-missing')).toBeNull();
+    expect(qa('.jp2-ch-c')[0].getAttribute('aria-current')).toBe('true');
+  });
+
+  it('a file not in the picked commit says so above the first file', async () => {
+    const o = open();
+    act(() => { setPick(o.store, { sha: 'b81b49e', path: 'EmployeesTable.tsx' }); });
+    await settle();
+    expect(q('.jp2-ch-nofile')!.textContent).toBe('EmployeesTable.tsx is not in this commit. Showing its first file.');
+  });
+});

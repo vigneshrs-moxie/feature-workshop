@@ -132,6 +132,11 @@ export function loadDiff(store: JobStore, api: ApiClient, slug: string, sha: str
   return ask;
 }
 
+/** A commit by its sha, or by a short sha as the Foreman writes it (What you asked, Task 18); undefined when it is not on the branch. */
+export const findCommit = (commits: BranchCommit[], sha: string | null): BranchCommit | undefined => (sha ? commits.find((c) => c.sha === sha) ?? (sha.length >= 7 ? commits.find((c) => c.sha.startsWith(sha.toLowerCase())) : undefined) : undefined);
+/** A file by its path, or by the end of it (`EmployeesTable.tsx`, `src/EmployeesTable.tsx`). */
+export const findFile = (files: BranchFile[], path: string | null): BranchFile | undefined => (path ? files.find((f) => f.path === path) ?? files.find((f) => f.path.endsWith(`/${path}`)) : undefined);
+
 /** Remember what Changes shows (it is drawn fresh each time it opens). */
 export function setPick(store: JobStore, pick: Branch['pick']) {
   const h = heldOf(store);

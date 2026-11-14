@@ -8,7 +8,8 @@ import { clearAllSent } from '../../lib/sentState';
 import { clearGateSent } from '../../panes/Foreman/gateSent';
 import { chipText, openNotes, PLAN, reader, settle } from '../fixtures/notesPage';
 import { notesKey, type PageNote } from '../jobStore';
-import { useBranch } from '../reader/branch';
+import type { ApiClient } from '../../api/client';
+import { loadCommits, useBranch } from '../reader/branch';
 import { forgetRecentPages } from '../recent';
 import type { JobPagePayload, NoteAnswer } from '../types';
 import { forgetSentGo } from './YourMove';
@@ -44,12 +45,12 @@ describe('What you asked', () => {
     expect(document.querySelector('.jp2-ym-one')).not.toBeNull();
   });
 
-  it('shows `What you asked · 3 of 3 done` in Your move’s slot, one line per note: the note, then what changed', async () => {
+  it('shows `What you asked · the Foreman says 3 of 3 done` in Your move’s slot, one line per note: the note, then what changed', async () => {
     openNotes({ read: null, patch: withAsked(DONE3) });
     await settle();
     const box = asked()!;
     expect(box.closest('.jp2-ym')).not.toBeNull();
-    expect(within(box).getByText('What you asked · 3 of 3 done')).toBeTruthy();
+    expect(within(box).getByText('What you asked · the Foreman says 3 of 3 done')).toBeTruthy();
     expect(lines().map((l) => [l.querySelector('.jp2-asked-note')!.textContent, l.querySelector('.jp2-asked-what')!.textContent])).toEqual([
       ['use the existing badge', 'Implementation plan v2 · step S1 now uses the badge'],
       ['a smaller badge', 'commit abc1234 · EmployeesTable.tsx'],
@@ -80,7 +81,7 @@ describe('What you asked', () => {
   it('a note not done says why and has Ask again, which puts that note back as a chip (once)', async () => {
     openNotes({ read: null, patch: withAsked([DONE3[0], DONE3[1], NOT_DONE]) });
     await settle();
-    expect(within(asked()!).getByText('What you asked · 2 of 3 done')).toBeTruthy();
+    expect(within(asked()!).getByText('What you asked · the Foreman says 2 of 3 done')).toBeTruthy();
     const line = lines()[2];
     expect(line.classList.contains('is-not')).toBe(true);
     expect(line.querySelector('.jp2-asked-what')!.textContent).toBe('needs your answer: keep the PDF export for admins?');
@@ -102,5 +103,19 @@ describe('What you asked', () => {
     expect(card).not.toBeNull();
     expect(card.compareDocumentPosition(asked()!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByRole('button', { name: /^Go(?! faster)/ })).toBeTruthy();
+  });
+});
+
+describe('Task 18 fix round 1: a commit the Foreman names that is not on the branch', () => {
+  it('its line says so and opens nothing; a commit that is there stays a link', async () => {
+    const o = openNotes({ read: null, patch: withAsked([DONE3[1], { ...DONE3[1], n: 4, note: 'the real one', what: 'commit b81b49e · week.ts', commit: { sha: 'b81b49e', file: 'week.ts' } }]) });
+    await settle();
+    const commits = [{ sha: 'b81b49e7f5a657e2d701ccca3e5a3a455ed7b41b', short: 'b81b49e7', subject: 's', date: null, files: [{ path: 'app/offices/week.ts', added: 1, removed: 0 }] }];
+    await act(async () => { await loadCommits(o.store, { get: async () => ({ commits }) } as unknown as ApiClient, SLUG); });
+    const [gone, there] = lines();
+    expect(within(gone).queryByRole('button')).toBeNull();
+    expect(gone.querySelector('.jp2-asked-warn')!.textContent).toBe('Commit abc1234 is not on this branch');
+    expect(within(there).getByRole('button', { name: /the real one/ })).toBeTruthy();
+    expect(there.querySelector('.jp2-asked-warn')).toBeNull();
   });
 });

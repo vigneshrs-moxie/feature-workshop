@@ -90,3 +90,23 @@ describe('What changed since v2', () => {
     p.unmount();
   });
 });
+
+describe('Task 18 fix round 1: a long What changed draws in chunks', () => {
+  it('the first 400 lines at once in chunks the browser can skip, the next on Show the next', async () => {
+    const many = (f: (i: number) => string) => Array.from({ length: 1000 }, (_, i) => f(i)).join('\n');
+    const now: JobBody = { ...NOW, text: many((i) => (i % 100 === 0 ? `changed ${i}` : `line ${i}`)) };
+    const old: JobBody = { ...OLD, text: many((i) => `line ${i}`) };
+    openNotes({ patch: withV2, bodies: { [PLAN]: now, [OLD_ID]: old } });
+    await settle();
+    act(() => { fireEvent.click(toggle()!); });
+    await settle();
+    const chunks = () => [...reader().querySelectorAll('.jp2-dd .jp2-dd-chunk')];
+    expect(chunks()).toHaveLength(2);
+    expect(reader().querySelectorAll('.jp2-dd-l')).toHaveLength(400);
+    const more = screen.getByRole('button', { name: /^Show the next 400 lines/ });
+    act(() => { fireEvent.click(more); });
+    await settle();
+    expect(reader().querySelectorAll('.jp2-dd-l')).toHaveLength(800);
+    expect(reader().querySelector('.jp2-dd-sum')!.textContent).toBe('Since v2: 10 lines added, 10 removed');
+  });
+});
