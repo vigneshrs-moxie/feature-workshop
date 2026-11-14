@@ -41,13 +41,51 @@ import { liveViewer, onLiveEvent } from '../state/live';
 import { isSame, jobApi, type JobApi } from './api';
 import type { JobBody, JobPagePayload, ReaderTarget, StopId } from './types';
 
-/** A note pinned to something on the page (R4, Task 17 adds what it does). */
+/** What a note does (R4): change, drop and pin gather as chips; explain goes at once (Explained). */
+export type NoteKind = 'change' | 'drop' | 'explain' | 'pin';
+
+/** What finds a pointed block again: its words (one line, at most 300), and the version of what it was on. */
+export interface BlockAnchor {
+  text: string;
+  /** A document's version ('2') when it was pointed at, else null. */
+  version: string | null;
+  /** The body's text hash when it was pointed at (a document's), else null. */
+  hash: string | null;
+  /** A block that is not found by its words (a diff line): its own key (notes/Pointable.tsx keyOf). */
+  key?: string | null;
+}
+
+/** A note pinned to something on the page (R4, Task 17): it goes in the notes block (notes/chips.ts). */
 export interface PageNote {
+  /** Its own number on this job (never reused while it is kept). */
   n: number;
+  kind: NoteKind;
+  /** Where it is in the reader; null: nowhere to jump to. */
   target: ReaderTarget | null;
-  /** The words pointed at, when a part of a text was picked. */
+  /** The place as the Foreman reads it: the document and version, then the step, line or heading; a pin: the picture. */
+  place: string;
+  /** The chip's short words for the place (`Plan step 4`, `EmployeesTable.tsx:88`, `Recording 0:14`). */
+  chip: string;
+  /** The words pointed at, when a part of a text was picked (or the block's own words). */
   quote: string | null;
   note: string;
+  block?: BlockAnchor | null;
+  /** A pin on a picture: its number, where (per cent from the top left) and the picture's key. */
+  pin?: { n: number; x: number; y: number; picture: string } | null;
+}
+
+/** An `Explain` he sent at once: its answer opens beside the block when the Foreman's reply brings it. */
+export interface Explained {
+  n: number;
+  target: ReaderTarget | null;
+  place: string;
+  quote: string | null;
+  block: BlockAnchor | null;
+  /** The last conversation line when it was sent: the answer is in a reply after it. */
+  after: string | null;
+  /** The answer once read; `line`: the reply that had it (or that answered without the block). */
+  answer: string | null;
+  line: string | null;
 }
 
 /** The page's own state: what he opened, picked and typed. */
@@ -77,6 +115,10 @@ export interface JobPageState {
   ui: JobUi;
   /** Words given back to the draft from something the website queued that never ran: why, in plain words. */
   gaveBack: { n: number; line: string } | null;
+  /** Every Explain he sent on this job, oldest first (kept in this browser with the notes). */
+  explains: Explained[];
+  /** A note's place the reader should show (a chip was clicked): its number and a count, so a second click seeks again. */
+  seek: { n: number; at: number } | null;
 }
 
 export interface JobStore {
@@ -98,7 +140,12 @@ export interface JobStore {
   setPick(questionId: string, optionId: string | null): void;
   /** His own answer to a question. */
   setOwn(questionId: string, words: string): void;
+  /** The notes (kept in this browser under notesKey, so a reload finds them). */
   setNotes(notes: PageNote[]): void;
+  /** The Explains sent (kept with the notes). */
+  setExplains(explains: Explained[]): void;
+  /** Ask the reader to show a note's place (null: done). */
+  setSeek(n: number | null): void;
   setDraft(draft: string): void;
   /** Follow a decision the website queued, by its id, and give `words` back to the draft if it never runs. */
   watchQueued(id: string, words: string): void;
@@ -133,6 +180,26 @@ export const browserDrafts: DraftStorage = { read: readStored, write: writeStore
 
 /** The old page's key for a job's unsent draft (panes/Foreman/Composer.tsx draftKey). */
 export const draftKey = (slug: string) => `fw.draft.${slug}`;
+/** This page's key for a job's notes not sent yet and the Explains sent (R4): { notes, explains }. */
+export const notesKey = (slug: string) => `sb.notes.${slug}`;
+
+const isNote = (x: unknown): x is PageNote => isObject(x) && typeof x.n === 'number' && typeof x.kind === 'string' && typeof x.place === 'string' && typeof x.chip === 'string' && typeof x.note === 'string';
+const isExplained = (x: unknown): x is Explained => isObject(x) && typeof x.n === 'number' && typeof x.place === 'string';
+
+/** The notes and Explains kept for a job, or none (anything unreadable is left out). */
+export function readNotes(drafts: DraftStorage | null, slug: string): { notes: PageNote[]; explains: Explained[] } {
+  const raw = drafts?.read(notesKey(slug));
+  if (!raw) return { notes: [], explains: [] };
+  try {
+    const v = JSON.parse(raw) as { notes?: unknown; explains?: unknown };
+    return {
+      notes: Array.isArray(v.notes) ? v.notes.filter(isNote) : [],
+      explains: Array.isArray(v.explains) ? v.explains.filter(isExplained) : [],
+    };
+  } catch {
+    return { notes: [], explains: [] };
+  }
+}
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 const PAGE_ERROR = 'Couldn’t load this job: ';
@@ -266,7 +333,9 @@ export function createJobStore(slug: string, { api = createApi(), events = onLiv
   const reads: JobApi = 'page' in api ? api : jobApi(api);
   const client = 'page' in api ? null : api;
   const keptDraft = drafts?.read(draftKey(slug)) ?? '';
-  let state: JobPageState = { slug, payload: initial && initial.slug === slug ? initial : null, bodies: {}, error: null, ui: keptDraft ? { ...EMPTY_UI, draft: keptDraft } : EMPTY_UI, gaveBack: null };
+  const kept = readNotes(drafts, slug);
+  const ui0 = keptDraft || kept.notes.length ? { ...EMPTY_UI, draft: keptDraft, notes: kept.notes.length ? kept.notes : EMPTY_UI.notes } : EMPTY_UI;
+  let state: JobPageState = { slug, payload: initial && initial.slug === slug ? initial : null, bodies: {}, error: null, ui: ui0, gaveBack: null, explains: kept.explains, seek: null };
   /** Decisions the website queued with his words, by id: the words, and whether the payload has shown it. */
   const watched = new Map<string, { words: string; seen: boolean }>();
   let gaveBackN = 0;
@@ -310,6 +379,12 @@ export function createJobStore(slug: string, { api = createApi(), events = onLiv
       out = { ...out, ui: { ...out.ui, draft }, gaveBack: { n: ++gaveBackN, line: `Not sent: ${/[.!?]$/.test(why) ? why : `${why}.`} Your words are back in the box.` } };
     }
     return out;
+  }
+
+  /** Keep the notes and Explains in this browser (notesKey), or forget them when there are none. */
+  function writeNotes(notes: PageNote[], explains: Explained[]) {
+    if (!drafts) return;
+    drafts.write(notesKey(slug), notes.length || explains.length ? JSON.stringify({ notes, explains }) : null);
   }
 
   /** Keep the draft in this browser (the old page's key). */
@@ -473,7 +548,20 @@ export function createJobStore(slug: string, { api = createApi(), events = onLiv
     },
     forGate(key) { if (state.ui.picksFor !== key) setUi({ picksFor: key, picks: {}, own: {} }); },
     setOwn(questionId, words) { if (state.ui.own[questionId] !== words) setUi({ own: { ...state.ui.own, [questionId]: words } }); },
-    setNotes(notes) { if (state.ui.notes !== notes) setUi({ notes }); },
+    setNotes(notes) {
+      if (state.ui.notes === notes) return;
+      writeNotes(notes, state.explains);
+      setUi({ notes });
+    },
+    setExplains(explains) {
+      if (state.explains === explains) return;
+      writeNotes(state.ui.notes, explains);
+      set({ ...state, explains });
+    },
+    setSeek(n) {
+      if (n === null ? state.seek === null : false) return;
+      set({ ...state, seek: n === null ? null : { n, at: (state.seek?.at ?? 0) + 1 } });
+    },
     setDraft(draft) {
       if (state.ui.draft === draft) return;
       writeDraft(draft);

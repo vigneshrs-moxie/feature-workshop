@@ -7,7 +7,7 @@ import type { ApiClient } from '../api/client';
 import type { LiveEvent } from '../api/types';
 import { longJob } from './fixtures/longJob';
 import type { JobApi } from './api';
-import { createJobStore, prefetchOrder } from './jobStore';
+import { createJobStore, notesKey, prefetchOrder, type DraftStorage, type PageNote } from './jobStore';
 import type { JobBody, JobPagePayload, SamePage } from './types';
 
 const SLUG = longJob.payload.slug;
@@ -390,12 +390,12 @@ describe('job store: the page’s own state', () => {
     store.setPick('1', 'a');
     store.setPick('2', 'b');
     store.setPick('2', null);
-    store.setNotes([{ n: 1, target: { kind: 'doc', id: 'spec' }, quote: 'the week picker', note: 'Say which week.' }]);
+    store.setNotes([{ n: 1, kind: 'change', target: { kind: 'doc', id: 'spec' }, place: 'Spec v1 · paragraph 2', chip: 'Spec paragraph 2', quote: 'the week picker', note: 'Say which week.' }]);
     store.setDraft('Looks right');
     const ui = store.getState().ui;
     expect(ui).toEqual({
       step: 'test', reader: { kind: 'doc', id: 'test-report.md' }, picksFor: null, picks: { 1: 'a' }, own: {},
-      notes: [{ n: 1, target: { kind: 'doc', id: 'spec' }, quote: 'the week picker', note: 'Say which week.' }], draft: 'Looks right',
+      notes: [{ n: 1, kind: 'change', target: { kind: 'doc', id: 'spec' }, place: 'Spec v1 · paragraph 2', chip: 'Spec paragraph 2', quote: 'the week picker', note: 'Say which week.' }], draft: 'Looks right',
     });
     expect(store.getState().payload).toBe(payload);
 
@@ -781,5 +781,49 @@ describe('job store: Task 11 fix round 3, a decision that leaves the list', () =
     await store.loadPage();
     expect(store.getState().ui.draft).toBe('Typed since\nWords for it');
     expect(store.getState().gaveBack?.line).toBe('Not sent: Cancelled on the website. Your words are back in the box.');
+  });
+});
+
+describe('job store: notes survive a reload (Task 17, R4)', () => {
+  const memory = (): DraftStorage & { map: Map<string, string> } => {
+    const map = new Map<string, string>();
+    return { map, read: (k) => map.get(k) ?? null, write: (k, v) => { if (v === null) map.delete(k); else map.set(k, v); } };
+  };
+  const NOTE: PageNote = { n: 1, kind: 'drop', target: { kind: 'doc', id: 'spec' }, place: 'Spec v3 · acceptance line 6', chip: 'Spec acceptance line 6', quote: 'Export as PDF', note: '', block: { text: 'Export as PDF', version: '3', hash: 'h3' } };
+
+  it('a new store for the same job finds the notes and the Explains the last one kept; none kept: the key goes', async () => {
+    const s = server();
+    const drafts = memory();
+    const one = createJobStore(SLUG, { api: s.api, events: stream().events, drafts });
+    one.setNotes([NOTE]);
+    one.setExplains([{ n: 2, target: null, place: 'Plan v2 · step 4', quote: null, block: null, after: 'reply:x', answer: null, line: null }]);
+    expect(JSON.parse(drafts.map.get(notesKey(SLUG))!)).toMatchObject({ notes: [NOTE], explains: [{ n: 2 }] });
+    one.destroy();
+    const two = createJobStore(SLUG, { api: s.api, events: stream().events, drafts });
+    expect(two.getState().ui.notes).toEqual([NOTE]);
+    expect(two.getState().explains).toMatchObject([{ n: 2, after: 'reply:x' }]);
+    two.setNotes([]);
+    two.setExplains([]);
+    expect(drafts.map.has(notesKey(SLUG))).toBe(false);
+  });
+
+  it('kept notes that cannot be read are left out, and the page still opens', () => {
+    const drafts = memory();
+    drafts.write(notesKey(SLUG), '{not json');
+    expect(createJobStore(SLUG, { api: server().api, events: stream().events, drafts }).getState().ui.notes).toEqual([]);
+    drafts.write(notesKey(SLUG), JSON.stringify({ notes: [NOTE, { n: 'x' }], explains: 'no' }));
+    const store = createJobStore(SLUG, { api: server().api, events: stream().events, drafts });
+    expect(store.getState().ui.notes).toEqual([NOTE]);
+    expect(store.getState().explains).toEqual([]);
+  });
+
+  it('a seek counts up, so a second click on the same chip seeks again', () => {
+    const store = createJobStore(SLUG, { api: server().api, events: stream().events });
+    store.setSeek(3);
+    const first = store.getState().seek;
+    store.setSeek(3);
+    expect(store.getState().seek).toEqual({ n: 3, at: first!.at + 1 });
+    store.setSeek(null);
+    expect(store.getState().seek).toBeNull();
   });
 });
