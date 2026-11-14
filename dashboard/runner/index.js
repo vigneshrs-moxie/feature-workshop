@@ -573,8 +573,9 @@ export async function createRunner(config) {
   // For the background watchers (the flow map, notifications) that all wake on the same change: one
   // load shared between them instead of one each.
   let sharedLoad = null;
-  // A read of GitHub a job's page asked for (prRead: the page opening, Pull now) wakes the same watchers; for a moment
-  // after it they take the job list already held (any age), so one page's read never reads every agent's log again.
+  // A read of GitHub a job's page asked for (prRead: the page opening, Pull now) wakes the same watchers; for 30 seconds
+  // after it they take the job list already held, so one page's read never reads every agent's log again. That list is
+  // never older than the last change: every invalidate() drops it (`cached`), and the next load reads it afresh.
   let heldListUntil = 0;
   const featuresShared = () => (Date.now() < heldListUntil && cached ? Promise.resolve(cached.list) : (sharedLoad ??= features().finally(() => { sharedLoad = null; })));
 

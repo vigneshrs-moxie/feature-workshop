@@ -11,7 +11,7 @@ import path from 'node:path';
 import * as git from '../lib/git.js';
 import {
   answersOf, askMessage, checkMessage, countsOf, createPrComments, fixMessage, hunkLines, linesAround, markCheck, markRows,
-  parseCommentsAnswered, readKept, rowsOf, stateWords,
+  parseCommentsAnswered, readKept, rowsOf, stateWords, RAW_MAX,
 } from '../lib/pr-comments.js';
 
 const roots = [];
@@ -363,4 +363,21 @@ test('final fix S3: the Foreman’s draft to a review or conversation comment st
   assert.equal(draft('r1'), '> A few things before this goes in.\n\nThanks: all done.');
   assert.equal(draft('c2'), 'Renamed.');
   assert.equal(draft('i3'), '> Can we ship Friday?\n\nYes.', 'a draft that quotes already is left as it is');
+});
+
+test('final fix S6: the last GitHub read is kept for at most RAW_MAX jobs, the one read longest ago out', async () => {
+  const dir = await jobDir();
+  const n = RAW_MAX + 2;
+  const slugs = Array.from({ length: n }, (_, i) => `job-${i}`);
+  const stub = { prComments: async () => [], prConversation: async () => [], prChecks: async () => ({ head: null, checks: [] }), failedLog: async () => null, ghLogin: async () => 'you' };
+  const comments = createPrComments({
+    gh: 'gh', git: stub, read: async () => ({ ok: false, out: '' }),
+    jobs: async () => slugs.map((slug) => ({ slug, dir })), wanted: () => true, codeDir: () => null, touch: () => {}, rounds: async () => [],
+  });
+  const view = { repos: [{ prsKnown: true, org: { slug: 'acme/app' }, fork: { slug: 'you/app' }, lanes: slugs.map((slug, i) => ({ slug, pr1: { number: 100 + i, state: 'open' } })) }] };
+  await comments.pass(view);
+  assert.equal(comments.raw.size, RAW_MAX);
+  assert.equal(comments.has('job-0'), false);
+  assert.equal(comments.has('job-1'), false);
+  assert.equal(comments.has(`job-${n - 1}`), true);
 });

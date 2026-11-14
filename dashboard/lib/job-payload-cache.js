@@ -46,6 +46,8 @@ export const REBUILD_MAX_WAIT_MS = 1000;
 export const MAX_JOBS = 16;
 /** How long a slug that is no job answers 404 without a build. */
 export const MISSING_MS = 5000;
+/** The most names kept as "no job" at once: past it, the oldest goes (it is only built again once). */
+export const MISSING_MAX = 200;
 /** What a job folder's name can be: no path parts, not hidden. */
 const SLUG_OK = /^[^./\\][^/\\]{0,199}$/;
 /** A viewer id: the event stream's (site/index.js). */
@@ -68,6 +70,14 @@ export function jobPageCache({ build, onVersion = () => {}, log = console.error,
   let builds = 0;
   let renders = 0;
   const watched = (slug) => { for (const s of watching.values()) if (s === slug) return true; return false; };
+  /** A name that is no job, for missingMs: names past their time go first, then the oldest past MISSING_MAX. */
+  function noJob(slug) {
+    const t = Date.now();
+    for (const [k, until] of missing) if (until <= t) missing.delete(k);
+    missing.delete(slug);
+    missing.set(slug, t + missingMs);
+    while (missing.size > MISSING_MAX) missing.delete(missing.keys().next().value);
+  }
 
   function entryFor(slug) {
     const e = {
@@ -143,7 +153,7 @@ export function jobPageCache({ build, onVersion = () => {}, log = console.error,
         return;
       }
       if (entries.get(e.slug) !== e) { if (!e.payload) e.reject(new HttpError(503, 'The job page was busy. Try again.')); return; } // gone meanwhile
-      if (!out) { drop(e); missing.set(e.slug, Date.now() + missingMs); e.reject(new HttpError(404, NO_JOB)); return; }
+      if (!out) { drop(e); noJob(e.slug); e.reject(new HttpError(404, NO_JOB)); return; }
       apply(e, out);
     })().finally(() => {
       e.building = null;

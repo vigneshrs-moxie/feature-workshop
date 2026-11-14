@@ -361,6 +361,9 @@ const FILE = /^(?!-)(?!.*\.\.)[^\0:]{1,400}$/;
  *   rounds(dir)        lib/review-round.js readRounds
  *   now()
  */
+/** The most jobs whose last GitHub read is kept (the page's cache keeps 16): past it, the one read longest ago goes. */
+export const RAW_MAX = 32;
+
 export function createPrComments(deps) {
   const now = deps.now ?? (() => Date.now());
   const raw = new Map(); // slug → Map(number → { n, number, url, head, comments, conversation, checks, readAt, problem })
@@ -434,8 +437,12 @@ export function createPrComments(deps) {
           if (!p?.number || !['open', 'draft'].includes(p.state)) continue;
           prs.set(p.number, await readPr(f, repo, n, p));
         }
+        // Newest last (a job read again moves to the end); past RAW_MAX the job read longest ago goes, with its logins
+        // and its last answer (a job evicted from the page's cache is read again when it is opened).
+        raw.delete(f.slug);
         raw.set(f.slug, prs);
         meOf.set(f.slug, [r.fork?.slug?.split('/')[0], ...(Array.isArray(me) ? me : [me])].filter(Boolean));
+        while (raw.size > RAW_MAX) { const old = raw.keys().next().value; raw.delete(old); meOf.delete(old); last.delete(old); }
         await updateKept(f.dir, (data) => { data.readAt = new Date(now()).toISOString(); }).catch(() => {});
         deps.touch?.(f.slug);
       }

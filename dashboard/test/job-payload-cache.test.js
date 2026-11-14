@@ -5,7 +5,7 @@
 
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { jobPageCache, itemSources, ticketMarkdown, REBUILD_DELAY_MS, REBUILD_MAX_WAIT_MS, MISSING_MS } from '../lib/job-payload-cache.js';
+import { jobPageCache, itemSources, ticketMarkdown, REBUILD_DELAY_MS, REBUILD_MAX_WAIT_MS, MISSING_MS, MISSING_MAX } from '../lib/job-payload-cache.js';
 import { longJobPage } from './fixtures/long-job.js';
 import { renderMarkdown } from '../lib/markdown.js';
 
@@ -510,5 +510,18 @@ test('Task 23 fix round 2: a commit list read that a newer rebuild overtakes sti
     assert.deepEqual(cache.commits('job-a'), { n: 1 }, 'the overtaken read still gives a list (none was kept before)');
     releases[1]();
     assert.deepEqual(await ready, { n: 2 }, 'commitsReady waits until no read is out');
+  } finally { cache.close(); }
+});
+
+test('final fix S6: the names kept as no job are capped, the oldest out', async () => {
+  const s = store();
+  const cache = jobPageCache({ build: s.build });
+  try {
+    for (let i = 0; i <= MISSING_MAX; i++) await assert.rejects(cache.page(`nope-${i}`), (err) => err.status === 404);
+    assert.equal(s.builds, MISSING_MAX + 1);
+    await assert.rejects(cache.page(`nope-${MISSING_MAX}`), (err) => err.status === 404);
+    assert.equal(s.builds, MISSING_MAX + 1, 'the newest is still known to be no job');
+    await assert.rejects(cache.page('nope-0'), (err) => err.status === 404);
+    assert.equal(s.builds, MISSING_MAX + 2, 'the oldest went: looked for again');
   } finally { cache.close(); }
 });
