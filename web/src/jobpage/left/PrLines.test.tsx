@@ -279,7 +279,7 @@ describe('the glance layout: where the PR lines show', () => {
 describe('the deciding arrangement: the PR lines while a decision waits at Ship', () => {
   it('on a laptop no step panel; one PR lines tab over the reader opens them there, with their button', async () => {
     const p = payload({ ship: true });
-    p.move = { ...clone(longJob.payload.move), stage: 'ship' } as unknown as JobPagePayload['move'];
+    p.move = { ...payload().move!, stage: 'ship' } as JobPagePayload['move'];
     open(p);
     await settle();
     expect(document.querySelector('.jp2-sp')).toBeNull();
