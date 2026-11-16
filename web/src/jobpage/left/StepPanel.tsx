@@ -59,7 +59,7 @@ function Outputs({ list, target, onOpen, empty }: { list: StepRow['outputs']; ta
         const meta = outMeta(o);
         return (
           <li key={`${o.kind}:${o.id}`}>
-            <button type="button" className={`jp2-row jp2-st-out${sameTarget(t, target) ? ' is-sel' : ''}`} onClick={(e) => onOpen(t, e.currentTarget)}>
+            <button type="button" className={`jp2-row jp2-st-out${sameTarget(t, target) ? ' is-sel' : ''}`} aria-pressed={sameTarget(t, target)} data-jp-toggle="" onClick={(e) => onOpen(t, e.currentTarget)}>
               <span className="jp2-out-label">{o.label}</span>
               {meta && <span className="jp2-out-meta">{meta}</span>}
             </button>

@@ -85,7 +85,7 @@ export function ShipOutputs({ step, target, onOpen }: { step: StepRow; target: R
             const meta = outMeta(o);
             return (
               <li key={`${o.kind}:${o.id}`}>
-                <button type="button" className={`jp2-row jp2-st-out${sameTarget(t, target) ? ' is-sel' : ''}`} onClick={(e) => onOpen(t, e.currentTarget)}>
+                <button type="button" className={`jp2-row jp2-st-out${sameTarget(t, target) ? ' is-sel' : ''}`} aria-pressed={sameTarget(t, target)} data-jp-toggle="" onClick={(e) => onOpen(t, e.currentTarget)}>
                   <span className="jp2-out-label">{o.label}</span>
                   {meta && <span className="jp2-out-meta">{meta}</span>}
                 </button>
@@ -146,6 +146,7 @@ export const Steps = memo(function Steps({ job, cursor, onStep, onOpen, phone = 
               type="button"
               className={`jp2-row jp2-st-row is-${s.state}${isOpen ? ' is-open' : ''}${s.id === marked ? ' is-sel' : ''}${cursor === i ? ' is-cursor' : ''}`}
               data-jp-line={i}
+              data-jp-toggle={across ? '' : undefined}
               aria-expanded={lists || undefined}
               aria-current={s.id === here ? 'step' : undefined}
               onClick={(e) => onStep(s.id, e.currentTarget)}

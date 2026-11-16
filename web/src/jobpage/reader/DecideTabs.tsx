@@ -17,6 +17,11 @@ function briefTab(p: JobPagePayload): Tab | null {
   return { t: { kind: 'brief', id: line.id }, label: line.headline.split(' · ')[0] || 'Brief', meta: null };
 }
 
+/** The brief a waiting decision comes from (the first tab): what a second pick of another tab goes back to. */
+export function briefTarget(p: JobPagePayload | null): ReaderTarget | null {
+  return p ? briefTab(p)?.t ?? null : null;
+}
+
 /** The tabs: the brief, then what the picked step (else the current one) made, then the spec. */
 export function tabsOf(p: JobPagePayload | null, picked: string | null = null): Tab[] {
   if (!p) return [];
@@ -48,7 +53,7 @@ export const DecideTabs = memo(function DecideTabs({ onOpen }: DecideTabsProps) 
       {tabs.map((x) => {
         const on = sameTarget(x.t, target);
         return (
-          <button key={`${x.t.kind}:${x.t.id}`} type="button" role="tab" aria-selected={on} className={`jp2-dtab${on ? ' is-on' : ''}`} onClick={(e) => onOpen(x.t, e.currentTarget)}>
+          <button key={`${x.t.kind}:${x.t.id}`} type="button" role="tab" aria-selected={on} data-jp-toggle="" className={`jp2-dtab${on ? ' is-on' : ''}`} onClick={(e) => onOpen(x.t, e.currentTarget)}>
             {x.label}
             {x.meta && <span className="jp2-dtab-meta">{x.meta}</span>}
           </button>

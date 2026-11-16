@@ -338,6 +338,8 @@ describe('the conversation: one line per item, grouped by step and day', () => {
     expect(convo().querySelectorAll('.jp2-cv-group').length).toBeGreaterThan(3);
     expect(reader().querySelector('[data-view="conversation"]')).toBeNull();
     const box = within(column()).getByRole('searchbox', { name: 'Search the conversation' });
+    // The row toggles the column (16 Nov): a click hides it, the next shows it with the focus in its search box.
+    fireEvent.click(screen.getByRole('button', { name: /^Conversation · 52/ }));
     fireEvent.click(screen.getByRole('button', { name: /^Conversation · 52/ }));
     expect(document.activeElement).toBe(box);
     expect(reader().querySelector('[data-view="conversation"]')).toBeNull();

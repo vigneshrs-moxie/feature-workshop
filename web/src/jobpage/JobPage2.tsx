@@ -52,7 +52,7 @@ import { PhoneStep } from './phone/PhoneStep';
 import { useWorkshop } from '../state/store';
 import { browserDrafts, createJobStore, type JobPageState, type JobStore } from './jobStore';
 import { recentPage, rememberPage } from './recent';
-import { CONVERSATION, DECISIONS, DETAILS, TICKET } from './targets';
+import { CONVERSATION, DECISIONS, DETAILS, readerBesideConvo, sameTarget, TICKET } from './targets';
 import type { JobPagePayload, ReaderTarget, StopId } from './types';
 import { Header } from './left/Header';
 import { JobRows } from './left/JobRows';
@@ -65,7 +65,7 @@ import { branchOf, loadCommits, loadDiff } from './reader/branch';
 import { ConversationView, stepLine } from './reader/ConversationView';
 import { StepPanel } from './left/StepPanel';
 import { stateFromRow } from './left/Header';
-import { DecideTabs } from './reader/DecideTabs';
+import { briefTarget, DecideTabs } from './reader/DecideTabs';
 import { Splitter } from './Splitter';
 import { Reader } from './reader/Reader';
 import { Palette } from './Palette';
@@ -208,6 +208,11 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
   // The conversation's column can be hidden (its message box stays, along the foot); kept in this browser.
   const [convoShown, setConvoShown] = useState(readConvoShown);
   const showConvo = useCallback((on: boolean) => { flushSync(() => setConvoShown(on)); keepConvoShown(on); }, []);
+  /** As of this draw, for pickReader to read without being made again when it changes. */
+  const convoShownRef = useRef(convoShown);
+  convoShownRef.current = convoShown;
+  const decidingRef = useRef(deciding);
+  decidingRef.current = deciding;
   // The phone's screen, from the address (null wider than a phone).
   const screenNow = phone ? phoneScreenOf(step, view, read) : null;
   const moves = usePhoneMoves(slug, screenNow);
@@ -259,15 +264,44 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
     if (layout !== 'wide' && !reader.current?.contains(document.activeElement)) reader.current?.focus();
   }, [layout]);
 
+  /**
+   * A second pick of what the reader shows (a laptop; 16 Nov, "clicking it again should unshow it"):
+   * the reader goes back to what it showed before, the picked step's main output (else what the page
+   * opened on), or the brief while a decision waits. False when there is nothing to go back to.
+   */
+  const unpickReader = useCallback((t: ReaderTarget): boolean => {
+    const s = store.getState();
+    const brief = decidingRef.current ? briefTarget(s.payload) : null;
+    if (brief && !sameTarget(brief, t)) {
+      // The brief is what the page opened on with no step picked: the job's own address then.
+      const plain = !s.ui.step && sameTarget(readerBesideConvo({ ...s, ui: { ...s.ui, reader: null } }), brief);
+      store.setReader(plain ? null : brief);
+      replaceHash(plain ? jobHref(slug) : readHref(slug, brief));
+      return true;
+    }
+    if (brief) return false;
+    if (!s.ui.reader) return false;
+    store.setReader(null);
+    replaceHash(s.ui.step ? stageHref(slug, s.ui.step) : jobHref(slug));
+    return true;
+  }, [store, slug]);
+
   const pickReader = useCallback((t: ReaderTarget, from?: HTMLElement | null) => {
+    // A control marked data-jp-toggle (the job's rows, the tabs, the step panel's rows) toggles: a
+    // pick of what shows un-shows it. A key, a link in what he reads, or ⌘K always shows.
+    const toggles = wide && !!from && from.hasAttribute('data-jp-toggle');
     // A laptop: the conversation is its own column, always there; its pick goes to its search box.
-    if (wide && t.kind === 'conversation') { showConvo(true); search.current?.focus(); return; }
+    if (wide && t.kind === 'conversation') {
+      if (toggles && convoShownRef.current) { showConvo(false); return; }
+      showConvo(true); search.current?.focus(); return;
+    }
+    if (toggles && sameTarget(readerBesideConvo(store.getState()), t)) { unpickReader(t); return; }
     store.setReader(t);
     // On the phone the reader is its own screen.
     if (phone) { leavingJob(from); moves.toReader(t); return; }
     replaceHash(readHref(slug, t));
     showReader(from);
-  }, [store, slug, showReader, phone, moves, leavingJob, wide, showConvo]);
+  }, [store, slug, showReader, phone, moves, leavingJob, wide, showConvo, unpickReader]);
 
   // R2 (Task 20, left/PrLines.tsx): GitHub is read as the page opens (when the last read is old), and the
   // PR's next action leads the asks row while the Ship step is not the open one.
@@ -279,10 +313,15 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
 
   /** A click (or Enter) on a step: it opens, and its main output shows in the reader (on the phone: the step's screen). */
   const openStep = useCallback((id: StopId, from?: HTMLElement | null) => {
+    // A laptop: a second click on the picked step, while its main output shows, un-picks it.
+    if (wide && from?.hasAttribute('data-jp-toggle')) {
+      const ui = store.getState().ui;
+      if (ui.step === id && !ui.reader) { store.setStep(null); replaceHash(jobHref(slug)); return; }
+    }
     if (phone) leavingJob(from);
     pickStep(id);
     if (!phone) showReader(from);
-  }, [pickStep, showReader, phone, leavingJob]);
+  }, [pickStep, showReader, phone, leavingJob, wide, store, slug]);
 
   // The back row (760 to 1100 px): the reader goes, and the address is the job's again, so a reload or
   // a narrowing to the phone shows the job, not the thing that was open.
@@ -294,11 +333,11 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
   }, [slug]);
 
   const lines = useMemo(() => leftLines(store.getState().payload, job), [store, job, hasPayload]);
-  const openLine = useCallback((i: number) => {
+  const openLine = useCallback((i: number, from: HTMLElement | null = null) => {
     const line = lines[i];
     if (!line) return;
-    if (line.step) openStep(line.step, null);
-    else if (line.target) pickReader(line.target, null);
+    if (line.step) openStep(line.step, from);
+    else if (line.target) pickReader(line.target, from);
   }, [lines, openStep, pickReader]);
 
   const leftHidden = phone ? screenNow !== 'job' : single && covered;
@@ -331,7 +370,7 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
     'jp-open': (e) => {
       if (leftHidden) return false;
       const on = e.target instanceof Element ? e.target.closest<HTMLElement>('[data-jp-line]') : null;
-      if (on) { openLine(Number(on.dataset.jpLine)); return; }
+      if (on) { openLine(Number(on.dataset.jpLine), on); return; }
       if (e.target instanceof Element && e.target.closest('button, a, summary, [role="button"], [role="option"], [role="tab"], input, textarea, select')) return false;
       if (cursor === null) return false;
       openLine(cursor);
@@ -396,7 +435,7 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
             <Steps job={job} cursor={cursor} onStep={openStep} onOpen={pickReader} phone={phone} across={wide} />
             {/* Task 21: the phone's PR line, ending in `Comments · 3 new` (it opens the PR view). */}
             {phone && <PhonePrLines onOpen={pickReader} />}
-            <JobRows cursor={cursor} first={lines.findIndex((l) => l.target)} onOpen={pickReader} />
+            <JobRows cursor={cursor} first={lines.findIndex((l) => l.target)} onOpen={pickReader} wide={wide} convoShown={wide && convoShown} />
           </div>
           {!wide && <AsksRow runner={asks} job={job} phone={phone} lead={prLead.lead} onLead={prLead.onLead} />}
           {!wide && <MessageBox boxRef={box} onOpen={pickReader} />}
@@ -433,7 +472,7 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
           <section ref={convo} className="jp2-convo" aria-label="Conversation">
             <div className="jp2-convo-top">
               <h2 className="jp2-convo-h">Conversation</h2>
-              <Button kind="quiet" size="sm" onClick={() => showConvo(false)} title="Hide the conversation; its message box stays along the foot. The Conversation link brings it back.">Hide</Button>
+              <Button kind="quiet" size="sm" onClick={() => { showConvo(false); page.current?.querySelector<HTMLElement>('.jp2-jrs [data-jp-convo]')?.focus(); }} title="Hide the conversation; its message box stays along the foot. The Conversation link brings it back.">Hide</Button>
             </div>
             <AsksContext.Provider value={asksHere}>
               <ConversationView searchRef={search} onOpen={pickReader} column />

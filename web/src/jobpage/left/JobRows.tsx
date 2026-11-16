@@ -9,7 +9,7 @@
 
 import { memo } from 'react';
 import { useStored } from '../../lib/stored';
-import { CONVERSATION, DECISIONS, DETAILS, readerOf, sameTarget, TICKET } from '../targets';
+import { CONVERSATION, DECISIONS, DETAILS, readerBesideConvo, readerOf, sameTarget, TICKET } from '../targets';
 import type { ReaderTarget, ThreadLine } from '../types';
 import { useJob } from '../useJob';
 import { PhoneChevron } from '../phone/PhoneJob2';
@@ -39,10 +39,19 @@ export interface JobRowsProps {
   /** The place of the first row among the left pane's lines (after the steps). */
   first: number;
   onOpen(t: ReaderTarget, from: HTMLElement): void;
+  /**
+   * A laptop (the glance layout): each row is a toggle (16 Nov): it reads pressed while its view
+   * shows (the Conversation row: while its column shows), and a second click un-shows it (JobPage2
+   * pickReader, by data-jp-toggle).
+   */
+  wide?: boolean;
+  /** A laptop: the conversation's column shows. */
+  convoShown?: boolean;
 }
 
-export const JobRows = memo(function JobRows({ cursor, first, onOpen }: JobRowsProps) {
-  const target = useJob(readerOf, sameTarget);
+export const JobRows = memo(function JobRows({ cursor, first, onOpen, wide = false, convoShown = false }: JobRowsProps) {
+  // Beside the conversation's column the reader never shows the conversation (targets.ts).
+  const target = useJob(wide ? readerBesideConvo : readerOf, sameTarget);
   const decided = useJob((s) => s.payload?.rows.decisions.count ?? null);
   const rows: { t: ReaderTarget; name: string; more: string | null }[] = [
     { t: TICKET, name: 'Ticket and goal', more: null },
@@ -55,13 +64,15 @@ export const JobRows = memo(function JobRows({ cursor, first, onOpen }: JobRowsP
       {rows.map((r, i) => {
         const cls = `jp2-row jp2-jr${target?.kind === r.t.kind ? ' is-sel' : ''}${cursor === first + i ? ' is-cursor' : ''}`;
         // The Conversation row draws by itself: a new line redraws it and nothing else here (speed rule 5).
-        if (r.t.kind === CONVERSATION.kind) return <ConversationRow key={r.t.kind} className={cls} line={first + i} onOpen={onOpen} />;
+        if (r.t.kind === CONVERSATION.kind) return <ConversationRow key={r.t.kind} className={wide ? `${cls.replace(' is-sel', '')}${convoShown ? ' is-sel' : ''}` : cls} line={first + i} onOpen={onOpen} pressed={wide ? convoShown : undefined} />;
         return (
           <button
             key={r.t.kind}
             type="button"
             className={cls}
             data-jp-line={first + i}
+            data-jp-toggle={wide ? '' : undefined}
+            aria-pressed={wide ? target?.kind === r.t.kind : undefined}
             aria-label={r.more ? [r.name, r.more].join(' · ') : undefined}
             onClick={(e) => onOpen(r.t, e.currentTarget)}
           >
@@ -79,7 +90,7 @@ export const JobRows = memo(function JobRows({ cursor, first, onOpen }: JobRowsP
  * `Conversation · 52 · 1 new`: the count and what is new since his last look. What is new sits right
  * after the name and the count at the row's end, so neither ever moves the other (speed rule 3).
  */
-const ConversationRow = memo(function ConversationRow({ className, line, onOpen }: { className: string; line: number; onOpen: JobRowsProps['onOpen'] }) {
+const ConversationRow = memo(function ConversationRow({ className, line, onOpen, pressed }: { className: string; line: number; onOpen: JobRowsProps['onOpen']; pressed?: boolean }) {
   const slug = useJob((s) => s.slug);
   const convo = useJob((s) => s.payload?.rows.conversation ?? null, (a, b) => a === b || (!!a && !!b && a.count === b.count && a.more === b.more));
   const [seenAt] = useStored(seenKey(slug));
@@ -92,6 +103,9 @@ const ConversationRow = memo(function ConversationRow({ className, line, onOpen 
       type="button"
       className={className}
       data-jp-line={line}
+      data-jp-convo=""
+      data-jp-toggle={pressed === undefined ? undefined : ''}
+      aria-pressed={pressed}
       aria-label={count ? ['Conversation', count, news].filter(Boolean).join(' · ') : undefined}
       onClick={(e) => onOpen(CONVERSATION, e.currentTarget)}
     >

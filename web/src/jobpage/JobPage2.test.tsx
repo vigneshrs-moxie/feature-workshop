@@ -407,8 +407,10 @@ describe('keys', () => {
     expect(document.querySelector('.is-cursor')).toBeNull();
     // A laptop with a decision waiting: the brief beside the decision.
     expect(readerTitle()).toBe('Brief #15 · Review · waiting');
-    // Nor in the conversation's search box (a laptop: the Conversation row puts the focus there).
-    fireEvent.click(screen.getByRole('button', { name: 'Conversation · 52' }));
+    // Nor in the conversation's search box (a laptop: g c puts the focus there; the Conversation row,
+    // its column showing, hides it: a second pick un-shows, 16 Nov).
+    act(() => { (document.activeElement as HTMLElement | null)?.blur(); });
+    key('g'); key('c');
     const search = screen.getByRole('searchbox', { name: 'Search the conversation' });
     expect(document.activeElement).toBe(search);
     key('g', search);
@@ -762,14 +764,13 @@ describe('the glance layout (a laptop, 1100 px and wider)', () => {
     expect(document.querySelector('.jp2-left .jp2-mb-ta')).not.toBeNull();
   });
 
-  it('the Conversation row, g c and / put the focus in the column’s search box; the reader and the address stay as they were', async () => {
+  it('g c and / put the focus in the column’s search box; the reader and the address stay as they were (the Conversation row toggles the column: see “missing moves”)', async () => {
     const store = createJobStore(SLUG, { api: client().api, events: () => () => {} });
     open(`#/job/${SLUG}/stage/plan`, { store });
     await settle();
     const hash = window.location.hash;
     expect(readerTitle()).toBe('Implementation plan');
     for (const go of [
-      () => fireEvent.click(screen.getByRole('button', { name: 'Conversation · 52' })),
       () => { key('g'); key('c'); },
       () => key('/'),
     ]) {
@@ -987,5 +988,139 @@ describe('the conversation can be hidden (a laptop)', () => {
     hide();
     expect(page()).toHaveAttribute('data-convo', 'hidden');
     set.mockRestore();
+  });
+});
+
+describe('missing moves: a second pick un-shows (16 Nov)', () => {
+  const row = (name: string | RegExp) => within(screen.getByRole('group', { name: 'The job' })).getByRole('button', { name });
+
+  it('Ticket and goal, Decisions and Details: a second click goes back to the picked step’s main output, and the row reads pressed while its view shows', async () => {
+    nextPage.make = calm;
+    open(`#/job/${SLUG}/stage/plan`, { row: WORKING });
+    await settle();
+    expect(readerTitle()).toBe('Implementation plan');
+    for (const [name, title] of [['Ticket and goal', 'Ticket and goal'], [/^Decisions/, 'Decisions'], ['Details', 'Details']] as const) {
+      expect(row(name)).toHaveAttribute('aria-pressed', 'false');
+      fireEvent.click(row(name));
+      expect(readerTitle()).toBe(title);
+      expect(row(name)).toHaveAttribute('aria-pressed', 'true');
+      fireEvent.click(row(name));
+      expect(readerTitle()).toBe('Implementation plan');
+      expect(row(name)).toHaveAttribute('aria-pressed', 'false');
+      expect(window.location.hash).toBe(`#/job/${SLUG}/stage/plan`);
+    }
+  });
+
+  it('with no step picked, a second click goes back to what the page opened on, and the address to the job’s', async () => {
+    nextPage.make = calm;
+    open(`#/job/${SLUG}`, { row: WORKING });
+    await settle();
+    const first = readerTitle();
+    fireEvent.click(row('Details'));
+    expect(readerTitle()).toBe('Details');
+    fireEvent.click(row('Details'));
+    expect(readerTitle()).toBe(first);
+    expect(window.location.hash).toBe(`#/job/${SLUG}`);
+  });
+
+  it('Enter on a row toggles as a click does; g t always shows the ticket', async () => {
+    nextPage.make = calm;
+    open(`#/job/${SLUG}/stage/plan`, { row: WORKING });
+    await settle();
+    const ticket = row('Ticket and goal');
+    act(() => ticket.focus());
+    key('Enter', ticket);
+    expect(readerTitle()).toBe('Ticket and goal');
+    key('Enter', ticket);
+    expect(readerTitle()).toBe('Implementation plan');
+    act(() => { (document.activeElement as HTMLElement | null)?.blur(); });
+    key('g'); key('t');
+    expect(readerTitle()).toBe('Ticket and goal');
+    key('g'); key('t');
+    expect(readerTitle()).toBe('Ticket and goal');
+  });
+
+  it('while a decision waits, a second click on a tab or a row goes back to the brief', async () => {
+    open(`#/job/${SLUG}`);
+    await settle();
+    const tab = (name: string) => within(decideTabs()).getByRole('tab', { name });
+    fireEvent.click(tab('Spec'));
+    expect(readerTitle()).toBe('Product spec');
+    fireEvent.click(tab('Spec'));
+    expect(readerTitle()).toBe('Brief #15 · Review · waiting');
+    expect(tab('Brief #15')).toHaveAttribute('aria-selected', 'true');
+    expect(window.location.hash).toBe(`#/job/${SLUG}`);
+    // The brief is what it goes back to: a click on it, shown, leaves it.
+    fireEvent.click(tab('Brief #15'));
+    expect(readerTitle()).toBe('Brief #15 · Review · waiting');
+    // A step picked: its things are the tabs; a second click on one goes back to the brief, not to the step's output.
+    fireEvent.click(stepRow('Plan'));
+    expect(readerTitle()).toBe('Implementation plan');
+    fireEvent.click(row('Ticket and goal'));
+    expect(readerTitle()).toBe('Ticket and goal');
+    fireEvent.click(row('Ticket and goal'));
+    expect(readerTitle()).toBe('Brief #15 · Review · waiting');
+    expect(page()).toHaveAttribute('data-deciding');
+  });
+
+  it('the step panel: a second click on a thing it made goes back to the step’s main output; the row reads pressed', async () => {
+    nextPage.make = calm;
+    open(`#/job/${SLUG}/stage/review`, { row: WORKING });
+    await settle();
+    expect(readerTitle()).toBe('Findings');
+    const out = () => within(stepPanel()).getByRole('button', { name: /^Review \(combined\)/ });
+    expect(out()).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(out());
+    expect(readerTitle()).not.toBe('Findings');
+    expect(out()).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(out());
+    expect(readerTitle()).toBe('Findings');
+    expect(out()).toHaveAttribute('aria-pressed', 'false');
+    expect(window.location.hash).toBe(`#/job/${SLUG}/stage/review`);
+  });
+
+  it('a step: a second click on the picked step un-picks it; after another pick it shows the step’s main output again', async () => {
+    nextPage.make = calm;
+    open(`#/job/${SLUG}`, { row: WORKING });
+    await settle();
+    const first = readerTitle();
+    fireEvent.click(stepRow('Plan'));
+    expect(readerTitle()).toBe('Implementation plan');
+    fireEvent.click(stepRow('Plan'));
+    expect(readerTitle()).toBe(first);
+    expect(window.location.hash).toBe(`#/job/${SLUG}`);
+    fireEvent.click(stepRow('Plan'));
+    fireEvent.click(row('Details'));
+    fireEvent.click(stepRow('Plan'));
+    expect(readerTitle()).toBe('Implementation plan');
+    expect(window.location.hash).toBe(`#/job/${SLUG}/stage/plan`);
+    // ] never un-picks.
+    key(']'); key('[');
+    expect(readerTitle()).toBe('Implementation plan');
+  });
+
+  it('Conversation reads pressed while its column shows; a click hides it and keeps the focus on the link; a click shows it with the focus in its search', async () => {
+    open(`#/job/${SLUG}`);
+    await settle();
+    const link = () => row('Conversation · 52');
+    expect(link()).toHaveAttribute('aria-pressed', 'true');
+    act(() => link().focus());
+    fireEvent.click(link());
+    expect(page()).toHaveAttribute('data-convo', 'hidden');
+    expect(link()).toHaveAttribute('aria-pressed', 'false');
+    expect(document.activeElement).toBe(link());
+    fireEvent.click(link());
+    expect(page()).not.toHaveAttribute('data-convo');
+    expect(document.activeElement).toBe(convoSearch());
+  });
+
+  it('Hide gives the focus to the Conversation link, which brings the column back', async () => {
+    open(`#/job/${SLUG}`);
+    await settle();
+    const hideBtn = within(convoColumn()).getByRole('button', { name: 'Hide' });
+    act(() => hideBtn.focus());
+    fireEvent.click(hideBtn);
+    expect(page()).toHaveAttribute('data-convo', 'hidden');
+    expect(document.activeElement).toBe(row('Conversation · 52'));
   });
 });
