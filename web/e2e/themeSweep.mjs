@@ -3,7 +3,7 @@
 // For each theme, at each width (1512 and 390 px) and in each Play mode (Full and Off), it visits
 // every screen (Jobs in its three layouts, Map, Table, the Desk, the Inbox, a Job, the Stage,
 // Screens, the Crew-dex, Achievements, Stacks, the build stack, a stack's Board, Map and Timeline, a
-// Part page, Telemetry, every Settings section, the station lab (its bays and its states), Not
+// Part page, Telemetry, the Guide (a page with its pictures), every Settings section, the station lab (its bays and its states), Not
 // found, the classic page and
 // #/gallery, which has every control in every state: hover, pressed, focus, disabled, busy, empty,
 // error), and opens every kind of overlay (a Peek, a dialog, a Select menu, a menu, a tooltip, the
@@ -128,6 +128,7 @@ const SCREEN_VISITS = [
   { name: 'Stack, timeline', hash: '#/stack/invoice-export', act: tab('Timeline') },
   { name: 'Part page', hash: '#/stack/invoice-export/part/7' },
   { name: 'Telemetry', hash: '#/telemetry', focus: true, scrolls: 5 },
+  { name: 'Guide', hash: '#/guide/03-jobs', focus: true, scrolls: 4 },
   ...['permissions', 'notifications', 'look', 'keys', 'workflow', 'repos', 'play', 'rules'].map((s) => ({ name: `Settings, ${s}`, hash: `#/settings/${s}`, focus: s === 'look' })),
   { name: 'Station lab', hash: '#/station-lab', play: 'full', wait: 2500, scrolls: 1 },
   { name: 'Station lab, states', hash: '#/station-lab?lab=states', play: 'full', wait: 2500, scrolls: 1 },

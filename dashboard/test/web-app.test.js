@@ -152,3 +152,13 @@ test('a friendly page when web/dist has not been built', async () => {
     distDir = dist;
   }
 });
+
+test('the guide’s pictures are served from a folder inside the build (/next/guide/img/…)', async () => {
+  await fs.mkdir(path.join(dist, 'guide', 'img'), { recursive: true });
+  await fs.writeFile(path.join(dist, 'guide', 'img', 'jobs.png'), 'png');
+  const r = await get('/next/guide/img/jobs.png');
+  assert.equal(r.status, 200);
+  assert.equal(r.type, 'image/png');
+  assert.equal(r.body, 'png');
+  assert.equal((await get('/next/guide/img/missing.png')).status, 404);
+});
