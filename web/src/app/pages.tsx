@@ -62,7 +62,7 @@ export function preloadNav(id: string) {
   for (const p of NAV[id] ?? []) void Pages[p].preload();
 }
 
-/** Every page's chunk, one after another while the browser is idle (the first screen is drawn by then). */
+/** Every page's chunk, one after another while the browser is idle, from 3 s after the app is up (so none lands on the first click: a job opened from Jobs a moment after it loads). */
 const IDLE_ORDER: PageId[] = ['desk', 'inbox', 'stacks', 'telemetry', 'settings', 'stack', 'stackPart', 'home', 'oldJob', 'screens', 'crew', 'achievements', 'notFound'];
 export function usePreloadPagesWhenIdle(ready: boolean) {
   useEffect(() => {
@@ -76,7 +76,7 @@ export function usePreloadPagesWhenIdle(ready: boolean) {
       if (stopped || i >= IDLE_ORDER.length) return;
       void Pages[IDLE_ORDER[i++]].preload().then(() => later(next));
     };
-    const start = setTimeout(() => later(next), 1500);
+    const start = setTimeout(() => later(next), 3000);
     return () => {
       stopped = true;
       clearTimeout(start);
