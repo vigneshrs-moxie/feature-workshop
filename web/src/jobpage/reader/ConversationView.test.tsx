@@ -654,13 +654,15 @@ describe('Task 23 fix round 2: a new line draws its own group only (speed rule 5
 });
 
 describe('the glance layout: the conversation in its own column (a laptop)', () => {
-  it('200 items in the column: lines, not 200 bodies; only the last exchange asks for its texts', async () => {
+  it('200 items in the column: lines, not 200 bodies; only the last exchange asks for its texts, its brief staying one line', async () => {
     const o = open({ job: longJob200 as Fixture, reader: null });
     await settle();
     expect(column().contains(convo())).toBe(true);
     expect(convo().querySelectorAll('.jp2-cv-line')).toHaveLength(mainLines(longJob200.payload).length);
     const asked = o.item.mock.calls.map((c) => c[1] as string);
-    for (const id of ['you:c24b0cee5d62', 'brief:briefs/060-review.md', 'reply:5fbf6afee61a']) expect(asked).toContain(id);
-    expect(convo().querySelectorAll('.jp2-cv-full')).toHaveLength(3);
+    for (const id of ['you:c24b0cee5d62', 'reply:5fbf6afee61a']) expect(asked).toContain(id);
+    // The brief is the decision card's (and the reader's): in the column it stays its one line.
+    expect(convo().querySelector('[data-id="brief:briefs/060-review.md"] .jp2-cv-full')).toBeNull();
+    expect(convo().querySelectorAll('.jp2-cv-full')).toHaveLength(2);
   });
 });

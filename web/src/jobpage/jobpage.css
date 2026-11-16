@@ -558,13 +558,10 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2[data-layout="wide"] .jp2-left, .jp2[data-layout="wide"] .jp2-lscroll { display: contents; }
 .jp2[data-layout="wide"] .jp2-movewrap { grid-area: move; position: relative; min-width: 0; max-height: 50vh; overflow-y: auto; scrollbar-width: thin; }
 .jp2[data-layout="wide"] .jp2-movewrap:empty { display: none; }
-.jp2[data-layout="wide"] .jp2-ym { padding: 10px 24px 8px; }
+.jp2[data-layout="wide"] .jp2-ym { padding: 14px 24px 12px; border-bottom: 1px solid var(--border-1); }
 .jp2[data-layout="wide"] .jp2-pageproblem { padding: 12px 24px; }
 .jp2[data-layout="wide"] .jp2-reader { grid-area: reader; }
-/* Each question's options side by side: a two-question ask is half as tall. */
-.jp2[data-layout="wide"] .jp2-ym-q { flex-direction: row; flex-wrap: wrap; gap: 4px 6px; }
-.jp2[data-layout="wide"] .jp2-ym-opt { flex: 0 1 auto; width: auto; min-width: 200px; max-width: 460px; }
-.jp2[data-layout="wide"] .jp2-ym-ownin { flex-basis: 100%; max-width: 640px; }
+
 .jp2[data-layout="wide"] .jp2-ym-opt.jp2-ym-ownrow { min-height: 34px; }
 /* The steps across */
 .jp2-st.is-across { grid-area: steps; display: flex; gap: 4px; min-width: 0; padding: 6px 8px 6px 16px; background: var(--surface-0); }
@@ -606,13 +603,42 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2-ref-open { flex-basis: 100%; margin: 2px 0 4px; padding: 8px 12px; border-radius: 8px; background: var(--surface-0); box-shadow: inset 2px 0 0 var(--border-3); max-width: 760px; }
 .jp2-ref-says { margin: 0; font-size: 13px; line-height: 19px; color: var(--text-1); }
 .jp2-ref-acts { display: flex; gap: 14px; margin: 4px 0 0; font-size: 12px; }
-/* A laptop: a real question runs to two or three lines, and so can an option: show them whole. */
-.jp2[data-layout="wide"] .jp2-ym-qt { display: block; overflow: visible; -webkit-line-clamp: unset; font-size: 14px; line-height: 20px; max-width: 980px; }
-.jp2[data-layout="wide"] .jp2-ym-ot { font-size: 13px; line-height: 18px; }
-.jp2[data-layout="wide"] .jp2-ym-ot small { white-space: normal; line-height: 16px; }
-.jp2[data-layout="wide"] .jp2-ym-opt.option-row { align-items: flex-start; padding-top: 7px; padding-bottom: 7px; }
-.jp2[data-layout="wide"] .jp2-ym-opt.option-row .choice { margin-top: 1px; }
-.jp2[data-layout="wide"] .jp2-card-ask { font-size: 15px; line-height: 21px; }
+/* The decision card on a laptop (16 Nov, "clean it up"): one calm card at reading width, not a tinted
+   slab. A thin amber bar says it needs him; the brief's What happened is two or three dim lines; each
+   question reads as a sentence; its options are a plain list, the picked one quietly marked; real
+   questions and options run to two or three lines and show whole. */
+.jp2[data-layout="wide"] .jp2-card { gap: 12px; max-width: 760px; padding: 16px 20px 16px 22px; border: 1px solid var(--border-1); border-radius: 12px; background: var(--surface-0); box-shadow: inset 3px 0 0 var(--needs-solid); }
+.jp2[data-layout="wide"] .jp2-card-ask { font-size: 16px; line-height: 22px; font-weight: 650; }
+.jp2-card-happened { margin: -6px 0 0; padding: 0; list-style: none; font-size: 13px; line-height: 19px; color: var(--text-2); }
+.jp2-card-happened li + li { margin-top: 2px; }
+.jp2[data-layout="wide"] .jp2-ym-qs { gap: 16px; }
+.jp2[data-layout="wide"] .jp2-ym-q { gap: 2px; }
+.jp2[data-layout="wide"] .jp2-ym-qt { display: block; overflow: visible; -webkit-line-clamp: unset; margin: 0 0 6px; font-size: 14px; line-height: 21px; font-weight: 500; color: var(--text-1); }
+.jp2[data-layout="wide"] .jp2-ym-opt.option-row { align-items: flex-start; min-height: 0; padding: 7px 10px; border: 0; border-radius: 8px; background: none; box-shadow: none; }
+.jp2[data-layout="wide"] .jp2-ym-opt.option-row:hover { background: var(--hover-bg); }
+.jp2[data-layout="wide"] .jp2-ym-opt.option-row:has(.choice:checked) { background: var(--bg-3); box-shadow: none; }
+.jp2[data-layout="wide"] .jp2-ym-opt.option-row .choice { margin-top: 2px; }
+.jp2[data-layout="wide"] .jp2-ym-ot { font-size: 14px; line-height: 20px; }
+.jp2[data-layout="wide"] .jp2-ym-ol b { font-weight: 500; color: var(--text-3); }
+.jp2[data-layout="wide"] .jp2-ym-rec { margin-left: 8px; font-size: 12px; color: var(--text-2); }
+.jp2[data-layout="wide"] .jp2-ym-ot small { margin-top: 1px; font-size: 13px; line-height: 18px; color: var(--text-2); white-space: normal; }
+.jp2[data-layout="wide"] .jp2-ym-opt.jp2-ym-ownrow { padding-top: 4px; padding-bottom: 4px; }
+.jp2[data-layout="wide"] .jp2-ym-opt.jp2-ym-ownrow .jp2-ym-ot { font-size: 13px; color: var(--text-2); }
+.jp2[data-layout="wide"] .jp2-ym-ownin { margin: 2px 0 0 10px; max-width: 560px; }
+.jp2[data-layout="wide"] .jp2-ym-dec { order: 2; }
+.jp2[data-layout="wide"] .jp2-ym-calls { gap: 8px; margin-top: 2px; }
+/* An id is a small quiet chip; its meaning, dim words after it. */
+.jp2[data-layout="wide"] .jp2-ref { padding: 0 5px; border-radius: 5px; background: var(--bg-3); color: var(--text-1); font-size: 12.5px; font-weight: 600; text-decoration: none; }
+.jp2[data-layout="wide"] .jp2-ref:hover, .jp2[data-layout="wide"] .jp2-ref.is-open { background: var(--hover-bg); box-shadow: inset 0 0 0 1px var(--border-2); }
+.jp2[data-layout="wide"] .jp2-ref-open { margin: 4px 0 6px; max-width: none; background: var(--bg-0); box-shadow: inset 2px 0 0 var(--border-3); }
 /* A laptop: what is new in the conversation is counted in its own column (Jump to latest · n new), not in
    the steps row, where its arrival would push the links beside it (speed rule 3). */
 .jp2[data-layout="wide"] .jp2-jrs .jp2-jr-new { display: none; }
+/* The conversation's column is for a glance: its lines and what is open, not the record's tools
+   (Open all in this step, the small events); the reader's Conversation (Ticket… row, 760–1100 px) keeps them. */
+.jp2-convo .jp2-cv-openall, .jp2-convo .jp2-cv-small { display: none; }
+.jp2-convo .jp2-cv-gt { font-size: 12px; font-weight: 500; color: var(--text-3); }
+.jp2-convo .jp2-cv-gt b { font-weight: 600; color: var(--text-2); }
+/* Go and Send back never scroll out of sight: a long decision scrolls behind them. */
+.jp2[data-layout="wide"] .jp2-movewrap { max-height: 64vh; }
+.jp2[data-layout="wide"] .jp2-card > .jp2-ym-calls { position: sticky; bottom: 0; z-index: 1; margin: 0 -20px 0 -22px; padding: 10px 20px 10px 22px; border-top: 1px solid var(--border-1); background: var(--surface-0); box-shadow: inset 3px 0 0 var(--needs-solid); }

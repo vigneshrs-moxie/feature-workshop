@@ -700,3 +700,13 @@ describe('the ids in a decision', () => {
     o.unmount();
   });
 });
+
+describe('the decision card holds the brief', () => {
+  it('shows the brief’s What happened lines under the ask', async () => {
+    const o = open({ move: { ...GATE(), happened: ['7 reviewers looked at the change; 0 blockers, 2 majors.', 'Nothing in the code changed.'] } });
+    await settle();
+    const list = within(card()).getByRole('list', { name: 'What happened' });
+    expect(within(list).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['7 reviewers looked at the change; 0 blockers, 2 majors.', 'Nothing in the code changed.']);
+    o.unmount();
+  });
+});

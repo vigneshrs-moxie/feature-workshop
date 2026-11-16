@@ -117,7 +117,7 @@ function moveLabel(permission: boolean, at: string | null | undefined): string {
  * in place; only what is under the ask moves, never anything above it. On the phone the ask is
  * always whole (Task 15: Your move in full on the job screen), with no More.
  */
-function Card({ label, ask, refs, told, children }: { label: string; ask: string; refs?: Record<string, RefMeaning>; told?: ReadonlySet<string>; children?: ReactNode }) {
+function Card({ label, ask, refs, told, happened, children }: { label: string; ask: string; refs?: Record<string, RefMeaning>; told?: ReadonlySet<string>; happened?: string[]; children?: ReactNode }) {
   const askRef = useRef<HTMLParagraphElement>(null);
   const [cut, setCut] = useState(false);
   const phone = useNarrow();
@@ -145,6 +145,11 @@ function Card({ label, ask, refs, told, children }: { label: string; ask: string
           </button>
         )}
       </div>
+      {happened && happened.length > 0 && (
+        <ul className="jp2-card-happened" aria-label="What happened">
+          {happened.map((h, i) => <li key={i}>{h}</li>)}
+        </ul>
+      )}
       {children}
     </div>
   );
@@ -475,7 +480,7 @@ function GateCard({ move, onOpen }: { move: GateMove; onOpen?: YourMoveProps['on
     for (const o of q.options) { toldAt.set(`l:${q.id}:${o.id}`, before[n++]); toldAt.set(`c:${q.id}:${o.id}`, before[n++]); }
   }
   return (
-    <Card label={label0} ask={move.ask} refs={move.refs} told={before[0]}>
+    <Card label={label0} ask={move.ask} refs={move.refs} told={before[0]} happened={move.happened}>
       <div ref={root} className="jp2-ym-qs">
         {move.questions.map((q, i) => {
           const chosen = pickOf(q, p);

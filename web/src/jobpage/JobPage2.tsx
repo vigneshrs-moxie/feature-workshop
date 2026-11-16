@@ -419,7 +419,7 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
           <section ref={convo} className="jp2-convo" aria-label="Conversation">
             <h2 className="jp2-convo-h">Conversation</h2>
             <AsksContext.Provider value={asksHere}>
-              <ConversationView searchRef={search} onOpen={pickReader} />
+              <ConversationView searchRef={search} onOpen={pickReader} column />
             </AsksContext.Provider>
             <AsksRow runner={asks} job={job} phone={false} lead={prLead.lead} onLead={prLead.onLead} />
             <MessageBox boxRef={box} onOpen={pickReader} />

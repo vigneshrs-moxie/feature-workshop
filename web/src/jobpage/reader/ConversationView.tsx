@@ -59,6 +59,8 @@ const EMPTY: ReadonlySet<string> = new Set();
 
 export interface ConversationViewProps {
   searchRef: RefObject<HTMLInputElement | null>;
+  /** Its own column beside the reader (a laptop): on arrival a brief stays one line (its card and the reader have it). */
+  column?: boolean;
   onOpen(t: ReaderTarget, from?: HTMLElement | null): void;
 }
 
@@ -288,7 +290,7 @@ function anchorKeeper(root: RefObject<HTMLDivElement | null>) {
 
 // ---------- The view ----------
 
-export function ConversationView({ searchRef, onOpen }: ConversationViewProps) {
+export function ConversationView({ searchRef, onOpen, column = false }: ConversationViewProps) {
   const store = useJobStore();
   const slug = useJob((s) => s.slug);
   const thread = useJob((s) => s.payload?.thread ?? null);
@@ -299,8 +301,9 @@ export function ConversationView({ searchRef, onOpen }: ConversationViewProps) {
   // His last look from before this view: the New line stays put while he reads. Never looked before:
   // the first look this view writes, so what arrives after it is marked.
   const [lastLook, setLastLook] = useState(() => readStored(seenKey(slug)));
-  const [open, setOpen] = useState<ReadonlySet<string> | null>(() => (thread ? new Set(lastExchange(thread)) : null));
-  if (open === null && thread) setOpen(new Set(lastExchange(thread)));
+  const arrival = (t: readonly ThreadLine[]) => new Set(lastExchange(t).filter((id) => !column || t.find((l) => l.id === id)?.kind !== 'brief'));
+  const [open, setOpen] = useState<ReadonlySet<string> | null>(() => (thread ? arrival(thread) : null));
+  if (open === null && thread) setOpen(arrival(thread));
   const opened = open ?? EMPTY;
   const [smallOpen, setSmallOpen] = useState<ReadonlySet<string>>(EMPTY);
   const [words, setWords] = useState('');

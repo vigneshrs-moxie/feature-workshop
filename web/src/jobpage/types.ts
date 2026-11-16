@@ -80,6 +80,8 @@ export interface GateMove {
   kind: 'gate';
   /** The ids the ask, questions and options mention, with their meanings (left/Refs.tsx); absent when none is known. */
   refs?: Record<string, RefMeaning>;
+  /** The waiting brief's "What happened", at most three lines: the brief's one place while it waits. */
+  happened?: string[];
   brief: number | null;
   ask: string;
   since: string | null;

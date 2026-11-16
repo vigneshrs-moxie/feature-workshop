@@ -54,3 +54,11 @@ test('a review table row takes its words for a title, and `## R-3 · An empty ta
   assert.equal(refs['R-3'].text, 'major · tests · No test for an empty widgets table (AC-001)');
   assert.equal(refs['R-4'].title, 'An empty table');
 });
+
+test('a brief’s What happened, in at most three plain lines', async () => {
+  const { briefHappened } = await import('../lib/doc-refs.js');
+  const brief = '**Widget Export · review done**\n\n**What happened**\n- 7 reviewers looked at the change; **0 blockers**, 2 majors.\n- Second.\n- Third.\n- Fourth.\n\n**Decisions for you**\n1. Fix?';
+  assert.deepEqual(briefHappened(brief), ['7 reviewers looked at the change; 0 blockers, 2 majors.', 'Second.', 'Third.']);
+  assert.deepEqual(briefHappened('## What happened\n\nOne line here.\n\n## Next'), ['One line here.']);
+  assert.deepEqual(briefHappened('no such part'), []);
+});

@@ -21,7 +21,9 @@
 // is shown paused. stop() pauses every reply in progress (sessions stay resumable), writes the
 // audit line `service-stop` naming them, and removes service.json (runner/service-file.js).
 
-import { mentionedRefs } from '../lib/doc-refs.js';
+import { briefHappened, mentionedRefs } from '../lib/doc-refs.js';
+/** A brief's longer detail file (briefs/006-review-detail.md; lib/job-payload-cache.js DETAIL_FILE), never the brief's own words. */
+const DETAIL_BRIEF = /^briefs\/\d+-(?:.+-)?detail\.md$/;
 import { EventEmitter } from 'node:events';
 import { nodeCommand, tempDirs, terminalApps } from '../lib/platform.js';
 import fs from 'node:fs';
@@ -2472,6 +2474,12 @@ export async function createRunner(config) {
     if (payload.move && (payload.move.kind === 'gate' || payload.move.kind === 'question')) {
       const refs = mentionedRefs(sources.get('refs')?.meta?.refs ?? {}, payload.move);
       if (refs) payload.move.refs = refs;
+    }
+    // The waiting brief's "What happened", in the decision card (its one place while it waits).
+    if (payload.move?.kind === 'gate' && payload.move.brief != null) {
+      const it = (detail.threadAll ?? []).find((x) => x?.kind === 'brief' && x.number === payload.move.brief && !DETAIL_BRIEF.test(String(x.file ?? '')));
+      const happened = briefHappened(it ? detail.briefTexts?.get(it.file) : null);
+      if (happened.length) payload.move.happened = happened;
     }
     // Task 21: each PR's comment rows are a body (GET /api/job/:slug/pr/:n answers from it), never in the payload.
     for (const c of Object.values(prFacts?.comments ?? {})) {

@@ -128,3 +128,24 @@ export function mentionedRefs(refs, move) {
   const out = Object.fromEntries([...ids].filter((id) => refs?.[id]).map((id) => [id, refs[id]]));
   return Object.keys(out).length ? out : null;
 }
+
+/**
+ * A brief's "What happened" in at most three plain lines (the bullets under its `**What happened**`
+ * heading), for the decision card: the one place the brief is read while a decision waits.
+ * @param {string | null | undefined} text the brief's markdown
+ * @returns {string[]}
+ */
+export function briefHappened(text) {
+  const lines = String(text ?? '').split('\n');
+  const at = lines.findIndex((l) => /^\s*(?:#{1,6}\s*)?\**What happened\**\s*:?\s*$/i.test(l));
+  if (at < 0) return [];
+  const out = [];
+  for (let i = at + 1; i < lines.length && out.length < 3; i++) {
+    const l = lines[i].trim();
+    if (!l) { if (out.length) break; continue; }
+    if (/^(?:#{1,6}\s|\*\*[^*]+\*\*\s*:?$)/.test(l)) break;
+    const words = plainWords(l.replace(/^(?:[-*+]|\d+[.)])\s+/, ''));
+    if (words) out.push(cut(words, 200));
+  }
+  return out;
+}

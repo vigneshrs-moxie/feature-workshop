@@ -169,7 +169,8 @@ describe('first paint and the payload', () => {
     expect(stepRow('Plan')).toHaveTextContent('v2');
     expect(screen.getByRole('button', { name: 'Conversation · 52' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Decisions · 13 made for you' })).toBeInTheDocument();
-    expect(readerTitle()).toBe('Brief #15 · Review · waiting');
+    // A laptop with a decision waiting: its card holds the brief, so the reader shows the step's evidence.
+    expect(readerTitle()).toBe('Findings');
     // The step panel lists what the current step made.
     expect(within(stepPanel()).getByRole('button', { name: /^Review \(combined\)/ })).toBeInTheDocument();
   });
@@ -343,7 +344,8 @@ describe('keys', () => {
     key('Enter');
     // A laptop: the conversation is in its own column; Enter on its row puts the focus in its search box.
     expect(document.activeElement).toBe(convoSearch());
-    expect(readerTitle()).toBe('Brief #15 · Review · waiting');
+    // A laptop with a decision waiting: its card holds the brief, so the reader shows the step's evidence.
+    expect(readerTitle()).toBe('Findings');
     act(() => { (document.activeElement as HTMLElement).blur(); });
     key('k');
     key('k');
@@ -395,7 +397,8 @@ describe('keys', () => {
     expect(window.location.hash).toBe(before);
     expect(document.activeElement).toBe(box);
     expect(document.querySelector('.is-cursor')).toBeNull();
-    expect(readerTitle()).toBe('Brief #15 · Review · waiting');
+    // A laptop with a decision waiting: its card holds the brief, so the reader shows the step's evidence.
+    expect(readerTitle()).toBe('Findings');
     // Nor in the conversation's search box (a laptop: the Conversation row puts the focus there).
     fireEvent.click(screen.getByRole('button', { name: 'Conversation · 52' }));
     const search = screen.getByRole('searchbox', { name: 'Search the conversation' });
@@ -403,7 +406,7 @@ describe('keys', () => {
     key('g', search);
     key('t', search);
     key(']', search);
-    expect(readerTitle()).toBe('Brief #15 · Review · waiting');
+    expect(readerTitle()).toBe('Findings');
     expect(window.location.hash).toBe(before);
   });
 });
