@@ -81,10 +81,10 @@ describe('App shell', () => {
     expect(within(pages).getAllByRole('link').map((a) => a.textContent)).toEqual(['Jobs', 'Desk', 'Inbox', 'Stacks', 'Telemetry']);
     expect(within(pages).getByRole('link', { name: 'Jobs' })).toHaveAttribute('aria-current', 'page');
     expect(within(bar).getByRole('link', { name: 'Desk' })).toHaveAttribute('href', '#/desk');
-    // The gear: Settings, the Crew-dex in Play, the flow map, the Table, the keys and every action.
+    // The gear: Settings, the Crew-dex in Play, the flow map, the Table, the keys, the guide and every action.
     fireEvent.click(within(bar).getByRole('button', { name: 'Settings and more' }));
     const gear = within(bar).getByRole('menu', { name: 'Settings and more' });
-    expect(within(gear).getAllByRole('menuitem').map((m) => m.querySelector('.menu-label')?.textContent)).toEqual(['Settings', 'Crew-dex', 'Achievements', 'Flow map', 'Table', 'Keys', 'Every action']);
+    expect(within(gear).getAllByRole('menuitem').map((m) => m.querySelector('.menu-label')?.textContent)).toEqual(['Settings', 'Crew-dex', 'Achievements', 'Flow map', 'Table', 'Keys', 'Guide', 'Every action']);
     expect(within(gear).getByRole('menuitem', { name: /^Settings/ })).toHaveFocus();
     fireEvent.keyDown(document.body, { key: 'g' }); // the menu is open: page keys wait
     fireEvent.keyDown(document.body, { key: 't' });
@@ -606,5 +606,37 @@ describe('Jobs fetch the new job page ahead (Task 7 fix round 1)', () => {
     fireEvent.pointerEnter(link);
     fireEvent.focus(link);
     await waitFor(() => expect(pages()).toEqual(['/api/job/beta/page']));
+  });
+});
+
+describe('the guide in the app', () => {
+  it('the gear’s Guide opens it; g then ? opens it; the keys list links to its page on keys', async () => {
+    renderApp(snapshot({ jobs: [job('alpha', 'needs-you')] }));
+    await screen.findByRole('main', { name: 'Jobs' });
+    const bar = document.querySelector<HTMLElement>('.topbar')!;
+    fireEvent.click(within(bar).getByRole('button', { name: 'Settings and more' }));
+    const item = within(within(bar).getByRole('menu', { name: 'Settings and more' })).getByRole('menuitem', { name: /^Guide/ });
+    expect(item).toHaveAttribute('href', '#/guide');
+    expect(item).toHaveTextContent('g ?');
+    fireEvent.keyDown(item, { key: 'Escape' });
+    fireEvent.keyDown(document.body, { key: 'g' });
+    fireEvent.keyDown(document.body, { key: 'Shift', shiftKey: true });
+    fireEvent.keyDown(document.body, { key: '?', shiftKey: true });
+    expect(window.location.hash).toBe('#/guide');
+    const page = await screen.findByRole('main', { name: 'Guide' });
+    expect(within(page).getByRole('navigation', { name: 'Guide pages' })).toBeInTheDocument();
+    await waitFor(() => expect(document.title).toBe('(1) Guide · Starbase'));
+    fireEvent.keyDown(document.body, { key: '?', shiftKey: true });
+    const keys = screen.getByRole('dialog', { name: 'Keyboard shortcuts' });
+    expect(within(keys).getByRole('link', { name: 'Guide' })).toHaveAttribute('href', '#/guide/10-keys-and-command-box');
+  });
+
+  it('a guide page’s address opens it; Back goes to the page before', async () => {
+    window.location.hash = '#/guide/03-jobs';
+    renderApp(snapshot({ jobs: [job('alpha', 'needs-you')] }));
+    const page = await screen.findByRole('main', { name: 'Guide' });
+    expect(await within(page).findByRole('heading', { level: 2, name: '3. The Jobs page' })).toBeInTheDocument();
+    act(() => { window.location.hash = '#/guide/04-a-job'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    expect(await within(page).findByRole('heading', { level: 2, name: '4. A job' })).toBeInTheDocument();
   });
 });

@@ -1,7 +1,7 @@
 // The top bar of every page: the mark and the product's name (app/brand.ts), the pages (Inbox,
 // Desk with what waits for you, Jobs, Stacks, Telemetry), the usage meters, the live connection
 // in words, New job (c) and the gear (Settings, the Crew-dex and Achievements in Play, the flow map,
-// the Table, the keys, every action). At phone width (app.css) it is the short form: the mark, the
+// the Table, the keys, the guide, every action). At phone width (app.css) it is the short form: the mark, the
 // page's name, the Desk count and a ☰ menu with everything else.
 import type { Connection, WorkshopState } from '../state/reducer';
 import { useWorkshopPick, useWorkshopSelector } from '../state/store';
@@ -18,7 +18,7 @@ import { BRAND } from './brand';
 import { BrandMark } from './BrandMark';
 import { paletteKeyLabel } from './keyRegistry';
 import { MenuButton, type MenuEntry } from './Menu';
-import { hrefFor, pageName, settingsHref, stacksHref, telemetryHref, type Route } from './router';
+import { guideHref, hrefFor, pageName, settingsHref, stacksHref, telemetryHref, type Route } from './router';
 import { useUi } from './ui';
 import { preloadNav } from './pages';
 
@@ -86,6 +86,7 @@ export function TopBar({ route, onRetry, jobTitle = null }: { route: Route; onRe
     { kind: 'link', id: 'table', label: 'Table', href: hrefFor({ name: 'table' }), icon: 'table', keys: 'go-table', current: route.name === 'table', hint: 'The jobs as rows: sort, filter and search.' },
     { kind: 'sep', id: 'sep-keys' },
     { kind: 'action', id: 'keys', label: 'Keys', icon: 'keyboard', keys: 'keys', run: () => ui.openSheet({ kind: 'keys' }), hint: 'The keys that work on this page.' },
+    { kind: 'link', id: 'guide', label: 'Guide', href: guideHref(), icon: 'help', keys: 'go-guide', current: route.name === 'guide', hint: `The ${BRAND.name} user guide: every page and step explained, with pictures.` },
     { kind: 'action', id: 'actions', label: 'Every action', icon: 'command', keyText: paletteKeyLabel(), run: () => ui.openSheet({ kind: 'palette' }), hint: `Search every action you can take right now (${paletteKeyLabel()}).` },
   ];
   const phoneMenu: MenuEntry[] = [
@@ -143,7 +144,7 @@ export function TopBar({ route, onRetry, jobTitle = null }: { route: Route; onRe
           {desk > 0 && <span className="home-view-count">{desk}</span>}
         </Button>
       )}
-      <MenuButton className="gc-gear" label="Settings and more" icon="settings" current={route.name === 'settings'} hint="Settings, the flow map, the Table, the keys and every action." entries={more} />
+      <MenuButton className="gc-gear" label="Settings and more" icon="settings" current={route.name === 'settings'} hint="Settings, the flow map, the Table, the keys, the guide and every action." entries={more} />
       <MenuButton className="gc-burger" label="Menu" icon="menu" hint="Every page, New job, Settings and the rest." entries={phoneMenu} />
     </header>
   );

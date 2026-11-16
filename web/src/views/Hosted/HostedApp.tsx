@@ -8,6 +8,7 @@
 //                        views/Telemetry/HostedTelemetry.tsx)
 //   Lounge               the whole team, very little per person (packet 2D: views/Lounge)
 //   Settings             Laptops, Orbit and People (LaptopsPage, OrbitPage, PeoplePage)
+//   Guide                the user guide, the laptop app's own Guide page (views/Guide, its own chunk)
 //   Desk, a job, its Stage, Stacks and a part
 //                        the laptop app's own pages, from the full mirror (packet 2B: HostedWorkshop)
 //   everything else      a calm "open this on your laptop for now" page (LaterPage), never an error
@@ -17,6 +18,8 @@ import { createApi, type ApiClient } from '../../api/client';
 import { BRAND, pageTitle } from '../../app/brand';
 import { BrandMark } from '../../app/BrandMark';
 import { MenuButton, type MenuEntry } from '../../app/Menu';
+import { Pages, PageSlot } from '../../app/pages';
+import { guideHref } from '../../app/router';
 import { Button } from '../../components/Button';
 import { Icon } from '../../components/Icon';
 import { useDelayedFlag } from '../../lib/useDelayedFlag';
@@ -39,6 +42,11 @@ import './hosted.css';
 
 type Load = { state: 'loading' } | { state: 'ready'; meta: HostedMeta } | { state: 'error'; message: string };
 
+const GUIDE_HINT = `The ${BRAND.name} user guide: every page and step explained, with pictures.`;
+
+// The Guide page is the laptop app's own, in its own chunk (app/pages.tsx).
+const GuideView = Pages.guide.Component;
+
 const MIRROR_NAMES = { desk: 'Desk', job: 'Job', stage: 'Stage', stacks: 'Stacks', stack: 'Stack', 'stack-part': 'Part' } as const;
 
 function nameOf(route: HostedRoute): string {
@@ -53,6 +61,7 @@ function nameOf(route: HostedRoute): string {
     case 'inbox': return 'Inbox';
     case 'telemetry': return 'Telemetry';
     case 'lounge': return 'Lounge';
+    case 'guide': return 'Guide';
     default: return route.page;
   }
 }
@@ -70,6 +79,7 @@ function TopBar({ route, person, onSignOut, busy }: { route: HostedRoute; person
     { kind: 'link', id: 'lounge', label: 'Lounge', href: '#/lounge', icon: 'users', current: at === 'lounge', hint: 'The Lounge: who on the team is around, and what is running on their laptops.' },
   ];
   const settings: MenuEntry = { kind: 'link', id: 'settings', label: 'Settings', href: '#/settings/laptops', icon: 'settings', current: at === 'settings', hint: 'Your laptops, and the people on the site.' };
+  const guide: MenuEntry = { kind: 'link', id: 'guide', label: 'Guide', href: guideHref(), icon: 'help', current: route.name === 'guide', hint: GUIDE_HINT };
   return (
     <header className="topbar hosted-topbar">
       <a className="brand gc-brand" href="#/" aria-label={BRAND.markLabel} title={`${BRAND.name}: your jobs.`}>
@@ -87,10 +97,11 @@ function TopBar({ route, person, onSignOut, busy }: { route: HostedRoute; person
       <span className="spacer" />
       {person && (
         <>
+          <Button kind="quiet" className="gc-nav-link hosted-settings-link" href={guideHref()} aria-current={route.name === 'guide' ? 'page' : undefined} icon="help" title={GUIDE_HINT}>Guide</Button>
           <Button kind="quiet" className="gc-nav-link hosted-settings-link" href="#/settings/laptops" aria-current={at === 'settings' ? 'page' : undefined} icon="settings" title="Your laptops, and the people on the site.">Settings</Button>
           <span className="hosted-who" title={`Signed in as ${person.email}`}><Icon name="user" size={14} /><span className="hosted-who-name">{person.name}</span></span>
           <Button kind="quiet" size="sm" className="hosted-sign-out" busy={busy} onClick={onSignOut} title="Sign out of the site in this browser.">Sign out</Button>
-          <MenuButton className="gc-burger" label="Menu" icon="menu" hint="Every page, Settings and Sign out." entries={[...pages, settings, { kind: 'sep', id: 'sep' }, { kind: 'action', id: 'sign-out', label: 'Sign out', icon: 'arrow-left', run: () => onSignOut?.(), hint: 'Sign out of the site in this browser.' }]} />
+          <MenuButton className="gc-burger" label="Menu" icon="menu" hint="Every page, Settings, the guide and Sign out." entries={[...pages, settings, guide, { kind: 'sep', id: 'sep' }, { kind: 'action', id: 'sign-out', label: 'Sign out', icon: 'arrow-left', run: () => onSignOut?.(), hint: 'Sign out of the site in this browser.' }]} />
         </>
       )}
     </header>
@@ -146,6 +157,7 @@ export function HostedApp({ api: given }: { api?: ApiClient }) {
             : route.name === 'inbox' ? <HostedInboxPage {...props} />
             : route.name === 'telemetry' ? <HostedTelemetryPage {...props} />
             : route.name === 'lounge' ? <LoungePage {...props} />
+            : route.name === 'guide' ? <PageSlot at="guide"><GuideView page={route.page} section={route.section} /></PageSlot>
           : route.name === 'later' ? <LaterPage page={route.page} />
             : route.name === 'mirror' ? <HostedWorkshop api={api} store={store} route={route.route} />
             : <HostedJobsPage {...props} />;

@@ -520,3 +520,32 @@ describe('the website’s Jobs fetch the new job page ahead (Task 7 fix round 1)
     await waitFor(() => expect(s.calls.filter((c) => c.path.includes('/page')).map((c) => c.path)).toEqual([`/api/job/${encodeURIComponent(slug)}/page`]));
   });
 });
+
+describe('the guide on the website', () => {
+  it('signed in: the top bar’s Guide opens the laptop app’s Guide page, at a page’s address too', async () => {
+    expect(parseHostedHash('#/guide')).toEqual({ name: 'guide' });
+    expect(parseHostedHash('#/guide/09-the-website/set-it-up-once')).toEqual({ name: 'guide', page: '09-the-website', section: 'set-it-up-once' });
+    go('#/guide/09-the-website');
+    const { api } = site();
+    render(<HostedApp api={api} />);
+    const page = await screen.findByRole('main', { name: 'Guide' });
+    expect(await within(page).findByRole('heading', { level: 2, name: '9. The website' })).toBeInTheDocument();
+    expect(within(page).getByRole('link', { name: '9. The website' })).toHaveAttribute('aria-current', 'page');
+    const bar = document.querySelector<HTMLElement>('.hosted-topbar')!;
+    expect(within(bar).getByRole('link', { name: 'Guide' })).toHaveAttribute('href', '#/guide');
+    expect(within(bar).getByRole('link', { name: 'Guide' })).toHaveAttribute('aria-current', 'page');
+    await waitFor(() => expect(document.title).toBe('Guide · Starbase'));
+    // The ☰ menu has it too.
+    fireEvent.click(within(bar).getByRole('button', { name: 'Menu' }));
+    expect(within(bar).getByRole('menuitem', { name: /^Guide/ })).toHaveAttribute('href', '#/guide');
+  });
+
+  it('signed out: the guide waits behind the sign-in, like every page', async () => {
+    go('#/guide/03-jobs');
+    const { api } = site({ person: null });
+    render(<HostedApp api={api} />);
+    expect(await screen.findByRole('link', { name: /Sign in with Google/ })).toBeTruthy();
+    expect(screen.queryByRole('main', { name: 'Guide' })).toBeNull();
+    expect(document.querySelector('.hosted-topbar a[href="#/guide"]')).toBeNull();
+  });
+});

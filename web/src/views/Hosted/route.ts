@@ -8,6 +8,8 @@
 //   #/telemetry             the shared account's limit and your own jobs' graphs (packet 2E:
 //                           views/Telemetry/HostedTelemetry.tsx)
 //   #/lounge                the Lounge: the whole team, very little per person (packet 2D)
+//   #/guide[/<page>[/<section>]]  the user guide, the laptop app's own Guide page (views/Guide),
+//                           signed in like every other page
 //   #/desk, #/job/<slug>, #/job/<slug>/conversation, #/job/<slug>/overview,
 //   #/job/<slug>/stage/<stop>, #/stacks, #/stack/<slug>[/part/<n>]
 //                           the laptop app's own pages, from the full mirror (packet 2B: HostedWorkshop);
@@ -30,6 +32,7 @@ export type HostedRoute =
   | { name: 'inbox' }
   | { name: 'telemetry' }
   | { name: 'lounge' }
+  | { name: 'guide'; page?: string; section?: string }
   | { name: 'later'; page: string }
   | { name: 'mirror'; route: MirrorRoute };
 
@@ -47,6 +50,7 @@ export function parseHostedHash(raw: string): HostedRoute {
   if (r.name === 'home' || r.name === 'not-found') return { name: 'jobs' };
   if (r.name === 'inbox') return { name: 'inbox' };
   if (r.name === 'telemetry') return { name: 'telemetry' };
+  if (r.name === 'guide') return r;
   if (r.name === 'desk' || r.name === 'job' || r.name === 'stage' || r.name === 'stacks' || r.name === 'stack' || r.name === 'stack-part') return { name: 'mirror', route: r };
   if (r.name === 'screens') return { name: 'later', page: 'A job’s screens' };
   if (r.name === 'stack-build') return { name: 'later', page: 'Stacks' };

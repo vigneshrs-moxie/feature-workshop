@@ -2,6 +2,7 @@
 // works, the groups not on this page marked, and a note when keys are off (Settings → Keys).
 import { KEY_IDS, KEYS, keyDef, keyLabel, SCOPES, useKeyRegistry, type KeyId, type KeyScope } from '../../app/keyRegistry';
 import { useKeysSetting } from '../../app/keysSetting';
+import { guideHref } from '../../app/router';
 import { useNewJobPage } from '../../jobpage/switch';
 import { Sheet } from '../../components/Sheet';
 import { Button } from '../../components/Button';
@@ -25,6 +26,7 @@ export function KeysSheet({ onClose }: { onClose: () => void }) {
       </div>
       <p className="sheet-fine keys-fine">Single-letter keys don’t work while you’re typing in a box: click outside it, or press Esc in a menu first. Turn them off, or hide the hints on buttons, in Settings → Keys.</p>
       <div className="sheet-actions">
+        <Button kind="quiet" icon="help" href={guideHref('10-keys-and-command-box')} onClick={onClose} title="Open the guide’s page on keys and the command search (g ?).">Guide</Button>
         <Button onClick={onClose} title="Close this list (Esc).">Close</Button>
       </div>
     </Sheet>
