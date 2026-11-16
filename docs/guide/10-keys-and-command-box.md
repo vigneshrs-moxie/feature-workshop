@@ -49,6 +49,7 @@ On every page, outside a text box.
 | `g then n` | Open the next job that needs you | The one that has waited longest, other than the job you are on. |
 | `g then s` | Go to Settings |  |
 | `g then x` | Go to the Crew-dex (Play mode) |  |
+| `g then ?` | Open the guide |  |
 | `u` | Check GitHub now | Where the GitHub line shows: Jobs and a job’s Ship step. |
 | `Esc` | Close the menu, sheet or drawer on top |  |
 | `r` | Telemetry: read the limits now | On the Telemetry page only; on the Desk, r is No go. |
