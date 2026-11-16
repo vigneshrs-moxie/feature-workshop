@@ -143,6 +143,12 @@ const key = (k: string, target: Element = document.body) => act(() => { fireEven
 const stepPanel = () => screen.getByRole('complementary', { name: 'This step' });
 const convoColumn = () => screen.getByRole('region', { name: 'Conversation' });
 const convoSearch = () => within(convoColumn()).getByRole('searchbox', { name: 'Search the conversation' });
+/** A decision waits (the long job waits at a gate) on a laptop: the tabs over the reader stand in for the step panel. */
+const decideTabs = () => screen.getByRole('tablist', { name: 'About this decision' });
+/** The long job with nothing waiting: the laptop's arrangement with the step panel beside the reader. */
+const calm = () => { const p = payload(); p.move = null; return p; };
+/** The Jobs row of a job at work (nothing waits), for the first paint of a calm page. */
+const WORKING: Job = { ...ROW, lane: 'working', laneReason: 'Working on the review', headline: 'Reviewing', stageState: 'running', needsYou: false };
 
 let offKeys: () => void = () => {};
 beforeEach(() => { windowWidth(1512); made.length = 0; nextPage.make = null; forgetRecentPages(); offKeys = installKeyListener(); resetChord(); });
@@ -171,8 +177,9 @@ describe('first paint and the payload', () => {
     expect(screen.getByRole('button', { name: 'Decisions · 13 made for you' })).toBeInTheDocument();
     // A laptop with a decision waiting: the brief beside the decision.
     expect(readerTitle()).toBe('Brief #15 · Review · waiting');
-    // The step panel lists what the current step made.
-    expect(within(stepPanel()).getByRole('button', { name: /^Review \(combined\)/ })).toBeInTheDocument();
+    // The tabs over the reader (not the step panel, while a decision waits) list what the current step made.
+    expect(within(decideTabs()).getByRole('tab', { name: /^Review \(combined\)/ })).toBeInTheDocument();
+    expect(screen.queryByRole('complementary', { name: 'This step' })).toBeNull();
   });
 
   it('makes one store per job with the app’s client, keeps it across widths, and ends it when the page goes', async () => {
@@ -194,11 +201,12 @@ describe('addresses', () => {
     open(`#/job/${SLUG}/stage/plan`);
     await settle();
     expect(stepRow('Plan')).toHaveAttribute('aria-current', 'step');
-    // A laptop: no step is open in the row (the step panel lists the named step's outputs); the named
-    // step is marked and the reader shows its main output.
+    // A laptop: no step is open in the row (a decision waits, so the tabs over the reader list the named
+    // step's outputs); the named step is marked and the reader shows its main output.
     expect(stepRow('Review')).not.toHaveAttribute('aria-expanded');
     expect(stepRow('Build')).not.toHaveAttribute('aria-expanded');
-    expect(within(stepPanel()).getByText('Plan', { selector: '.jp2-sp-name' })).toBeInTheDocument();
+    expect(within(decideTabs()).getByRole('tab', { name: /^Implementation plan/ })).toHaveAttribute('aria-selected', 'true');
+    expect(within(decideTabs()).getByRole('tab', { name: 'Test plan' })).toBeInTheDocument();
     expect(readerTitle()).toBe('Implementation plan');
     // The conversation's address: it is in its own column, so the reader keeps the step's main output.
     act(() => { window.location.hash = `#/job/${SLUG}/conversation`; window.dispatchEvent(new HashChangeEvent('hashchange')); });
@@ -235,9 +243,9 @@ describe('addresses', () => {
     expect(stepRow('Plan')).toHaveAttribute('aria-current', 'step');
     // The step pick shows the step's main output in the reader (Task 10).
     expect(readerTitle()).toBe('Implementation plan');
-    // An output of the picked step (listed in the step panel) opens in the reader.
+    // An output of the picked step (a tab over the reader, while a decision waits) opens in the reader.
     fireEvent.click(stepRow('Review'));
-    fireEvent.click(within(stepPanel()).getByRole('button', { name: /^Review \(combined\)/ }));
+    fireEvent.click(within(decideTabs()).getByRole('tab', { name: /^Review \(combined\)/ }));
     expect(window.location.hash).toBe(`#/job/${SLUG}/read/doc/review.md`);
     expect(readerTitle()).toBe('Review (combined)');
     expect(window.history.length).toBe(entries);
@@ -463,14 +471,17 @@ describe('Task 7 fix round 1', () => {
     await settle();
     first.unmount();
     const again = open(`#/job/${SLUG}`, { hold: true });
-    // Before any answer: the payload kept from the last open, outputs and all.
-    expect(screen.getByRole('button', { name: /^Findings/ })).toBeInTheDocument();
+    // Before any answer: the payload kept from the last open, outputs and all (a decision waits: the
+    // current step's outputs are the tabs over the reader).
+    expect(within(decideTabs()).getByRole('tab', { name: /^Findings/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Conversation · 52' })).toBeInTheDocument();
     const painted = leftPane();
+    const tabs = decideTabs().outerHTML;
     again.release();
     await settle();
     expect(again.get).toHaveBeenCalledWith(`/api/job/${SLUG}/page?v=1`);
     expect(leftPane()).toBe(painted);
+    expect(decideTabs().outerHTML).toBe(tabs);
   });
 
   it('a cold first open: Your move’s label and ask come from the row as the payload will say them, so the card does not change', async () => {
@@ -570,7 +581,8 @@ describe('Task 10: the steps and the job rows on the page', () => {
   it('a reload of a step’s address shows that step’s main output again', async () => {
     const { unmount } = open(`#/job/${SLUG}/stage/review`);
     await settle();
-    expect(readerTitle()).toBe('Brief #15 · Review · waiting');
+    // A decision waits, but the address names the step: its main output, not the brief.
+    expect(readerTitle()).toBe('Findings');
     unmount();
     open(`#/job/${SLUG}/stage/build`);
     await settle();
@@ -730,7 +742,9 @@ describe('final fix W3: a job that fails to load says why', () => {
 
 describe('the glance layout (a laptop, 1100 px and wider)', () => {
   it('the conversation has its own column, with the asks row and the message box at its foot; under 1100 px both are back at the foot of the left pane', async () => {
-    open(`#/job/${SLUG}`);
+    // Nothing waits, so the step panel is beside the reader (while a decision waits, the tabs are).
+    nextPage.make = calm;
+    open(`#/job/${SLUG}`, { row: WORKING });
     await settle();
     const col = convoColumn();
     expect(col).toHaveClass('jp2-convo');
@@ -772,7 +786,8 @@ describe('the glance layout (a laptop, 1100 px and wider)', () => {
   it('the conversation’s address keeps the reader on the step’s main output: the picked step’s, else the current one’s', async () => {
     open(`#/job/${SLUG}/conversation`);
     await settle();
-    expect(readerTitle()).toBe('Brief #15 · Review · waiting');
+    // The current step's main output (a decision waits, but the address named the conversation, not the brief).
+    expect(readerTitle()).toBe('Findings');
     expect(convoColumn().querySelector('[data-view="conversation"]')).not.toBeNull();
     fireEvent.click(stepRow('Build'));
     expect(readerTitle()).toBe('Changes');

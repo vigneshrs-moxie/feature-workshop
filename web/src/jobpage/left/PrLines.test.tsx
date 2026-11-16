@@ -53,6 +53,9 @@ function payload({ prs = LINES, github = GH, ship = false, hosted = false }: { p
   p.github = github;
   p.hosted = hosted;
   if (ship) p.steps = p.steps.map((s) => (s.id === 'review' ? { ...s, state: 'done' } : s.id === 'ship' ? { ...s, state: 'current', main: { kind: 'ship', id: 'ship' } } : s));
+  // Ship open: the review's gate is behind it and nothing waits, so on a laptop the step panel (where the
+  // PR lines are) stands beside the reader; while a decision waits it gives way to the tabs over the reader.
+  if (ship) p.move = null;
   return p;
 }
 
