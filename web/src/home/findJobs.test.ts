@@ -8,7 +8,7 @@ const JOBS = [
   job('widget-export', 'needs-you', { title: 'Widget Export', lane: 'needs-you', waitingSince: '2026-11-16T08:00:00Z', laneReason: 'A permission waits for your yes' }),
   job('invoice', 'running', { title: 'Invoice export · refunds', lane: 'working', laneReason: 'Editing refund.ts' }),
   job('notes', 'idle', { title: 'Customer notes tab', lane: 'resting' }),
-  job('gone', 'needs-you', { title: 'Closed one', lane: 'needs-you', closed: true, waitingSince: '2026-11-01T08:00:00Z' }),
+  job('gone', 'needs-you', { title: 'Closed one', lane: 'needs-you', closed: { as: 'done' }, waitingSince: '2026-11-01T08:00:00Z' }),
 ];
 
 describe('matchJobs', () => {
