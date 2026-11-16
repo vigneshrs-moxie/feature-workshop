@@ -73,6 +73,7 @@ export function slugKey(slug: string): string | null {
 /** How this page works: the three things to know, in the shared guide's cards. */
 export const JOB_PAGE_GUIDE: GuideSpec = {
   id: 'job-page-new',
+  read: '04-a-job',
   title: 'How this job page works',
   done: 'Got it',
   cards: [

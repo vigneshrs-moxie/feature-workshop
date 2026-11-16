@@ -225,6 +225,7 @@ const NOT_APPLIED = "Orbit didn't apply 'assigned to me' for this token, so your
 
 const INBOX_GUIDE: GuideSpec = {
   id: 'inbox',
+  read: '08-other-pages#inbox',
   title: 'How the Inbox works',
   done: 'Show me my tickets',
   cards: [
@@ -291,6 +292,7 @@ export const onItsWay = (i: Pick<InboxItem, 'start'>) => Boolean(i.start && i.st
 
 const HOSTED_GUIDE: GuideSpec = {
   id: 'hosted-inbox',
+  read: '09-the-website',
   title: 'How the Inbox works here',
   done: 'Show me my tickets',
   cards: [

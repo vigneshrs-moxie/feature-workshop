@@ -108,6 +108,7 @@ const slugOf = (j: Job) => j.slug;
 
 export const JOBS_GUIDE: GuideSpec = {
   id: 'jobs',
+  read: '03-jobs',
   title: 'How Jobs works',
   done: 'Show me my jobs',
   cards: [

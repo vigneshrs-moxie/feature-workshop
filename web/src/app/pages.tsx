@@ -50,6 +50,9 @@ export const Pages = {
   oldJob: lazyPage(() => import('../job/page/JobPage').then((m) => m.JobPage)),
   floorLab: lazyPage(() => import('../play/floor3d/FloorLab').then((m) => m.default)),
   hosted: lazyPage(() => import('../views/Hosted/HostedApp').then((m) => m.HostedApp)),
+  // The user guide, with its pages' words and pictures' addresses: fetched only when it is opened
+  // (never ahead while idle), so the guide costs nothing until then.
+  guide: lazyPage(() => import('../views/Guide/GuideView').then((m) => m.GuideView)),
 };
 export type PageId = keyof typeof Pages;
 

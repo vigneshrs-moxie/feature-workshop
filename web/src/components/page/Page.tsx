@@ -9,6 +9,7 @@ import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, typ
 import { Button } from '../Button';
 import { Icon, type IconName } from '../Icon';
 import { useStored } from '../../lib/stored';
+import { guideHref } from '../../app/router';
 
 /** Each page's scroll, by its label, for this visit of the app (16 Nov: the list kept its place). */
 const scrolled = new Map<string, number>();
@@ -145,7 +146,14 @@ export function Hero({ icon, title, children, actions, quiet = false }: { icon: 
 // ---------- The first-visit guide ----------
 
 export interface GuideCard { icons: IconName[]; title: string; say: string }
-export interface GuideSpec { id: string; title: string; cards: [GuideCard, GuideCard, GuideCard]; done: string }
+export interface GuideSpec {
+  id: string; title: string; cards: [GuideCard, GuideCard, GuideCard]; done: string;
+  /**
+   * The user guide's page on this, by its file's name ('03-jobs'), with a section after # when it is
+   * one part of a page ('08-other-pages#telemetry'): the cards then offer "Read the guide".
+   */
+  read?: string;
+}
 
 const SEEN_KEY = 'gc.guide.seen';
 
@@ -217,6 +225,7 @@ export function Guide({ spec, onClose }: { spec: GuideSpec; onClose: () => void 
         <GuideCards cards={spec.cards} />
         <footer className="guide-foot">
           <span className="muted">Open this again any time with How it works.</span>
+          {spec.read && <Button kind="quiet" icon="help" href={guideHref(...(spec.read.split('#') as [string, string?]))} onClick={onClose} title="Open the guide’s page on this, with every part explained.">Read the guide</Button>}
           <Button ref={done} kind="primary" size="lg" onClick={onClose}>{spec.done}</Button>
         </footer>
       </section>

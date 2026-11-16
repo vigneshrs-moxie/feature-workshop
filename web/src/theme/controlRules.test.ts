@@ -83,7 +83,7 @@ describe('one set of controls', () => {
       'jobpage/phone/PhoneJob2.tsx', 'jobpage/phone/PhoneStep.tsx', 'jobpage/phone/PhoneReader.tsx',
       'jobpage/reader/Reader.tsx', 'jobpage/reader/ReaderBody.tsx', 'jobpage/reader/TitleRow.tsx', 'jobpage/reader/Prose.tsx', 'jobpage/reader/MessageView.tsx', 'jobpage/reader/DocView.tsx', 'jobpage/reader/TicketView.tsx', 'jobpage/reader/DecisionsView.tsx', 'jobpage/reader/ConversationView.tsx', 'jobpage/reader/ChangesView.tsx', 'jobpage/reader/FindingsView.tsx', 'jobpage/reader/ChecksView.tsx', 'jobpage/reader/DetailsView.tsx', 'jobpage/reader/FramedViews.tsx',
       'jobpage/notes/Pointable.tsx', 'jobpage/notes/NoteBox.tsx', 'jobpage/notes/Pins.tsx', 'jobpage/notes/NoteChips.tsx', 'jobpage/left/StepPanel.tsx', 'jobpage/reader/DecideTabs.tsx', 'jobpage/Splitter.tsx', 'jobpage/left/StopReply.tsx',
-      'views/Review/ReviewPanel.tsx', 'views/Review/ReviewBar.tsx', 'views/Review/ReviewDeskCard.tsx', 'components/permissions/PermissionAlert.tsx', 'components/permissions/PermissionCard.tsx', 'views/Gallery/GalleryReview.tsx'];
+      'views/Review/ReviewPanel.tsx', 'views/Review/ReviewBar.tsx', 'views/Review/ReviewDeskCard.tsx', 'components/permissions/PermissionAlert.tsx', 'components/permissions/PermissionCard.tsx', 'views/Gallery/GalleryReview.tsx', 'views/Guide/GuideView.tsx'];
     const handMade = CODE.filter((f) => MOVED.includes(f.name)).filter((f) => /className=["'{`][^>]*?(?<![\w-])btn(?![\w-])/.test(f.text)).map((f) => f.name);
     expect(handMade).toEqual([]);
   });

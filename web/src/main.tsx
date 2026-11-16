@@ -43,6 +43,7 @@ import './views/Telemetry.css';
 import './views/Telemetry/hostedTelemetry.css';
 import './views/Lounge/lounge.css';
 import './views/Hosted/hosted.css';
+import './views/Guide/guide.css';
 import { App } from './app/App';
 import { initTheme } from './theme/theme';
 import { initTextSize } from './theme/textSize';

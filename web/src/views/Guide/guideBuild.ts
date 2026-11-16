@@ -16,6 +16,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { BRAND } from '../../app/brand.ts';
 
 export interface GuidePage {
   /** The file's name without .md ('03-jobs'); the README is 'contents'. */
@@ -37,6 +38,9 @@ export interface GuideBuild {
 }
 
 export const CONTENTS_ID = 'contents';
+
+/** What a file of the repository named in the guide is, as its words' hover text. */
+export const FILE_NOTE = `A file in ${BRAND.name}’s own folder on your laptop.`;
 
 /** The app's address for a guide page and, optionally, one of its sections (router.ts's #/guide). */
 export function guideAddress(id: string, section?: string): string {
@@ -125,7 +129,7 @@ export function buildGuide({ dir, render, base, size }: {
       const target = other ? (other[1] === 'README' ? byId.get(CONTENTS_ID) : byId.get(other[1])) : undefined;
       if (other && target) return `<a href="${escapeAttr(guideAddress(target.id, sectionIn(target, other[2] ?? '')))}">${inner}</a>`;
       // Another file of the repository: its name stays, as words.
-      return `<span class="guide-file" title="A file in Starbase’s own folder on your laptop.">${inner}</span>`;
+      return `<span class="ug-file" title="${FILE_NOTE}">${inner}</span>`;
     });
     html = html.replace(/<img src="([^"]*)" alt="([^"]*)">/g, (whole, src: string, alt: string) => {
       const pic = /^(?:\.\/)?img\/([\w.-]+\.(?:png|jpe?g|webp|gif|svg))$/i.exec(decode(src));
@@ -135,7 +139,7 @@ export function buildGuide({ dir, render, base, size }: {
       return `<img src="${escapeAttr(imgBase + pic[1])}" alt="${alt}"${dims ? ` width="${dims.width}" height="${dims.height}"` : ''} loading="lazy">`;
     });
     html = html.replace(/<(h[2-6]) id="h-([^"]+)">([\s\S]*?)<\/\1>/g, (_, tag: string, id: string, inner: string) =>
-      `<${tag} id="h-${id}">${inner} <a class="guide-anchor" href="${escapeAttr(guideAddress(page.id, id))}" aria-label="This section’s address" title="This section’s own address: copy it, or open it">#</a></${tag}>`);
+      `<${tag} id="h-${id}">${inner} <a class="ug-anchor" href="${escapeAttr(guideAddress(page.id, id))}" aria-label="This section’s address" title="This section’s own address: copy it, or open it">#</a></${tag}>`);
     return { id: page.id, n: page.n, title: page.title, html };
   });
   return { pages, images, warnings };

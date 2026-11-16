@@ -61,6 +61,7 @@ export const ROUND_FIRST = new Set<ReviewState>(['asked', 'left', 'fixing', 'fix
 
 export const REVIEW_GUIDE: GuideSpec = {
   id: 'review-round',
+  read: '07-shipping#pr-comments',
   title: 'How review rounds work',
   done: 'Show me the round',
   cards: [

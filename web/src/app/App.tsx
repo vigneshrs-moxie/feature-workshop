@@ -61,6 +61,7 @@ const NotFoundView = Pages.notFound.Component;
 const HomeView = Pages.home.Component;
 const JobPage = Pages.oldJob.Component;
 const FloorLab = Pages.floorLab.Component;
+const GuideView = Pages.guide.Component;
 // The hosted site's app (sign-in, the mirror's jobs) is its own chunk too: on the hosted site it is
 // asked for as soon as this file runs, before anything draws.
 const HostedApp = Pages.hosted.Component;
@@ -133,6 +134,7 @@ function Sheets({ route }: { route: Route }) {
     },
     'go-settings': () => navigate({ name: 'settings' }),
     'go-crew': () => { if (!play.on) return false; navigate({ name: 'crew' }); },
+    'go-guide': () => navigate({ name: 'guide' }),
   });
   // On the Desk and in Settings, j and k are theirs (the queue, the sections).
   useKeyScope('rows', {
@@ -245,6 +247,7 @@ function Shell({ onRetry }: { onRetry: () => void }) {
   // each step's: one key (the job's) on both routes, so a pick (which moves the address in place) or
   // a link to another step never draws the page again from scratch.
   const page = route.name === 'gallery' ? <GalleryView />
+    : route.name === 'guide' ? <GuideView page={route.page} section={route.section} />
     : route.name === 'screens' ? <ScreensView key={route.slug} slug={route.slug} />
     // The new job page while the switch is on (jobpage/switch.ts), first painted from the snapshot row.
     : route.name === 'job' && newPage ? <JobPage2 key={route.slug} slug={route.slug} job={job} view={route.view} read={route.read} />

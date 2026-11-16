@@ -12,6 +12,7 @@ import { deskQueue } from './homeModel';
 
 export const DESK_GUIDE: GuideSpec = {
   id: 'desk',
+  read: '05-deciding#the-desk-every-decision-one-at-a-time',
   title: 'How the Desk works',
   done: 'Show me the first one',
   cards: [

@@ -63,6 +63,7 @@ function guideFor(hasFive: boolean, hasWeek: boolean): GuideSpec {
         : { title: 'The limits', say: `Once Claude reports a limit, a dial shows ${who}` };
   return {
   id: 'telemetry',
+  read: '08-other-pages#telemetry',
   title: 'How Telemetry works',
   cards: [
     { icons: ['gauge'], ...first },

@@ -39,6 +39,7 @@ export const PRESENCE: Record<Presence, { word: string; icon: IconName; hint: (m
 
 const GUIDE: GuideSpec = {
   id: 'lounge',
+  read: '09-the-website',
   title: 'The Lounge',
   cards: [
     { icons: ['users'], title: 'The whole team, the same', say: 'Everyone signed in sees this same page. A manager sees nothing extra.' },

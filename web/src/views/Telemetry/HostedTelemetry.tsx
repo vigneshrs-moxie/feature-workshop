@@ -33,6 +33,7 @@ const REFRESH_MS = 60_000;
 
 const GUIDE: GuideSpec = {
   id: 'team-telemetry',
+  read: '09-the-website',
   title: 'How Telemetry works here',
   cards: [
     { icons: ['users'], title: 'One shared limit', say: 'Everyone on the Claude account sees the same picture: how much of this week’s limit is used, by whom, and when it fills at this pace. The week starts on Wednesday at 4 pm.' },

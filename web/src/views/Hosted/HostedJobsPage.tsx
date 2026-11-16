@@ -47,6 +47,7 @@ const stageWords = (s: string | null) => (s ? s.charAt(0).toUpperCase() + s.slic
 
 const GUIDE: GuideSpec = {
   id: 'hosted-jobs',
+  read: '09-the-website',
   title: 'Your jobs, from anywhere',
   cards: [
     { icons: ['terminal', 'lock'], title: 'Pair each laptop once', say: 'On the laptop, starbase login --site and this site’s address prints a link and a code. Open it here and press Pair this laptop.' },

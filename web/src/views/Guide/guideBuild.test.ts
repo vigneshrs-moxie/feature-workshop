@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { buildGuide, githubSlug, guideAddress, imageSizer, loadRenderer, pageOrder, pngSize, type GuideBuild } from './guideBuild';
+import { buildGuide, FILE_NOTE, githubSlug, guideAddress, imageSizer, loadRenderer, pageOrder, pngSize, type GuideBuild } from './guideBuild';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 const GUIDE = path.join(ROOT, 'docs', 'guide');
@@ -48,7 +48,8 @@ describe('the guide build', () => {
 
   it('turns links into the repository into words, and keeps links to the web', () => {
     const g = buildGuide({ dir: tinyGuide({ 'README.md': README, '01-start.md': START, '02-jobs.md': JOBS }), render, base: '/' });
-    expect(g.pages[0].html).toContain('<span class="guide-file" title="A file in Starbase’s own folder on your laptop.">README</span>');
+    expect(g.pages[0].html).toContain(`<span class="ug-file" title="${FILE_NOTE}">README</span>`);
+    expect(FILE_NOTE).toBe('A file in Starbase’s own folder on your laptop.');
     expect(g.pages[0].html).toContain('>docs/install.md</span>');
     expect(g.pages[0].html).not.toMatch(/href="[^"]*\.\.\//);
     expect(g.pages[1].html).toContain('href="https://example.test/x" target="_blank" rel="noopener noreferrer"');
@@ -65,7 +66,7 @@ describe('the guide build', () => {
 
   it('gives each heading a link to its own address', () => {
     const g = buildGuide({ dir: tinyGuide({ 'README.md': README, '01-start.md': START, '02-jobs.md': JOBS }), render, base: '/' });
-    expect(g.pages[2].html).toContain('<h2 id="h-find-a-job-the-search-box">Find a job: the search box <a class="guide-anchor" href="#/guide/02-jobs/find-a-job-the-search-box"');
+    expect(g.pages[2].html).toContain('<h2 id="h-find-a-job-the-search-box">Find a job: the search box <a class="ug-anchor" href="#/guide/02-jobs/find-a-job-the-search-box"');
   });
 
   it('says when a link names a section that isn’t there, and opens the page’s top', () => {

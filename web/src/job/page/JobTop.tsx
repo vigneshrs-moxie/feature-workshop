@@ -42,6 +42,7 @@ import './page.css';
 /** The job page's guide (How it works); its own id (the old page's was 'job'), so it opens once by itself on this page. */
 export const JOB_GUIDE: GuideSpec = {
   id: 'job-page-2',
+  read: '04-a-job',
   title: 'How the job page works',
   done: 'Got it',
   cards: [
