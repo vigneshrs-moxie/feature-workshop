@@ -37,12 +37,6 @@ export function readerOf(s: JobPageState): ReaderTarget | null {
  * picked step's main output, else the current step's, else the last step's.
  */
 export function readerBesideConvo(s: JobPageState): ReaderTarget | null {
-  // A decision waits and he has picked nothing: its card holds the brief, so the reader shows the
-  // step's evidence (Findings at a review, the spec at a spec gate), not the brief a second time.
-  if (!s.ui.reader && !s.ui.step && s.payload?.move?.kind === 'gate') {
-    const now = s.payload.steps.find((x) => x.state === 'current');
-    if (now && now.main.kind !== 'not-yet') return now.main;
-  }
   const t = readerOf(s);
   if (!t || (t.kind !== 'conversation' && t.kind !== 'permission')) return t;
   const steps = s.payload?.steps ?? [];

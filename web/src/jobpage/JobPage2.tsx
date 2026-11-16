@@ -64,6 +64,9 @@ import { YourMove } from './left/YourMove';
 import { branchOf, loadCommits, loadDiff } from './reader/branch';
 import { ConversationView, stepLine } from './reader/ConversationView';
 import { StepPanel } from './left/StepPanel';
+import { stateFromRow } from './left/Header';
+import { DecideTabs } from './reader/DecideTabs';
+import { Splitter } from './Splitter';
 import { Reader } from './reader/Reader';
 import { Palette } from './Palette';
 import { JobStoreContext, useJob, useJobStore } from './useJob';
@@ -197,6 +200,14 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
   /** The glance layout: the conversation has its own column, so the reader never shows it. */
   const wide = layout === 'wide';
   const convo = useRef<HTMLElement>(null);
+  const page = useRef<HTMLElement>(null);
+  // A decision waits (a laptop): the decision and the brief side by side, each the page's full height
+  // (16 Nov). From the Jobs row before the payload, so the first paint is already laid out that way.
+  const moveWaits = useJob((s) => (s.payload ? s.payload.move?.kind === 'gate' || s.payload.move?.kind === 'question' : null));
+  const deciding = wide && (moveWaits ?? (job !== null && stateFromRow(job) === 'needs-you' && job.waitingFor !== 'permission'));
+  // The conversation's column can be hidden (its message box stays, along the foot); kept in this browser.
+  const [convoShown, setConvoShown] = useState(readConvoShown);
+  const showConvo = useCallback((on: boolean) => { flushSync(() => setConvoShown(on)); keepConvoShown(on); }, []);
   // The phone's screen, from the address (null wider than a phone).
   const screenNow = phone ? phoneScreenOf(step, view, read) : null;
   const moves = usePhoneMoves(slug, screenNow);
@@ -250,13 +261,13 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
 
   const pickReader = useCallback((t: ReaderTarget, from?: HTMLElement | null) => {
     // A laptop: the conversation is its own column, always there; its pick goes to its search box.
-    if (wide && t.kind === 'conversation') { search.current?.focus(); return; }
+    if (wide && t.kind === 'conversation') { showConvo(true); search.current?.focus(); return; }
     store.setReader(t);
     // On the phone the reader is its own screen.
     if (phone) { leavingJob(from); moves.toReader(t); return; }
     replaceHash(readHref(slug, t));
     showReader(from);
-  }, [store, slug, showReader, phone, moves, leavingJob, wide]);
+  }, [store, slug, showReader, phone, moves, leavingJob, wide, showConvo]);
 
   // R2 (Task 20, left/PrLines.tsx): GitHub is read as the page opens (when the last read is old), and the
   // PR's next action leads the asks row while the Ship step is not the open one.
@@ -371,7 +382,7 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
   }
 
   return (
-    <main className="jp2" aria-label="Job" data-layout={layout} data-screen={screenNow ?? undefined} data-covered={(phone ? screenNow === 'reader' : covered) ? '' : undefined}>
+    <main ref={page} className="jp2" aria-label="Job" data-layout={layout} data-deciding={deciding ? '' : undefined} data-convo={wide && !convoShown ? 'hidden' : undefined} data-screen={screenNow ?? undefined} data-covered={(phone ? screenNow === 'reader' : covered) ? '' : undefined}>
       {!phone && <Header job={job} />}
       <div className="jp2-panes">
         <div className="jp2-left" aria-hidden={leftHidden || undefined} inert={leftHidden || undefined}>
@@ -410,14 +421,20 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
             </div>
           )}
           {phone && <PhoneReader onBack={moves.back} />}
+          {deciding && <DecideTabs onOpen={pickReader} />}
           <AsksContext.Provider value={asksHere}>
             <Reader fallback={job?.title ?? ''} searchRef={search} onOpen={pickReader} convoBeside={wide} />
           </AsksContext.Provider>
         </section>
-        {wide && <StepPanel onOpen={pickReader} />}
+        {wide && !deciding && <StepPanel onOpen={pickReader} />}
+        {deciding && <Splitter className="is-decide" page={page} prop={WIDTH.decide} measure={() => page.current?.querySelector<HTMLElement>('.jp2-movewrap') ?? null} side="left" min={380} max={1100} label="the decision" />}
+        {wide && convoShown && <Splitter className="is-convo" page={page} prop={WIDTH.convo} measure={() => convo.current} side="right" min={280} max={820} label="the conversation" />}
         {wide && (
           <section ref={convo} className="jp2-convo" aria-label="Conversation">
-            <h2 className="jp2-convo-h">Conversation</h2>
+            <div className="jp2-convo-top">
+              <h2 className="jp2-convo-h">Conversation</h2>
+              <Button kind="quiet" size="sm" onClick={() => showConvo(false)} title="Hide the conversation; its message box stays along the foot. The Conversation link brings it back.">Hide</Button>
+            </div>
             <AsksContext.Provider value={asksHere}>
               <ConversationView searchRef={search} onOpen={pickReader} column />
             </AsksContext.Provider>
@@ -429,6 +446,20 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
       <Palette runner={asks} job={job} phone={phone} onStep={openStep} onOpen={pickReader} />
     </main>
   );
+}
+
+/** The widths the drag handles set on the page (Splitter.tsx), read by the grid in jobpage.css. */
+const WIDTH = {
+  decide: '--jp2-decide-w',
+  convo: '--jp2-convo-w',
+} as const;
+
+const CONVO_KEY = 'sb.jobPage.convo';
+function readConvoShown(): boolean {
+  try { return localStorage.getItem(CONVO_KEY) !== 'hidden'; } catch { return true; }
+}
+function keepConvoShown(on: boolean) {
+  try { if (on) localStorage.removeItem(CONVO_KEY); else localStorage.setItem(CONVO_KEY, 'hidden'); } catch { /* storage off: for this visit */ }
 }
 
 /** The job failed to load and nothing of it is held: why, in plain words, and Try again (final fix W3). */
