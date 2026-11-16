@@ -741,3 +741,35 @@ describe('missing moves: an id’s words fold on Escape (16 Nov)', () => {
     o.unmount();
   });
 });
+
+describe('missing moves: a plain Stop while the Foreman replies (16 Nov)', () => {
+  beforeEach(() => { vi.stubGlobal('matchMedia', (q: string) => ({ matches: /min-width/.test(q), media: q, addEventListener() {}, removeEventListener() {} })); });
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('the working line has Stop while a reply runs; it ends the reply once, whatever the clicks, and is gone when nothing runs', async () => {
+    let finish: () => void = () => {};
+    const post = vi.fn((_path: string, _body?: unknown) => new Promise<unknown>((r) => { finish = () => r({ ok: true }); }));
+    const o = open({ move: null, post, patch: { state: 'working', stateLine: 'Run the unit tests', run: { id: 'run-9', status: 'running', startedAt: '2026-11-04T22:58:00.000Z', lastAction: null } } });
+    await settle();
+    const stop = within(card()).getByRole('button', { name: 'Stop' });
+    expect(stop.title).toMatch(/^End the Foreman’s reply now/);
+    fireEvent.click(stop);
+    fireEvent.click(stop);
+    expect(post.mock.calls.filter((c) => String(c[0]) === '/api/runs/run-9/stop')).toHaveLength(1);
+    await act(async () => { finish(); });
+    o.unmount();
+    const idle = open({ move: null, patch: { state: 'working', stateLine: 'Run the unit tests', run: { id: 'run-9', status: 'done', startedAt: '2026-11-04T22:58:00.000Z', lastAction: null } } });
+    await settle();
+    expect(within(card()).queryByRole('button', { name: 'Stop' })).toBeNull();
+    idle.unmount();
+  });
+
+  it('a stop that fails says why, in plain words', async () => {
+    const post = vi.fn(async () => { throw new ApiError(500, 'The run could not be stopped.'); });
+    const o = open({ move: null, post, patch: { state: 'working', stateLine: 'Run the unit tests', run: { id: 'run-9', status: 'running', startedAt: '2026-11-04T22:58:00.000Z', lastAction: null } } });
+    await settle();
+    await act(async () => { fireEvent.click(within(card()).getByRole('button', { name: 'Stop' })); });
+    expect(within(card()).getByRole('alert')).toHaveTextContent(/^Not stopped:/);
+    o.unmount();
+  });
+});

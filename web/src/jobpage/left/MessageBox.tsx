@@ -139,16 +139,10 @@ export function notesBack(now: PageNote[], taken: PageNote[]): PageNote[] {
   return [...taken, ...now.filter((n) => !taken.some((t) => t.n === n.n))];
 }
 
-export const MessageBox = memo(function MessageBox({ boxRef, onOpen }: MessageBoxProps) {
-  const store = useJobStore();
-  const { api, store: app } = useWorkshop();
+/** The run the Foreman is on now (runNow), for the box and for Your move's Stop (left/StopReply.tsx). */
+export function useForemanRun(): RunFacts {
+  const { store: app } = useWorkshop();
   const slug = useJob((s) => s.slug);
-  const draft = useJob((s) => s.ui.draft);
-  /** Notes pointed in the reader (R4): they go with the next Send (at a gate: Send back or Go). */
-  const noteCount = useJob((s) => s.ui.notes.length);
-  const gateWaits = useJob((s) => s.payload?.move?.kind === 'gate');
-  const asked = useJob((s) => s.payload?.move?.kind === 'gate' || s.payload?.move?.kind === 'question');
-  const locked = useJob((s) => Boolean(s.payload?.lock));
   // A run that has ended is told apart from none by its status alone: its id is read only while it runs, so a
   // reply arriving as its run ends does not draw the box again (speed rule 5).
   const payloadRunId = useJob((s) => (ACTIVE.has(s.payload?.run?.status ?? '') ? s.payload?.run?.id ?? null : null));
@@ -157,7 +151,24 @@ export const MessageBox = memo(function MessageBox({ boxRef, onOpen }: MessageBo
   const liveRunStatus = useSyncExternalStore(app.subscribe, () => app.getState().runs[slug]?.status ?? null);
   const hasPayloadRun = useJob((s) => Boolean(s.payload?.run));
   const hasLiveRun = useSyncExternalStore(app.subscribe, () => Boolean(app.getState().runs[slug]));
-  const run = runNow(hasLiveRun ? { id: liveRunId, status: liveRunStatus } : null, hasPayloadRun ? { id: payloadRunId, status: payloadRunStatus } : null);
+  return runNow(hasLiveRun ? { id: liveRunId, status: liveRunStatus } : null, hasPayloadRun ? { id: payloadRunId, status: payloadRunStatus } : null);
+}
+
+/** The run statuses of a reply still going. */
+export const RUN_ACTIVE: ReadonlySet<string> = ACTIVE;
+export { LOCKED };
+
+export const MessageBox = memo(function MessageBox({ boxRef, onOpen }: MessageBoxProps) {
+  const store = useJobStore();
+  const { api } = useWorkshop();
+  const slug = useJob((s) => s.slug);
+  const draft = useJob((s) => s.ui.draft);
+  /** Notes pointed in the reader (R4): they go with the next Send (at a gate: Send back or Go). */
+  const noteCount = useJob((s) => s.ui.notes.length);
+  const gateWaits = useJob((s) => s.payload?.move?.kind === 'gate');
+  const asked = useJob((s) => s.payload?.move?.kind === 'gate' || s.payload?.move?.kind === 'question');
+  const locked = useJob((s) => Boolean(s.payload?.lock));
+  const run = useForemanRun();
   const running = Boolean(run && ACTIVE.has(run.status ?? ''));
   const narrow = useNarrow();
   const hosted = useJob((s) => s.payload?.hosted === true);

@@ -76,6 +76,9 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2-card-more { flex: none; font-size: 12px; line-height: 20px; color: var(--text-2); }
 .jp2-card-more:hover { color: var(--text-1); }
 .jp2-ym-one { margin: 0; padding: 4px 6px; font-size: 13px; line-height: 18px; }
+/* Stop on the working line while the Foreman replies (left/StopReply.tsx); why it did not stop, under it. */
+.jp2-ym-stop { margin-left: 6px; vertical-align: middle; }
+.jp2-ym-stopwhy { display: block; margin-top: 4px; color: var(--text-1); font-weight: 500; }
 /* Your move's questions (left/YourMove.tsx): one option row each, the recommended one picked */
 .jp2-ym-qs { display: flex; flex-direction: column; gap: 4px; }
 .jp2-ym-q { display: flex; flex-direction: column; gap: 3px; min-width: 0; margin: 0; padding: 0; border: 0; }

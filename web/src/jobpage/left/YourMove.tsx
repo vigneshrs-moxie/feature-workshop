@@ -51,6 +51,7 @@ import { notesBack } from './MessageBox';
 import { changedCount, gateBody, OWN, pickOf, unanswered, type GatePicks } from './gateBody';
 import { STATE_WORDS, stateFromRow } from './Header';
 import { firstMentions, RefOpen, RefText } from './Refs';
+import { StopReply } from './StopReply';
 
 /** A time as "Fri 12:06 PM" (the reader's title rows use it too). */
 export function sinceWords(at: string | null | undefined): string | null {
@@ -88,9 +89,9 @@ export const YourMove = memo(function YourMove({ job, onOpen }: YourMoveProps) {
   if (move?.kind === 'gate') return <div className="jp2-ym"><GateCard key={gateKeyOf(move)} move={move} onOpen={onOpen} />{answers}</div>;
   if (move?.kind === 'question') return <div className="jp2-ym"><AskCard move={move} />{answers}</div>;
   if (move?.kind === 'permission') return <div className="jp2-ym"><PermissionCard key={move.id} move={move} />{answers}</div>;
-  if (asked) return <div className="jp2-ym">{answers}</div>;
-  if (hasPr) return <div className="jp2-ym"><p className="jp2-ym-one">{state ? STATE_WORDS[state] : ''}{line ? ` · ${line}` : ''}</p>{prLine}</div>;
-  return <div className="jp2-ym"><p className="jp2-ym-one">{state ? STATE_WORDS[state] : ''}{line ? ` · ${line}` : ''}</p></div>;
+  if (asked) return <div className="jp2-ym"><StopReply line />{answers}</div>;
+  if (hasPr) return <div className="jp2-ym"><p className="jp2-ym-one">{state ? STATE_WORDS[state] : ''}{line ? ` · ${line}` : ''}<StopReply /></p>{prLine}</div>;
+  return <div className="jp2-ym"><p className="jp2-ym-one">{state ? STATE_WORDS[state] : ''}{line ? ` · ${line}` : ''}<StopReply /></p></div>;
 });
 
 /** `PR #1 · 3 new comments` (Task 21): opens that PR's view in the reader. Nothing when none are new. */
