@@ -28,7 +28,20 @@ export function Page({ label, title, head, children, className = '', guide }: {
   const main = useRef<HTMLElement>(null);
   useLayoutEffect(() => {
     const at = scrolled.get(label);
-    if (at && main.current) main.current.scrollTop = at;
+    const el = main.current;
+    if (!at || !el) return undefined;
+    el.scrollTop = at;
+    if (el.scrollTop >= at - 1 || typeof ResizeObserver === 'undefined') return undefined;
+    // Parts that draw a moment later (folds, lines read from the server) make the page tall enough:
+    // put it back as they land, for a second at most, unless he scrolls or presses something first.
+    const inner = el.firstElementChild;
+    const ro = new ResizeObserver(() => { el.scrollTop = at; if (el.scrollTop >= at - 1) stop(); });
+    const timer = setTimeout(() => stop(), 1000);
+    const events = ['wheel', 'touchstart', 'keydown', 'pointerdown'] as const;
+    function stop() { ro.disconnect(); clearTimeout(timer); for (const ev of events) el!.removeEventListener(ev, stop); }
+    if (inner) ro.observe(inner);
+    for (const ev of events) el.addEventListener(ev, stop, { passive: true });
+    return stop;
   }, [label]);
   return (
     <main ref={main} className={`page ${className}`.trim()} aria-label={label} onScroll={(e) => { scrolled.set(label, e.currentTarget.scrollTop); }}>
