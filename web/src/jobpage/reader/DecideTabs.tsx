@@ -38,15 +38,17 @@ export function tabsOf(p: JobPagePayload | null, picked: string | null = null): 
   return tabs.slice(0, 6);
 }
 
+const sameTabs = (a: Tab[], b: Tab[]) => a.length === b.length && a.every((x, i) => x.label === b[i].label && x.meta === b[i].meta && sameTarget(x.t, b[i].t));
+
 export interface DecideTabsProps {
   onOpen(t: ReaderTarget, from?: HTMLElement | null): void;
 }
 
 export const DecideTabs = memo(function DecideTabs({ onOpen }: DecideTabsProps) {
-  const payload = useJob((s) => s.payload);
-  const picked = useJob((s) => s.ui.step);
+  // The tabs themselves, compared by what they show: a new line in the conversation (a new payload)
+  // draws nothing here (speed rule 5).
+  const tabs = useJob((s) => tabsOf(s.payload, s.ui.step), sameTabs);
   const target = useJob(readerBesideConvo, sameTarget);
-  const tabs = tabsOf(payload, picked);
   if (tabs.length < 2) return null;
   return (
     <div className="jp2-dtabs" role="tablist" aria-label="About this decision">

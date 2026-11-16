@@ -1,6 +1,7 @@
 // The tabs over the reader while a decision waits (a laptop, 16 Nov): the brief, what the picked step
 // (else the current one) made, the spec. Built against the made-up long job, which waits at the review's gate.
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { Profiler } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../../api/client';
 import { longJob } from '../fixtures/longJob';
@@ -134,3 +135,23 @@ describe('DecideTabs', () => {
     expect(screen.queryByRole('tablist')).toBeNull();
   });
 });
+
+describe('DecideTabs draws only when its tabs change (perf pass)', () => {
+  it('a new payload with one more line in the conversation draws nothing here; a step pick still does', async () => {
+    const next = payload();
+    next.v = (next.v ?? 0) + 1;
+    const line = next.thread.find((l) => l.kind !== 'brief')!;
+    next.thread = [...next.thread, { ...line, id: `${line.id}-new` }];
+    const api = { get: async () => clone(next), post: async () => ({}), hosted: () => false } as unknown as ApiClient;
+    const store: JobStore = createJobStore(SLUG, { api, initial: payload(), events: () => () => {} });
+    let draws = 0;
+    render(<JobStoreContext.Provider value={store}><Profiler id="tabs" onRender={() => { draws++; }}><DecideTabs onOpen={vi.fn()} /></Profiler></JobStoreContext.Provider>);
+    const before = draws;
+    await act(async () => { await store.loadPage(); });
+    expect(store.getState().payload!.thread).toHaveLength(next.thread.length);
+    expect(draws).toBe(before);
+    act(() => { store.setStep('plan' as StopId); });
+    expect(draws).toBe(before + 1);
+  });
+});
+
