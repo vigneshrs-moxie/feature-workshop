@@ -275,3 +275,20 @@ describe('the glance layout: where the PR lines show', () => {
     for (const s of NEXT1.says) expect(left.getByText(s)).toBeInTheDocument();
   });
 });
+
+describe('the deciding arrangement: the PR lines while a decision waits at Ship', () => {
+  it('on a laptop no step panel; one PR lines tab over the reader opens them there, with their button', async () => {
+    const p = payload({ ship: true });
+    p.move = { ...clone(longJob.payload.move), stage: 'ship' } as unknown as JobPagePayload['move'];
+    open(p);
+    await settle();
+    expect(document.querySelector('.jp2-sp')).toBeNull();
+    const tabs = within(screen.getByRole('tablist', { name: 'About this decision' }));
+    expect(tabs.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Brief #15', 'PR lines', 'Spec']);
+    fireEvent.click(tabs.getByRole('tab', { name: 'PR lines' }));
+    await settle();
+    expect(tabs.getByRole('tab', { name: 'PR lines' })).toHaveAttribute('aria-selected', 'true');
+    expect([...document.querySelectorAll('.jp2-rv-body .jp2-prl-line')].map((l) => l.querySelector('.jp2-prl-n')?.textContent)).toEqual(['PR #1', 'PR #2', 'PR #3']);
+    expect(readerPane().getByRole('button', { name: 'Push and open PR #1' })).toBeInTheDocument();
+  });
+});

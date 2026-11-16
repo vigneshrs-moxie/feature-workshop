@@ -818,3 +818,174 @@ describe('the glance layout (a laptop, 1100 px and wider)', () => {
     expect(draws.buttons.filter((b) => b === 'Keep as an ask')).toEqual([]);
   });
 });
+
+describe('a decision waits on a laptop: the decision and the brief side by side (16 Nov)', () => {
+  const tabNames = () => within(decideTabs()).getAllByRole('tab').map((t) => t.textContent);
+  const handle = (name: string) => screen.queryByRole('separator', { name });
+
+  it('a gate: the page is deciding, with no step panel; the reader opens on the brief, the tabs over it, and a handle each side of it', async () => {
+    open(`#/job/${SLUG}`);
+    await settle();
+    expect(page()).toHaveAttribute('data-deciding');
+    expect(screen.queryByRole('complementary', { name: 'This step' })).toBeNull();
+    expect(document.querySelector('.jp2-sp')).toBeNull();
+    expect(readerTitle()).toBe('Brief #15 · Review · waiting');
+    expect(tabNames()).toEqual(['Brief #15', 'Findings1 open', 'Review (combined)', 'Spec']);
+    expect(within(decideTabs()).getByRole('tab', { name: 'Brief #15' })).toHaveAttribute('aria-selected', 'true');
+    // The tabs sit over the reader, in its column.
+    expect(decideTabs().closest('.jp2-reader')).not.toBeNull();
+    expect(handle('Resize the decision')).not.toBeNull();
+    expect(handle('Resize the conversation')).not.toBeNull();
+  });
+
+  it('a tab opens what it names in the reader and rewrites the address; the decision stays', async () => {
+    open(`#/job/${SLUG}`);
+    await settle();
+    const card = document.querySelector('.jp2-ym');
+    fireEvent.click(within(decideTabs()).getByRole('tab', { name: 'Spec' }));
+    expect(readerTitle()).toBe('Product spec');
+    expect(window.location.hash).toBe(`#/job/${SLUG}/read/doc/spec`);
+    expect(within(decideTabs()).getByRole('tab', { name: 'Spec' })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(within(decideTabs()).getByRole('tab', { name: 'Brief #15' }));
+    expect(readerTitle()).toBe('Brief #15 · Review · waiting');
+    expect(document.querySelector('.jp2-ym')).toBe(card);
+    expect(page()).toHaveAttribute('data-deciding');
+  });
+
+  it('a question waits too', async () => {
+    nextPage.make = () => {
+      const p = payload();
+      p.move = { kind: 'question', ask: 'Should the export start on Monday or on Sunday?', since: '2026-11-04T13:55:00.000Z', quick: [], itemId: 'q:1' };
+      return p;
+    };
+    open(`#/job/${SLUG}`);
+    await settle();
+    expect(page()).toHaveAttribute('data-deciding');
+    expect(screen.queryByRole('complementary', { name: 'This step' })).toBeNull();
+  });
+
+  it('nothing waits: the laptop’s arrangement as before, the step panel beside the reader and no tabs', async () => {
+    nextPage.make = calm;
+    open(`#/job/${SLUG}`, { row: WORKING });
+    await settle();
+    expect(page()).not.toHaveAttribute('data-deciding');
+    expect(within(stepPanel()).getByRole('button', { name: /^Review \(combined\)/ })).toBeInTheDocument();
+    expect(screen.queryByRole('tablist', { name: 'About this decision' })).toBeNull();
+    expect(handle('Resize the decision')).toBeNull();
+    expect(handle('Resize the conversation')).not.toBeNull();
+  });
+
+  it('from the Jobs row before the payload, so nothing moves when it lands; a permission waiting is not a decision', async () => {
+    const { release, unmount } = open(`#/job/${SLUG}`, { hold: true });
+    expect(page()).toHaveAttribute('data-deciding');
+    expect(screen.queryByRole('complementary', { name: 'This step' })).toBeNull();
+    const split = handle('Resize the decision');
+    expect(split).not.toBeNull();
+    release();
+    await settle();
+    expect(page()).toHaveAttribute('data-deciding');
+    expect(handle('Resize the decision')).toBe(split);
+    unmount();
+    // A permission is Your move's own card: the page keeps its usual arrangement. (A cold open: the
+    // payload kept from the open above would say a gate waits.)
+    forgetRecentPages();
+    open(`#/job/${SLUG}`, { hold: true, row: { ...ROW, waitingFor: 'permission' } });
+    expect(page()).not.toHaveAttribute('data-deciding');
+  });
+
+  it('when the decision is made, the page goes back to the step panel', async () => {
+    open(`#/job/${SLUG}`);
+    await settle();
+    expect(page()).toHaveAttribute('data-deciding');
+    nextPage.make = () => { const p = calm(); p.v += 1; return p; };
+    await act(async () => { await made.at(-1)!.store.loadPage(); });
+    await settle();
+    expect(page()).not.toHaveAttribute('data-deciding');
+    expect(stepPanel()).toBeInTheDocument();
+    expect(screen.queryByRole('tablist', { name: 'About this decision' })).toBeNull();
+  });
+
+  it('under 1100 px nothing is deciding: no tabs, no handles', async () => {
+    windowWidth(900);
+    open(`#/job/${SLUG}`);
+    await settle();
+    expect(page()).not.toHaveAttribute('data-deciding');
+    expect(screen.queryByRole('tablist', { name: 'About this decision' })).toBeNull();
+    expect(screen.queryAllByRole('separator', { name: /^Resize/ })).toEqual([]);
+  });
+
+  it('the widths kept from an earlier visit are on the page as it opens; an arrow on a handle sets one and keeps it', async () => {
+    localStorage.setItem('sb.jobPage.decide-w', '600');
+    localStorage.setItem('sb.jobPage.convo-w', '420');
+    open(`#/job/${SLUG}`);
+    await settle();
+    expect(page().style.getPropertyValue('--jp2-decide-w')).toBe('600px');
+    expect(page().style.getPropertyValue('--jp2-convo-w')).toBe('420px');
+    // (No layout here: a column measures 0 wide, so one step right is the handle's least, 380 px.)
+    fireEvent.keyDown(handle('Resize the decision')!, { key: 'ArrowRight' });
+    expect(page().style.getPropertyValue('--jp2-decide-w')).toBe('380px');
+    expect(localStorage.getItem('sb.jobPage.decide-w')).toBe('380');
+    fireEvent.doubleClick(handle('Resize the conversation')!);
+    expect(page().style.getPropertyValue('--jp2-convo-w')).toBe('');
+    expect(localStorage.getItem('sb.jobPage.convo-w')).toBeNull();
+  });
+});
+
+describe('the conversation can be hidden (a laptop)', () => {
+  const hide = () => fireEvent.click(within(convoColumn()).getByRole('button', { name: 'Hide' }));
+
+  it('Hide folds it to its message box and asks row, keeps that in this browser, and takes its handle away', async () => {
+    open(`#/job/${SLUG}`);
+    await settle();
+    expect(page()).not.toHaveAttribute('data-convo');
+    hide();
+    expect(page()).toHaveAttribute('data-convo', 'hidden');
+    expect(localStorage.getItem('sb.jobPage.convo')).toBe('hidden');
+    // The column stays, with the message box and the asks row (the rest is folded by jobpage.css).
+    expect(within(convoColumn()).getByRole('textbox', { name: 'Message to the Foreman' })).toBeInTheDocument();
+    expect(convoColumn().querySelector('.jp2-asks')).not.toBeNull();
+    expect(screen.queryByRole('separator', { name: 'Resize the conversation' })).toBeNull();
+    expect(screen.getByRole('separator', { name: 'Resize the decision' })).toBeInTheDocument();
+  });
+
+  it('the Conversation row, g c and / show it again with the focus in its search box', async () => {
+    open(`#/job/${SLUG}`);
+    await settle();
+    for (const go of [
+      () => fireEvent.click(screen.getByRole('button', { name: 'Conversation · 52' })),
+      () => { key('g'); key('c'); },
+      () => key('/'),
+    ]) {
+      hide();
+      act(() => { (document.activeElement as HTMLElement | null)?.blur(); });
+      expect(page()).toHaveAttribute('data-convo', 'hidden');
+      go();
+      expect(page()).not.toHaveAttribute('data-convo');
+      expect(localStorage.getItem('sb.jobPage.convo')).toBeNull();
+      expect(document.activeElement).toBe(convoSearch());
+      expect(screen.getByRole('separator', { name: 'Resize the conversation' })).toBeInTheDocument();
+    }
+  });
+
+  it('a hidden conversation stays hidden on the next open, and nothing waiting does not change that; under 1100 px it is in the left pane as ever', async () => {
+    localStorage.setItem('sb.jobPage.convo', 'hidden');
+    nextPage.make = calm;
+    open(`#/job/${SLUG}`, { row: WORKING });
+    await settle();
+    expect(page()).toHaveAttribute('data-convo', 'hidden');
+    expect(page()).not.toHaveAttribute('data-deciding');
+    expect(within(convoColumn()).getByRole('textbox', { name: 'Message to the Foreman' })).toBeInTheDocument();
+    resizeTo(900);
+    expect(page()).not.toHaveAttribute('data-convo');
+    expect(document.querySelector('.jp2-left .jp2-mb-ta')).not.toBeNull();
+  });
+
+  it('storage that throws: Hide still works for this visit', async () => {
+    open(`#/job/${SLUG}`);
+    await settle();
+    const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('storage off'); });
+    hide();
+    expect(page()).toHaveAttribute('data-convo', 'hidden');
+    set.mockRestore();
+  });
+});
