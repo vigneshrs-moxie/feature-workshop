@@ -363,11 +363,14 @@ async function rule2() {
   await steps.nth(n - 2).click(); // Review, the open step: its outputs listed under it
   await page.waitForTimeout(400);
   // (Each pick shows something other than what the reader shows: the Review step itself shows its first output.)
+  // While a decision waits on a laptop, the tabs over the reader (DecideTabs: the brief, then the step's
+  // outputs) stand in for the step's output rows: then its outputs are the tabs after the brief.
+  const [outSel, outAt] = (await page.locator('.jp2-st-out').count()) > 0 ? ['.jp2-st-out', 0] : ['.jp2-dtab', 1];
   const docs = [
     () => page.locator('.jp2-jr', { hasText: 'Ticket and goal' }).first(),
-    () => page.locator('.jp2-st-out').nth(0),
+    () => page.locator(outSel).nth(outAt),
     () => page.locator('.jp2-jr', { hasText: 'Decisions' }).first(),
-    () => page.locator('.jp2-st-out').nth(1),
+    () => page.locator(outSel).nth(outAt + 1),
   ];
   out.document = [];
   for (let i = 0; i < PICKS; i++) {
