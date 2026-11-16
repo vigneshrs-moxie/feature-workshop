@@ -20,6 +20,10 @@
 //
 // On the phone's job screen (`phone`, Task 15) every step is one line ending in a › that opens the
 // step's own screen (phone/PhoneStep.tsx): no outputs under the current step, no duration.
+//
+// On a laptop (`across`, the glance layout of 16 Nov) the steps are a row of cells across the page:
+// a mark and the name, the result word under it; no outputs and no duration (left/StepPanel.tsx,
+// beside the reader, lists what the picked step made).
 
 import { memo, useRef } from 'react';
 import type { Job } from '../../api/types';
@@ -70,7 +74,7 @@ export function durationOf(step: StepRow): string | null {
  * The open Ship step (Task 20, R2): PR #1, #2 and #3 as lines with their one next action
  * (left/PrLines.tsx), after any other thing it made.
  */
-function ShipOutputs({ step, target, onOpen }: { step: StepRow; target: ReaderTarget | null; onOpen(t: ReaderTarget, from: HTMLElement): void }) {
+export function ShipOutputs({ step, target, onOpen }: { step: StepRow; target: ReaderTarget | null; onOpen(t: ReaderTarget, from: HTMLElement): void }) {
   const others = step.outputs.filter((o) => o.kind !== 'pr');
   return (
     <>
@@ -108,12 +112,14 @@ export interface StepsProps {
   /** The phone's job screen: each step one line that opens its own screen (phone/PhoneStep), so no
    *  outputs under the current one and no duration on its line. */
   phone?: boolean;
+  /** A laptop: one row of cells across the page, nothing under them (left/StepPanel.tsx lists the outputs). */
+  across?: boolean;
 }
 
 /** Whether the reader's target is something of this step: its main output, a listed output, one in `more`, or an older version of one. */
-const owns = (s: StepRow, t: ReaderTarget | null) => !!t && (sameTarget(s.main, t) || [...s.outputs, ...(s.more ?? [])].some((o) => sameTarget(outputTarget(o), t) || (t.kind === 'doc' && (o.versions ?? []).some((v) => v.id === t.id))));
+export const owns = (s: StepRow, t: ReaderTarget | null) => !!t && (sameTarget(s.main, t) || [...s.outputs, ...(s.more ?? [])].some((o) => sameTarget(outputTarget(o), t) || (t.kind === 'doc' && (o.versions ?? []).some((v) => v.id === t.id))));
 
-export const Steps = memo(function Steps({ job, cursor, onStep, onOpen, phone = false }: StepsProps) {
+export const Steps = memo(function Steps({ job, cursor, onStep, onOpen, phone = false, across = false }: StepsProps) {
   const steps = useJob((s) => s.payload?.steps ?? null);
   const state = useJob((s) => s.payload?.state ?? null);
   const pick = useJob((s) => s.ui.step);
@@ -128,18 +134,19 @@ export const Steps = memo(function Steps({ job, cursor, onStep, onOpen, phone = 
   const here = marked ?? current;
 
   return (
-    <nav className="jp2-st" aria-label="Steps">
+    <nav className={`jp2-st${across ? ' is-across' : ''}`} aria-label="Steps">
       {rows.map((s, i) => {
         const isOpen = !phone && s.id === current;
+        const lists = isOpen && !across;
         const word = stepWord(s, steps ? state : null);
-        const dur = steps && !phone && (isOpen || s.id === marked) ? durationOf(s) : null;
+        const dur = steps && !phone && !across && (isOpen || s.id === marked) ? durationOf(s) : null;
         return (
           <div key={s.id} className="jp2-step">
             <button
               type="button"
               className={`jp2-row jp2-st-row is-${s.state}${isOpen ? ' is-open' : ''}${s.id === marked ? ' is-sel' : ''}${cursor === i ? ' is-cursor' : ''}`}
               data-jp-line={i}
-              aria-expanded={isOpen || undefined}
+              aria-expanded={lists || undefined}
               aria-current={s.id === here ? 'step' : undefined}
               onClick={(e) => onStep(s.id, e.currentTarget)}
             >
@@ -149,8 +156,8 @@ export const Steps = memo(function Steps({ job, cursor, onStep, onOpen, phone = 
               {word && <span className="jp2-st-word">{word}</span>}
               <PhoneChevron />
             </button>
-            {isOpen && steps && s.id === 'ship' && <ShipOutputs step={s} target={target} onOpen={onOpen} />}
-            {isOpen && steps && s.id !== 'ship' && (s.outputs.length > 0 ? (
+            {lists && steps && s.id === 'ship' && <ShipOutputs step={s} target={target} onOpen={onOpen} />}
+            {lists && steps && s.id !== 'ship' && (s.outputs.length > 0 ? (
               <ul className="jp2-st-outs">
                 {s.outputs.map((o) => {
                   const t = outputTarget(o);

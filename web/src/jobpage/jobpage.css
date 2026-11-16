@@ -549,3 +549,51 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2-wws-t { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: 12px; line-height: 18px; color: var(--text-1); user-select: text; -webkit-user-select: text; }
 .jp2[data-layout="phone"] .jp2-chips { padding: 8px 18px 0; }
 .jp2[data-layout="phone"] .jp2-chip { height: 32px; font-size: 13px; }
+
+/* The glance layout (a laptop, 1100 px and wider; 16 Nov, docs/superpowers/specs/2026-11-16-job-page-glance-layout-design.md):
+   the steps as a row of cells across the page with the job's rows at its end, Your move under them,
+   the reader with the step panel beside it, and the conversation in its own column on the right.
+   The left pane's wrappers step aside (display: contents), so its parts sit in the page's grid. */
+.jp2[data-layout="wide"] .jp2-panes { display: grid; grid-template-columns: minmax(0, 1fr) 248px clamp(380px, 34vw, 640px); grid-template-rows: auto auto minmax(0, 1fr); grid-template-areas: "steps steps rows" "move move convo" "reader side convo"; }
+.jp2[data-layout="wide"] .jp2-left, .jp2[data-layout="wide"] .jp2-lscroll { display: contents; }
+.jp2[data-layout="wide"] .jp2-movewrap { grid-area: move; min-width: 0; max-height: 50vh; overflow-y: auto; scrollbar-width: thin; }
+.jp2[data-layout="wide"] .jp2-movewrap:empty { display: none; }
+.jp2[data-layout="wide"] .jp2-ym { padding: 10px 24px 8px; }
+.jp2[data-layout="wide"] .jp2-pageproblem { padding: 12px 24px; }
+.jp2[data-layout="wide"] .jp2-reader { grid-area: reader; }
+/* Each question's options side by side: a two-question ask is half as tall. */
+.jp2[data-layout="wide"] .jp2-ym-q { flex-direction: row; flex-wrap: wrap; gap: 4px 6px; }
+.jp2[data-layout="wide"] .jp2-ym-opt { flex: 0 1 auto; width: auto; min-width: 200px; max-width: 460px; }
+.jp2[data-layout="wide"] .jp2-ym-ownin { flex-basis: 100%; max-width: 640px; }
+.jp2[data-layout="wide"] .jp2-ym-opt.jp2-ym-ownrow { min-height: 34px; }
+/* The steps across */
+.jp2-st.is-across { grid-area: steps; display: flex; gap: 4px; min-width: 0; padding: 6px 8px 6px 16px; background: var(--surface-0); }
+.jp2-st.is-across .jp2-step { flex: 1 1 0; min-width: 0; }
+.jp2-st.is-across .jp2-st-row { display: grid; grid-template-columns: 16px minmax(0, 1fr); grid-template-areas: "mark name" ". word"; align-items: center; column-gap: 6px; height: auto; min-height: 44px; padding: 5px 8px; }
+.jp2-st.is-across .jp2-st-mark { grid-area: mark; }
+.jp2-st.is-across .jp2-st-name { grid-area: name; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.jp2-st.is-across .jp2-st-word { grid-area: word; margin-left: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.jp2-st.is-across .jp2-st-row.is-current { box-shadow: inset 0 -2px 0 var(--text-1); }
+.jp2-st.is-across .jp2-st-row.is-sel { box-shadow: inset 0 -2px 0 var(--accent); }
+.jp2[data-layout="wide"] .jp2-jrs { grid-area: rows; display: flex; align-items: center; justify-content: flex-end; gap: 2px; min-width: 0; padding: 6px 12px; background: var(--surface-0); }
+.jp2[data-layout="wide"] .jp2-jr { width: auto; flex: 0 1 auto; min-width: 0; height: 30px; white-space: nowrap; }
+.jp2[data-layout="wide"] .jp2-jr .jp2-jr-more { margin-left: 4px; min-width: 0; }
+/* The step panel (left/StepPanel.tsx): what the picked step made, beside the reader */
+.jp2-sp { grid-area: side; min-height: 0; overflow-y: auto; padding: 12px 12px 24px 8px; scrollbar-width: thin; background: var(--bg-0); }
+.jp2-sp-head { display: flex; align-items: baseline; gap: 8px; margin: 0 0 2px; padding: 0 8px; }
+.jp2-sp-name { font-size: 14px; font-weight: 650; }
+.jp2-sp-word { font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.jp2-sp-dur { margin: 0; padding: 0 8px; font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.jp2-sp-h { margin: 14px 0 4px; padding: 0 8px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-2); }
+.jp2-st-outs.jp2-sp-outs { padding: 0; }
+.jp2-sp-more > summary { cursor: pointer; list-style: none; }
+.jp2-sp-more > summary::-webkit-details-marker { display: none; }
+.jp2-sp-more > summary:hover { color: var(--text-1); }
+.jp2-sp-none { margin: 0; padding: 0 8px; font-size: 13px; color: var(--text-3); }
+/* The conversation's own column, with the asks row and the message box at its foot */
+.jp2-convo { grid-area: convo; display: flex; flex-direction: column; min-width: 0; min-height: 0; border-left: 1px solid var(--border-1); background: var(--surface-0); }
+.jp2-convo-h { flex: none; margin: 0; padding: 10px 16px 0; font-size: 13px; font-weight: 650; }
+.jp2-convo .jp2-cv-tools { padding: 6px 12px 8px 16px; }
+.jp2-convo .jp2-cv-sbox { width: auto; flex: 1; min-width: 0; }
+.jp2-convo .jp2-rv-body { padding: 4px 12px 24px 16px; }
+.jp2-convo .jp2-cv { max-width: none; }

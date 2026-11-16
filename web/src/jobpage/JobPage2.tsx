@@ -2,9 +2,13 @@
 // App.tsx and the website's HostedWorkshop.tsx mount it instead of the old page while the switch is
 // on (switch.ts), with the job's slug as the key, so a pick never mounts it again.
 //
-// Layout by width (plan "Decisions already made" 1):
-//   - 1100 px and wider ('wide'): the header row, then two panes: the left pane 440 px (Your move,
-//     the steps, the job's rows, the message box docked at its foot) and the reader beside it.
+// Layout by width (plan "Decisions already made" 1; the laptop's changed 16 Nov, the glance layout:
+// docs/superpowers/specs/2026-11-16-job-page-glance-layout-design.md):
+//   - 1100 px and wider ('wide'): the header row; the steps as a row of cells across the page with
+//     the job's rows at its end; under it Your move, then the reader with the step panel
+//     (left/StepPanel.tsx: what the picked step made) beside it; and on the right the conversation
+//     in its own column, the asks row and the message box at its foot. The left pane's wrappers are
+//     display: contents there (jobpage.css), so the parts sit in the page's grid.
 //   - Over 760 and under 1100 px ('mid'): the left pane takes the width; opening something puts the
 //     reader over it with a back row, and the focus moves into the reader.
 //   - 760 px and under ('phone'): three screens by address (phone/PhoneJob2.tsx): the job screen is
@@ -58,7 +62,8 @@ import { Steps, stepsFromRow } from './left/Steps';
 import { PhonePrLines, usePrLead, usePrOpeningRead } from './left/PrLines';
 import { YourMove } from './left/YourMove';
 import { branchOf, loadCommits, loadDiff } from './reader/branch';
-import { stepLine } from './reader/ConversationView';
+import { ConversationView, stepLine } from './reader/ConversationView';
+import { StepPanel } from './left/StepPanel';
 import { Reader } from './reader/Reader';
 import { Palette } from './Palette';
 import { JobStoreContext, useJob, useJobStore } from './useJob';
@@ -189,6 +194,9 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
   const opener = useRef<HTMLElement | null>(null);
   const single = layout !== 'wide';
   const phone = layout === 'phone';
+  /** The glance layout: the conversation has its own column, so the reader never shows it. */
+  const wide = layout === 'wide';
+  const convo = useRef<HTMLElement>(null);
   // The phone's screen, from the address (null wider than a phone).
   const screenNow = phone ? phoneScreenOf(step, view, read) : null;
   const moves = usePhoneMoves(slug, screenNow);
@@ -241,12 +249,14 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
   }, [layout]);
 
   const pickReader = useCallback((t: ReaderTarget, from?: HTMLElement | null) => {
+    // A laptop: the conversation is its own column, always there; its pick goes to its search box.
+    if (wide && t.kind === 'conversation') { search.current?.focus(); return; }
     store.setReader(t);
     // On the phone the reader is its own screen.
     if (phone) { leavingJob(from); moves.toReader(t); return; }
     replaceHash(readHref(slug, t));
     showReader(from);
-  }, [store, slug, showReader, phone, moves, leavingJob]);
+  }, [store, slug, showReader, phone, moves, leavingJob, wide]);
 
   // R2 (Task 20, left/PrLines.tsx): GitHub is read as the page opens (when the last read is old), and the
   // PR's next action leads the asks row while the Ship step is not the open one.
@@ -304,8 +314,8 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
     'jp-step-prev': () => { uncover(); stepBy(-1); },
     'jp-step-next': () => { uncover(); stepBy(1); },
     // In the conversation (the focus in the reader, or the reader over the left pane): its lines.
-    'jp-line-next': () => { if (stepLine(reader.current, 1, leftHidden)) return; if (!leftHidden) moveCursor(1); },
-    'jp-line-prev': () => { if (stepLine(reader.current, -1, leftHidden)) return; if (!leftHidden) moveCursor(-1); },
+    'jp-line-next': () => { if (stepLine(convo.current, 1, false) || stepLine(reader.current, 1, leftHidden)) return; if (!leftHidden) moveCursor(1); },
+    'jp-line-prev': () => { if (stepLine(convo.current, -1, false) || stepLine(reader.current, -1, leftHidden)) return; if (!leftHidden) moveCursor(-1); },
     // Enter on a line opens that line (j and k move the focus to it); elsewhere it belongs to the control.
     'jp-open': (e) => {
       if (leftHidden) return false;
@@ -368,15 +378,17 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
           <div className="jp2-lscroll">
             {/* On the phone the header is the top of the job screen and scrolls with it. */}
             {phone && <Header job={job} />}
-            <PageProblem />
-            <YourMove job={job} onOpen={pickReader} />
-            <Steps job={job} cursor={cursor} onStep={openStep} onOpen={pickReader} phone={phone} />
+            <div className="jp2-movewrap">
+              <PageProblem />
+              <YourMove job={job} onOpen={pickReader} />
+            </div>
+            <Steps job={job} cursor={cursor} onStep={openStep} onOpen={pickReader} phone={phone} across={wide} />
             {/* Task 21: the phone's PR line, ending in `Comments · 3 new` (it opens the PR view). */}
             {phone && <PhonePrLines onOpen={pickReader} />}
             <JobRows cursor={cursor} first={lines.findIndex((l) => l.target)} onOpen={pickReader} />
           </div>
-          <AsksRow runner={asks} job={job} phone={phone} lead={prLead.lead} onLead={prLead.onLead} />
-          <MessageBox boxRef={box} onOpen={pickReader} />
+          {!wide && <AsksRow runner={asks} job={job} phone={phone} lead={prLead.lead} onLead={prLead.onLead} />}
+          {!wide && <MessageBox boxRef={box} onOpen={pickReader} />}
         </div>
         {screenNow === 'step' && step && <PhoneStep id={step} job={job} onBack={moves.back} onOpen={pickReader} />}
         <section
@@ -399,9 +411,20 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
           )}
           {phone && <PhoneReader onBack={moves.back} />}
           <AsksContext.Provider value={asksHere}>
-            <Reader fallback={job?.title ?? ''} searchRef={search} onOpen={pickReader} />
+            <Reader fallback={job?.title ?? ''} searchRef={search} onOpen={pickReader} convoBeside={wide} />
           </AsksContext.Provider>
         </section>
+        {wide && <StepPanel onOpen={pickReader} />}
+        {wide && (
+          <section ref={convo} className="jp2-convo" aria-label="Conversation">
+            <h2 className="jp2-convo-h">Conversation</h2>
+            <AsksContext.Provider value={asksHere}>
+              <ConversationView searchRef={search} onOpen={pickReader} />
+            </AsksContext.Provider>
+            <AsksRow runner={asks} job={job} phone={false} lead={prLead.lead} onLead={prLead.onLead} />
+            <MessageBox boxRef={box} onOpen={pickReader} />
+          </section>
+        )}
       </div>
       <Palette runner={asks} job={job} phone={phone} onStep={openStep} onOpen={pickReader} />
     </main>

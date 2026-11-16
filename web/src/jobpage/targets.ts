@@ -30,3 +30,16 @@ export function readerOf(s: JobPageState): ReaderTarget | null {
   if (step) return step.main;
   return s.arrival ?? (s.payload ? arrivalOf(s.payload) : null);
 }
+
+/**
+ * What the reader shows when the conversation has its own column beside it (a laptop, the glance
+ * layout): readerOf, except that the conversation (or an old permission address) gives way to the
+ * picked step's main output, else the current step's, else the last step's.
+ */
+export function readerBesideConvo(s: JobPageState): ReaderTarget | null {
+  const t = readerOf(s);
+  if (!t || (t.kind !== 'conversation' && t.kind !== 'permission')) return t;
+  const steps = s.payload?.steps ?? [];
+  const step = steps.find((x) => x.id === s.ui.step) ?? steps.find((x) => x.state === 'current') ?? steps[steps.length - 1];
+  return step ? step.main : null;
+}

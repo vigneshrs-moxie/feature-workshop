@@ -15,7 +15,7 @@
 // shows the title row at once and its words when they land (speed rules 2 and 3).
 
 import { memo } from 'react';
-import { readerOf, sameTarget } from '../targets';
+import { readerBesideConvo, readerOf, sameTarget } from '../targets';
 import type { ReaderTarget } from '../types';
 import { useJob } from '../useJob';
 import { ChangesView } from './ChangesView';
@@ -40,10 +40,12 @@ export interface ReaderProps {
   searchRef: React.RefObject<HTMLInputElement | null>;
   /** The page's own pick (the address follows; under 1100 px the reader stays over the left pane). */
   onOpen(t: ReaderTarget, from?: HTMLElement | null): void;
+  /** The conversation has its own column (a laptop): the reader never shows it (targets.ts readerBesideConvo). */
+  convoBeside?: boolean;
 }
 
-export const Reader = memo(function Reader({ fallback, searchRef, onOpen }: ReaderProps) {
-  const target = useJob(readerOf, sameTarget);
+export const Reader = memo(function Reader({ fallback, searchRef, onOpen, convoBeside = false }: ReaderProps) {
+  const target = useJob(convoBeside ? readerBesideConvo : readerOf, sameTarget);
   return (
     <>
       <TitleRow target={target} fallback={fallback} onOpen={onOpen} />
