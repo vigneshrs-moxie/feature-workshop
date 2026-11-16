@@ -673,3 +673,77 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 /* Go and Send back never scroll out of sight: a long decision scrolls behind them. */
 .jp2[data-layout="wide"] .jp2-movewrap { max-height: 64vh; }
 .jp2[data-layout="wide"] .jp2-card > .jp2-ym-calls { position: sticky; bottom: 0; z-index: 1; margin: 0 -20px 0 -22px; padding: 10px 20px 10px 22px; border-top: 1px solid var(--border-1); background: var(--surface-0); box-shadow: inset 3px 0 0 var(--needs-solid); }
+
+/* Each column answers to its own width (16 Nov: "resize and all the elements in each panel rearrange as
+   needed for that width"). The decision, the reader and the conversation are size containers, so a drag
+   of a handle (Splitter.tsx) lays out what is inside them for the width they now have, not the window's.
+   A column never takes the reader below 360 px: the dragged widths are capped against the window. */
+.jp2[data-layout="wide"] .jp2-movewrap { container: jp2move / inline-size; }
+.jp2[data-layout="wide"] .jp2-reader { container: jp2reader / inline-size; }
+.jp2[data-layout="wide"] .jp2-convo { container: jp2convo / inline-size; }
+.jp2[data-layout="wide"][data-deciding] .jp2-panes { grid-template-columns: min(var(--jp2-decide-w, clamp(420px, 38vw, 720px)), calc(100vw - var(--jp2-convo-w, clamp(300px, 24vw, 480px)) - 380px)) 6px minmax(360px, 1fr) 6px min(var(--jp2-convo-w, clamp(300px, 24vw, 480px)), calc(100vw - 800px)); }
+.jp2[data-layout="wide"][data-deciding][data-convo="hidden"] .jp2-panes { grid-template-columns: min(var(--jp2-decide-w, clamp(420px, 38vw, 720px)), calc(100vw - 380px)) 6px minmax(360px, 1fr); }
+.jp2[data-layout="wide"]:not([data-deciding]):not([data-convo="hidden"]) .jp2-panes { grid-template-columns: minmax(0, 1fr) 248px 6px min(var(--jp2-convo-w, clamp(320px, 28vw, 560px)), calc(100vw - 720px)); }
+
+/* The decision. Wide: its words keep to reading width. Narrow: tighter, and an option's "recommended"
+   goes under its words. Very narrow: the meaning after an id gives way (the id still opens its words). */
+@container jp2move (min-width: 820px) {
+  .jp2[data-layout="wide"] .jp2-movewrap .jp2-card > * { max-width: 760px; }
+}
+@container jp2move (max-width: 520px) {
+  .jp2[data-layout="wide"][data-deciding] .jp2-movewrap .jp2-ym { padding: 12px 10px 0 12px; }
+  .jp2[data-layout="wide"][data-deciding] .jp2-movewrap .jp2-card { padding: 2px 2px 0 12px; gap: 10px; }
+  .jp2[data-layout="wide"] .jp2-movewrap .jp2-card-ask { font-size: 15px; line-height: 21px; }
+  .jp2[data-layout="wide"] .jp2-movewrap .jp2-ym-qt { font-size: 13.5px; line-height: 20px; }
+  .jp2[data-layout="wide"] .jp2-movewrap .jp2-ym-opt.option-row { padding: 6px 8px; gap: 8px; }
+  .jp2[data-layout="wide"] .jp2-movewrap .jp2-ym-ot { font-size: 13.5px; line-height: 19px; }
+  .jp2[data-layout="wide"] .jp2-movewrap .jp2-ym-rec { display: block; margin: 0; }
+  .jp2[data-layout="wide"] .jp2-movewrap .jp2-ym-ot small { font-size: 12.5px; }
+  .jp2[data-layout="wide"][data-deciding] .jp2-movewrap .jp2-card > .jp2-ym-calls { margin: 0 -2px 0 -12px; padding: 10px 2px 12px 12px; }
+}
+@container jp2move (max-width: 400px) {
+  .jp2[data-layout="wide"] .jp2-movewrap .jp2-ref-gist { display: none; }
+  .jp2[data-layout="wide"] .jp2-movewrap .jp2-card-label { letter-spacing: .03em; }
+  .jp2[data-layout="wide"] .jp2-movewrap .jp2-ym-calls > * { flex: 1 1 auto; }
+}
+
+/* The reader. Narrow: less padding, the title row's dim line gives way, and the two-part views
+   (Findings' lens column, Changes' file list beside the diff, the recording beside its lines) stack. */
+@container jp2reader (max-width: 700px) {
+  .jp2[data-layout="wide"] .jp2-reader .jp2-rv-top { padding-left: 18px; }
+  .jp2[data-layout="wide"] .jp2-reader .jp2-rv-meta { display: none; }
+  .jp2[data-layout="wide"] .jp2-reader .jp2-dtabs { padding-left: 10px; }
+  .jp2[data-layout="wide"] .jp2-reader .jp2-rv-body { padding: 16px 16px 40px 20px; }
+  .jp2[data-layout="wide"] .jp2-reader .jp2-cv-tools { padding-left: 20px; }
+  .jp2[data-layout="wide"] .jp2-reader .jp2-fd-line, .jp2[data-layout="wide"] .jp2-reader .jp2-fd-flat { grid-template-columns: 56px minmax(0, 1fr) auto; }
+  .jp2[data-layout="wide"] .jp2-reader .jp2-fd-w { display: none; }
+  .jp2[data-layout="wide"] .jp2-reader .jp2-fd-t { white-space: normal; overflow-wrap: anywhere; }
+  .jp2[data-layout="wide"] .jp2-reader .jp2-fd-more { padding-left: 72px; }
+  .jp2[data-layout="wide"] .jp2-reader .jp2-ch-commits { padding-left: 14px; }
+  .jp2[data-layout="wide"] .jp2-reader .jp2-ch-t { display: none; }
+  .jp2[data-layout="wide"] .jp2-reader .jp2-ch-p { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .jp2[data-layout="wide"] .jp2-reader .jp2-ch-files { max-height: 140px; padding-left: 14px; border-right: 0; border-bottom: 1px solid var(--border-1); }
+  .jp2[data-layout="wide"] .jp2-reader .jp2-rec-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@container jp2reader (max-width: 460px) {
+  .jp2[data-layout="wide"] .jp2-reader .jp2-prose { font-size: 14px; line-height: 22px; }
+  .jp2[data-layout="wide"] .jp2-reader .jp2-dtab { padding: 0 9px; }
+  .jp2[data-layout="wide"] .jp2-reader .jp2-dtab-meta { display: none; }
+}
+
+/* The conversation. Narrow: the search box takes its own row, the lines' times go small, his own
+   messages indent less. Wide: the same, with room. */
+@container jp2convo (max-width: 400px) {
+  .jp2[data-layout="wide"] .jp2-convo .jp2-cv-tools { flex-wrap: wrap; gap: 4px 8px; }
+  .jp2[data-layout="wide"] .jp2-convo .jp2-cv-sbox { flex: 1 1 100%; }
+  .jp2[data-layout="wide"] .jp2-convo .jp2-cv-latest { margin-left: auto; }
+  .jp2[data-layout="wide"] .jp2-convo .jp2-cv-item.is-you { margin-left: 24px; }
+  .jp2[data-layout="wide"] .jp2-convo .jp2-cv-line { gap: 8px; font-size: 13.5px; }
+  .jp2[data-layout="wide"] .jp2-convo .jp2-rv-body { padding-left: 10px; padding-right: 8px; }
+  .jp2[data-layout="wide"] .jp2-convo .jp2-mb { flex-wrap: wrap; }
+  .jp2[data-layout="wide"] .jp2-convo .jp2-mb-ta { flex-basis: 100%; }
+  .jp2[data-layout="wide"] .jp2-convo .jp2-mb-ta + * { margin-left: auto; }
+}
+@container jp2convo (min-width: 560px) {
+  .jp2[data-layout="wide"] .jp2-convo .jp2-cv-sbox { flex: 0 1 360px; }
+}
