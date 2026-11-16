@@ -54,6 +54,15 @@ import { AutoJobs } from './AutoJobs';
 import { AUTO_GROUPS, autoGroups, inAuto, useJobsTab, type JobsTab } from './autoTab';
 
 export type JobsLayout = 'lanes' | 'list' | 'floor';
+
+/** The find box's words, for this tab's visit (sessionStorage; storage off: none kept). */
+const FIND_KEY = 'sb.jobs.find';
+function readFind(): string {
+  try { return sessionStorage.getItem(FIND_KEY) ?? ''; } catch { return ''; }
+}
+function keepFind(q: string) {
+  try { if (q) sessionStorage.setItem(FIND_KEY, q); else sessionStorage.removeItem(FIND_KEY); } catch { /* storage off */ }
+}
 export const JOBS_LAYOUT_KEY = 'gc.jobs.layout';
 
 export function useJobsLayout(): [JobsLayout, (layout: JobsLayout) => void] {
@@ -169,7 +178,12 @@ function JobCard({ job, now, play, review, full, onPeek, peeked }: { job: Job; n
     <li
       data-flip-key={job.slug}
       className={`job-card lane-${lane} play-${play}${full ? ' is-full' : ''}${onPeek ? ' can-peek' : ''}${peeked ? ' is-peeked' : ''}`}
-      onClick={onPeek ? (e) => { if (!(e.target as Element).closest('a, button, [tabindex]')) onPeek(job.slug); } : undefined}
+      onClick={onPeek ? (e) => {
+        if ((e.target as Element).closest('a, button, [tabindex]')) return;
+        // The card's title takes the focus, so Esc (and Tab, Space) carry on from this card.
+        e.currentTarget.querySelector<HTMLElement>('.job-card-title')?.focus({ preventScroll: true });
+        onPeek(job.slug);
+      } : undefined}
     >
       <div className="job-card-top">
         {play === 'full' && <span className={`job-light${working ? ' is-on' : ''}${working && play === 'full' ? ' is-blink' : ''}`} aria-hidden="true" />}
@@ -272,7 +286,9 @@ export function JobsPage() {
   const yoursCount = BOARD.reduce((n, l) => n + byLane[l].length, 0);
 
   // The search (JobSearch.tsx; home/findJobs.ts): every job, both tabs, Resting and Done; it takes the board's place while it has words.
-  const [query, setQuery] = useState('');
+  // Kept for this tab's visit, so Back from a job he found shows the same matches (16 Nov).
+  const [query, setQueryNow] = useState(readFind);
+  const setQuery = useCallback((q: string) => { setQueryNow(q); keepFind(q); }, []);
   const [active, setActive] = useState(0);
   const findRef = useRef<HTMLInputElement>(null);
   const found = query.trim() ? matchJobs([...open, ...jobs.filter((j) => stacks.partOf(j.slug))], query) : [];
@@ -295,6 +311,8 @@ export function JobsPage() {
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
+  /** A click on a card: its quick look, or, on the card already looked at, closed again (16 Nov). */
+  const togglePeek = useCallback((slug: string) => setPeek(peekFromHash(window.location.hash) === slug ? null : slug), [setPeek]);
   const order = (tab === 'auto' ? AUTO_GROUPS.flatMap((g) => byAuto[g]) : BOARD.flatMap((l) => byLane[l])).map((j) => j.slug);
   // The quick look is the shown tab's: an address naming the other tab's job (a reload, Back) opens nothing.
   const peekJob = peek ? (tab === 'auto' ? open.filter(inAuto) : yours).find((j) => j.slug === peek) ?? null : null;
@@ -335,7 +353,7 @@ export function JobsPage() {
             <h3 className="lane-word">{LANE_INFO[l].word}</h3>
             <span className="lane-count num">{byLane[l].length}</span>
           </header>
-          {byLane[l].length ? <Cards jobs={byLane[l]} now={now} play={play} stacks={stacks} reviews={reviews} onPeek={setPeek} peeked={peek} /> : <p className="lane-empty">None right now</p>}
+          {byLane[l].length ? <Cards jobs={byLane[l]} now={now} play={play} stacks={stacks} reviews={reviews} onPeek={togglePeek} peeked={peek} /> : <p className="lane-empty">None right now</p>}
         </section>
       ))}
     </div>
@@ -393,7 +411,7 @@ export function JobsPage() {
         <>
           {/* On a phone the groups are one after another, and a row opens its job (no quick look, as the lanes' folds). */}
           {bar}
-          <AutoJobs jobs={open} queue={autoQueue} now={now} play={play} stacks={stacks} onPeek={narrow ? undefined : setPeek} peeked={peek} />
+          <AutoJobs jobs={open} queue={autoQueue} now={now} play={play} stacks={stacks} onPeek={narrow ? undefined : togglePeek} peeked={peek} />
           {peekJob && <JobPeek job={peekJob} order={order} onPick={setPeek} onClose={() => setPeek(null)} />}
         </>
       ) : (

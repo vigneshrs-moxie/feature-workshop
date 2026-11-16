@@ -786,3 +786,22 @@ describe('Auto start on the Inbox: a paused value with no words', () => {
     expect(screen.queryByText(/Auto start is paused/)).toBeNull();
   });
 });
+
+describe('missing moves in the Inbox (16 Nov)', () => {
+  it('a second click on the row whose ticket the quick look shows closes it; a press outside the quick look closes it too', async () => {
+    const { wrap } = setup();
+    wrap(<InboxView openStream={() => null} />);
+    fireEvent.click(await screen.findByRole('button', { name: /^ORBIT-12/ }));
+    expect(await screen.findByRole('dialog', { name: 'ORBIT-12: Sample ticket 12' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^ORBIT-12/ }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(window.location.hash).toBe('#/');
+    fireEvent.click(screen.getByRole('button', { name: /^ORBIT-12/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'ORBIT-12: Sample ticket 12' });
+    fireEvent.mouseDown(dialog);
+    fireEvent.mouseDown(screen.getByRole('button', { name: /^ORBIT-13/ }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+});

@@ -38,7 +38,7 @@ export function JobPeek({ job, order, onPick, onClose }: { job: Job; order: read
   const name = job.title || job.slug;
 
   // j k ↵ Esc while it is open, ahead of the page's own keys (which would open the next job's page).
-  usePeekKeys({ current: job.slug, order, onPick, onClose, onEnter: (slug) => navigate({ name: 'job', slug }) });
+  usePeekKeys({ current: job.slug, order, onPick, onClose, onEnter: (slug) => navigate({ name: 'job', slug }), outside: '.can-peek, canvas' });
 
   return (
     <aside ref={box} className="peek" role="dialog" aria-modal="false" aria-label={`${name}: a quick look`}>

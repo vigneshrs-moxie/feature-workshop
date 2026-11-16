@@ -5,10 +5,13 @@
 //   <Fold>       a folded section with its count ("Resting · 2 idle   Show ⌄")
 //   <Hero>       an empty state: a picture, one sentence, one or two buttons
 // Words carry the meaning everywhere; icons are decoration and colour never stands alone.
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { Button } from '../Button';
 import { Icon, type IconName } from '../Icon';
 import { useStored } from '../../lib/stored';
+
+/** Each page's scroll, by its label, for this visit of the app (16 Nov: the list kept its place). */
+const scrolled = new Map<string, number>();
 
 export function Page({ label, title, head, children, className = '', guide }: {
   label: string;
@@ -21,8 +24,14 @@ export function Page({ label, title, head, children, className = '', guide }: {
   guide?: GuideSpec;
 }) {
   const [guideOpen, setGuideOpen] = useGuide(guide?.id ?? null);
+  // Coming back to a page (Back from a job, its link in the top bar) finds it scrolled where he left it.
+  const main = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const at = scrolled.get(label);
+    if (at && main.current) main.current.scrollTop = at;
+  }, [label]);
   return (
-    <main className={`page ${className}`.trim()} aria-label={label}>
+    <main ref={main} className={`page ${className}`.trim()} aria-label={label} onScroll={(e) => { scrolled.set(label, e.currentTarget.scrollTop); }}>
       <div className="page-inner">
         <header className="page-head">
           <h2 className="page-title">{title}</h2>

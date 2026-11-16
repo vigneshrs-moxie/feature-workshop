@@ -12,16 +12,31 @@ import { isTypingTarget } from '../app/keyRegistry';
 import { peekFromHash, withPeek } from '../app/router';
 import { Button } from './Button';
 
-export function usePeekKeys<T extends string>({ current, order, onPick, onClose, onEnter }: {
+export function usePeekKeys<T extends string>({ current, order, onPick, onClose, onEnter, outside }: {
   current: T;
   order: readonly T[];
   onPick(id: T): void;
   onClose(): void;
   /** ↵ (not on a button or link): open the whole thing. */
   onEnter?(id: T): void;
+  /**
+   * A press on the page outside the quick look closes it, except on what this selector names (the
+   * list's rows and cards, which open or switch it themselves), or on another dialog or menu.
+   */
+  outside?: string;
 }) {
   const latest = useRef({ current, order, onPick, onClose, onEnter });
   latest.current = { current, order, onPick, onClose, onEnter };
+  useEffect(() => {
+    if (!outside) return undefined;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target instanceof Element ? e.target : null;
+      if (!t || !t.isConnected || t.closest(`.peek, [role="dialog"], [role="menu"], [role="listbox"], .sheet-backdrop, ${outside}`)) return;
+      latest.current.onClose();
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [outside]);
   useEffect(() => {
     const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const onKey = (e: KeyboardEvent) => {

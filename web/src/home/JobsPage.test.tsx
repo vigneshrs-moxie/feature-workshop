@@ -529,3 +529,69 @@ describe('finding a job', () => {
     expect(screen.getByRole('status')).toHaveTextContent('No job has “zebra”.');
   });
 });
+
+describe('missing moves on Jobs (16 Nov)', () => {
+  const card = (title: string) => screen.getByRole('link', { name: title }).closest('li')!;
+  const peekOf = () => screen.queryByRole('dialog', { name: /a quick look$/ });
+  beforeEach(() => { sessionStorage.clear(); });
+
+  it('a second click on the same card closes its quick look; a click on another card switches it', () => {
+    setup();
+    fireEvent.click(card('Technician photo'));
+    expect(peekOf()).toHaveAccessibleName('Technician photo: a quick look');
+    fireEvent.click(card('Gate code'));
+    expect(peekOf()).toHaveAccessibleName('Gate code: a quick look');
+    fireEvent.click(card('Gate code'));
+    expect(peekOf()).toBeNull();
+    expect(window.location.hash).not.toContain('peek=');
+  });
+
+  it('Escape after a click gives the focus to that card’s title, not to the page', () => {
+    setup();
+    fireEvent.click(card('Technician photo'));
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(peekOf()).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole('link', { name: 'Technician photo' }));
+  });
+
+  it('a press on the page outside the quick look closes it; one inside it, or on a card, does not', () => {
+    setup();
+    fireEvent.click(card('Technician photo'));
+    fireEvent.mouseDown(peekOf()!);
+    expect(peekOf()).not.toBeNull();
+    fireEvent.mouseDown(card('Gate code'));
+    expect(peekOf()).not.toBeNull();
+    fireEvent.mouseDown(screen.getByRole('heading', { level: 2 }));
+    expect(peekOf()).toBeNull();
+  });
+
+  it('the words in the find box are still there when he comes back to Jobs', () => {
+    const first = setup();
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Find a job' }), { target: { value: 'email' } });
+    first.unmount();
+    setup();
+    expect(screen.getByRole('searchbox', { name: 'Find a job' })).toHaveValue('email');
+    expect(within(screen.getByRole('listbox', { name: 'Matching jobs' })).getAllByRole('option')).toHaveLength(2);
+    fireEvent.keyDown(screen.getByRole('searchbox', { name: 'Find a job' }), { key: 'Escape' });
+    cleanup();
+    setup();
+    expect(screen.getByRole('searchbox', { name: 'Find a job' })).toHaveValue('');
+  });
+
+  it('the page’s scroll is where he left it when he comes back', () => {
+    const tops = new WeakMap<Element, number>();
+    const desc = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop')!;
+    Object.defineProperty(Element.prototype, 'scrollTop', { configurable: true, get() { return tops.get(this) ?? 0; }, set(v: number) { tops.set(this, v); } });
+    try {
+      const first = setup();
+      const main = document.querySelector<HTMLElement>('main.page')!;
+      main.scrollTop = 640;
+      fireEvent.scroll(main);
+      first.unmount();
+      setup();
+      expect(document.querySelector<HTMLElement>('main.page')!.scrollTop).toBe(640);
+    } finally {
+      Object.defineProperty(Element.prototype, 'scrollTop', desc);
+    }
+  });
+});

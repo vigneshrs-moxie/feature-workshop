@@ -476,7 +476,7 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
       showQueue={showQueue}
       now={now}
       peeked={open?.key ?? null}
-      onOpen={(item) => setPeek(item.key)}
+      onOpen={(item) => setPeek(peek === item.key ? null : item.key)}
       onStart={start}
       onStartStack={startStack}
       onFocusRow={(item) => { focused.current = item; }}
@@ -864,7 +864,7 @@ function HostedTicketPeek({ item, order, onPick, onClose, onStart, onCancel, sen
   sending?: boolean;
 }) {
   const now = useNow();
-  usePeekKeys({ current: item.key, order, onPick, onClose });
+  usePeekKeys({ current: item.key, order, onPick, onClose, outside: 'tr[data-ticket]' });
   return (
     <Peek
       label={`${item.key}: ${item.title}`}
@@ -911,7 +911,7 @@ function TicketPeek({ item, order, onPick, onClose, onStart, onStartStack }: {
   const now = useNow();
   const [detail, setDetail] = useState<Load<TicketAnswer>>({ state: 'loading' });
   const [refs, setRefs] = useState<Load<Reference[]>>({ state: 'loading' });
-  usePeekKeys({ current: item.key, order, onPick, onClose });
+  usePeekKeys({ current: item.key, order, onPick, onClose, outside: 'tr[data-ticket]' });
 
   useEffect(() => {
     let live = true;
