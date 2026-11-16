@@ -159,10 +159,10 @@ export const STATIC_TOKENS: Record<string, string> = {
   'radius-md': '8px',
   'radius-lg': '12px',
   'radius-xl': '16px',
-  // Motion: transform and opacity only, nothing over 200ms (plan §7's quality bar), ease-out on entry.
+  // Motion: transform and opacity only, nothing over 120ms (the perf pass: short and calm; plan §7 said 200ms), ease-out on entry.
   'dur-fast': '120ms',
-  'dur-menu': '180ms',
-  'dur-pane': '200ms',
+  'dur-menu': '120ms',
+  'dur-pane': '120ms',
   'ease-out': 'cubic-bezier(.16, 1, .3, 1)',
   'motion-shift': '4px',
   'motion-scale-from': '.96',

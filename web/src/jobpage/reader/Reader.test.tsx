@@ -544,3 +544,15 @@ describe('missing moves: Older gives the focus back (16 Nov)', () => {
     expect(document.activeElement).toBe(within(top()).getByRole('button', { name: 'Older' }));
   });
 });
+
+describe('the reader changes what it shows with a quick fade (perf pass)', () => {
+  it('each thing read fades in over at most 120 ms, by opacity only (the text never moves), and not at all with reduced motion', () => {
+    const body = rule('.jp2-rv-body');
+    expect(body).toMatch(/animation: jp2-rv-in (\d+)ms/);
+    expect(Number(/animation: jp2-rv-in (\d+)ms/.exec(body)![1])).toBeLessThanOrEqual(120);
+    const frames = /@keyframes jp2-rv-in \{([^}]*\{[^}]*\})*[^}]*\}/.exec(CSS)?.[0] ?? '';
+    expect(frames).toMatch(/opacity/);
+    expect(frames).not.toMatch(/transform|translate|scale|top|margin/);
+    expect(CSS).toMatch(/@media \(prefers-reduced-motion: reduce\) \{[^@]*\.jp2-rv-body \{ animation: none; \}/);
+  });
+});

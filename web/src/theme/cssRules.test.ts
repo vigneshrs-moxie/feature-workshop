@@ -79,9 +79,9 @@ describe('the stylesheets', () => {
     expect(DECLS.filter((d) => literalColour(d.value)).map(at)).toEqual([]);
   });
 
-  it('no transition takes longer than 200 ms', () => {
+  it('no transition takes longer than 120 ms (perf pass: short and calm)', () => {
     expect(durations('transform .45s ease, color 120ms')).toEqual([450, 120]);
-    const slow = DECLS.filter((d) => /^transition(-duration)?$/.test(d.prop) && durations(d.value).some((ms) => ms > 200));
+    const slow = DECLS.filter((d) => /^transition(-duration)?$/.test(d.prop) && durations(d.value).some((ms) => ms > 120));
     expect(slow.map(at)).toEqual([]);
   });
 
@@ -111,5 +111,13 @@ describe('the stylesheets', () => {
     expect(tokens).toMatch(/--control-h-sm:\s*max\(28px,/);
     expect(tokens).toMatch(/--control-h:\s*max\(34px,/);
     expect(tokens).toMatch(/@media \(max-width: 760px\) \{\n {2}:root \{\n {4}--control-h-sm: max\(40px,[^}]*--control-h: max\(40px,/);
+  });
+});
+
+describe('the stylesheets: things that open (perf pass)', () => {
+  it('nothing that comes in (a sheet, a menu, a fold, the quick look, the reader) takes longer than 120 ms', () => {
+    const entering = DECLS.filter((d) => /^animation(-duration)?$/.test(d.prop) && /(^|[\s,])[\w-]*(-in|fade)\b/.test(d.value) && !/infinite/.test(d.value));
+    expect(entering.length).toBeGreaterThan(5);
+    expect(entering.filter((d) => durations(d.value.replace(/\d*\.?\d+(ms|s)\s+forwards/, '')).some((ms) => ms > 120)).map(at)).toEqual([]);
   });
 });

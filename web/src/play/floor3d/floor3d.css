@@ -15,7 +15,7 @@
 /* ---------- The stage: the canvas, the pointer targets, the words ---------- */
 
 .floor3d-stage { position: relative; overflow: hidden; touch-action: pan-y; contain: layout paint; }
-.floor3d-canvas { position: absolute; inset: 0 auto auto 0; display: block; opacity: 0; transition: opacity 200ms var(--ease-out); }
+.floor3d-canvas { position: absolute; inset: 0 auto auto 0; display: block; opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
 .floor3d-stage.is-ready .floor3d-canvas { opacity: 1; }
 
 .floor3d-hits { position: absolute; inset: 0; }

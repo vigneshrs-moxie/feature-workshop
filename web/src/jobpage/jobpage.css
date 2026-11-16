@@ -159,7 +159,9 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2-rv-older-menu .menu-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .jp2-rv-older-meta { flex: none; margin-left: 8px; font-size: 12px; color: var(--text-3); white-space: nowrap; }
 /* The body: the one scroll area; a container, so a document's outline shows only when there is room. */
-.jp2-rv-body { position: relative; flex: 1; min-height: 0; overflow: auto; padding: 22px 24px 48px 40px; scrollbar-width: thin; container-type: inline-size; }
+.jp2-rv-body { position: relative; flex: 1; min-height: 0; overflow: auto; padding: 22px 24px 48px 40px; scrollbar-width: thin; container-type: inline-size; animation: jp2-rv-in 120ms ease-out; }
+/* Each thing read is drawn fresh (Reader.tsx keys it): it fades in over 120 ms, by opacity only, so the words never move. */
+@keyframes jp2-rv-in { from { opacity: .35; } to { opacity: 1; } }
 .jp2-notyet { margin: 0; max-width: 610px; font-size: 15px; line-height: 24px; color: var(--text-2); }
 
 /* Reading text (reader/Prose.tsx): 15 on 24, at most 80 characters; every heading one step above it */
@@ -268,6 +270,7 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2[data-layout="mid"] .jp2-left .jp2-lscroll > *, .jp2[data-layout="mid"] .jp2-mbw { width: 100%; max-width: 640px; margin-left: auto; margin-right: auto; }
 @media (prefers-reduced-motion: reduce) {
   .jp2-reader { transition: none !important; }
+  .jp2-rv-body { animation: none; }
 }
 
 /* 760 px and under: phone sizes (the phone's own screens are at the end of this file) */
@@ -421,6 +424,8 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2-fd-turn { transform: rotate(180deg); }
 .jp2-fd-line, .jp2-fd-flat { display: grid; grid-template-columns: 70px 150px minmax(0, 1fr) auto; gap: 10px; align-items: baseline; width: 100%; padding: 6px 8px; border: 0; border-radius: 6px; background: none; color: var(--text-1); font: inherit; font-size: 14px; line-height: 20px; text-align: left; }
 .jp2-fd-line { cursor: pointer; }
+/* A long review's findings: lines out of sight are not laid out or painted until scrolled near (each keeps its last size). */
+.jp2-fd-line, .jp2-fd-flat { content-visibility: auto; contain-intrinsic-block-size: auto 30px; }
 .jp2-fd-line:hover { background: var(--hover-bg); }
 .jp2-fd-flat { font-size: 13px; color: var(--text-2); }
 .jp2-fd-sev { font-size: 12px; font-weight: 600; }
@@ -620,6 +625,8 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2-sp-more > summary { cursor: pointer; list-style: none; }
 .jp2-sp-more > summary::-webkit-details-marker { display: none; }
 .jp2-sp-more > summary:hover { color: var(--text-1); }
+.jp2-sp-more[open] > :not(summary) { animation: jp2-rv-in 120ms ease-out; }
+@media (prefers-reduced-motion: reduce) { .jp2-sp-more[open] > :not(summary) { animation: none; } }
 /* Ship in the step panel: its PR lines need room (a line, its state and its one button), so the panel
    is wider while it shows Ship, and the lines sit flush with its other rows and wrap their button. */
 .jp2-panes:has(> .jp2-sp[data-step="ship"]) { --jp2-side-w: 360px; }

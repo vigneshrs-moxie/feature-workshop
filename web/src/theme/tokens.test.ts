@@ -59,9 +59,9 @@ describe('design tokens', () => {
     expect(hi['border-1']).toBe('oklch(1 0 0 / .15)');
   });
 
-  it('keeps every motion duration at or under 200ms and spacing on the 4px grid', () => {
+  it('keeps every motion duration at or under 120ms (perf pass: short and calm) and spacing on the 4px grid', () => {
     for (const [k, v] of Object.entries(STATIC_TOKENS)) {
-      if (k.startsWith('dur-')) expect(parseInt(v, 10)).toBeLessThanOrEqual(200);
+      if (k.startsWith('dur-')) expect(parseInt(v, 10)).toBeLessThanOrEqual(120);
       if (k.startsWith('space-')) expect(parseInt(v, 10) % 4).toBe(0);
     }
   });
