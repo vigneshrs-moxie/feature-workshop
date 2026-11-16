@@ -559,8 +559,8 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
    The left pane's wrappers step aside (display: contents), so its parts sit in the page's grid. */
 /* Four arrangements: a decision waiting or not, the conversation shown or hidden. The widths the drag
    handles set (Splitter.tsx) are --jp2-decide-w and --jp2-convo-w; without them, the defaults here. */
-.jp2[data-layout="wide"] .jp2-panes { display: grid; grid-template-columns: minmax(0, 1fr) 248px 6px var(--jp2-convo-w, clamp(320px, 28vw, 560px)); grid-template-rows: auto auto minmax(0, 1fr); grid-template-areas: "steps steps steps rows" "move move csplit convo" "reader side csplit convo"; }
-.jp2[data-layout="wide"][data-convo="hidden"] .jp2-panes { grid-template-columns: minmax(0, 1fr) 248px; grid-template-rows: auto auto minmax(0, 1fr) auto; grid-template-areas: "steps rows" "move move" "reader side" "box box"; }
+.jp2[data-layout="wide"] .jp2-panes { display: grid; grid-template-columns: minmax(0, 1fr) var(--jp2-side-w, 248px) 6px var(--jp2-convo-w, clamp(320px, 28vw, 560px)); grid-template-rows: auto auto minmax(0, 1fr); grid-template-areas: "steps steps steps rows" "move move csplit convo" "reader side csplit convo"; }
+.jp2[data-layout="wide"][data-convo="hidden"] .jp2-panes { grid-template-columns: minmax(0, 1fr) var(--jp2-side-w, 248px); grid-template-rows: auto auto minmax(0, 1fr) auto; grid-template-areas: "steps rows" "move move" "reader side" "box box"; }
 .jp2[data-layout="wide"][data-deciding] .jp2-panes { grid-template-columns: var(--jp2-decide-w, clamp(420px, 38vw, 720px)) 6px minmax(0, 1fr) 6px var(--jp2-convo-w, clamp(300px, 24vw, 480px)); grid-template-rows: auto minmax(0, 1fr); grid-template-areas: "steps steps steps rows rows" "move dsplit reader csplit convo"; }
 .jp2[data-layout="wide"][data-deciding][data-convo="hidden"] .jp2-panes { grid-template-columns: var(--jp2-decide-w, clamp(420px, 38vw, 720px)) 6px minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; grid-template-areas: "steps steps rows" "move dsplit reader" "box box box"; }
 /* The drag handles: a thin line that thickens under the pointer. */
@@ -620,6 +620,11 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2-sp-more > summary { cursor: pointer; list-style: none; }
 .jp2-sp-more > summary::-webkit-details-marker { display: none; }
 .jp2-sp-more > summary:hover { color: var(--text-1); }
+/* Ship in the step panel: its PR lines need room (a line, its state and its one button), so the panel
+   is wider while it shows Ship, and the lines sit flush with its other rows and wrap their button. */
+.jp2-panes:has(> .jp2-sp[data-step="ship"]) { --jp2-side-w: 360px; }
+.jp2-sp .jp2-prl { padding-left: 8px; }
+.jp2-sp .jp2-prl-l { flex-wrap: wrap; row-gap: 4px; }
 .jp2-sp-none { margin: 0; padding: 0 8px; font-size: 13px; color: var(--text-3); }
 /* The conversation's own column, with the asks row and the message box at its foot */
 .jp2-convo { grid-area: convo; display: flex; flex-direction: column; min-width: 0; min-height: 0; border-left: 1px solid var(--border-1); background: var(--surface-0); }
@@ -686,7 +691,7 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2[data-layout="wide"] .jp2-convo { container: jp2convo / inline-size; }
 .jp2[data-layout="wide"][data-deciding] .jp2-panes { grid-template-columns: min(var(--jp2-decide-w, clamp(420px, 38vw, 720px)), calc(100vw - var(--jp2-convo-w, clamp(300px, 24vw, 480px)) - 380px)) 6px minmax(360px, 1fr) 6px min(var(--jp2-convo-w, clamp(300px, 24vw, 480px)), calc(100vw - 800px)); }
 .jp2[data-layout="wide"][data-deciding][data-convo="hidden"] .jp2-panes { grid-template-columns: min(var(--jp2-decide-w, clamp(420px, 38vw, 720px)), calc(100vw - 380px)) 6px minmax(360px, 1fr); }
-.jp2[data-layout="wide"]:not([data-deciding]):not([data-convo="hidden"]) .jp2-panes { grid-template-columns: minmax(0, 1fr) 248px 6px min(var(--jp2-convo-w, clamp(320px, 28vw, 560px)), calc(100vw - 720px)); }
+.jp2[data-layout="wide"]:not([data-deciding]):not([data-convo="hidden"]) .jp2-panes { grid-template-columns: minmax(0, 1fr) var(--jp2-side-w, 248px) 6px min(var(--jp2-convo-w, clamp(320px, 28vw, 560px)), calc(100vw - 720px)); }
 
 /* The decision. Wide: its words keep to reading width. Narrow: tighter, and an option's "recommended"
    goes under its words. Very narrow: the meaning after an id gives way (the id still opens its words). */

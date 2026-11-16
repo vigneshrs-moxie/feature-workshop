@@ -320,3 +320,19 @@ describe('the glance layout: the step panel', () => {
     expect(rows()).toHaveLength(7);
   });
 });
+
+describe('missing moves: Ship’s PR lines have room in the step panel (16 Nov)', () => {
+  it('the panel says which step it shows, and the page’s CSS widens it for Ship and lets a PR line wrap its button', async () => {
+    const { store } = mountGlance();
+    expect(panel()).toHaveAttribute('data-step', 'review');
+    act(() => { store.setStep('ship'); });
+    expect(panel()).toHaveAttribute('data-step', 'ship');
+    const { readFileSync } = await import('node:fs');
+    const css = readFileSync(`${process.cwd()}/src/jobpage/jobpage.css`, 'utf8');
+    expect(css).toContain('.jp2-panes:has(> .jp2-sp[data-step="ship"]) { --jp2-side-w: 360px; }');
+    expect(css).toContain('.jp2-sp .jp2-prl-l { flex-wrap: wrap;');
+    // Every laptop arrangement with the panel reads its width from that property.
+    expect(css.match(/var\(--jp2-side-w, 248px\)/g)).toHaveLength(3);
+    expect(css).not.toMatch(/minmax\(0, 1fr\) 248px/);
+  });
+});

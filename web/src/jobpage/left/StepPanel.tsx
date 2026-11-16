@@ -24,7 +24,8 @@ export const StepPanel = memo(function StepPanel({ onOpen }: StepPanelProps) {
   const word = stepWord(step, state);
   const dur = durationOf(step);
   return (
-    <aside className="jp2-sp" aria-label="This step">
+    // data-step: Ship's PR lines take a wider panel (jobpage.css).
+    <aside className="jp2-sp" aria-label="This step" data-step={step.id}>
       <p className="jp2-sp-head">
         <span className="jp2-sp-name">{step.label}</span>
         {word && <span className="jp2-sp-word">{word}</span>}
