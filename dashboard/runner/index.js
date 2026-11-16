@@ -21,6 +21,7 @@
 // is shown paused. stop() pauses every reply in progress (sessions stay resumable), writes the
 // audit line `service-stop` naming them, and removes service.json (runner/service-file.js).
 
+import { mentionedRefs } from '../lib/doc-refs.js';
 import { EventEmitter } from 'node:events';
 import { nodeCommand, tempDirs, terminalApps } from '../lib/platform.js';
 import fs from 'node:fs';
@@ -2466,6 +2467,12 @@ export async function createRunner(config) {
       decided: detail.decidedOnYourBehalf, autoDecided: Array.isArray(detail.auto?.decided) ? detail.auto.decided : [], page: detail.page,
       render: (text, { json = false } = {}) => (json ? jsonHtml(text) : renderMarkdown(text, { idHref: idHref(f) })),
     });
+    // What the ids a waiting decision mentions mean (lib/doc-refs.js), in the payload: the decision box
+    // shows each one's meaning beside it from its first paint.
+    if (payload.move && (payload.move.kind === 'gate' || payload.move.kind === 'question')) {
+      const refs = mentionedRefs(sources.get('refs')?.meta?.refs ?? {}, payload.move);
+      if (refs) payload.move.refs = refs;
+    }
     // Task 21: each PR's comment rows are a body (GET /api/job/:slug/pr/:n answers from it), never in the payload.
     for (const c of Object.values(prFacts?.comments ?? {})) {
       const meta = { number: c.number, url: c.url, rows: c.rows, checks: c.checks, verdict: c.verdict, readAt: c.readAt, problem: c.problem };

@@ -597,3 +597,22 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2-convo .jp2-cv-sbox { width: auto; flex: 1; min-width: 0; }
 .jp2-convo .jp2-rv-body { padding: 4px 12px 24px 16px; }
 .jp2-convo .jp2-cv { max-width: none; }
+/* The ids in a decision explain themselves (left/Refs.tsx): the meaning in brackets; in a question the
+   id is a button that opens its words under the question. */
+.jp2-ref { display: inline; margin: 0; padding: 0 2px; border: 0; border-radius: 3px; background: none; color: var(--accent-strong); font: inherit; font-weight: inherit; text-decoration: underline dotted; text-underline-offset: 3px; cursor: pointer; }
+.jp2-ref:hover, .jp2-ref.is-open { background: var(--hover-bg); text-decoration-style: solid; }
+.jp2-ref:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.jp2-ref-gist { font-weight: 400; color: var(--text-2); }
+.jp2-ref-open { flex-basis: 100%; margin: 2px 0 4px; padding: 8px 12px; border-radius: 8px; background: var(--surface-0); box-shadow: inset 2px 0 0 var(--border-3); max-width: 760px; }
+.jp2-ref-says { margin: 0; font-size: 13px; line-height: 19px; color: var(--text-1); }
+.jp2-ref-acts { display: flex; gap: 14px; margin: 4px 0 0; font-size: 12px; }
+/* A laptop: a real question runs to two or three lines, and so can an option: show them whole. */
+.jp2[data-layout="wide"] .jp2-ym-qt { display: block; overflow: visible; -webkit-line-clamp: unset; font-size: 14px; line-height: 20px; max-width: 980px; }
+.jp2[data-layout="wide"] .jp2-ym-ot { font-size: 13px; line-height: 18px; }
+.jp2[data-layout="wide"] .jp2-ym-ot small { white-space: normal; line-height: 16px; }
+.jp2[data-layout="wide"] .jp2-ym-opt.option-row { align-items: flex-start; padding-top: 7px; padding-bottom: 7px; }
+.jp2[data-layout="wide"] .jp2-ym-opt.option-row .choice { margin-top: 1px; }
+.jp2[data-layout="wide"] .jp2-card-ask { font-size: 15px; line-height: 21px; }
+/* A laptop: what is new in the conversation is counted in its own column (Jump to latest · n new), not in
+   the steps row, where its arrival would push the links beside it (speed rule 3). */
+.jp2[data-layout="wide"] .jp2-jrs .jp2-jr-new { display: none; }

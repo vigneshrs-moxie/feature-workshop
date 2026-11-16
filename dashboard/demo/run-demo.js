@@ -315,8 +315,13 @@ async function build() {
       waiting_since: iso(47 * MIN),
       brief: { number: 6, path: 'briefs/006-review.md', headline: 'Widget Export · review done' },
       questions: [
-        { id: '1', text: 'Fix R-2 and R-3 now in a small fix round?', recommendation: 'a', options: [{ id: 'a', label: 'Yes, fix both now' }, { id: 'b', label: 'Leave them as minors' }] },
-        { id: '2', text: 'Export file name', recommendation: 'a', options: [{ id: 'a', label: 'widgets-YYYY-MM-DD.csv' }, { id: 'b', label: 'export.csv' }] },
+        // As long as a real job's questions run (two lines and more), with the ids the review and the spec use.
+        { id: '1', text: 'The review found two majors, R-2 and R-3. Both are small. Fix them now in a short fix round before PR #1, or leave them as known issues and open PR #1 today?', recommendation: 'a', options: [
+          { id: 'a', label: 'Fix both now in a short fix round', consequence: 'About 20 minutes. PR #1 waits for the round and one more look at the two changed files.' },
+          { id: 'b', label: 'Leave them as known issues and open PR #1 today', consequence: 'Both go into the PR description. Until R-2 is fixed, an export after 5pm in California is named with tomorrow’s date.' }] },
+        { id: '2', text: 'AC-002 asks for one file named widgets-YYYY-MM-DD.csv, but D-005 stops an export at 10,000 rows, so a big office needs more than one file. Split it into numbered parts, or keep one file and stop at 10,000 rows?', recommendation: 'b', options: [
+          { id: 'a', label: 'Numbered parts: widgets-2026-11-16-part-1.csv, part-2 …', consequence: 'Nobody loses rows; a big office gets a zip of parts instead of one file.' },
+          { id: 'b', label: 'One file, stop at 10,000 rows with the FR-003 message', consequence: 'Matches AC-002 as written. The message says the rest was left out and how to narrow the dates.' }] },
       ],
       decided_on_your_behalf: [
         { id: 'D-004', decision: 'CSV only, no Excel', reason: 'your “use your recommendations” reply', where: 'spec v0.3', confirmed: false },
@@ -339,7 +344,7 @@ async function build() {
       { stage: 'plan', text: '**Widget Export · plan done**\n\nDemo brief.' },
       { stage: 'implement', text: '**Widget Export · implement done**\n\nDemo brief.' },
       { stage: 'test', text: '**Widget Export · test done**\n\nDemo brief.' },
-      { stage: 'review', text: '**Widget Export · review done** · spec v0.3 · review.md v1\n\n**What happened**\n- 7 reviewers looked at the change; 0 blockers, 2 majors, 3 minors.\n\n**Decisions for you**\n1. Fix R-2 and R-3 now? — Recommended: yes.\n2. Export file name — Recommended: widgets-YYYY-MM-DD.csv.\n\n**Next:** fix round, then PR #1.' },
+      { stage: 'review', text: '**Widget Export · review done** · spec v0.3 · review.md v1\n\n**What happened**\n- 7 reviewers looked at the change; 0 blockers, 2 majors, 3 minors.\n\n**Decisions for you**\n1. Fix R-2 and R-3 now in a short fix round? — Recommended: yes.\n2. More than 10,000 rows (D-005): numbered parts, or one file that stops (FR-003)? — Recommended: one file.\n\n**Next:** fix round, then PR #1.' },
     ],
     files: {
       'findings.md': '# Findings (demo)\n\n## Summary\nThe widgets page already loads every row, so FR-001 needs no new query. FR-002 touches the export button only.\n\n## Spec impact\n- AC-003 should say what happens with more than 10,000 rows (became D-005).\n',

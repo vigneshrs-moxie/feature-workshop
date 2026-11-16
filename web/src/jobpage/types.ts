@@ -73,8 +73,13 @@ export interface ThreadLine {
 export interface GateOption { id: string; label: string; consequence: string | null; recommended: boolean }
 export interface GateQuestion { id: string; text: string; options: GateOption[] }
 
+/** What a short id in a decision means (dashboard/lib/doc-refs.js), and where its words are. */
+export interface RefMeaning { id: string; title: string; text: string; where: { kind: 'doc' | 'decisions' | 'findings'; id: string; name: string } }
+
 export interface GateMove {
   kind: 'gate';
+  /** The ids the ask, questions and options mention, with their meanings (left/Refs.tsx); absent when none is known. */
+  refs?: Record<string, RefMeaning>;
   brief: number | null;
   ask: string;
   since: string | null;
@@ -90,7 +95,7 @@ export interface GateMove {
   parked: boolean;
 }
 
-export interface QuestionMove { kind: 'question'; ask: string; since: string | null; quick: string[]; itemId: string }
+export interface QuestionMove { kind: 'question'; ask: string; since: string | null; quick: string[]; itemId: string; refs?: Record<string, RefMeaning> }
 
 export interface PermissionMove {
   kind: 'permission';

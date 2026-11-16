@@ -37,6 +37,7 @@
 // A slug that turned out to be no job answers 404 at once for a few seconds (no build), and a slug
 // that cannot be a job folder's name is refused without one.
 
+import { refsFrom } from './doc-refs.js';
 import { createHash } from 'node:crypto';
 import { HttpError } from './http-guard.js';
 
@@ -333,6 +334,18 @@ export function itemSources({ payload, thread = [], briefTexts = new Map(), docs
   const ticket = ticketMarkdown(page);
   sources.set('ticket', { kind: 'ticket', version: hashOf(ticket), text: ticket, meta: ticketMeta(page), html: () => render(ticket) });
   for (const s of [findingsSource(page), checksSource(page)]) sources.set(s.id, { kind: s.kind, version: s.version, text: s.text, meta: s.meta, html: () => render(s.text) });
+  // What the short ids in a question mean (lib/doc-refs.js; the decision box asks for it while a gate
+  // waits): read from the sources above only when asked, once per version.
+  const from = [...sources.entries()].filter(([, v]) => v.kind === 'doc' || v.kind === 'decisions' || v.kind === 'findings');
+  let refs = null;
+  sources.set('refs', {
+    kind: 'refs', version: hashOf(from.map(([k, v]) => `${k}:${v.version}`).join('\n')), text: '',
+    get meta() {
+      refs ??= { refs: refsFrom({ docs: Array.isArray(docs) ? docs : [], decided: rows, findings: sources.get('findings')?.meta?.rows ?? [] }) };
+      return refs;
+    },
+    html: () => '',
+  });
   return sources;
 }
 

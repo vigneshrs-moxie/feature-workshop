@@ -666,3 +666,37 @@ describe('Task 12 carry-forward: More is for this ask', () => {
     } finally { sw.mockRestore(); cw.mockRestore(); }
   });
 });
+
+// The glance layout (16 Nov): the ids a decision mentions explain themselves, and open in place.
+describe('the ids in a decision', () => {
+  beforeEach(() => { vi.stubGlobal('matchMedia', (q: string) => ({ matches: /min-width/.test(q), media: q, addEventListener() {}, removeEventListener() {} })); });
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('each id is followed by its meaning at its first mention; a click opens its words under the question and Open in shows them in the reader', async () => {
+    const g = GATE();
+    const move: GateMove = {
+      ...g,
+      questions: [
+        { id: '1', text: 'Fix R-2 now, before PR #1?', options: [{ id: 'a', label: 'Yes', consequence: 'R-2 is gone', recommended: true }, { id: 'b', label: 'No', consequence: null, recommended: false }] },
+        g.questions[1],
+      ],
+      refs: { 'R-2': { id: 'R-2', title: 'The file name’s date', text: 'Major · the file name’s date.', where: { kind: 'findings', id: 'findings', name: 'Findings' } } },
+    };
+    const o = open({ move });
+    await settle();
+    const q1 = within(card()).getAllByRole('group')[0];
+    expect(q1.querySelector('legend')).toHaveTextContent('1. Fix R-2 (the file name’s date) now, before PR #1?');
+    // Told once: the option's consequence names it without the brackets.
+    expect(q1).toHaveTextContent('R-2 is gone');
+    expect(q1).not.toHaveTextContent('R-2 (the file name’s date) is gone');
+    fireEvent.click(within(q1).getByRole('button', { name: 'R-2' }));
+    expect(within(q1).getByRole('note', { name: 'R-2' })).toHaveTextContent('Major · the file name’s date.');
+    // The decision's picks are untouched by the click.
+    expect(within(q1).getAllByRole('radio')[0]).toBeChecked();
+    fireEvent.click(within(q1).getByRole('button', { name: 'Open in Findings' }));
+    expect(o.store.getState().ui.reader).toEqual({ kind: 'findings', id: 'findings' });
+    fireEvent.click(within(q1).getByRole('button', { name: 'Close' }));
+    expect(within(q1).queryByRole('note')).toBeNull();
+    o.unmount();
+  });
+});

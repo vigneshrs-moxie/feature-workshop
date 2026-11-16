@@ -41,7 +41,7 @@ import { UNREACHABLE_WORDS, useGateSent } from '../../panes/Foreman/gateSent';
 import { jobBySlug } from '../../state/reducer';
 import { useWorkshop } from '../../state/store';
 import { isOpen, queuedOf, type QueuedView } from '../../views/Hosted/QueuedDecision';
-import type { GateMove, PermissionMove, QuestionMove, ReaderTarget } from '../types';
+import type { GateMove, PermissionMove, QuestionMove, ReaderTarget, RefMeaning } from '../types';
 import { queuedById } from '../jobStore';
 import { backLabel, composeFor, goLabel, notesWord } from '../notes/chips';
 import { useJob, useJobStore } from '../useJob';
@@ -49,6 +49,7 @@ import { AskedList, useAsked } from './Asked';
 import { notesBack } from './MessageBox';
 import { changedCount, gateBody, OWN, pickOf, unanswered, type GatePicks } from './gateBody';
 import { STATE_WORDS, stateFromRow } from './Header';
+import { firstMentions, RefOpen, RefText } from './Refs';
 
 /** A time as "Fri 12:06 PM" (the reader's title rows use it too). */
 export function sinceWords(at: string | null | undefined): string | null {
@@ -116,7 +117,7 @@ function moveLabel(permission: boolean, at: string | null | undefined): string {
  * in place; only what is under the ask moves, never anything above it. On the phone the ask is
  * always whole (Task 15: Your move in full on the job screen), with no More.
  */
-function Card({ label, ask, children }: { label: string; ask: string; children?: ReactNode }) {
+function Card({ label, ask, refs, told, children }: { label: string; ask: string; refs?: Record<string, RefMeaning>; told?: ReadonlySet<string>; children?: ReactNode }) {
   const askRef = useRef<HTMLParagraphElement>(null);
   const [cut, setCut] = useState(false);
   const phone = useNarrow();
@@ -137,7 +138,7 @@ function Card({ label, ask, children }: { label: string; ask: string; children?:
     <div className="jp2-card">
       <p className="jp2-card-label">{label}</p>
       <div className="jp2-card-askrow">
-        <p ref={askRef} className={`jp2-card-ask${whole ? ' is-whole' : ''}`}>{ask}</p>
+        <p ref={askRef} className={`jp2-card-ask${whole ? ' is-whole' : ''}`}><RefText text={ask} refs={refs} told={told} /></p>
         {!phone && (cut || whole) && (
           <button type="button" className="link-button jp2-card-more" aria-expanded={whole} onClick={() => setOpened(whole ? null : ask)} title={whole ? 'Show the ask on one line again.' : 'Show the whole ask here.'}>
             {whole ? 'Less' : 'More'}
@@ -292,6 +293,8 @@ function GateCard({ move, onOpen }: { move: GateMove; onOpen?: YourMoveProps['on
   const queuedDecision = useJob((s) => queuedById(s.payload, sentAny?.queuedId) ?? queuedOf(s.payload?.queuedDecision));
   const facts: GoFacts = { key, stage: move.stage, runId, runStatus, held: heldReply, queued: queuedDecision };
   const sent = sentAny ? goAsItStands(sentAny, facts) : null;
+  /** Per question: the id whose words are open under it (left/Refs.tsx). */
+  const [refOpen, setRefOpen] = useState<Record<string, string | null>>({});
   const [line, setLine] = useState<string | null>(null);
   // Keep the Go as it now stands (held seen, a run adopted, its queued decision seen), or end it: the
   // card comes back, saying why when the website's decision did not run.
@@ -461,8 +464,18 @@ function GateCard({ move, onOpen }: { move: GateMove; onOpen?: YourMoveProps['on
           : move.questions.length ? 'Sent · the Foreman is reading your answers' : 'Sent · the Foreman is reading your go-ahead';
     return <p className="jp2-ym-sent" role="status">{words}</p>;
   }
+  // Each id's meaning shows at its first mention in the card: the ask, then each question, its options' labels and consequences.
+  const texts = [move.ask, ...move.questions.flatMap((q) => [q.text, ...q.options.flatMap((o) => [o.label, o.consequence ?? ''])])];
+  const before = firstMentions(texts);
+  /** Where each text sits in `texts`: the ask is 0; then each question, and each option's label and consequence. */
+  const toldAt = new Map<string, ReadonlySet<string>>();
+  let n = 1;
+  for (const q of move.questions) {
+    toldAt.set(`q:${q.id}`, before[n++]);
+    for (const o of q.options) { toldAt.set(`l:${q.id}:${o.id}`, before[n++]); toldAt.set(`c:${q.id}:${o.id}`, before[n++]); }
+  }
   return (
-    <Card label={label0} ask={move.ask}>
+    <Card label={label0} ask={move.ask} refs={move.refs} told={before[0]}>
       <div ref={root} className="jp2-ym-qs">
         {move.questions.map((q, i) => {
           const chosen = pickOf(q, p);
@@ -470,7 +483,10 @@ function GateCard({ move, onOpen }: { move: GateMove; onOpen?: YourMoveProps['on
           const ownOpen = q.options.length === 0 || chosen === OWN;
           return (
             <fieldset key={q.id} className="jp2-ym-q">
-              <legend className="jp2-ym-qt">{i + 1}. {q.text}</legend>
+              <legend className="jp2-ym-qt">{i + 1}. <RefText text={q.text} refs={move.refs} told={toldAt.get(`q:${q.id}`)} open={refOpen[q.id] ?? null} onPick={(id) => setRefOpen((o) => ({ ...o, [q.id]: o[q.id] === id ? null : id }))} /></legend>
+              {refOpen[q.id] && move.refs?.[refOpen[q.id]!] && (
+                <RefOpen meaning={move.refs[refOpen[q.id]!]} onOpen={onOpen} onClose={() => setRefOpen((o) => ({ ...o, [q.id]: null }))} />
+              )}
               {q.options.map((o) => (
                 <OptionRow
                   key={o.id}
@@ -485,9 +501,9 @@ function GateCard({ move, onOpen }: { move: GateMove; onOpen?: YourMoveProps['on
                   title={o.recommended ? 'The Foreman recommends this; it is picked for you. Pick another to change it.' : 'Answer with this option.'}
                 >
                   <span className="jp2-ym-ot">
-                    <span className="jp2-ym-ol"><b>{o.id}.</b> {o.label}</span>
+                    <span className="jp2-ym-ol"><b>{o.id}.</b> <RefText text={o.label} refs={move.refs} told={toldAt.get(`l:${q.id}:${o.id}`)} /></span>
                     {o.recommended && <span className="jp2-ym-rec">recommended</span>}
-                    {o.consequence && <small>{o.consequence}</small>}
+                    {o.consequence && <small><RefText text={o.consequence} refs={move.refs} told={toldAt.get(`c:${q.id}:${o.id}`)} /></small>}
                   </span>
                 </OptionRow>
               ))}
@@ -562,7 +578,7 @@ function AskCard({ move }: { move: QuestionMove }) {
     });
   };
   return (
-    <Card label={moveLabel(false, move.since)} ask={move.ask}>
+    <Card label={moveLabel(false, move.since)} ask={move.ask} refs={move.refs}>
       {move.quick.length > 0 && (
         <div className="jp2-ym-quick" role="group" aria-label="Quick replies">
           {move.quick.map((q) => (
