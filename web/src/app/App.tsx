@@ -4,13 +4,12 @@
 // EventSource). The browser tab's title is the page's name and the product's (app/brand.ts).
 // On the hosted site (packet 2A: its index.html says so, views/Hosted/mode.ts) it is the hosted
 // app instead: sign-in, my jobs from the mirror, pairing, Laptops and People (views/Hosted).
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { createApi, type ApiClient } from '../api/client';
 import type { PolicyId } from '../api/types';
 import { useAlerts, usePresence } from '../alerts/useAlerts';
 import { CommandPalette } from '../components/CommandPalette';
 import { TooltipLayer } from '../components/Tooltip';
-import { GalleryView } from '../views/Gallery/GalleryView';
 import { UsageBanner } from '../components/UsageBanner';
 import { UsageWarningBanner } from '../components/UsageWarningBanner';
 import { createLiveSync, type EventSourceLike, type LiveSync } from '../state/live';
@@ -21,23 +20,10 @@ import { CloseJobSheet } from '../views/JobSheets/CloseJobSheet';
 import { ChangeModelSheet } from '../job/ChangeModelSheet';
 import { KeysSheet } from '../views/JobSheets/KeysSheet';
 import { NewJobSheet } from '../views/JobSheets/NewJobSheet';
-import { SettingsView } from '../views/Settings/SettingsView';
-import { CrewDexView } from '../views/CrewDex/CrewDexView';
-import { AchievementsView } from '../views/Achievements/AchievementsView';
-import { NotFoundView } from '../views/NotFound/NotFoundView';
-import { ScreensView } from '../views/Screens/ScreensView';
-import { BuildStackPage } from '../views/Stack/BuildStack';
-import { PartPage } from '../views/Stack/PartPage';
-import { StackPage } from '../views/Stack/StackPage';
-import { StacksPage } from '../views/Stack/StacksPage';
-import { InboxView } from '../views/Inbox';
-import { DeskPage } from '../home/DeskPage';
 import { JobsPage } from '../home/JobsPage';
 import { nextNeedsYou } from '../home/findJobs';
-import { JobPage } from '../job/page/JobPage';
 import { JobPage2 } from '../jobpage/JobPage2';
 import { useNewJobPage } from '../jobpage/switch';
-import { TelemetryView } from '../views/Telemetry';
 import { PlayLedgerProvider } from '../play/PlayLedger';
 import { PlayEggs, usePaletteEggs } from '../play/PlayEggs';
 import { PlayToasts } from '../play/PlayToasts';
@@ -49,17 +35,36 @@ import { focusMessageBox } from '../panes/Foreman/Composer';
 import { classicHref, navigate, oldPages, openFromHash, pageName, useRoute, type Route } from './router';
 import { pageTitle } from './brand';
 import { TopBar } from './TopBar';
-import { HomeView } from '../home/HomeView';
+import { Pages, PageSlot, usePreloadPagesWhenIdle } from './pages';
 import { UiProvider, useUi, type SheetState } from './ui';
 import { Button } from '../components/Button';
 import { useDelayedFlag } from '../lib/useDelayedFlag';
-import { HostedApp } from '../views/Hosted/HostedApp';
 import { hostedPage } from '../views/Hosted/mode';
 import { BRAND } from './brand';
 
-// A page reachable only by its address, for checking the 3D floor by eye (packet S). Never linked
-// or named anywhere in the app; in its own chunk, and it loads no 3D unless Play is full.
-const FloorLab = lazy(() => import('../play/floor3d/FloorLab'));
+// Every page but Jobs and the new job page is in its own chunk (app/pages.tsx). FloorLab is a page
+// reachable only by its address, for checking the 3D floor by eye (packet S): never linked or named
+// anywhere in the app, and it loads no 3D unless Play is full.
+const DeskPage = Pages.desk.Component;
+const InboxView = Pages.inbox.Component;
+const StacksPage = Pages.stacks.Component;
+const StackPage = Pages.stack.Component;
+const PartPage = Pages.stackPart.Component;
+const BuildStackPage = Pages.stackBuild.Component;
+const TelemetryView = Pages.telemetry.Component;
+const SettingsView = Pages.settings.Component;
+const CrewDexView = Pages.crew.Component;
+const AchievementsView = Pages.achievements.Component;
+const GalleryView = Pages.gallery.Component;
+const ScreensView = Pages.screens.Component;
+const NotFoundView = Pages.notFound.Component;
+const HomeView = Pages.home.Component;
+const JobPage = Pages.oldJob.Component;
+const FloorLab = Pages.floorLab.Component;
+// The hosted site's app (sign-in, the mirror's jobs) is its own chunk too: on the hosted site it is
+// asked for as soon as this file runs, before anything draws.
+const HostedApp = Pages.hosted.Component;
+if (hostedPage()) void Pages.hosted.preload();
 
 /** The open sheet, if any, and what each of ⌘K's actions does. */
 function Sheets({ route }: { route: Route }) {
@@ -214,6 +219,7 @@ function Shell({ onRetry }: { onRetry: () => void }) {
   const top = <TopBar route={route} onRetry={onRetry} jobTitle={jobTitle} />;
   // Principle 5: "Loading jobs…" only after 200 ms, then for at least 400 ms (lib/useDelayedFlag.ts).
   const slowLoad = useDelayedFlag(state.status === 'loading');
+  usePreloadPagesWhenIdle(state.status === 'ready');
   if (state.status !== 'ready' || slowLoad) {
     return (
       <div className="app">
@@ -255,7 +261,7 @@ function Shell({ onRetry }: { onRetry: () => void }) {
               : route.name === 'settings' ? <SettingsView section={route.section} />
                 : crew ? <div className="page-wide"><CrewDexView /></div>
                   : achievements ? <div className="page-wide"><AchievementsView /></div>
-                    : lost === '#/station-lab' || lost === '#/floor-lab' ? <Suspense fallback={null}><FloorLab /></Suspense>
+                    : lost === '#/station-lab' || lost === '#/floor-lab' ? <FloorLab />
                     : lost !== null ? <div className="page-wide"><NotFoundView hash={lost} /></div>
                       : home === 'map' || home === 'table' ? <HomeView view={home} />
                         : <JobsPage />;
@@ -265,7 +271,7 @@ function Shell({ onRetry }: { onRetry: () => void }) {
       <div className="banner-slot"><UsageBanner /><UsageWarningBanner /></div>
       <Alerts title={pageTitle(pageName(route, jobTitle))} />
       <Sheets route={route} />
-      {page}
+      <PageSlot at={route.name}>{page}</PageSlot>
       <PlayToasts />
       <PlayEggs />
     </div>
@@ -279,7 +285,7 @@ export interface AppProps {
 }
 
 export function App(props: AppProps) {
-  return hostedPage() ? <HostedApp api={props.api} /> : <LocalApp {...props} />;
+  return hostedPage() ? <Suspense fallback={null}><HostedApp api={props.api} /></Suspense> : <LocalApp {...props} />;
 }
 
 function LocalApp({ api: givenApi, store: givenStore, openStream }: AppProps) {

@@ -20,6 +20,7 @@ import { paletteKeyLabel } from './keyRegistry';
 import { MenuButton, type MenuEntry } from './Menu';
 import { hrefFor, pageName, settingsHref, stacksHref, telemetryHref, type Route } from './router';
 import { useUi } from './ui';
+import { preloadNav } from './pages';
 
 const CONNECTION: Record<Connection, { label: string; hint: string }> = {
   connecting: { label: 'Connecting…', hint: `Opening the live connection to ${BRAND.name}.` },
@@ -105,7 +106,7 @@ export function TopBar({ route, onRetry, jobTitle = null }: { route: Route; onRe
       {ready && (
         <nav className="gc-nav" aria-label="Pages">
           {pages.map((p) => (
-            <Button key={p.id} kind="quiet" className="gc-nav-link" href={p.href} aria-current={p.current ? 'page' : undefined} title={p.hint}>
+            <Button key={p.id} kind="quiet" className="gc-nav-link" href={p.href} aria-current={p.current ? 'page' : undefined} title={p.hint} onPointerEnter={() => preloadNav(p.id)} onFocus={() => preloadNav(p.id)}>
               {p.label}
               {p.count ? <span className="home-view-count" title={`${p.count} waiting for you`}>{p.count}</span> : null}
             </Button>

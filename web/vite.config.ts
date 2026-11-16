@@ -58,6 +58,10 @@ export default defineConfig({
     // The dashboard's CSP has no `data:` for fonts or scripts, so never inline assets.
     assetsInlineLimit: 0,
     sourcemap: true,
+    // Each page is its own chunk (src/app/pages.tsx), but the CSS stays one stylesheet, loaded with
+    // the page, in the order src/main.tsx imports it: a page's look never waits for its code, and
+    // what loaded first never changes which rule wins (src/app/cssOrder.test.ts).
+    rolldownOptions: { output: { codeSplitting: { groups: [{ name: 'styles', test: /\.css$/ }] } } },
   },
   server: {
     host: '127.0.0.1',
