@@ -406,6 +406,7 @@ html[data-theme] .desk-console .gate-card.perm-card { padding: 0; border: 0; bor
 .jobs-find:focus-within { border-color: var(--focus-ring); box-shadow: 0 0 0 1px var(--focus-ring); }
 .jobs-find-in { flex: 1; min-width: 0; height: 100%; border: 0; background: none; color: var(--text-1); font: inherit; font-size: 14px; outline: none; }
 .jobs-find-in::placeholder { color: var(--text-3); }
+.jobs-find .key-hint { opacity: 1; color: var(--text-2); }
 .jobs-find-in::-webkit-search-cancel-button { cursor: pointer; }
 .jobs-found { display: flex; flex-direction: column; gap: var(--space-2); }
 .jobs-found-count { margin: 0; font-size: 13px; color: var(--text-2); }
