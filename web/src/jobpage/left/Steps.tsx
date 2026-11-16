@@ -27,7 +27,7 @@
 
 import { memo, useRef } from 'react';
 import type { Job } from '../../api/types';
-import { Icon } from '../../components/Icon';
+import { Icon, type IconName } from '../../components/Icon';
 import { STOPS } from '../../components/stops/stops';
 import { spentWords, statesOf } from '../../job/page/stepWords';
 import { outputTarget, readerOf, sameTarget } from '../targets';
@@ -36,6 +36,9 @@ import { useJob } from '../useJob';
 import { sinceWords } from './YourMove';
 import { PhoneChevron } from '../phone/PhoneJob2';
 import { PrLines } from './PrLines';
+
+/** Each step's icon (components/stops/stops.ts), as the old page's step cards show it. */
+const STOP_ICON: Record<string, IconName> = Object.fromEntries(STOPS.map((s) => [s.id, s.icon]));
 
 /** The seven steps before the payload, from the snapshot row: names and states only. */
 export function stepsFromRow(job: Job | null): StepRow[] {
@@ -151,7 +154,15 @@ export const Steps = memo(function Steps({ job, cursor, onStep, onOpen, phone = 
               aria-current={s.id === here ? 'step' : undefined}
               onClick={(e) => onStep(s.id, e.currentTarget)}
             >
-              <span className="jp2-st-mark" aria-hidden="true">{s.state === 'done' ? <Icon name="check" size={14} /> : s.state === 'current' ? <i className="jp2-dot" /> : s.state === 'skipped' ? <Icon name="minus" size={14} /> : <i className="jp2-ring" />}</span>
+              {across ? (
+                // A laptop: each step's own icon (the old page's step cards), its colour saying where it is; a done step's carries a small tick.
+                <span className="jp2-st-mark jp2-st-icon" aria-hidden="true">
+                  <Icon name={STOP_ICON[s.id] ?? 'file'} size={18} />
+                  {s.state === 'done' && <span className="jp2-st-tick"><Icon name="check" size={10} /></span>}
+                </span>
+              ) : (
+                <span className="jp2-st-mark" aria-hidden="true">{s.state === 'done' ? <Icon name="check" size={14} /> : s.state === 'current' ? <i className="jp2-dot" /> : s.state === 'skipped' ? <Icon name="minus" size={14} /> : <i className="jp2-ring" />}</span>
+              )}
               <span className="jp2-st-name">{s.label}</span>
               {dur && <span className="jp2-st-dur">{dur}</span>}
               {word && <span className="jp2-st-word">{word}</span>}

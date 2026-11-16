@@ -770,3 +770,12 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2-next-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .jp2-next-n { flex: none; color: var(--text-3); }
 .jp2[data-layout="phone"] .jp2-next { order: 6; flex: 1 1 100%; max-width: none; }
+/* The steps row's icons (a laptop): each step's own icon, as the old page's cards had them. Done: the
+   ok colour with a small tick; now: the text colour on a soft disc; not yet and skipped: dim. */
+.jp2-st.is-across .jp2-st-row { grid-template-columns: 26px minmax(0, 1fr); column-gap: 8px; min-height: 48px; }
+.jp2-st.is-across .jp2-st-icon { position: relative; width: 26px; height: 26px; border-radius: 50%; color: var(--text-3); }
+.jp2-st.is-across .jp2-st-row.is-done .jp2-st-icon { color: var(--status-ok); }
+.jp2-st.is-across .jp2-st-row.is-current .jp2-st-icon { color: var(--text-1); background: var(--bg-3); }
+.jp2-st.is-across .jp2-st-row.is-skipped .jp2-st-icon { opacity: .6; }
+.jp2-st-tick { position: absolute; right: -3px; bottom: -2px; display: grid; place-items: center; width: 13px; height: 13px; border-radius: 50%; background: var(--status-ok); color: var(--surface-0); box-shadow: 0 0 0 1.5px var(--surface-0); }
+.jp2-st.is-across .jp2-st-row { grid-template-areas: "mark name" "mark word"; }
