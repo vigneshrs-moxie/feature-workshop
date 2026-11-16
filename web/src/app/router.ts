@@ -25,6 +25,9 @@
 //   #/stacks/build  this app's own packets as one stack: Merge next and both test suites (views/Stack/BuildStack)
 //   #/stack/<slug>  one stack: its map, its parts in merge order, the one next step (views/Stack)
 //   #/telemetry   where the Claude usage goes and when the limit hits: five graphs, full width (views/Telemetry.tsx)
+//   #/guide       the user guide's contents (docs/guide, built in: views/Guide); #/guide/<page> one of
+//                 its pages (#/guide/03-jobs), #/guide/<page>/<section> scrolled to that heading
+//                 (#/guide/contents/<section> on the contents page); an unknown page shows the contents
 // Any other #/… is not a page: with Play on the Sleuth looks for it (views/NotFound), with Play
 // Off it shows #/'s view. No hash, "#", "#/" or an in-page "#section" is #/. A query after the hash (#/?theme=x,
 // read by theme/theme.ts; #/?peek=<slug>, the open quick look on Jobs) is ignored here, so it changes nothing
@@ -43,6 +46,7 @@ export type Route = { name: 'home' } | { name: 'map' } | { name: 'table' } | { n
   | { name: 'stage'; slug: string; stop: StopId }
   | { name: 'screens'; slug: string } | { name: 'telemetry' } | { name: 'stacks' } | { name: 'stack'; slug: string } | { name: 'stack-part'; slug: string; n: number } | { name: 'stack-build' }
   | { name: 'gallery' }
+  | { name: 'guide'; page?: string; section?: string }
   | { name: 'not-found'; hash: string };
 
 /** What a job's own address can name besides the job: its conversation or its overview (the new job page). */
@@ -68,6 +72,12 @@ export function parseHash(rawHash: string): Route {
   // Every control in every state, for checking the look (packet R): only by typing the address.
   if (/^#\/gallery\/?$/.test(hash)) return { name: 'gallery' };
   if (/^#\/stacks\/?$/.test(hash) || OLD_INTEGRATE.test(hash)) return { name: 'stacks' };
+  // The guide: #/guide, #/guide/<page>, #/guide/<page>/<section> (the contents page is 'contents').
+  const gd = /^#\/guide(?:\/([a-z0-9-]+)(?:\/([a-z0-9_-]+))?)?\/?$/.exec(hash);
+  if (gd) {
+    const page = gd[1] && gd[1] !== GUIDE_CONTENTS ? gd[1] : undefined;
+    return { name: 'guide', ...(page ? { page } : {}), ...(gd[2] ? { section: gd[2] } : {}) };
+  }
   if (/^#\/stacks\/build\/?$/.test(hash)) return { name: 'stack-build' };
   // A part's own page (packet V): #/stack/<slug>/part/<n>.
   const sp = /^#\/stack\/([^/?#]+)\/part\/([1-9]\d{0,2})\/?$/.exec(hash);
@@ -127,6 +137,7 @@ export function hrefFor(route: Route): string {
   if (route.name === 'stack-build') return '#/stacks/build';
   if (route.name === 'inbox') return '#/inbox';
   if (route.name === 'gallery') return '#/gallery';
+  if (route.name === 'guide') return `#/guide${route.page ? `/${route.page}` : route.section ? `/${GUIDE_CONTENTS}` : ''}${route.section ? `/${route.section}` : ''}`;
   if (route.name === 'not-found') return route.hash;
   if (route.name === 'settings') return route.section ? `#/settings/${route.section}` : '#/settings';
   return '#/';
@@ -146,6 +157,12 @@ export const stackHref = (slug: string) => hrefFor({ name: 'stack', slug });
 
 /** A part's own page (packet V). */
 export const partHref = (slug: string, n: number) => hrefFor({ name: 'stack-part', slug, n });
+
+/** The guide's contents page's id in an address that names one of its sections. */
+const GUIDE_CONTENTS = 'contents';
+
+/** The user guide: its contents, or one page (by its file's name, '03-jobs') and one of its sections. */
+export const guideHref = (page?: string, section?: string) => hrefFor({ name: 'guide', ...(page ? { page } : {}), ...(section ? { section } : {}) });
 
 /** Telemetry: where the Claude usage goes and when the limit hits. */
 export const telemetryHref = () => hrefFor({ name: 'telemetry' });
@@ -216,6 +233,7 @@ export function pageName(route: Route, jobTitle?: string | null): string {
     case 'stack-part': return jobTitle ? `Part ${route.n} · ${jobTitle}` : `Part ${route.n}`;
     case 'stack-build': return 'Build stack';
     case 'gallery': return 'Gallery';
+    case 'guide': return 'Guide';
     default: return 'Not a page';
   }
 }

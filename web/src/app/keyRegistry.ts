@@ -73,6 +73,7 @@ export const KEYS = {
   'go-next': { keys: ['g n'], label: 'Open the next job that needs you', scope: 'global', where: 'The one that has waited longest, other than the job you are on.' },
   'go-settings': { keys: ['g s'], label: 'Go to Settings', scope: 'global' },
   'go-crew': { keys: ['g x'], label: 'Go to the Crew-dex (Play mode)', scope: 'global' },
+  'go-guide': { keys: ['g ?'], label: 'Open the guide', scope: 'global' },
   'github-check': { keys: ['u'], label: 'Check GitHub now', scope: 'global', where: 'Where the GitHub line shows: Jobs and a job’s Ship step.' },
   'close': { keys: ['Escape'], label: 'Close the menu, sheet or drawer on top', scope: 'global', always: true, listOnly: true },
   // Telemetry: registered by the Telemetry page while it is open, so they answer only there (listed
@@ -331,9 +332,13 @@ function startsChord(token: string, enabled: boolean): boolean {
   }));
 }
 
+const MODIFIERS = new Set(['Shift', 'Control', 'Alt', 'Meta', 'AltGraph', 'CapsLock']);
+
 /** The one keydown handler. Exported for tests; App installs it through useKeyListener. */
 export function handleKey(e: KeyboardEvent, now = Date.now()): boolean {
   if (e.defaultPrevented || e.isComposing) return false;
+  // Shift, Ctrl, Alt or ⌘ on its own: nothing yet, and a chord waits through it (g, then Shift+? for g ?).
+  if (MODIFIERS.has(e.key)) return false;
   const enabled = readKeysSetting().enabled;
   const token = tokenOf(e);
   if (token.startsWith('Mod+')) {

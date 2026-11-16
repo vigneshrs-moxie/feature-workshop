@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { classicHref, hrefFor, jobHref, jobViewHref, openFromHash, pageName, parseHash, peekFromHash, readHref, replaceHash, screensHref, stageHref, useRoute, withPeek } from './router';
+import { classicHref, guideHref, hrefFor, jobHref, jobViewHref, openFromHash, pageName, parseHash, peekFromHash, readHref, replaceHash, screensHref, stageHref, useRoute, withPeek } from './router';
 
 describe('hash router', () => {
   it.each([
@@ -190,5 +190,32 @@ describe('the new job page’s reader address (#/job/<slug>/read/<kind>/<id>)', 
     expect(parseHash('#/job/a/conversation')).toEqual({ name: 'job', slug: 'a', view: 'conversation' });
     expect(parseHash('#/job/a/overview')).toEqual({ name: 'job', slug: 'a', view: 'overview' });
     expect(parseHash('#/job/a/id/FR-001')).toEqual({ name: 'job', slug: 'a' });
+  });
+});
+
+describe('the guide’s addresses', () => {
+  it.each([
+    ['#/guide', { name: 'guide' }],
+    ['#/guide/', { name: 'guide' }],
+    ['#/guide/contents', { name: 'guide' }],
+    ['#/guide/contents/about-this-guide', { name: 'guide', section: 'about-this-guide' }],
+    ['#/guide/03-jobs', { name: 'guide', page: '03-jobs' }],
+    ['#/guide/05-deciding/the-message-box', { name: 'guide', page: '05-deciding', section: 'the-message-box' }],
+    ['#/guide/03-jobs?theme=dark', { name: 'guide', page: '03-jobs' }],
+  ])('%s', (hash, route) => {
+    expect(parseHash(hash)).toEqual(route);
+  });
+
+  it('writes each address back the same way, and a missing page is still the guide’s', () => {
+    for (const hash of ['#/guide', '#/guide/contents/about-this-guide', '#/guide/03-jobs', '#/guide/05-deciding/the-message-box']) expect(hrefFor(parseHash(hash))).toBe(hash);
+    expect(parseHash('#/guide/no-such-page')).toEqual({ name: 'guide', page: 'no-such-page' });
+    expect(parseHash('#/guide/a/b/c').name).toBe('not-found');
+    expect(guideHref()).toBe('#/guide');
+    expect(guideHref('04-a-job')).toBe('#/guide/04-a-job');
+  });
+
+  it('is called Guide in the tab and the top bar', () => {
+    expect(pageName({ name: 'guide' })).toBe('Guide');
+    expect(pageName({ name: 'guide', page: '03-jobs' })).toBe('Guide');
   });
 });

@@ -273,4 +273,18 @@ describe('the key registry', () => {
     mac.mockRestore();
     expect(keyLabel('Enter')).toBe('Enter');
   });
+
+  it('g then ? opens the guide: the Shift pressed for ? doesn’t break the chord, and ? alone is still the keys list', () => {
+    const guide = vi.fn(); const keys = vi.fn();
+    on('global', { 'go-guide': guide, 'keys': keys });
+    expect(KEYS['go-guide'].keys).toEqual(['g ?']);
+    handleKey(press(document.body, { key: 'g' }), 1000);
+    expect(handleKey(press(document.body, { key: 'Shift', shiftKey: true }), 1100)).toBe(false);
+    expect(handleKey(press(document.body, { key: '?', shiftKey: true }), 1200)).toBe(true);
+    expect(guide).toHaveBeenCalledTimes(1);
+    expect(keys).not.toHaveBeenCalled();
+    handleKey(press(document.body, { key: '?', shiftKey: true }), 5000);
+    expect(keys).toHaveBeenCalledTimes(1);
+    expect(guide).toHaveBeenCalledTimes(1);
+  });
 });
