@@ -3,7 +3,8 @@
 // asset URL starts with /next/. `npm run web:dev` runs Vite on its own port and forwards
 // /api to a running dashboard (default http://127.0.0.1:4477, or set STARBASE_URL, e.g. the
 // demo on http://127.0.0.1:4479).
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 import type { Plugin } from 'vite';
@@ -11,6 +12,7 @@ import react from '@vitejs/plugin-react';
 import { tokensCss } from './src/theme/tokens.ts';
 import { classicThemeCss } from './src/theme/classicSheet.ts';
 import { swatchCss } from './src/theme/swatchSheet.ts';
+import { buildGuide, imageSizer, loadRenderer } from './src/views/Guide/guideBuild.ts';
 
 const target = process.env.STARBASE_URL || process.env.WORKSHOP_URL || 'http://127.0.0.1:4477'; // the new name, else the old one
 
@@ -49,9 +51,46 @@ function classicTheme(): Plugin {
   };
 }
 
+// The user guide (docs/guide) as the module `virtual:starbase-guide`: its pages in the contents'
+// order, { id, n, title, html }, rendered at build time by the server's own Markdown renderer
+// (src/views/Guide/guideBuild.ts). Only the Guide page imports it, so it is in that page's chunk.
+// The pictures are copied into the build as guide/img/<name> (next to the app: /next/guide/img/ on
+// the laptop, /guide/img/ on the website); `npm run web:dev` serves them from docs/guide/img.
+const GUIDE_ID = 'virtual:starbase-guide';
+function starbaseGuide(): Plugin {
+  const repo = fileURLToPath(new URL('..', import.meta.url));
+  const dir = fileURLToPath(new URL('../docs/guide/', import.meta.url));
+  let base = '/';
+  let building = false;
+  return {
+    name: 'starbase-guide',
+    configResolved(config) { base = config.base; building = config.command === 'build'; },
+    resolveId(id) { return id === GUIDE_ID ? `\0${GUIDE_ID}` : null; },
+    async load(id) {
+      if (id !== `\0${GUIDE_ID}`) return null;
+      const guide = buildGuide({ dir, render: await loadRenderer(repo), base, size: imageSizer(dir) });
+      for (const w of guide.warnings) this.warn(`guide: ${w}`);
+      for (const f of readdirSync(dir)) if (f.endsWith('.md')) this.addWatchFile(join(dir, f));
+      if (building) {
+        for (const name of guide.images) this.emitFile({ type: 'asset', fileName: `guide/img/${name}`, source: readFileSync(join(dir, 'img', name)) });
+      }
+      return `export default ${JSON.stringify(guide.pages)};`;
+    },
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const m = /^\/(?:next\/)?guide\/img\/([\w.-]+\.png)$/.exec((req.url ?? '').split('?')[0]);
+        const file = m ? join(dir, 'img', m[1]) : null;
+        if (!file || !existsSync(file)) { next(); return; }
+        res.setHeader('Content-Type', 'image/png');
+        res.end(readFileSync(file));
+      });
+    },
+  };
+}
+
 export default defineConfig({
   base: '/next/',
-  plugins: [themeTokens(), classicTheme(), react()],
+  plugins: [themeTokens(), classicTheme(), starbaseGuide(), react()],
   build: {
     outDir: 'dist',
     emptyOutDir: true,
