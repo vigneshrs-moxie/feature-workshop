@@ -596,6 +596,15 @@ input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:foc
 ::-webkit-scrollbar-corner { background: transparent; }
 ::selection { background: var(--accent-soft); color: var(--text-1); }
 
+/* Pressed (perf pass): every clickable row, card, tab and menu line darkens a step the moment it is
+   pressed, with no transition, so a press always answers within the frame. The press shade is laid
+   over the element's own colour (any theme); :where keeps it weightless, so a part's own :active wins. */
+:where(.jp2-row, .jp2-cv-line, .jp2-ol-i, .jp2-ch-c, .jp2-ch-f, .jp2-fd-line, .jp2-rec-r, .jp2-dtab, .jp2-next, .jp2-ref, .jp2-cv-sm-h, .jp2-asked-open, .auto-switch-row,
+  .job-card.can-peek, .desk-item, .desk-details-row, .menu-item, .row-link, .tab, .fold-head, .more-head, .data-table tbody tr, .settings-rail-row, .settings-hit,
+  .doc-item, .job-row, .job-rail-item, .decision-entry, .answer-option, .option-row, .chip-btn, .gc-command, .palette-option, .level-pop-list button, .job-menu-list a, .job-menu-list button):active:not(:disabled):not([aria-disabled='true']) {
+  background-image: linear-gradient(var(--shade-press), var(--shade-press));
+}
+
 @media (prefers-reduced-motion: reduce) {
   .btn, .choice, .option-row, .text-input, .text-area, .select, .key-hint.is-quiet { transition: none; }
   .btn:active { transform: none; }

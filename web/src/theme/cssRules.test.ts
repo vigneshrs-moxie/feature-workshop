@@ -121,3 +121,16 @@ describe('the stylesheets: things that open (perf pass)', () => {
     expect(entering.filter((d) => durations(d.value.replace(/\d*\.?\d+(ms|s)\s+forwards/, '')).some((ms) => ms > 120)).map(at)).toEqual([]);
   });
 });
+
+describe('the stylesheets: a press shows at once (perf pass)', () => {
+  it('every clickable row, card, tab and menu line darkens a step while pressed, with no transition', () => {
+    const controls = ALL.find((f) => f.name === 'components/controls.css')!.css.replace(/\/\*[\s\S]*?\*\//g, '');
+    const m = /:where\(([^)]*)\):active(:not\([^)]*\))*\s*\{([^}]*)\}/.exec(controls);
+    expect(m).not.toBeNull();
+    const list = m![1].split(',').map((x) => x.trim());
+    for (const sel of ['.jp2-row', '.jp2-cv-line', '.jp2-fd-line', '.jp2-dtab', '.job-card.can-peek', '.desk-item', '.menu-item', '.palette-option', '.fold-head', '.tab', '.data-table tbody tr', '.option-row']) expect(list).toContain(sel);
+    expect(m![3]).toMatch(/background-image: linear-gradient\(var\(--shade-press\), var\(--shade-press\)\)/);
+    expect(m![3]).not.toMatch(/transition/);
+  });
+});
+
