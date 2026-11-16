@@ -13,6 +13,7 @@ import { createJobStore, type JobStore } from '../jobStore';
 import { JobPage2 } from '../JobPage2';
 import { sinceWords } from '../left/YourMove';
 import { forgetRecentPages } from '../recent';
+import { readerBesideConvo, readerOf } from '../targets';
 import type { JobBody, JobPagePayload, ReaderTarget } from '../types';
 
 const SLUG = longJob.payload.slug;
@@ -477,5 +478,56 @@ describe('final fix W2: every target the page offers has a view', () => {
     walk(root);
     expect(files.length).toBeGreaterThan(10);
     for (const f of files) expect(readFileSync(f, 'utf8'), f).not.toMatch(/later build/i);
+  });
+});
+
+describe('the glance layout: the reader beside the conversation’s column (targets.ts readerBesideConvo)', () => {
+  const CONVO: ReaderTarget = { kind: 'conversation', id: 'conversation' };
+  const storeWith = (patch?: (p: JobPagePayload) => void) => {
+    const p = payload();
+    patch?.(p);
+    return createJobStore(SLUG, { api: { page: async () => ({ same: true as const, v: p.v }), item: vi.fn() }, events: () => () => {}, viewer: () => null, initial: p });
+  };
+
+  it('the conversation (or an old permission address) gives way to the picked step’s main output, else the current step’s, else the last step’s; anything else is as readerOf says', () => {
+    const store = storeWith();
+    store.setReader(CONVO);
+    expect(readerOf(store.getState())).toEqual(CONVO);
+    expect(readerBesideConvo(store.getState())).toEqual({ kind: 'findings', id: 'findings' });
+    store.setStep('plan');
+    store.setReader(CONVO);
+    expect(readerBesideConvo(store.getState())).toEqual({ kind: 'doc', id: 'implementation-plan.md' });
+    store.setReader({ kind: 'permission', id: 'perm-1' });
+    expect(readerBesideConvo(store.getState())).toEqual({ kind: 'doc', id: 'implementation-plan.md' });
+    store.setReader({ kind: 'ticket', id: 'ticket' });
+    expect(readerBesideConvo(store.getState())).toEqual({ kind: 'ticket', id: 'ticket' });
+    const done = storeWith((p) => { p.steps = p.steps.map((x) => ({ ...x, state: 'done' })); });
+    done.setReader(CONVO);
+    expect(readerBesideConvo(done.getState())).toEqual({ kind: 'ship', id: 'ship' });
+    done.destroy();
+    store.destroy();
+  });
+
+  it('on a laptop the page’s reader shows that output under its own title row, and the conversation stays in its column', async () => {
+    const o = open();
+    await show(o, CONVO);
+    expect(view()).toHaveAttribute('data-view', 'findings');
+    expect(title()).toBe('Findings');
+    expect(document.querySelector('section.jp2-convo [data-view="conversation"]')).not.toBeNull();
+    act(() => { o.store.setStep('build'); });
+    await settle();
+    expect(view()).toHaveAttribute('data-view', 'changes');
+  });
+
+  it('under 1100 px the conversation is one of the reader’s views, under the same title row', async () => {
+    vi.stubGlobal('matchMedia', (q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} }));
+    const o = open();
+    await show(o, CONVO);
+    expect(view()).toHaveAttribute('data-view', 'conversation');
+    expect(title()).toBe('Conversation');
+    // (Behind the left pane until he opens it: hidden to a screen reader, so found with hidden.)
+    expect(within(top()).getByRole('button', { name: /^Previous/, hidden: true })).toBeInTheDocument();
+    expect(within(top()).getByRole('button', { name: /^Next/, hidden: true })).toBeInTheDocument();
+    expect(document.querySelector('section.jp2-convo')).toBeNull();
   });
 });

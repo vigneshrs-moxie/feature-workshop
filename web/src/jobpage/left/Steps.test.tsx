@@ -2,7 +2,7 @@
 // result word); only the current step is open with its outputs; opening another step marks it and
 // shows its main output in the reader, and lists nothing, so no row ever moves (lead's ruling,
 // Task 10 I1: the prototype's rule). Built against the made-up long job, and odd jobs made from it.
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { ApiClient } from '../../api/client';
 import type { Job } from '../../api/types';
@@ -12,6 +12,7 @@ import { createJobStore, type JobStore } from '../jobStore';
 import { readerOf } from '../targets';
 import type { JobPagePayload, ReaderTarget, StepRow, StopId } from '../types';
 import { JobStoreContext } from '../useJob';
+import { StepPanel } from './StepPanel';
 import { Steps, stepWord } from './Steps';
 
 const SLUG = longJob.payload.slug;
@@ -200,5 +201,122 @@ describe('odd jobs (plan, review focus 6)', () => {
     mount({ p });
     for (const r of rows()) expect(r).not.toHaveAttribute('aria-expanded');
     for (const r of rows()) expect(r.querySelector('.jp2-st-word')?.textContent ?? '').not.toMatch(STATE_WORDS);
+  });
+});
+
+// The glance layout (a laptop, 16 Nov): the steps as a row of cells across the page, and the step panel
+// beside the reader listing what the picked step made (left/StepPanel.tsx).
+function mountGlance({ p = payload(), row = null }: { p?: JobPagePayload | null; row?: Job | null } = {}) {
+  const api = { get: async () => ({}), post: async () => ({}), hosted: () => false } as unknown as ApiClient;
+  const store: JobStore = createJobStore(SLUG, { api, initial: p, events: () => () => {} });
+  const onStep = (id: StopId) => { store.setStep(id); store.setReader(null); };
+  const onOpen = (t: ReaderTarget) => { store.setReader(t); };
+  const utils = render(
+    <JobStoreContext.Provider value={store}>
+      <Steps job={row} cursor={null} onStep={onStep} onOpen={onOpen} across />
+      <StepPanel onOpen={onOpen} />
+    </JobStoreContext.Provider>,
+  );
+  return { store, ...utils };
+}
+const panel = () => screen.getByRole('complementary', { name: 'This step' });
+const panelName = () => panel().querySelector('.jp2-sp-name')?.textContent ?? null;
+const panelOuts = () => [...panel().querySelectorAll(':scope > .jp2-sp-outs .jp2-out-label')].map((e) => e.textContent);
+const moreOf = (id: string) => payload().steps.find((s) => s.id === id)!.more ?? [];
+
+describe('the glance layout: the steps across', () => {
+  it('a row of seven cells: a mark, the name and the result word; nothing listed under any, no duration, no aria-expanded', () => {
+    mountGlance();
+    expect(screen.getByRole('navigation', { name: 'Steps' })).toHaveClass('is-across');
+    expect(rows()).toHaveLength(7);
+    for (const r of rows()) {
+      expect(r.querySelector('.jp2-st-mark')).not.toBeNull();
+      expect(r).not.toHaveAttribute('aria-expanded');
+      expect(r.querySelector('.jp2-st-dur')).toBeNull();
+    }
+    expect(['Spec', 'Investigate', 'Plan', 'Build', 'Test', 'Review', 'Ship'].map(wordOf)).toEqual(['v0.4', 'findings v1', 'v2', '9 commits', '14 passed', '1 open', 'not yet']);
+    expect(row('Review')).toHaveClass('is-current');
+    expect(row('Review')).toHaveAttribute('aria-current', 'step');
+    const nav = screen.getByRole('navigation', { name: 'Steps' });
+    expect(nav.querySelectorAll('.jp2-st-outs, .jp2-st-out, .jp2-st-none, .jp2-prl-line')).toHaveLength(0);
+  });
+
+  it('a pick marks its cell and lists nothing under it: no cell moves', () => {
+    const { store } = mountGlance();
+    // The row's blocks only (the step panel beside the reader changes with the pick: that is its job).
+    const cells = () => [...screen.getByRole('navigation', { name: 'Steps' }).querySelectorAll(BLOCKS)].map((el) => `${el.tagName}.${[...el.classList].filter((c) => c !== 'is-sel' && c !== 'is-cursor').join('.')}`);
+    const before = cells();
+    expect(before).toHaveLength(14);
+    for (const name of ['Plan', 'Ship', 'Test', 'Review']) {
+      fireEvent.click(row(name));
+      expect(row(name)).toHaveAttribute('aria-current', 'step');
+      expect(screen.getByRole('navigation', { name: 'Steps' }).querySelectorAll('.jp2-st-dur')).toHaveLength(0);
+      expect(cells(), name).toEqual(before);
+    }
+    expect(readerOf(store.getState())).toEqual({ kind: 'findings', id: 'findings' });
+  });
+});
+
+describe('the glance layout: the step panel', () => {
+  it('with no pick: the current step, its result word, since when it runs, and what it made; its earlier rounds folded as `Also n`', () => {
+    mountGlance();
+    expect(panelName()).toBe('Review');
+    expect(panel().querySelector('.jp2-sp-word')?.textContent).toBe('1 open');
+    expect(panel().querySelector('.jp2-sp-dur')?.textContent).toMatch(/^since /);
+    expect(within(panel()).getByText('What it made')).toBeInTheDocument();
+    expect(panelOuts()).toEqual(['Findings', 'Review (combined)']);
+    expect([...panel().querySelectorAll(':scope > .jp2-sp-outs .jp2-out-meta')].map((e) => e.textContent)).toEqual(['1 open', 'v2']);
+    const more = panel().querySelector<HTMLDetailsElement>('details.jp2-sp-more')!;
+    expect(more).not.toHaveAttribute('open');
+    expect(more.querySelector('summary')!.textContent).toBe(`Also ${moreOf('review').length}`);
+    expect([...more.querySelectorAll('.jp2-out-label')].map((e) => e.textContent)).toEqual(moreOf('review').map((o) => o.label));
+  });
+
+  it('the picked step’s outputs and how long it took; a step with nothing more has no Also; a row opens in the reader and is marked', () => {
+    const { store } = mountGlance();
+    fireEvent.click(row('Test'));
+    expect(panelName()).toBe('Test');
+    expect(panel().querySelector('.jp2-sp-dur')?.textContent).toBe('12 h 35 min');
+    expect(panelOuts()).toEqual(['Checks', 'Recording', 'Your hand test', 'Test report']);
+    expect(panel().querySelector('details.jp2-sp-more')).toBeNull();
+    // The step's main output is what the reader shows: marked in the list.
+    expect(within(panel()).getByRole('button', { name: /^Checks/ })).toHaveClass('is-sel');
+    fireEvent.click(within(panel()).getByRole('button', { name: /^Test report/ }));
+    expect(readerOf(store.getState())).toEqual({ kind: 'doc', id: payload().steps.find((s) => s.id === 'test')!.outputs.find((o) => o.label === 'Test report')!.id });
+    expect(within(panel()).getByRole('button', { name: /^Test report/ })).toHaveClass('is-sel');
+    expect(panelName()).toBe('Test');
+  });
+
+  it('with no pick, the step whose thing the reader shows (one in its `more` too)', () => {
+    const { store } = mountGlance();
+    act(() => { store.setReader({ kind: 'doc', id: 'implementation-log.md' }); });
+    expect(panelName()).toBe('Build');
+    expect(panelOuts()).toEqual(['Changes']);
+    const more = panel().querySelector<HTMLDetailsElement>('details.jp2-sp-more')!;
+    expect(more.querySelector('summary')!.textContent).toBe(`Also ${moreOf('build').length}`);
+    expect(within(more).getByRole('button', { name: /^Implementation log/ })).toHaveClass('is-sel');
+  });
+
+  it('a step that made nothing says why in words: not started, skipped, nothing yet, nothing written', () => {
+    const p = payload({ kind: 'bug', state: 'working' });
+    p.steps = [step('spec', 'Triage', 'done', 'v1'), step('investigate', 'Reproduce', 'skipped'), step('plan', 'Diagnose', 'current'), step('build', 'Build', 'todo'), step('ship', 'Ship', 'todo')];
+    mountGlance({ p });
+    expect(panelName()).toBe('Diagnose');
+    expect(panel().querySelector('.jp2-sp-none')?.textContent).toBe('Nothing yet.');
+    const says = (name: string) => { fireEvent.click(row(name)); return panel().querySelector('.jp2-sp-none')?.textContent; };
+    expect(says('Triage')).toBe('Nothing written.');
+    expect(says('Reproduce')).toBe('This job skips this step.');
+    expect(says('Build')).toBe('Not started yet.');
+  });
+
+  it('the Ship step lists its PR lines; before the payload the panel is there and empty', () => {
+    mountGlance();
+    fireEvent.click(row('Ship'));
+    expect(panelName()).toBe('Ship');
+    expect(panel().querySelector('.jp2-prl')).not.toBeNull();
+    cleanup();
+    mountGlance({ p: null, row: jobRow(SLUG, 'needs-you', { lane: 'needs-you', stage: 'review', stageState: 'waiting', needsYou: true }) });
+    expect(panel()).toBeEmptyDOMElement();
+    expect(rows()).toHaveLength(7);
   });
 });

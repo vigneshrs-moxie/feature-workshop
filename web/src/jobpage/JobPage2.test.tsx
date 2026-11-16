@@ -724,3 +724,79 @@ describe('final fix W3: a job that fails to load says why', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Crew schedule export' })).toBeInTheDocument();
   });
 });
+
+describe('the glance layout (a laptop, 1100 px and wider)', () => {
+  it('the conversation has its own column, with the asks row and the message box at its foot; under 1100 px both are back at the foot of the left pane', async () => {
+    open(`#/job/${SLUG}`);
+    await settle();
+    const col = convoColumn();
+    expect(col).toHaveClass('jp2-convo');
+    expect(col.querySelector('[data-view="conversation"]')).not.toBeNull();
+    expect(within(col).getByRole('textbox', { name: 'Message to the Foreman' })).toBeInTheDocument();
+    expect(col.querySelector('.jp2-asks')).not.toBeNull();
+    // The box and the asks row come after the conversation, at its foot.
+    expect(col.querySelector('[data-view="conversation"]')!.compareDocumentPosition(col.querySelector('.jp2-asks')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(document.querySelector('.jp2-left .jp2-asks, .jp2-left .jp2-mb-ta')).toBeNull();
+    expect(stepPanel()).toBeInTheDocument();
+    resizeTo(900);
+    expect(document.querySelector('section.jp2-convo')).toBeNull();
+    expect(document.querySelector('.jp2-sp')).toBeNull();
+    expect(document.querySelector('.jp2-left .jp2-asks')).not.toBeNull();
+    expect(document.querySelector('.jp2-left .jp2-mb-ta')).not.toBeNull();
+  });
+
+  it('the Conversation row, g c and / put the focus in the column’s search box; the reader and the address stay as they were', async () => {
+    const store = createJobStore(SLUG, { api: client().api, events: () => () => {} });
+    open(`#/job/${SLUG}/stage/plan`, { store });
+    await settle();
+    const hash = window.location.hash;
+    expect(readerTitle()).toBe('Implementation plan');
+    for (const go of [
+      () => fireEvent.click(screen.getByRole('button', { name: 'Conversation · 52' })),
+      () => { key('g'); key('c'); },
+      () => key('/'),
+    ]) {
+      act(() => { (document.activeElement as HTMLElement | null)?.blur(); });
+      go();
+      expect(document.activeElement).toBe(convoSearch());
+      expect(readerTitle()).toBe('Implementation plan');
+      expect(window.location.hash).toBe(hash);
+      expect(store.getState().ui.reader?.kind).not.toBe('conversation');
+    }
+    store.destroy();
+  });
+
+  it('the conversation’s address keeps the reader on the step’s main output: the picked step’s, else the current one’s', async () => {
+    open(`#/job/${SLUG}/conversation`);
+    await settle();
+    expect(readerTitle()).toBe('Findings');
+    expect(convoColumn().querySelector('[data-view="conversation"]')).not.toBeNull();
+    fireEvent.click(stepRow('Build'));
+    expect(readerTitle()).toBe('Changes');
+  });
+
+  it('a new line in the conversation’s column draws its count and its line: not the frame, the header, Your move, the reader’s title row or the message box', async () => {
+    open(`#/job/${SLUG}`);
+    await settle();
+    await settle();
+    nextPage.make = () => {
+      const p = payload();
+      const last = p.thread[p.thread.length - 1];
+      p.thread = [...p.thread, { ...last, id: 'reply:speed-check', kind: 'reply', mine: false, at: '2026-11-04T23:00:00.000Z', headline: 'One more reply', hash: 'h1' }];
+      p.rows = { ...p.rows, conversation: { ...p.rows.conversation, count: p.rows.conversation.count + 1 } };
+      p.run = { id: 'run-that-just-ended', status: 'done', startedAt: '2026-11-04T22:58:00.000Z', lastAction: null };
+      p.v += 1;
+      return p;
+    };
+    draws.frame = 0; draws.notes = 0; draws.buttons = []; drawn.header = 0; drawn.move = 0;
+    await act(async () => { await made.at(-1)!.store.loadPage(); });
+    await settle();
+    expect(screen.getByRole('button', { name: 'Conversation · 53' })).toBeInTheDocument();
+    expect(convoColumn().querySelector('[data-id="reply:speed-check"]')).not.toBeNull();
+    expect(draws.frame).toBe(0);
+    expect([drawn.header, drawn.move]).toEqual([0, 0]);
+    expect(draws.buttons.filter((b) => /^(Previous|Next)\b/.test(b) || b === 'Send')).toEqual([]);
+    expect(draws.notes).toBe(0);
+    expect(draws.buttons.filter((b) => b === 'Keep as an ask')).toEqual([]);
+  });
+});
