@@ -7,8 +7,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, type ApiClient } from '../../api/client';
 import { lastKnown, remember } from '../../lib/lastKnown';
+import { share } from '../../lib/share';
 import { DEFAULT_SECTIONS_AT_ONCE, type PartPageData, type StackView, type StacksList } from '../../api/types';
-import { useWorkshop, useWorkshopState } from '../../state/store';
+import { useWorkshop } from '../../state/store';
 
 /** How often an open page looks again, in ms. */
 export const STACK_POLL_MS = 4000;
@@ -17,10 +18,20 @@ const message = (err: unknown) => (err instanceof Error ? err.message : String(e
 
 /** Look again every few seconds, and when the jobs change, while mounted. */
 function useLookAgain(look: () => void) {
-  const { jobs } = useWorkshopState();
+  const { store } = useWorkshop();
   const latest = useRef(look);
   latest.current = look;
-  useEffect(() => { latest.current(); }, [jobs]);
+  // The jobs are watched outside React: a change looks again without drawing the page.
+  useEffect(() => {
+    latest.current();
+    let jobs = store.getState().jobs;
+    return store.subscribe(() => {
+      const now = store.getState().jobs;
+      if (now === jobs) return;
+      jobs = now;
+      latest.current();
+    });
+  }, [store]);
   useEffect(() => {
     const t = setInterval(() => latest.current(), STACK_POLL_MS);
     return () => clearInterval(t);
@@ -73,7 +84,8 @@ export function useStacksList(): StacksState {
       (l) => {
         if (mine < taken.current) return;
         taken.current = mine;
-        setList(remember(api, '/api/stacks', l && Array.isArray(l.stacks) ? l : { stacks: [], globalCap: DEFAULT_SECTIONS_AT_ONCE, globalRunning: 0 })); setError(null); setUnavailable(null);
+        // The same list as before stays the same object, so the pages showing it draw nothing again.
+        setList((prev) => remember(api, '/api/stacks', share(prev, l && Array.isArray(l.stacks) ? l : { stacks: [], globalCap: DEFAULT_SECTIONS_AT_ONCE, globalRunning: 0 }))); setError(null); setUnavailable(null);
       },
       (err) => {
         if (mine < taken.current) return;
@@ -109,7 +121,10 @@ export function useStackView(slug: string): StackState {
   const path = `/api/stacks/${encodeURIComponent(slug)}`;
   const [got, setGot] = useState<{ path: string; view: StackView | null }>(() => ({ path, view: lastKnown<StackView>(api, path) ?? null }));
   const view = got.path === path ? got.view : lastKnown<StackView>(api, path) ?? null;
-  const setView = useCallback((v: StackView) => setGot({ path, view: remember(api, path, v) }), [api, path]);
+  const setView = useCallback((v: StackView) => setGot((prev) => {
+    const view = remember(api, path, share(prev.path === path ? prev.view : null, v));
+    return prev.path === path && prev.view === view ? prev : { path, view };
+  }), [api, path]);
   const [missing, setMissing] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);

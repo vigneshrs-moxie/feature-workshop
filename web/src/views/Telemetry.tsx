@@ -31,7 +31,7 @@ import { Hero, NextBar, Page, useMinWidth, useNarrow, type GuideSpec } from '../
 import { resetsIn } from '../components/UsageMeters';
 import { useStored } from '../lib/stored';
 import { clockTime, useNow } from '../lib/time';
-import { useWorkshop, useWorkshopState } from '../state/store';
+import { useWorkshop, useWorkshopPick } from '../state/store';
 import { GraphCard } from './Telemetry/Card';
 import { Dial, levelOf, WhoLine } from './Telemetry/Top';
 import { parsePrefs, pct, prefsKey, type Prefs } from './Telemetry/words';
@@ -83,7 +83,7 @@ function readWindow(): TelemetryWindow {
 
 export function TelemetryView() {
   const { api, store } = useWorkshop();
-  const { planUsage } = useWorkshopState();
+  const { planUsage } = useWorkshopPick('planUsage');
   const now = useNow(30_000);
   const narrow = useNarrow();
   const [chosen, setWin] = useState<TelemetryWindow>(readWindow);

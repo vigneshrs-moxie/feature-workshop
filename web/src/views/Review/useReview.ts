@@ -4,10 +4,11 @@
 // dashboard sends a 'pr' event when a round moves). Every action answers with the job's view, which
 // is shown at once. The GitHub line comes from the flow view (home/useFlow.ts), kept up by 'flow'
 // events; Check now is POST /api/flow/refresh.
-import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import type { ApiClient } from '../../api/client';
 import type { Permission, ReviewList, ReviewResponse, ReviewView } from '../../api/types';
-import { useWorkshop, useWorkshopState } from '../../state/store';
+import { useWorkshop } from '../../state/store';
+import { share } from '../../lib/share';
 
 interface Entry<T> {
   value: T | null;
@@ -54,7 +55,11 @@ function load<T>(e: Entry<T>, get: () => Promise<T>): Promise<void> {
     try {
       do {
         e.again = false;
-        try { publish(e, { value: await get(), error: null, loaded: true }); } catch (err) { publish(e, { error: message(err), loaded: true }); }
+        try {
+          // The same answer as before changes nothing: the parts showing it draw nothing again.
+          const value = share(e.value, await get());
+          if (value !== e.value || e.error !== null || !e.loaded) publish(e, { value, error: null, loaded: true });
+        } catch (err) { publish(e, { error: message(err), loaded: true }); }
       } while (e.again);
     } finally { e.inflight = null; }
   })();
@@ -63,20 +68,26 @@ function load<T>(e: Entry<T>, get: () => Promise<T>): Promise<void> {
 
 /** Fetch once on mount, then again a moment after each live event (several in a row cost one fetch). */
 function useShared<T>(key: string, path: string, map: (r: unknown) => T, enabled: boolean) {
-  const { api } = useWorkshop();
-  const { seq } = useWorkshopState();
+  const { api, store } = useWorkshop();
   const e = entryFor<T>(api, key);
   const subscribe = useCallback((fn: () => void) => { e.listeners.add(fn); return () => { e.listeners.delete(fn); }; }, [e]);
   const snap = useSyncExternalStore(subscribe, () => e.snap, () => e.snap);
   const reload = useCallback(() => load(e, async () => map(await api.get<unknown>(path))), [api, e, path, map]);
   useEffect(() => { if (enabled) void reload(); }, [enabled, reload]);
-  const first = useRef(true);
+  // Watched outside React: a live event draws nothing here, it only (re)starts the 400 ms wait.
   useEffect(() => {
-    if (first.current) { first.current = false; return; }
-    if (!enabled) return;
-    const t = setTimeout(() => void reload(), 400);
-    return () => clearTimeout(t);
-  }, [seq, enabled, reload]);
+    if (!enabled) return undefined;
+    let seq = store.getState().seq;
+    let t: ReturnType<typeof setTimeout> | null = null;
+    const off = store.subscribe(() => {
+      const now = store.getState().seq;
+      if (now === seq) return;
+      seq = now;
+      if (t) clearTimeout(t);
+      t = setTimeout(() => { t = null; void reload(); }, 400);
+    });
+    return () => { off(); if (t) clearTimeout(t); };
+  }, [store, enabled, reload]);
   return { ...snap, reload, entry: e, api };
 }
 

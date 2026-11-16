@@ -17,7 +17,7 @@ import { Icon } from '../../components/Icon';
 import { Button } from '../../components/Button';
 import { autoBlockedReason, autoModeOf, HARD_LINES_NOTE, POLICIES, policyLabel } from '../../components/permissions/policies';
 import { fullTime, relativeTime, useNow } from '../../lib/time';
-import { useWorkshop, useWorkshopState } from '../../state/store';
+import { useWorkshop, useWorkshopPick } from '../../state/store';
 import { jobHueStyle } from '../../theme/hue';
 import { GROUP_HINTS, GROUP_LABELS } from '../Jobs/jobStatus';
 import { ForemanFace } from '../../play/ThreadCrew';
@@ -32,7 +32,7 @@ const KIND_LABELS: Record<string, string> = { feature: 'Feature', bug: 'Bug fix'
 
 /** This job's own permission setting (null: it follows yours), and the one in force. */
 function useJobPolicy(dir: string | null | undefined, fromDetail: PolicyId | null | undefined) {
-  const { meta } = useWorkshopState();
+  const { meta } = useWorkshopPick('meta');
   const settings = meta?.settings;
   // The live settings win (they follow changes from other tabs); the job's detail fills in before they arrive.
   const override = dir && settings?.jobPolicy ? settings.jobPolicy[dir] ?? null : fromDetail ?? null;
@@ -288,7 +288,7 @@ export function JobHeader({ job, branch, dir, policyOverride, run, worktree, det
   const costHint = job.cost?.source === 'estimate' ? 'What this job has cost so far (an estimate from its sessions’ token counts).' : 'What this job has cost so far.';
   const policy = useJobPolicy(dir, policyOverride);
   const policyShown = policy.override !== null || policy.global !== 'hands-off';
-  const { usage, meta } = useWorkshopState();
+  const { usage, meta } = useWorkshopPick('usage', 'meta');
   const modelLabel = model ? meta?.models?.find((m) => m.id === model)?.label ?? model : null;
   const closed = job.closed ?? null;
   const { ref: headerRef, compact } = useStuckHeader();

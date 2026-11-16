@@ -17,7 +17,7 @@
 import { useEffect, useId, useState, type ReactNode } from 'react';
 import { DEFAULT_FINISH_LINE, DEFAULT_SECTIONS_AT_ONCE, type FinishLine, MAX_SECTIONS_AT_ONCE, type Settings, WORKFLOW_CHOICES, type WorkflowChoice, type WorkflowSettings as Workflow } from '../../api/types';
 import { HowThisWorks } from '../../components/HowThisWorks';
-import { useWorkshop, useWorkshopState } from '../../state/store';
+import { useWorkshop, useWorkshopPick } from '../../state/store';
 import { useReviewList } from '../Review/useReview';
 import '../Review/review.css';
 import { Choice, Segmented } from '../../components/Choice';
@@ -46,7 +46,7 @@ export const CHOICES: { id: 'wireframes' | 'clarify'; label: string; auto: strin
 
 export function WorkflowSettings({ children }: { children?: ReactNode }) {
   const { api, store } = useWorkshop();
-  const { meta } = useWorkshopState();
+  const { meta } = useWorkshopPick('meta');
   const w: Workflow = { finishLine: DEFAULT_FINISH_LINE, wireframes: 'auto', clarify: 'auto', ...(meta?.settings?.workflow ?? {}) };
   const lines = meta?.finishLines;
   const [busy, setBusy] = useState(false);
@@ -181,7 +181,7 @@ export const githubEveryLine = (settings: Settings | null | undefined) => `GitHu
 
 function GithubEvery() {
   const { api } = useWorkshop();
-  const { meta } = useWorkshopState();
+  const { meta } = useWorkshopPick('meta');
   const saved = meta?.settings?.review?.githubEveryMin ?? GITHUB_EVERY_DEFAULT;
   const [picked, setPicked] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);

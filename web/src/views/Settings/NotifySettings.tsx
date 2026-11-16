@@ -11,7 +11,7 @@ import { AlertSettings } from '../../alerts/AlertSettings';
 import type { NotificationsView, NotifyLevel, NotifyMode, NotifySettings as Notify, Settings } from '../../api/types';
 import { HowThisWorks } from '../../components/HowThisWorks';
 import { fullTime, relativeTime, useNow } from '../../lib/time';
-import { useWorkshop, useWorkshopState } from '../../state/store';
+import { useWorkshop, useWorkshopPick } from '../../state/store';
 import { Choice, Segmented } from '../../components/Choice';
 import { Select } from '../../components/Select';
 import { Button } from '../../components/Button';
@@ -53,7 +53,7 @@ const METHOD: Record<string, string> = {
 
 export function NotifySettings() {
   const { api, store } = useWorkshop();
-  const { meta, notificationsVersion, planUsage } = useWorkshopState();
+  const { meta, notificationsVersion, planUsage } = useWorkshopPick('meta', 'notificationsVersion', 'planUsage');
   const now = useNow();
   const n: NotifyAll = { ...NOTIFY_DEFAULTS, ...(meta?.settings?.notify as NotifyAll | undefined) };
   const [view, setView] = useState<NotificationsView | null>(null);

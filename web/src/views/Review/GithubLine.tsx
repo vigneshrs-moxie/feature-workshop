@@ -10,7 +10,7 @@ import type { FlowView, GithubLine as Line } from '../../api/types';
 import { useKeyScope } from '../../app/keyRegistry';
 import { Icon } from '../../components/Icon';
 import { Button } from '../../components/Button';
-import { useWorkshop, useWorkshopState } from '../../state/store';
+import { useWorkshop, useWorkshopPick } from '../../state/store';
 import './review.css';
 
 /** "40 s ago", "3 min ago", "2 h ago", "just now". */
@@ -40,7 +40,7 @@ export function everyWords(line: Line): string {
  */
 function useGithub(): { flow: FlowView | null; refresh(): Promise<void>; problem: string | null } {
   const { api, store } = useWorkshop();
-  const { flow } = useWorkshopState();
+  const { flow } = useWorkshopPick('flow');
   const [problem, setProblem] = useState<string | null>(null);
   const missing = flow === null;
   useEffect(() => {

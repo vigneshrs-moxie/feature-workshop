@@ -15,7 +15,7 @@ import { UsageBanner } from '../components/UsageBanner';
 import { UsageWarningBanner } from '../components/UsageWarningBanner';
 import { createLiveSync, type EventSourceLike, type LiveSync } from '../state/live';
 import { jobBySlug } from '../state/reducer';
-import { createStore, useWorkshop, useWorkshopState, WorkshopContext, type Store } from '../state/store';
+import { createStore, useWorkshop, useWorkshopPick, useWorkshopSelector, useWorkshopState, WorkshopContext, type Store } from '../state/store';
 import { JobDrawer } from '../views/JobDrawer/JobDrawer';
 import { CloseJobSheet } from '../views/JobSheets/CloseJobSheet';
 import { ChangeModelSheet } from '../job/ChangeModelSheet';
@@ -64,7 +64,9 @@ const FloorLab = lazy(() => import('../play/floor3d/FloorLab'));
 /** The open sheet, if any, and what each of ⌘K's actions does. */
 function Sheets({ route }: { route: Route }) {
   const { api, store } = useWorkshop();
-  const state = useWorkshopState();
+  // Only the status draws this part: the keys and the actions read the state when pressed, and the
+  // palette and the job drawer read it themselves while open, so an event or a snapshot draws nothing here.
+  const status = useWorkshopSelector((s) => s.status);
   const ui = useUi();
   const play = usePlay();
   const eggs = usePaletteEggs();
@@ -96,13 +98,13 @@ function Sheets({ route }: { route: Route }) {
   // them): once the workshop has loaded, open the New job sheet or this job's Notes and options,
   // then drop it from the address so a reload doesn't open it again.
   useEffect(() => {
-    if (state.status !== 'ready') return;
+    if (status !== 'ready') return;
     const open = openFromHash(window.location.hash);
     if (!open) return;
     if (open === 'new-job') ui.openSheet({ kind: 'new-job' });
     else if (slug) ui.openSheet({ kind: 'job-drawer', slug, tab: 'options' });
     window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}${window.location.hash.replace(/\?.*$/, '')}`);
-  }, [state.status, slug]);
+  }, [status, slug]);
 
   // The page's keys (app/keyRegistry.ts). The Desk's own j and k win while it has something waiting.
   useKeyScope('global', {
@@ -111,7 +113,7 @@ function Sheets({ route }: { route: Route }) {
       else if (!dialogOpen()) ui.openSheet({ kind: 'palette' });
     },
     'keys': () => ui.openSheet({ kind: 'keys' }),
-    'new-job': () => { if (state.status === 'ready') ui.openSheet({ kind: 'new-job' }); },
+    'new-job': () => { if (store.getState().status === 'ready') ui.openSheet({ kind: 'new-job' }); },
     'go-home': () => navigate({ name: 'home' }),
     'go-inbox': () => navigate({ name: 'inbox' }),
     'go-map': () => navigate({ name: 'map' }),
@@ -120,7 +122,7 @@ function Sheets({ route }: { route: Route }) {
     // The next job that waits for him (home/findJobs.ts), other than the one open.
     'go-next': () => {
       const here = /^#\/job\/([^/?]+)/.exec(window.location.hash)?.[1] ?? null;
-      const next = nextNeedsYou(state.jobs, here ? decodeURIComponent(here) : null);
+      const next = nextNeedsYou(store.getState().jobs, here ? decodeURIComponent(here) : null);
       if (!next) return false;
       navigate({ name: 'job', slug: next.slug });
     },
@@ -135,10 +137,10 @@ function Sheets({ route }: { route: Route }) {
   // The job page answers c and i (write) itself: its message box can be out of sight.
   useKeyScope('job', {
     'notes': () => { if (slug) ui.openSheet({ kind: 'job-drawer', slug }); },
-  }, slug !== null && state.status === 'ready');
+  }, slug !== null && status === 'ready');
 
   function stepJob(by: 1 | -1) {
-    const list = jobsInOrder(state);
+    const list = jobsInOrder(store.getState());
     if (!list.length) return;
     const at = list.findIndex((j) => j.slug === slug);
     const next = at < 0 ? (by > 0 ? 0 : list.length - 1) : (at + by + list.length) % list.length;
@@ -155,8 +157,9 @@ function Sheets({ route }: { route: Route }) {
         </div>
       )}
       {sheet?.kind === 'palette' && (
-        <CommandPalette
-          commands={commandsFor({ state, slug, current: ui.current, onSettings: route.name === 'settings', onCrew: route.name === 'crew', onAchievements: route.name === 'achievements', play: play.on, newJobPage: newPage && slug !== null }, handlers)}
+        <PaletteSheet
+          context={{ slug, current: ui.current, onSettings: route.name === 'settings', onCrew: route.name === 'crew', onAchievements: route.name === 'achievements', play: play.on, newJobPage: newPage && slug !== null }}
+          handlers={handlers}
           onClose={ui.closeSheet}
           onEgg={eggs}
           onOldPages={() => oldPages.open(slug ? classicHref.job(slug) : classicHref.home())}
@@ -166,23 +169,41 @@ function Sheets({ route }: { route: Route }) {
       {sheet?.kind === 'close-job' && <CloseJobSheet slug={sheet.slug} worktree={sheet.worktree} onClose={ui.closeSheet} />}
       {sheet?.kind === 'change-model' && <ChangeModelSheet slug={sheet.slug} onClose={ui.closeSheet} />}
       {sheet?.kind === 'keys' && <KeysSheet onClose={ui.closeSheet} />}
-      {sheet?.kind === 'job-drawer' && <JobDrawer key={sheet.slug} slug={sheet.slug} job={jobBySlug(state, sheet.slug)} tab={sheet.tab} onClose={ui.closeSheet} />}
+      {sheet?.kind === 'job-drawer' && <JobDrawerSheet key={sheet.slug} slug={sheet.slug} tab={sheet.tab} onClose={ui.closeSheet} />}
     </>
   );
 }
 
-function Shell({ onRetry }: { onRetry: () => void }) {
+/** ⌘K's list, worked out from the whole state while it is open. */
+function PaletteSheet({ context, handlers, ...rest }: { context: Omit<Parameters<typeof commandsFor>[0], 'state'>; handlers: CommandHandlers } & Omit<Parameters<typeof CommandPalette>[0], 'commands'>) {
   const state = useWorkshopState();
+  return <CommandPalette commands={commandsFor({ state, ...context }, handlers)} {...rest} />;
+}
+
+/** The job drawer, with its job as it is now. */
+function JobDrawerSheet({ slug, ...rest }: Omit<Parameters<typeof JobDrawer>[0], 'job'>) {
+  const job = useWorkshopSelector((s) => jobBySlug(s, slug));
+  return <JobDrawer slug={slug} job={job} {...rest} />;
+}
+
+/** The tab's title and the alerts (a chime, a notification) when something new needs him: no drawing of their own. */
+function Alerts({ title }: { title: string }) {
+  useAlerts(useWorkshopPick('status', 'jobs', 'permissions', 'meta'), title);
+  return null;
+}
+
+function Shell({ onRetry }: { onRetry: () => void }) {
+  // The shell draws again only when the status, the error or the open job changes; each part reads its own.
+  const state = useWorkshopPick('status', 'error');
   const route = useRoute();
   const play = usePlay();
   useKeyListener();
   const { api } = useWorkshop();
   const post = useMemo(() => (path: string, body: unknown) => api.post(path, body), [api]);
   const slug = route.name === 'job' || route.name === 'stage' || route.name === 'screens' || route.name === 'stack' ? route.slug : null;
-  const job = jobBySlug(state, slug);
+  const job = useWorkshopSelector((s) => jobBySlug(s, slug));
   const newPage = useNewJobPage();
   const jobTitle = job ? job.title || job.slug : slug;
-  useAlerts(state, pageTitle(pageName(route, jobTitle)));
   usePresence(post);
   // The Crew-dex and Achievements are part of Play: with Play mode Off, #/crew and #/achievements show the same as #/.
   const crew = route.name === 'crew' && play.on;
@@ -198,6 +219,7 @@ function Shell({ onRetry }: { onRetry: () => void }) {
       <div className="app">
         {top}
         <div className="banner-slot" />
+        <Alerts title={pageTitle(pageName(route, jobTitle))} />
         <Sheets route={route} />
         <div className="app-message" role={state.status === 'error' ? 'alert' : 'status'}>
           {state.status !== 'error' ? (
@@ -241,6 +263,7 @@ function Shell({ onRetry }: { onRetry: () => void }) {
     <div className="app">
       {top}
       <div className="banner-slot"><UsageBanner /><UsageWarningBanner /></div>
+      <Alerts title={pageTitle(pageName(route, jobTitle))} />
       <Sheets route={route} />
       {page}
       <PlayToasts />

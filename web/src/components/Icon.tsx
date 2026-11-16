@@ -2,6 +2,8 @@
 // shapes follow Lucide, ISC licence). Always decorative: the words next to an icon carry the meaning,
 // so it is hidden from screen readers and status is never an icon or a colour alone.
 
+import { memo } from 'react';
+
 const PATHS = {
   radar: '<path d="M19.07 4.93A10 10 0 0 0 6.99 3.34"/><path d="M4 6h.01"/><path d="M2.29 9.62A10 10 0 1 0 21.31 8.35"/><path d="M16.24 7.76A6 6 0 1 0 8.23 16.67"/><path d="M12 18h.01"/><path d="M17.99 11.66A6 6 0 0 1 15.77 16.67"/><circle cx="12" cy="12" r="2"/><path d="m13.41 10.59 5.66-5.66"/>',
   settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
@@ -77,7 +79,8 @@ const PATHS = {
 export type IconName = keyof typeof PATHS;
 export const ICON_NAMES = Object.keys(PATHS) as IconName[];
 
-export function Icon({ name, size = 18, className }: { name: IconName; size?: number; className?: string }) {
+/** Memoised: its props are plain values, and a page draws hundreds of them. */
+export const Icon = memo(function Icon({ name, size = 18, className }: { name: IconName; size?: number; className?: string }) {
   return (
     <svg
       className={className ? `icon ${className}` : 'icon'}
@@ -94,4 +97,4 @@ export function Icon({ name, size = 18, className }: { name: IconName; size?: nu
       dangerouslySetInnerHTML={{ __html: PATHS[name] }}
     />
   );
-}
+});

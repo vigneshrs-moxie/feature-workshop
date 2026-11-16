@@ -17,7 +17,7 @@ import { relativeTime, useNow } from '../lib/time';
 import { floorSpeech } from '../play/floorModel';
 import { usePlayIfAny } from '../play/usePlay';
 import { WorkshopFloor } from '../play/WorkshopFloor';
-import { useWorkshopState } from '../state/store';
+import { useWorkshopState, useWorkshopPick } from '../state/store';
 import { FlowMap } from './FlowMap';
 import { deskQueue, type HomeView as View, type MapFilter, mapRepos, tableRows } from './homeModel';
 import { deskEntries, isShipping } from './nudges';
@@ -35,7 +35,7 @@ const VIEWS: { id: View; label: string; route: 'map' | 'table' | 'desk'; hint: s
 
 function Side() {
   const play = usePlayIfAny();
-  const { jobs, usage } = useWorkshopState();
+  const { jobs, usage } = useWorkshopPick('jobs', 'usage');
   const now = useNow();
   if (play?.on) return <aside className="home-side" aria-label="What needs you"><WorkshopFloor compact /></aside>;
   const speech = floorSpeech(jobs, usage, now);

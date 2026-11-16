@@ -7,11 +7,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Job, LevelNumber } from '../../api/types';
 import { isLevel, LEVEL_NUMBERS, levelChange, levelLabel, lensNames } from '../../lib/levels';
-import { useWorkshopState } from '../../state/store';
+import { useWorkshopPick } from '../../state/store';
 import { useSetLevel } from './useSetLevel';
 
 export function LevelChip({ job, ready = true }: { job: Job; ready?: boolean }) {
-  const { meta } = useWorkshopState();
+  const { meta } = useWorkshopPick('meta');
   const levels = meta?.levels;
   const names = lensNames(meta);
   const level = isLevel(job.level) ? job.level : null;

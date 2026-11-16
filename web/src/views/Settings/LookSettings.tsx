@@ -11,7 +11,7 @@ import { hrefFor, settingsHref } from '../../app/router';
 import { useDeskLayout } from '../../home/DeskPage';
 import { useJobsLayout } from '../../home/JobsPage';
 import { playOf } from '../../play/settings';
-import { useWorkshop, useWorkshopState } from '../../state/store';
+import { useWorkshop, useWorkshopPick } from '../../state/store';
 import { PLAY_MODE_CHOICES } from './PlaySettings';
 import { TEXT_SCALES, TEXT_SIZE_LABELS, TEXT_SIZES, type TextSize, useTextSize } from '../../theme/textSize';
 import { ThemePicker } from './ThemePicker';
@@ -80,7 +80,7 @@ function LayoutPicker<T extends string>({ id, title, value, onPick, options, see
 /** Play beside the layouts: Full, Subtle or Off (the same setting as Settings → Play). */
 function PlayPicker() {
   const { api, store } = useWorkshop();
-  const { meta } = useWorkshopState();
+  const { meta } = useWorkshopPick('meta');
   const mode = playOf(meta?.settings).mode;
   const [error, setError] = useState<string | null>(null);
   const saved = useSaved();
@@ -130,7 +130,7 @@ export function LookSettings() {
   const [desk, setDesk] = useDeskLayout();
   const [jobs, setJobs] = useJobsLayout();
   // Play words only with Play on: with it off, the 3D layout is named plainly.
-  const { meta } = useWorkshopState();
+  const { meta } = useWorkshopPick('meta');
   const playOn = playOf(meta?.settings).mode !== 'off';
   return (
     <section className="look-settings" aria-label="Look">

@@ -12,7 +12,7 @@ import { Select } from '../components/Select';
 import { Sheet } from '../components/Sheet';
 import { FoldShow } from '../components/page/Page';
 import { isActiveRun } from '../panes/Foreman/thread';
-import { useWorkshop, useWorkshopState } from '../state/store';
+import { useWorkshop, useWorkshopPick } from '../state/store';
 import '../views/JobSheets/jobSheets.css';
 
 export const PR_REASON = 'This job has an open pull request, so its model can\'t change: reviewed work would be thrown away. Close the pull request, or start a new job.';
@@ -50,7 +50,7 @@ interface Restarted { slug: string; archive: string; backupBranch: string | null
 
 export function ChangeModelSheet({ slug, onClose }: { slug: string; onClose: () => void }) {
   const { api } = useWorkshop();
-  const { meta, runs } = useWorkshopState();
+  const { meta, runs } = useWorkshopPick('meta', 'runs');
   const models: ModelChoice[] = meta?.models ?? [];
   const [detail, setDetail] = useState<JobDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);

@@ -3,11 +3,11 @@
 // true from the click until the read is done, so Refresh can't be pressed twice meanwhile.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FlowView } from '../api/types';
-import { useWorkshop, useWorkshopState } from '../state/store';
+import { useWorkshop, useWorkshopPick } from '../state/store';
 
 export function useFlow(): { flow: FlowView | null; refresh(): Promise<void>; refreshing: boolean; problem: string | null } {
   const { api, store } = useWorkshop();
-  const { flow } = useWorkshopState();
+  const { flow } = useWorkshopPick('flow');
   const [problem, setProblem] = useState<string | null>(null);
   const missing = flow === null;
   useEffect(() => {

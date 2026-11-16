@@ -16,7 +16,7 @@
 // Auto's groups; Auto (AutoJobs.tsx) has its three groups and no layout switch. The chosen tab is
 // remembered (autoTab.ts useJobsTab). The next-step bar is on both: it names the next job that needs
 // you from Yours first, then from Auto's Needs you.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Job, JobLane } from '../api/types';
 import { useDetail } from '../app/detail';
 import { useKeyScope } from '../app/keyRegistry';
@@ -34,7 +34,7 @@ import { useFlip } from '../lib/flip';
 import { useHeldWhileHovered } from '../lib/useHeldWhileHovered';
 import { relativeTime, useNow } from '../lib/time';
 import { usePlayIfAny } from '../play/usePlay';
-import { useWorkshop, useWorkshopState } from '../state/store';
+import { useWorkshop, useWorkshopPick } from '../state/store';
 import { prefetchProps } from '../jobpage/recent';
 import { useNewJobPage } from '../jobpage/switch';
 import { StackJobCard, useStackIndex, type StackIndex } from '../views/Stack/StackRows';
@@ -79,7 +79,7 @@ export const LAYOUT_CHOICES: readonly { value: JobsLayout; label: string; title:
 
 /** Jobs as the 3D station: a click, or Enter on a picked bay, takes the quick look (j and k then move along the bays). Auto's jobs have their own tab, so no bay. */
 function JobsFloor({ peek, setPeek, hide }: { peek: string | null; setPeek(slug: string | null): void; hide: ReadonlySet<string> }) {
-  const { jobs } = useWorkshopState();
+  const { jobs } = useWorkshopPick('jobs');
   const all = useFloorBenches();
   const benches = useMemo(() => (hide.size ? all.filter((b) => !hide.has(b.slug)) : all), [all, hide]);
   const order = benches.map((b) => b.slug);
@@ -162,9 +162,10 @@ export function chipTone(lane: JobLane, word: string): ChipTone {
   return 'neutral';
 }
 
-function JobCard({ job, now, play, review, full, onPeek, peeked }: { job: Job; now: Date; play: 'full' | 'subtle' | 'off'; review?: ReviewView | null; full: boolean; onPeek?: (slug: string) => void; peeked?: boolean }) {
+// Memoised: a snapshot redraws only the cards whose job (kept identical when unchanged) or review changed.
+const JobCard = memo(function JobCard({ job, now, play, review, full, onPeek, peeked }: { job: Job; now: Date; play: 'full' | 'subtle' | 'off'; review?: ReviewView | null; full: boolean; onPeek?: (slug: string) => void; peeked?: boolean }) {
   const lane = laneOf(job);
-  const { permissions } = useWorkshopState();
+  const { permissions } = useWorkshopPick('permissions');
   // The new job page's payload, fetched ahead as the pointer or the focus reaches the job.
   const ahead = prefetchProps(useWorkshop().api, job.slug, useNewJobPage());
   const chip = stateChip(job, permissions);
@@ -213,7 +214,7 @@ function JobCard({ job, now, play, review, full, onPeek, peeked }: { job: Job; n
       </div>
     </li>
   );
-}
+});
 
 export function Cards({ jobs, now, play, stacks, reviews, onPeek, peeked }: { jobs: readonly Job[]; now: Date; play: 'full' | 'subtle' | 'off'; stacks?: StackIndex; reviews?: ReadonlyMap<string, ReviewView>; onPeek?: (slug: string) => void; peeked?: string | null }) {
   const [detail] = useDetail();
@@ -238,7 +239,7 @@ export const TABS: readonly { id: JobsTab; name: string; title: string }[] = [
 ];
 
 export function JobsPage() {
-  const { jobs, autoQueue } = useWorkshopState();
+  const { jobs, autoQueue } = useWorkshopPick('jobs', 'autoQueue');
   const { api } = useWorkshop();
   const newPage = useNewJobPage();
   const now = useNow();

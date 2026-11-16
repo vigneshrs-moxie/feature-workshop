@@ -9,7 +9,7 @@
 //   - A part's Job page says "Part 2 of <stack>" with a link; the stack's own job says it is one.
 //   - The Foreman's suggestion: when its first brief says a ticket looks big enough for a stack
 //     (status.json stack_suggested), the Job page says so in a line, with "Run as a stack instead".
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { Job, StackSummary } from '../../api/types';
 import { jobHref, stackHref } from '../../app/router';
 import { Button } from '../../components/Button';
@@ -42,7 +42,8 @@ export function useStackIndex(): StackIndex {
 }
 
 /** A stack's card on Jobs, in the same dress as a job's card. */
-export function StackJobCard({ job, stack, now, play }: { job: Job; stack: StackSummary; now: Date; play: 'full' | 'subtle' | 'off' }) {
+// Memoised as a job's card is (home/JobsPage.tsx): drawn again only when its job or its stack changed.
+export const StackJobCard = memo(function StackJobCard({ job, stack, now, play }: { job: Job; stack: StackSummary; now: Date; play: 'full' | 'subtle' | 'off' }) {
   const chip = summaryChip(stack);
   const running = stack.counts.running ?? 0;
   const at = stack.phase === 'pushed' ? 'pushed' : stack.steps.find((s) => s.state === 'now')?.label ?? 'Push';
@@ -86,7 +87,7 @@ export function StackJobCard({ job, stack, now, play }: { job: Job; stack: Stack
       </div>
     </li>
   );
-}
+});
 
 /** On a job's page: "Part 2 of <stack>" for a part, "A stack of 3 parts" for the stack's own job. */
 export function PartOfStack({ slug, index }: { slug: string; index: StackIndex }) {

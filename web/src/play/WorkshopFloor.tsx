@@ -17,7 +17,7 @@ import { useUi } from '../app/ui';
 import { NeedsYouCards } from '../components/permissions/PendingCards';
 import { useNow } from '../lib/time';
 import { jobStatus } from '../panes/Jobs/jobStatus';
-import { useWorkshopState } from '../state/store';
+import { useWorkshopPick } from '../state/store';
 import { jobHueStyle } from '../theme/hue';
 import { CrewMember } from './CrewMember';
 import { CREW_SIZE } from './crewSizes';
@@ -69,7 +69,7 @@ function FullFloor({ cards }: { cards: ReactNode }) {
 
 export function WorkshopFloor({ compact = false }: { compact?: boolean } = {}) {
   const play = usePlayIfAny();
-  const { jobs, usage } = useWorkshopState();
+  const { jobs, usage } = useWorkshopPick('jobs', 'usage');
   const ui = useUi();
   const now = useNow();
   if (!play?.on) return null;

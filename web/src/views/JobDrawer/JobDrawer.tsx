@@ -8,7 +8,7 @@ import { Drawer } from '../../components/Drawer';
 import { HowThisWorks } from '../../components/HowThisWorks';
 import { optionLists } from '../../lib/jobOptions';
 import { isLevel } from '../../lib/levels';
-import { useWorkshopState } from '../../state/store';
+import { useWorkshopPick } from '../../state/store';
 import { NotesEditor } from './NotesEditor';
 import { OptionsEditor } from './OptionsEditor';
 import { Button } from '../../components/Button';
@@ -22,7 +22,7 @@ const TABS: { id: DrawerTab; label: string; hint: string }[] = [
 const menuButton = () => document.querySelector<HTMLElement>('.job-menu > button');
 
 export function JobDrawer({ slug, job, tab = 'notes', onClose }: { slug: string; job: Job | null; tab?: DrawerTab; onClose: () => void }) {
-  const { meta } = useWorkshopState();
+  const { meta } = useWorkshopPick('meta');
   const [current, setCurrent] = useState<DrawerTab>(tab);
   const [dirty, setDirty] = useState<Record<DrawerTab, boolean>>({ notes: false, options: false });
   const [confirm, setConfirm] = useState(false);

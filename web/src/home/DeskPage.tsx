@@ -6,7 +6,7 @@ import { Page, type GuideSpec } from '../components/page/Page';
 import { useStored } from '../lib/stored';
 import { useNow } from '../lib/time';
 import { usePlayIfAny } from '../play/usePlay';
-import { useWorkshopState } from '../state/store';
+import { useWorkshopPick } from '../state/store';
 import { DESK_LAYOUT_KEY, DeskView, type DeskLayout } from './DeskView';
 import { deskQueue } from './homeModel';
 
@@ -27,7 +27,7 @@ export function useDeskLayout(): [DeskLayout, (layout: DeskLayout) => void] {
 }
 
 export function DeskPage() {
-  const state = useWorkshopState();
+  const state = useWorkshopPick('jobs', 'permissions');
   const now = useNow();
   const play = usePlayIfAny();
   const [layout] = useDeskLayout();

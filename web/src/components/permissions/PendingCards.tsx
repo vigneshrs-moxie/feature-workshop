@@ -2,7 +2,7 @@
 // every job's (the Needs-you list when no job is open), oldest first.
 import type { Permission } from '../../api/types';
 import { jobHref } from '../../app/router';
-import { useWorkshopState } from '../../state/store';
+import { useWorkshopPick } from '../../state/store';
 import { PermissionCard } from './PermissionCard';
 import { QuestionCard } from './QuestionCard';
 
@@ -16,7 +16,7 @@ export function Card({ p, now, showJob }: { p: Permission; now: Date; showJob?: 
 
 /** One job's waiting cards. */
 export function JobCards({ slug, now }: { slug: string; now: Date }) {
-  const { permissions } = useWorkshopState();
+  const { permissions } = useWorkshopPick('permissions');
   const mine = permissions.filter((p) => p.slug === slug).sort(byAge);
   if (!mine.length) return null;
   return (
@@ -28,7 +28,7 @@ export function JobCards({ slug, now }: { slug: string; now: Date }) {
 
 /** Every job's waiting cards, grouped by job. */
 export function NeedsYouCards({ now }: { now: Date }) {
-  const { permissions, jobs } = useWorkshopState();
+  const { permissions, jobs } = useWorkshopPick('permissions', 'jobs');
   if (!permissions.length) return <p className="muted">No permission or question is waiting for you.</p>;
   const order: string[] = [];
   const bySlug = new Map<string, Permission[]>();

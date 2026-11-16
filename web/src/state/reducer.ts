@@ -9,6 +9,7 @@
 
 import type { Achievement, AutoQueue, BossDefeated, FlowView, Job, JobGroup, LiveEvent, Meta, Permission, PlanUsage, RunTypical, PlayNews, QuestDone, Run, Settings, Snapshot, Steer, SteerState, Usage } from '../api/types';
 import { JOB_GROUPS } from '../api/types';
+import { share } from '../lib/share';
 
 export type Connection = 'connecting' | 'live' | 'reconnecting';
 
@@ -118,12 +119,14 @@ function applySnapshot(state: WorkshopState, s: Snapshot): WorkshopState {
     ...state,
     status: 'ready',
     error: null,
-    meta: s.meta ?? state.meta,
-    jobs: Array.isArray(s.jobs) ? s.jobs : [],
-    permissions: Array.isArray(s.permissions) ? s.permissions : [],
-    usage: s.usage ?? null,
-    planUsage: s.planUsage ?? state.planUsage,
-    runTypical: s.runTypical ?? state.runTypical,
+    // Every part the same as before stays the same object (lib/share.ts), so a snapshot that changes
+    // nothing a part shows draws nothing again: a job that did not change is the job it was.
+    meta: share(state.meta, s.meta ?? state.meta),
+    jobs: share(state.jobs, Array.isArray(s.jobs) ? s.jobs : []),
+    permissions: share(state.permissions, Array.isArray(s.permissions) ? s.permissions : []),
+    usage: share(state.usage, s.usage ?? null),
+    planUsage: share(state.planUsage, s.planUsage ?? state.planUsage),
+    runTypical: share(state.runTypical, s.runTypical ?? state.runTypical),
     // Events newer than the snapshot may already have been applied; never step back within one run.
     seq: sameRun ? Math.max(state.seq, s.seq) : s.seq,
     epoch: s.epoch,
@@ -134,7 +137,7 @@ function applySnapshot(state: WorkshopState, s: Snapshot): WorkshopState {
     jobsStale: false,
     resyncNeeded: false,
     generatedAt: s.generatedAt ?? null,
-    autoQueue: s.autoQueue ?? null,
+    autoQueue: share(state.autoQueue, s.autoQueue ?? null),
   };
 }
 
@@ -313,10 +316,10 @@ export function jobsByGroup(state: WorkshopState): Record<JobGroup, Job[]> {
   return out;
 }
 
-export function needsYouCount(state: WorkshopState): number {
+export function needsYouCount(state: Pick<WorkshopState, 'jobs'>): number {
   return state.jobs.filter((j) => j.group === 'needs-you').length;
 }
 
-export function jobBySlug(state: WorkshopState, slug: string | null | undefined): Job | null {
+export function jobBySlug(state: Pick<WorkshopState, 'jobs'>, slug: string | null | undefined): Job | null {
   return slug ? state.jobs.find((j) => j.slug === slug) ?? null : null;
 }

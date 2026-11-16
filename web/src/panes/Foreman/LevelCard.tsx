@@ -10,7 +10,7 @@ import { InlineText } from '../../components/InlineText';
 import { Button } from '../../components/Button';
 import { isLevel, levelCardKey, levelCardView, levelChange, levelLabel, lensNames } from '../../lib/levels';
 import { useStored } from '../../lib/stored';
-import { useWorkshopState } from '../../state/store';
+import { useWorkshopPick } from '../../state/store';
 import { useSetLevel } from './useSetLevel';
 
 /** The job's level facts: the live job row first, the job's detail where the row has none. */
@@ -27,7 +27,7 @@ export function levelFacts(job: Job, detail: JobDetail | null | undefined) {
 }
 
 export function LevelCard({ job, detail }: { job: Job; detail: JobDetail | null }) {
-  const { meta } = useWorkshopState();
+  const { meta } = useWorkshopPick('meta');
   const levels = meta?.levels;
   const names = lensNames(meta);
   const facts = levelFacts(job, detail);

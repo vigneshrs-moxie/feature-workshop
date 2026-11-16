@@ -12,7 +12,7 @@
 // a restarted dashboard's resync drops the old run's events (state/reducer.ts), so none come back.
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { PlayNews } from '../api/types';
-import { useWorkshopState } from '../state/store';
+import { useWorkshop, useWorkshopPick } from '../state/store';
 import { AchievementBadge } from './AchievementBadge';
 import { burstPieces, celebrate, type Celebration, type CelebrationKind } from './celebrate';
 import { clearScenes } from './eggs';
@@ -133,7 +133,9 @@ function Toast({ item, onDone }: { item: ToastItem; onDone: (key: number) => voi
 }
 
 export function PlayToasts() {
-  const { playNews, jobs, epoch } = useWorkshopState();
+  // The jobs (for a toast's job title) are read when a toast is made: a snapshot draws nothing here.
+  const { playNews, epoch } = useWorkshopPick('playNews', 'epoch');
+  const { store } = useWorkshop();
   const play = usePlay();
   // The newest event already dealt with, in this run of the dashboard (seq starts again after a
   // restart, and the snapshot that follows one clears playNews).
@@ -146,14 +148,14 @@ export function PlayToasts() {
     if (!fresh.length) return;
     seen.current = { epoch, seq: fresh[fresh.length - 1].seq };
     if (!play.on) return;
-    const titleOf = (slug: string) => jobs.find((j) => j.slug === slug)?.title;
+    const titleOf = (slug: string) => store.getState().jobs.find((j) => j.slug === slug)?.title;
     const items = fresh.map((n) => toastOf(n, titleOf, play.full)).filter((t): t is ToastItem => t !== null);
     if (!items.length) return;
     setQueue((q) => [...q, ...items]);
     // One blip per batch, here rather than per toast, so three at once never play over each other.
     const blip = batchBlip(items);
     if (blip && celebrate(blip, play).sound) playBlip(blip);
-  }, [playNews, play, jobs, epoch]);
+  }, [playNews, play, epoch, store]);
 
   // Off: nothing waits to come back (nor a scene) when Play is turned on again.
   useEffect(() => { if (!play.on) { setQueue([]); clearScenes(); } }, [play.on]);

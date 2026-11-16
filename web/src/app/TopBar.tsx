@@ -3,8 +3,8 @@
 // in words, New job (c) and the gear (Settings, the Crew-dex and Achievements in Play, the flow map,
 // the Table, the keys, every action). At phone width (app.css) it is the short form: the mark, the
 // page's name, the Desk count and a ☰ menu with everything else.
-import type { Connection } from '../state/reducer';
-import { useWorkshopState } from '../state/store';
+import type { Connection, WorkshopState } from '../state/reducer';
+import { useWorkshopPick, useWorkshopSelector } from '../state/store';
 import { UsageMeters } from '../components/UsageMeters';
 import { StaminaBar } from '../play/FullExtras';
 import { usePlay } from '../play/usePlay';
@@ -41,12 +41,22 @@ function section(route: Route): 'inbox' | 'desk' | 'jobs' | 'stacks' | 'telemetr
 
 /** How many decisions wait for you: the Desk's queue with the nudges before your finish line. */
 export function useDeskCount(): number {
-  const state = useWorkshopState();
-  return deskEntries(deskQueue(state.jobs, state.permissions), state.jobs).filter((e) => !isShipping(e)).length;
+  return useWorkshopSelector(deskCountOf);
+}
+
+/** The Desk's count, worked out again only when the jobs or the permissions change (every event asks). */
+let deskMemo: { jobs: WorkshopState['jobs']; permissions: WorkshopState['permissions']; count: number } | null = null;
+function deskCountOf(state: WorkshopState): number {
+  if (deskMemo && deskMemo.jobs === state.jobs && deskMemo.permissions === state.permissions) return deskMemo.count;
+  const count = deskEntries(deskQueue(state.jobs, state.permissions), state.jobs).filter((e) => !isShipping(e)).length;
+  deskMemo = { jobs: state.jobs, permissions: state.permissions, count };
+  return count;
 }
 
 export function TopBar({ route, onRetry, jobTitle = null }: { route: Route; onRetry: () => void; jobTitle?: string | null }) {
-  const state = useWorkshopState();
+  // Only what the bar shows: an event or a snapshot that changes none of it draws nothing here.
+  const state = useWorkshopPick('status', 'connection', 'error', 'usage', 'planUsage');
+  const demo = useWorkshopSelector((s) => Boolean(s.meta?.demo));
   const ui = useUi();
   const play = usePlay();
   const desk = useDeskCount();
@@ -90,7 +100,7 @@ export function TopBar({ route, onRetry, jobTitle = null }: { route: Route; onRe
         <BrandMark />
         <span className="gc-brand-name">{BRAND.name}</span>
       </a>
-      {state.meta?.demo ? <span className="gc-demo" title="Demo mode: a pretend Foreman answers and nothing real runs.">Demo</span> : null}
+      {demo ? <span className="gc-demo" title="Demo mode: a pretend Foreman answers and nothing real runs.">Demo</span> : null}
       <span className="gc-page-name" aria-hidden="true">{pageName(route, jobTitle)}</span>
       {ready && (
         <nav className="gc-nav" aria-label="Pages">

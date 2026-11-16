@@ -16,7 +16,7 @@ import { useJobConversation } from '../panes/Foreman/ForemanPane';
 import { WhatAutoDecided } from '../job/WhatAutoDecided';
 import { NextStep } from '../job/NextStep';
 import { chipTone, laneOf, stateChip } from './JobsPage';
-import { useWorkshopState } from '../state/store';
+import { useWorkshopPick } from '../state/store';
 
 function PeekBody({ job }: { job: Job }) {
   const now = useNow();
@@ -31,7 +31,7 @@ function PeekBody({ job }: { job: Job }) {
 }
 
 export function JobPeek({ job, order, onPick, onClose }: { job: Job; order: readonly string[]; onPick(slug: string): void; onClose(): void }) {
-  const { permissions } = useWorkshopState();
+  const { permissions } = useWorkshopPick('permissions');
   const box = useRef<HTMLElement>(null);
   const chip = stateChip(job, permissions);
   const lane = laneOf(job);

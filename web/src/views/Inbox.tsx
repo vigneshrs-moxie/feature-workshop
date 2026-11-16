@@ -37,7 +37,7 @@ import { Pending, Skeleton } from '../components/Pending';
 import { Hero, NextBar, Page, type GuideSpec } from '../components/page/Page';
 import { useDelayedFlag } from '../lib/useDelayedFlag';
 import { clockTime, fullTime, relativeTime, useNow } from '../lib/time';
-import { useWorkshop, useWorkshopState } from '../state/store';
+import { useWorkshop, useWorkshopPick } from '../state/store';
 
 // ---------- What the dashboard sends (GET /api/orbit/*) ----------
 
@@ -304,7 +304,7 @@ export function InboxView({ openStream = defaultOpenStream, hosted }: { openStre
   const isHosted = Boolean(hosted);
   const hostedVersion = hosted?.version ?? 0;
   const { api } = useWorkshop();
-  const { jobs, autoQueue: laptopQueue } = useWorkshopState();
+  const { jobs, autoQueue: laptopQueue } = useWorkshopPick('jobs', 'autoQueue');
   // The Auto queue: the laptop's store keeps the snapshot's; the site reads its own snapshot. Missing: no Auto tab.
   const queue = (isHosted ? hosted?.autoQueue : laptopQueue) ?? null;
   const ui = useUi();

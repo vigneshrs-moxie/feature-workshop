@@ -35,7 +35,7 @@ import { ThreadList, useCurrentJob, useJobConversation } from '../../panes/Forem
 import { LevelCard, levelFacts } from '../../panes/Foreman/LevelCard';
 import { usePlay } from '../../play/usePlay';
 import { jobBySlug } from '../../state/reducer';
-import { useWorkshopState } from '../../state/store';
+import { useWorkshopState, useWorkshopPick } from '../../state/store';
 import { LANE_LOOK, money } from './stackLook';
 import { useStackPart, type PartState } from './useStacks';
 import '../../job/job.css';
@@ -215,7 +215,7 @@ function JobNext({ job, now }: { job: Job; now: Date }) {
  * the level card has something to offer (no level yet, or the Foreman suggests another).
  */
 function LevelFact({ job, detail, onChoose }: { job: Job; detail: JobDetail | null; onChoose: () => void }) {
-  const { meta } = useWorkshopState();
+  const { meta } = useWorkshopPick('meta');
   const facts = levelFacts(job, detail);
   const [dismissed] = useStored(levelCardKey(job.slug));
   const view = levelCardView(facts, dismissed);

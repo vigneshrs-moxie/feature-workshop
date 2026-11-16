@@ -4,7 +4,7 @@
 // the next threshold is a new warning, so it shows again. Nothing is ever stopped from here.
 import type { PlanUsage } from '../api/types';
 import { useStored } from '../lib/stored';
-import { useWorkshopState } from '../state/store';
+import { useWorkshopPick } from '../state/store';
 import { Button } from './Button';
 
 export type { UsageWarning } from '../api/types';
@@ -23,7 +23,7 @@ function parse(raw: string | null): string[] {
 }
 
 export function UsageWarningBanner() {
-  const { planUsage } = useWorkshopState();
+  const { planUsage } = useWorkshopPick('planUsage');
   const [raw, setRaw] = useStored(DISMISSED_KEY);
   const warnings = ((planUsage as PlanUsage | null)?.warnings ?? []).filter((w) => w && typeof w.text === 'string');
   if (!planUsage?.enabled || !warnings.length) return null;

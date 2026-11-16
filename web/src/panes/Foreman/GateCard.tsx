@@ -36,7 +36,7 @@ import { plainInline } from '../../lib/inlineMarkdown';
 import { isLevel, levelChange, lensNames } from '../../lib/levels';
 import { readStored, useStored, writeStored } from '../../lib/stored';
 import { clockTime, fullTime, relativeTime } from '../../lib/time';
-import { useWorkshop, useWorkshopState } from '../../state/store';
+import { useWorkshop, useWorkshopPick } from '../../state/store';
 import { stageLabel } from '../Jobs/stages';
 import { draftKey, focusMessageBox, SendPreview } from './Composer';
 import { EVIDENCE_STAGES, EvidenceStrip } from './EvidenceStrip';
@@ -148,7 +148,7 @@ export function pressReply(root: Element | null | undefined) {
  * the box first when it is out of sight); left out, the cursor goes to the box on the page.
  */
 export function GateSlot({ job, detail, now, reload, callsOutside = false, extrasTo = null, onOpenBox, onWrite, evidence, keysOff = false, answerKeysOff = false }: { job: Job; detail: JobDetail; now: Date; reload(): void; callsOutside?: boolean; /** The page opens a folded card before a key opens its box. */ onOpenBox?(): void; onWrite?(): void; /** The card is folded: 1, 2 and 3 never pick an answer he cannot see. */ answerKeysOff?: boolean; /** The Desk's Details sheet (packet R): Adjust the next step and How this works are drawn there instead. */ extrasTo?: HTMLElement | null; evidence?: EvidenceView | null; keysOff?: boolean }) {
-  const { runs } = useWorkshopState();
+  const { runs } = useWorkshopPick('runs');
   const [notice, setNotice] = useState<GateNotice | null>(null);
   const [memoRaw, setMemo] = useStored(gateDraftKey(job.slug));
   const [draft] = useStored(draftKey(job.slug));
@@ -330,7 +330,7 @@ function GateCard({ job, detail, gate, now, reload, report, running, callsOutsid
   running: boolean;
 }) {
   const { api } = useWorkshop();
-  const { meta, usage, runs } = useWorkshopState();
+  const { meta, usage, runs } = useWorkshopPick('meta', 'usage', 'runs');
   const slug = job.slug;
   const uid = useId();
   const headId = `${uid}-head`;

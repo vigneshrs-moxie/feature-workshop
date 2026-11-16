@@ -21,7 +21,7 @@ import { autoBlockedReason, autoModeOf, HARD_LINES_NOTE, POLICIES } from '../../
 import { sentence } from '../../components/permissions/rules';
 import { readStored, useStored } from '../../lib/stored';
 import { fullTime, relativeTime, useNow } from '../../lib/time';
-import { useWorkshop, useWorkshopState } from '../../state/store';
+import { useWorkshop, useWorkshopPick } from '../../state/store';
 import { DEFAULT_THEME, THEME_KEY } from '../../theme/theme';
 import { useTextSize } from '../../theme/textSize';
 import { PlaySettings } from './PlaySettings';
@@ -86,7 +86,7 @@ const message = (err: unknown) => (err instanceof Error ? err.message : String(e
 /** The three-way permission setting. Auto mode is shown disabled, with the reason, when it isn't available. */
 function PolicyChoice() {
   const { api, store } = useWorkshop();
-  const { meta } = useWorkshopState();
+  const { meta } = useWorkshopPick('meta');
   const settings = meta?.settings;
   const current: PolicyId = settings?.policy ?? 'hands-off';
   const auto = autoModeOf(settings);
@@ -152,7 +152,7 @@ export const STALE_SKILL = 'Your installed /feature skill predates levels. Run i
 
 /** A warning when the installed /feature skill has no Levels table (meta.skill; the dashboard only reads it). */
 function SkillWarning() {
-  const { meta } = useWorkshopState();
+  const { meta } = useWorkshopPick('meta');
   const skill = meta?.skill;
   if (!skill?.installed || skill.levels) return null;
   return (
@@ -216,7 +216,7 @@ const FOUND_MS = 1800;
 export function SettingsView({ section }: { section?: SettingsSection }) {
   const current: SettingsSection = section ?? FIRST_SECTION;
   const { api } = useWorkshop();
-  const { rulesVersion, meta } = useWorkshopState();
+  const { rulesVersion, meta } = useWorkshopPick('rulesVersion', 'meta');
   const policy = meta?.settings?.policy; // the rules wait while "ask about everything" is on: refetch when it changes
   const [load, setLoad] = useState<Load>({ state: 'loading' });
   const [mine, setMine] = useState(0); // bumped after a removal here, to refetch

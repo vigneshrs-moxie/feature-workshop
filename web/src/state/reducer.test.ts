@@ -263,3 +263,24 @@ describe('reducer: the Auto queue', () => {
     expect(initialState.autoQueue).toBeNull();
   });
 });
+
+describe('reducer: a snapshot that changes nothing a part shows keeps it identical (speed)', () => {
+  it('keeps the jobs list, each job, the permissions, usage and meta when a new snapshot says the same', () => {
+    const s = hydrated();
+    const again = reducer(s, { type: 'snapshot', snapshot: snapshot({ generatedAt: '2026-10-15T12:00:04.000Z' }) });
+    expect(again.jobs).toBe(s.jobs);
+    expect(again.permissions).toBe(s.permissions);
+    expect(again.usage).toBe(s.usage);
+    expect(again.meta).toBe(s.meta);
+    expect(again.generatedAt).toBe('2026-10-15T12:00:04.000Z');
+  });
+
+  it('keeps the jobs that did not change when one did', () => {
+    const s = hydrated();
+    const next = reducer(s, { type: 'snapshot', snapshot: snapshot({ jobs: [job('alpha', 'idle'), job('beta', 'running', { updatedAt: '2026-10-15T12:01:00.000Z' })] }) });
+    expect(next.jobs).not.toBe(s.jobs);
+    expect(next.jobs[0]).toBe(s.jobs[0]);
+    expect(next.jobs[1]).not.toBe(s.jobs[1]);
+    expect(next.jobs[1].updatedAt).toBe('2026-10-15T12:01:00.000Z');
+  });
+});

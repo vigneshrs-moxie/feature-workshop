@@ -15,7 +15,7 @@ import { CREW, crewModelName, crewRarity, dexNumber, isLensType, RARITY_HINT, RA
 import { CrewMember } from '../../play/CrewMember';
 import { usePlay, type PlayState } from '../../play/usePlay';
 import { usePlayLedger } from '../../play/usePlayLedger';
-import { useWorkshopState } from '../../state/store';
+import { useWorkshopPick } from '../../state/store';
 import { CREW_SIZE } from '../../play/crewSizes';
 import { nameOf, STOP_CREW } from '../../play/crewPack';
 import { Page } from '../../components/page/Page';
@@ -172,7 +172,7 @@ function Counts({ view }: { view: PlayView }) {
 
 export function CrewDexView() {
   const play = usePlay();
-  const { meta } = useWorkshopState();
+  const { meta } = useWorkshopPick('meta');
   const { load, retry } = usePlayLedger();
   const now = useNow();
   return (

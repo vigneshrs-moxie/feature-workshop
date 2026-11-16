@@ -6,7 +6,7 @@ import { useState } from 'react';
 import type { PlayMode, PlaySettings as Play, Settings } from '../../api/types';
 import { HowThisWorks } from '../../components/HowThisWorks';
 import { playOf } from '../../play/settings';
-import { useWorkshop, useWorkshopState } from '../../state/store';
+import { useWorkshop, useWorkshopPick } from '../../state/store';
 import { Choice } from '../../components/Choice';
 import { Saved, useSaved } from '../../components/Saved';
 import { SectionHead, SettingsMore } from './SettingsMore';
@@ -20,7 +20,7 @@ export const PLAY_MODE_CHOICES: { id: PlayMode; label: string; note: string; hin
 
 export function PlaySettings() {
   const { api, store } = useWorkshop();
-  const { meta } = useWorkshopState();
+  const { meta } = useWorkshopPick('meta');
   const play = playOf(meta?.settings);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

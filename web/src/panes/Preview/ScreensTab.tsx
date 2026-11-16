@@ -23,7 +23,7 @@ import { useUi } from '../../app/ui';
 import { Button } from '../../components/Button';
 import { readStored, writeStored } from '../../lib/stored';
 import { fullTime } from '../../lib/time';
-import { useWorkshop, useWorkshopState } from '../../state/store';
+import { useWorkshop, useWorkshopSelector } from '../../state/store';
 import { draftKey } from '../Foreman/Composer';
 import { versionLabel } from './docs';
 import { gotoScreen, isEscapeMessage, isPdfRequest, mountFrame, publishPrototype, pullPrototypeNotes, receive, requestFeedback, sendPdf, takeScreensRequest, useWireframes } from './wireframes';
@@ -117,7 +117,7 @@ export function ScreensTab({ slug, job, active, full = false }: {
 }) {
   const ui = useUi();
   const { api } = useWorkshop();
-  const meta = useWorkshopState().meta;
+  const meta = useWorkshopSelector((s) => s.meta);
   const origin = meta?.wireframesOrigin ?? null;
   const hosted = api.hosted?.() ?? false;
   const canPublish = Boolean(meta?.prototypes);

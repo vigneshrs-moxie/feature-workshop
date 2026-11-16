@@ -34,7 +34,7 @@ import { AutoSwitch } from '../../job/AutoSwitch';
 import { suggestFromDescription } from '../../lib/levels';
 import { readStored, writeStored } from '../../lib/stored';
 import { relativeTime, useNow } from '../../lib/time';
-import { useWorkshop, useWorkshopState } from '../../state/store';
+import { useWorkshop, useWorkshopPick } from '../../state/store';
 import { LevelPicker } from './LevelPicker';
 import { OptionRow, Segmented } from '../../components/Choice';
 import { Select } from '../../components/Select';
@@ -222,7 +222,7 @@ export function NewJobSheet({ onClose, description: initialDescription = '', tic
   onClose: () => void; description?: string; ticket?: TicketRef | null; stack?: boolean; kind?: 'feature' | 'bug'; hosted?: HostedStart;
 }) {
   const { api } = useWorkshop();
-  const { meta } = useWorkshopState();
+  const { meta } = useWorkshopPick('meta');
   const models: ModelChoice[] = hosted ? SITE_MODELS : meta?.models ?? [];
   const [description, setDescription] = useState(initialDescription || (givenTicket ? `${givenTicket.key}: ${givenTicket.title ?? ''}`.trim() : ''));
   // From the Inbox: fixed. Typed here: optional, checked when you start.

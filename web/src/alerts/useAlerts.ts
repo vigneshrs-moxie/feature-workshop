@@ -67,7 +67,7 @@ export function usePresence(post: (path: string, body: unknown) => Promise<unkno
   }, [post]);
 }
 
-export function useAlerts(state: WorkshopState, title: string = BASE_TITLE) {
+export function useAlerts(state: Pick<WorkshopState, 'status' | 'jobs' | 'permissions' | 'meta'>, title: string = BASE_TITLE) {
   const needs = state.status === 'ready' ? needsYouCount(state) : 0;
   useEffect(() => { document.title = titleFor(needs, title); }, [needs, title]);
   useEffect(() => () => { document.title = BASE_TITLE; }, []);

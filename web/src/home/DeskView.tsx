@@ -21,7 +21,8 @@
 //   r      no go: send back (a go-ahead: the gate's Revise with feedback)
 //   c      reply without deciding (a go-ahead: the gate's Other guidance; elsewhere c stays New job)
 // After a decision the next item opens and its card takes the focus.
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent } from 'react';
+import { useKept } from '../lib/share';
 import type { Job } from '../api/types';
 import { useKeyScope, type KeyId } from '../app/keyRegistry';
 import { hrefFor, jobHref, navigate } from '../app/router';
@@ -39,7 +40,7 @@ import { ServerHtml } from '../panes/Foreman/ServerHtml';
 import { useJobThread } from '../panes/Foreman/useJobThread';
 import { CrewMember } from '../play/CrewMember';
 import { usePlayIfAny } from '../play/usePlay';
-import { useWorkshop, useWorkshopState } from '../state/store';
+import { useWorkshop, useWorkshopPick, useWorkshopSelector } from '../state/store';
 import { jobHueStyle } from '../theme/hue';
 import { ReviewDeskCard } from '../views/Review/ReviewDeskCard';
 import { isRoundCard, ROUND_NUDGES, useReviewList } from '../views/Review/useReview';
@@ -85,14 +86,14 @@ const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
  * calls press them. Go is off while the card asks a question: a never answers one.
  */
 function DeskGateOne({ job, now, briefOpen, toggleBrief, call }: { job: Job; now: Date; briefOpen: boolean; toggleBrief(): void; call: boolean }) {
-  const state = useWorkshopState();
-  const thread = useJobThread(job.slug, (state.threadVersions[job.slug] ?? 0) + state.threadEpoch);
+  const thread = useJobThread(job.slug, useWorkshopSelector((s) => (s.threadVersions[job.slug] ?? 0) + s.threadEpoch));
+  const liveRun = useWorkshopSelector((s) => s.runs[job.slug]);
   const phone = usePhone();
   const body = useRef<HTMLDivElement>(null);
   const [go, setGo] = useState({ words: '', off: true, asks: false });
   const [extras, setExtras] = useState<HTMLDivElement | null>(null);
   // The call pressed spins while its decision is out (the card's own button was pressed for it).
-  const run = state.runs[job.slug] ?? thread.detail?.run ?? null;
+  const run = liveRun ?? thread.detail?.run ?? null;
   const decision = useGateSent(job, run, queuedOf(thread.detail?.queued)?.id ?? null, sessionOf(thread.detail));
   // After a send: the same lines as the job page's bar (job/sentView.ts), and no calls.
   const sent = useWaitingLines(job, thread.detail, run, decision, thread.reload);
@@ -233,21 +234,26 @@ function AutoMark({ item }: { item: DeskEntry }) {
 function QueueItems({ items, index, now, onPick }: { items: DeskEntry[]; index: number; now: Date; onPick(key: string): void }) {
   return (
     <>
-      {items.map((it, i) => (
-        <li key={it.key}>
-          <button type="button" className={`desk-item${i === index ? ' is-current' : ''}${isShipping(it) ? ' is-shipping' : ''}`} aria-current={i === index ? 'true' : undefined} onClick={() => onPick(it.key)}>
-            <span className="desk-item-top">
-              <span className="desk-item-title">{it.title}</span>
-              <AutoMark item={it} />
-              {it.since && it.kind !== 'nudge' && <span className="desk-item-since muted num" title={`Waiting ${relativeTime(it.since, now)}.`}>{relativeTime(it.since, now)}</span>}
-            </span>
-            <span className="desk-item-what">{it.what}</span>
-          </button>
-        </li>
-      ))}
+      {items.map((it, i) => <QueueRow key={it.key} it={it} current={i === index} now={now} onPick={onPick} />)}
     </>
   );
 }
+
+/** One row of the queue: drawn again only when its entry (kept identical while unchanged) or its mark changes. */
+const QueueRow = memo(function QueueRow({ it, current, now, onPick }: { it: DeskEntry; current: boolean; now: Date; onPick(key: string): void }) {
+  return (
+    <li>
+      <button type="button" className={`desk-item${current ? ' is-current' : ''}${isShipping(it) ? ' is-shipping' : ''}`} aria-current={current ? 'true' : undefined} onClick={() => onPick(it.key)}>
+        <span className="desk-item-top">
+          <span className="desk-item-title">{it.title}</span>
+          <AutoMark item={it} />
+          {it.since && it.kind !== 'nudge' && <span className="desk-item-since muted num" title={`Waiting ${relativeTime(it.since, now)}.`}>{relativeTime(it.since, now)}</span>}
+        </span>
+        <span className="desk-item-what">{it.what}</span>
+      </button>
+    </li>
+  );
+});
 
 /** The whole queue, in a drawer from the side (One at a time, under 1280 px). */
 function QueueDrawer({ items, index, now, onPick, onClose }: { items: DeskEntry[]; index: number; now: Date; onPick(key: string): void; onClose(): void }) {
@@ -298,10 +304,10 @@ function DecidedFold() {
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 function DeskGate({ job, now, briefOpen, toggleBrief }: { job: Job; now: Date; briefOpen: boolean; toggleBrief(): void }) {
-  const state = useWorkshopState();
-  const thread = useJobThread(job.slug, (state.threadVersions[job.slug] ?? 0) + state.threadEpoch);
+  const thread = useJobThread(job.slug, useWorkshopSelector((s) => (s.threadVersions[job.slug] ?? 0) + s.threadEpoch));
+  const liveRun = useWorkshopSelector((s) => s.runs[job.slug]);
   // M3: after a send, the same lines as the default Desk and the job page's bar (job/sentView.ts).
-  const run = state.runs[job.slug] ?? thread.detail?.run ?? null;
+  const run = liveRun ?? thread.detail?.run ?? null;
   const decision = useGateSent(job, run, queuedOf(thread.detail?.queued)?.id ?? null, sessionOf(thread.detail));
   const sent = useWaitingLines(job, thread.detail, run, decision, thread.reload);
   if (thread.error) return <p className="perm-warn" role="alert">{thread.error}</p>;
@@ -412,14 +418,15 @@ function DeskSide({ job }: { job: Job | null }) {
 
 export function DeskView({ items: decisions, now, layout = 'columns' }: { items: DeskItem[]; now: Date; layout?: DeskLayout }) {
   const { api } = useWorkshop();
-  const { jobs } = useWorkshopState();
+  const { jobs } = useWorkshopPick('jobs');
   const play = usePlayIfAny();
   // Nudges you said yes to or put away just now: gone at once, before the next snapshot confirms it.
   const [settled, setSettled] = useState<ReadonlySet<string>>(() => new Set());
   // A job with a review round: the round's card takes the place of its PR nudges.
   const { list: reviewList } = useReviewList(jobs.length > 0);
   const reviewing = new Set((reviewList?.jobs ?? []).map((v) => v.slug));
-  const items: DeskEntry[] = deskEntries(decisions, jobs).filter((e) => !settled.has(e.key) && !(e.kind === 'nudge' && reviewing.has(e.slug) && ROUND_NUDGES.has(e.nudge.id)));
+  // Kept identical where nothing changed (lib/share.ts), so the queue's rows that did not change draw nothing.
+  const items: DeskEntry[] = useKept(deskEntries(decisions, jobs).filter((e) => !settled.has(e.key) && !(e.kind === 'nudge' && reviewing.has(e.slug) && ROUND_NUDGES.has(e.nudge.id))));
   const [currentKey, setCurrentKey] = useState<string | null>(null);
   const [briefOpen, setBriefOpen] = useState(layout === 'columns');
   const [queueOpen, setQueueOpen] = useState(false);

@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PlanUsage, UsageMeter } from '../api/types';
 import { clockTime, fullTime, useNow } from '../lib/time';
-import { useWorkshop, useWorkshopState } from '../state/store';
+import { useWorkshop, useWorkshopPick } from '../state/store';
 import { Button } from './Button';
 
 export const WARN_AT = 80;
@@ -57,7 +57,7 @@ function LimitDetail({ long, meter, now }: { long: string; meter: UsageMeter; no
 }
 
 export function UsageMeters() {
-  const { planUsage } = useWorkshopState();
+  const { planUsage } = useWorkshopPick('planUsage');
   const { api, store } = useWorkshop();
   const now = useNow(30_000);
   const [checking, setChecking] = useState(false);

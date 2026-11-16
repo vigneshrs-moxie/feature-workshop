@@ -5,7 +5,7 @@
 import { useState } from 'react';
 import { carryOnNow, setAutoCarryOn } from '../app/jobActions';
 import { clockTime, useNow } from '../lib/time';
-import { useWorkshop, useWorkshopState } from '../state/store';
+import { useWorkshop, useWorkshopPick } from '../state/store';
 import { Choice } from './Choice';
 import { Button } from './Button';
 import { BRAND } from '../app/brand';
@@ -21,7 +21,7 @@ function untilText(iso: string | null, now: Date): string {
 
 export function UsageBanner() {
   const { api, store } = useWorkshop();
-  const { usage } = useWorkshopState();
+  const { usage } = useWorkshopPick('usage');
   const now = useNow();
   const [busy, setBusy] = useState(false);
   const [resuming, setResuming] = useState(false);

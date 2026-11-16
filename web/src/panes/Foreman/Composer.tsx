@@ -18,7 +18,7 @@ import type { JobDetail, JobLockInfo, ModelChoice, Run, Steer } from '../../api/
 import { composeMessage } from '../../lib/compose';
 import { gateDraftKey, KIND_WORDS, readGateMemo } from '../../lib/gateCard';
 import { useStored } from '../../lib/stored';
-import { useWorkshop, useWorkshopState } from '../../state/store';
+import { useWorkshop, useWorkshopPick } from '../../state/store';
 import { isActiveRun } from './thread';
 import { LockCard, lockFromError } from '../../views/JobLock/LockCard';
 import { Choice } from '../../components/Choice';
@@ -218,7 +218,7 @@ export function Composer({ slug, detail, run, modelLine = null }: {
   modelLine?: string | null;
 }) {
   const { api, store } = useWorkshop();
-  const { meta, jobs } = useWorkshopState();
+  const { meta, jobs } = useWorkshopPick('meta', 'jobs');
   const models = meta?.models ?? [];
   // The job is held elsewhere (a terminal, another dashboard): from the snapshot, or a refused send.
   // While it is, the box and its buttons are off, with the lock card saying why.

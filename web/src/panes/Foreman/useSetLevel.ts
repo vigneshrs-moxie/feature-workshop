@@ -5,7 +5,7 @@ import { useState } from 'react';
 import type { LevelNumber } from '../../api/types';
 import { setJobLevel } from '../../app/jobActions';
 import { levelChange, levelLabel, lensNames } from '../../lib/levels';
-import { useWorkshop, useWorkshopState } from '../../state/store';
+import { useWorkshop, useWorkshopPick } from '../../state/store';
 
 export interface SetLevel {
   busy: boolean;
@@ -21,7 +21,7 @@ export interface SetLevel {
 /** stage: the job's current stage (finished stages are left out of what the change adds or drops). */
 export function useSetLevel(slug: string, from: LevelNumber | null, stage: string | null = null, kind: string | null = null): SetLevel {
   const { api } = useWorkshop();
-  const { meta } = useWorkshopState();
+  const { meta } = useWorkshopPick('meta');
   // The level being set (its button spins; the others are off).
   const [pending, setPending] = useState<LevelNumber | null>(null);
   const [error, setError] = useState<string | null>(null);

@@ -7,7 +7,7 @@
 //   <SleepingCrew />       the live row during a usage pause: the crew asleep, back at 3:42pm
 import type { Job, ReviewBoss, Usage } from '../api/types';
 import { useNow } from '../lib/time';
-import { useWorkshopState } from '../state/store';
+import { useWorkshopPick } from '../state/store';
 import { CrewMember } from './CrewMember';
 import { nameList, workersNow } from './crewLines';
 import { backAt, bossView, staminaOf } from './extrasModel';
@@ -40,7 +40,7 @@ export function BossFight({ review }: { review: ReviewBoss | null | undefined })
 
 export function StaminaBar() {
   const full = useFull();
-  const { usage } = useWorkshopState();
+  const { usage } = useWorkshopPick('usage');
   const now = useNow();
   if (!full) return null;
   const s = staminaOf(usage, now);

@@ -13,7 +13,7 @@
 // The hidden themes (CRT Terminal, Gold) are listed only once the play ledger has unlocked them,
 // with an "Unlocked" tag.
 import { playOf } from '../../play/settings';
-import { useWorkshop, useWorkshopState } from '../../state/store';
+import { useWorkshop, useWorkshopPick } from '../../state/store';
 import { DEFAULT_THEME, themePair, THEMES, type ColorScheme, type ThemeInfo, useAvailableThemes, useChosenTheme, useTheme, useThemeFollow } from '../../theme/theme';
 import { Choice } from '../../components/Choice';
 import { Saved, useSaved } from '../../components/Saved';
@@ -76,7 +76,7 @@ export function ThemePicker() {
   const themes = useAvailableThemes();
   const chosen = themes.find((t) => t.id === theme) ?? null;
   const { api } = useWorkshop();
-  const { meta } = useWorkshopState();
+  const { meta } = useWorkshopPick('meta');
   const playOff = playOf(meta?.settings).mode === 'off';
   const saved = useSaved();
 

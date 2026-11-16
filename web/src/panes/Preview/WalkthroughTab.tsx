@@ -6,14 +6,14 @@
 import { useState } from 'react';
 import type { Job } from '../../api/types';
 import { relativeTime, useNow } from '../../lib/time';
-import { useWorkshopState } from '../../state/store';
+import { useWorkshopSelector } from '../../state/store';
 import { Button } from '../../components/Button';
 import { NO_ORIGIN } from './ScreensTab';
 
 export const walkthroughUrl = (origin: string, slug: string) => `${origin.replace(/\/+$/, '')}/job/${encodeURIComponent(slug)}/walkthrough`;
 
 export function WalkthroughTab({ slug, job, active }: { slug: string; job: Job | null | undefined; active: boolean }) {
-  const origin = useWorkshopState().meta?.wireframesOrigin ?? null;
+  const origin = useWorkshopSelector((s) => s.meta?.wireframesOrigin) ?? null;
   const now = useNow();
   const w = job?.walkthrough ?? null;
   const [copied, setCopied] = useState<'ok' | 'failed' | null>(null);
