@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../api/client';
-import { createStore, useWorkshopState, WorkshopContext, type Store } from '../state/store';
+import { createStore, WorkshopContext, type Store } from '../state/store';
 import { ev, job, permission, snapshot } from '../state/test-fixtures';
 import { AlertSettings } from './AlertSettings';
 import { alertOutputs, CHIME_KEY, NOTIFY_KEY, type Alert } from './alerts';
@@ -18,7 +18,7 @@ class FakeNotification {
 }
 
 function Harness() {
-  useAlerts(useWorkshopState());
+  useAlerts();
   return <button type="button">Somewhere on the page</button>;
 }
 
@@ -200,5 +200,21 @@ describe('Alerts switches', () => {
     const btn = screen.getByRole('button', { name: /Notifications/ });
     expect(btn).toBeDisabled();
     expect(btn).toHaveAttribute('title', 'This browser can’t show notifications.');
+  });
+});
+
+describe('alerts draw nothing for a snapshot (perf pass)', () => {
+  it('a snapshot that changes a job but not the Needs-you count draws nothing, yet a new Needs-you still chimes', () => {
+    localStorage.setItem(CHIME_KEY, 'on');
+    let draws = 0;
+    function Counting() { draws++; useAlerts(); return null; }
+    const store = ready();
+    renderWith(store, <Counting />);
+    const before = draws;
+    act(() => store.dispatch({ type: 'snapshot', snapshot: snapshot({ seq: 11, jobs: [job('alpha', 'idle'), job('beta', 'running', { updatedAt: '2026-10-15T12:09:00.000Z' })] }) }));
+    expect(draws).toBe(before);
+    act(() => store.dispatch({ type: 'snapshot', snapshot: snapshot({ seq: 12, jobs: [job('alpha', 'needs-you'), job('beta', 'running')] }) }));
+    expect(chime).toHaveBeenCalledTimes(1);
+    expect(document.title).toBe('(1) Starbase');
   });
 });

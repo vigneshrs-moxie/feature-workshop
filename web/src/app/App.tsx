@@ -193,7 +193,7 @@ function JobDrawerSheet({ slug, ...rest }: Omit<Parameters<typeof JobDrawer>[0],
 
 /** The tab's title and the alerts (a chime, a notification) when something new needs him: no drawing of their own. */
 function Alerts({ title }: { title: string }) {
-  useAlerts(useWorkshopPick('status', 'jobs', 'permissions', 'meta'), title);
+  useAlerts(title);
   return null;
 }
 

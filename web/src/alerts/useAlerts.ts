@@ -9,9 +9,10 @@
 //   - while you're looking at the page it tells the dashboard (POST /api/presence every 20 seconds),
 //     so the macOS notifications don't pop for what you can already see.
 import { BRAND } from '../app/brand';
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { readStored, writeStored } from '../lib/stored';
 import { needsYouCount, type WorkshopState } from '../state/reducer';
+import { useWorkshop, useWorkshopSelector } from '../state/store';
 import { alertOutputs, askNotifyPermission, attentionKeys, CHIME_KEY, newAlerts, notifySupport, NOTIFY_KEY } from './alerts';
 
 export const BASE_TITLE = BRAND.name;
@@ -67,25 +68,36 @@ export function usePresence(post: (path: string, body: unknown) => Promise<unkno
   }, [post]);
 }
 
-export function useAlerts(state: Pick<WorkshopState, 'status' | 'jobs' | 'permissions' | 'meta'>, title: string = BASE_TITLE) {
-  const needs = state.status === 'ready' ? needsYouCount(state) : 0;
+export function useAlerts(title: string = BASE_TITLE) {
+  const { store } = useWorkshop();
+  const needs = useWorkshopSelector((s) => (s.status === 'ready' ? needsYouCount(s) : 0));
   useEffect(() => { document.title = titleFor(needs, title); }, [needs, title]);
   useEffect(() => () => { document.title = BASE_TITLE; }, []);
 
   useAskOnFirstClick();
 
-  const seen = useRef<Set<string> | null>(null);
+  // Watched outside React (perf pass): an event or a snapshot draws nothing here; only a change of
+  // the jobs, the permissions or the settings is looked at.
   useEffect(() => {
-    if (state.status !== 'ready') return;
-    const now = attentionKeys(state);
-    const before = seen.current;
-    seen.current = now;
-    if (!before) return; // what was there when the page loaded never alerts
-    const fresh = newAlerts(before, state);
-    if (!fresh.length) return;
-    if (readStored(CHIME_KEY) === 'on') alertOutputs.chime();
-    // The dashboard's own notifications tell you only where they can reach macOS (not in the demo).
-    const macOS = state.meta?.settings?.notify?.enabled === true && Boolean(state.meta?.notifyMethod);
-    if (readStored(NOTIFY_KEY) === 'on' && !macOS && !pageInView()) for (const a of fresh) alertOutputs.notify(a);
-  }, [state]);
+    let seen: Set<string> | null = null;
+    let last: Pick<WorkshopState, 'jobs' | 'permissions' | 'meta'> | null = null;
+    const check = () => {
+      const state = store.getState();
+      if (state.status !== 'ready') return;
+      if (last && last.jobs === state.jobs && last.permissions === state.permissions && last.meta === state.meta) return;
+      last = state;
+      const now = attentionKeys(state);
+      const before = seen;
+      seen = now;
+      if (!before) return; // what was there when the page loaded never alerts
+      const fresh = newAlerts(before, state);
+      if (!fresh.length) return;
+      if (readStored(CHIME_KEY) === 'on') alertOutputs.chime();
+      // The dashboard's own notifications tell you only where they can reach macOS (not in the demo).
+      const macOS = state.meta?.settings?.notify?.enabled === true && Boolean(state.meta?.notifyMethod);
+      if (readStored(NOTIFY_KEY) === 'on' && !macOS && !pageInView()) for (const a of fresh) alertOutputs.notify(a);
+    };
+    check();
+    return store.subscribe(check);
+  }, [store]);
 }
