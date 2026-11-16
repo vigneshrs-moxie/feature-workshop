@@ -37,6 +37,8 @@ import { Icon } from '../../components/Icon';
 import { Guide, type GuideSpec } from '../../components/page/Page';
 import { autoBlockedReason, autoModeOf, HARD_LINES_NOTE, POLICIES, policyLabel } from '../../components/permissions/policies';
 import { laneOf } from '../../home/JobsPage';
+import { needsYouCount, nextNeedsYou } from '../../home/findJobs';
+import { jobHref } from '../../app/router';
 import { AutoSwitch } from '../../job/AutoSwitch';
 import { CopyDecisions } from '../../job/CopyDecisions';
 import { formatCost, isActiveRun } from '../../panes/Foreman/thread';
@@ -108,9 +110,34 @@ export const Header = memo(function Header({ job }: { job: Job | null }) {
       <span className="jp2-spacer" />
       {dim && <span className="jp2-facts" title={cost ? COST_TITLE : undefined}>{dim}</span>}
       {note && <HeadNote note={note} onClear={setNote} />}
+      <NextNeedsYou slug={slug} />
       <HeaderAuto slug={slug} job={job} />
       <MoreMenu slug={slug} job={job} onNote={setNote} />
     </header>
+  );
+});
+
+/**
+ * `Next: <title> · 3 wait ›` (16 Nov, working faster): the job that has waited longest for him, other
+ * than this one (home/findJobs.ts), one click (or g n) away. It reads the app's jobs through a string,
+ * so a snapshot that changes nothing it shows redraws nothing (speed rule 5).
+ */
+const NextNeedsYou = memo(function NextNeedsYou({ slug }: { slug: string }) {
+  const { store } = useWorkshop();
+  const said = useSyncExternalStore(store.subscribe, () => {
+    const jobs = store.getState().jobs;
+    const next = nextNeedsYou(jobs, slug);
+    return next ? `${next.slug}\n${next.title || next.slug}\n${needsYouCount(jobs, slug)}` : '';
+  });
+  if (!said) return null;
+  const [to, title, n] = said.split('\n');
+  return (
+    <a className="jp2-next" href={jobHref(to)} title={`Open ${title}: it has waited longest for you${Number(n) > 1 ? `, of ${n}` : ''} (keys: g n).`}>
+      <span className="jp2-next-w">Next:</span>
+      <span className="jp2-next-t">{title}</span>
+      {Number(n) > 1 && <span className="jp2-next-n">{`· ${n} wait`}</span>}
+      <Icon name="chevron-right" size={14} />
+    </a>
   );
 });
 

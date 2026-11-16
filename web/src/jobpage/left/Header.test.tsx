@@ -292,3 +292,22 @@ describe('final W8: the guide’s words', () => {
     for (const c of JOB_PAGE_GUIDE.cards) expect(c.say).not.toMatch(/\bReply\b/);
   });
 });
+
+// Next (16 Nov, working faster): the job that has waited longest for him, other than this one.
+describe('Next: the job that needs you next', () => {
+  it('names the longest wait other than this job, with how many wait; nothing when none does', () => {
+    const rows = [
+      jobRow(SLUG, 'needs-you', { title: 'This one', lane: 'needs-you', waitingSince: '2026-11-16T07:00:00Z' }),
+      jobRow('older', 'needs-you', { title: 'Weekly hours email', lane: 'needs-you', waitingSince: '2026-11-16T08:00:00Z' }),
+      jobRow('newer', 'needs-you', { title: 'Gate code', lane: 'needs-you', waitingSince: '2026-11-16T09:00:00Z' }),
+      jobRow('busy', 'running', { title: 'Busy', lane: 'working' }),
+    ];
+    const m = mount({ rows });
+    const next = within(head()).getByRole('link', { name: /^Next:/ });
+    expect(next).toHaveTextContent('Next:Weekly hours email· 2 wait');
+    expect(next).toHaveAttribute('href', '#/job/older');
+    m.unmount();
+    mount({ rows: [rows[0], rows[3]] });
+    expect(within(head()).queryByRole('link', { name: /^Next:/ })).toBeNull();
+  });
+});

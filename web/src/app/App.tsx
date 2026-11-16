@@ -33,6 +33,7 @@ import { StacksPage } from '../views/Stack/StacksPage';
 import { InboxView } from '../views/Inbox';
 import { DeskPage } from '../home/DeskPage';
 import { JobsPage } from '../home/JobsPage';
+import { nextNeedsYou } from '../home/findJobs';
 import { JobPage } from '../job/page/JobPage';
 import { JobPage2 } from '../jobpage/JobPage2';
 import { useNewJobPage } from '../jobpage/switch';
@@ -116,6 +117,13 @@ function Sheets({ route }: { route: Route }) {
     'go-map': () => navigate({ name: 'map' }),
     'go-table': () => navigate({ name: 'table' }),
     'go-desk': () => navigate({ name: 'desk' }),
+    // The next job that waits for him (home/findJobs.ts), other than the one open.
+    'go-next': () => {
+      const here = /^#\/job\/([^/?]+)/.exec(window.location.hash)?.[1] ?? null;
+      const next = nextNeedsYou(state.jobs, here ? decodeURIComponent(here) : null);
+      if (!next) return false;
+      navigate({ name: 'job', slug: next.slug });
+    },
     'go-settings': () => navigate({ name: 'settings' }),
     'go-crew': () => { if (!play.on) return false; navigate({ name: 'crew' }); },
   });

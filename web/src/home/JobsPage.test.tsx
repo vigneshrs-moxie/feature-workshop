@@ -493,3 +493,39 @@ describe('Jobs: the bar says "waited longest" only when it is true', () => {
     expect(sub()).toMatch(/2 jobs need you\. This one has waited longest\.$/);
   });
 });
+
+// The search (home/JobSearch.tsx; 16 Nov).
+describe('finding a job', () => {
+  beforeEach(() => { window.location.hash = '#/'; });
+
+  it('/ puts the focus in the box; words show the matches in place of the board; ↓ and Enter open one; Escape clears', () => {
+    const off = installKeyListener();
+    setup();
+    fireEvent.keyDown(document.body, { key: '/' });
+    const box = screen.getByRole('searchbox', { name: 'Find a job' });
+    expect(document.activeElement).toBe(box);
+    fireEvent.change(box, { target: { value: 'email' } });
+    const list = screen.getByRole('listbox', { name: 'Matching jobs' });
+    expect(within(list).getAllByRole('option').map((o) => o.querySelector('.job-card-title')?.textContent)).toEqual(['Weekly hours email', 'Cancellation email']);
+    expect(screen.getByRole('status')).toHaveTextContent('2 of 7 jobs');
+    expect(screen.queryByRole('region', { name: 'Working, 1' })).toBeNull();
+    fireEvent.keyDown(box, { key: 'ArrowDown' });
+    expect(within(list).getAllByRole('option')[1]).toHaveAttribute('aria-selected', 'true');
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(window.location.hash).toBe('#/job/delta');
+    window.location.hash = '#/';
+    fireEvent.keyDown(box, { key: 'Escape' });
+    expect(box).toHaveValue('');
+    expect(screen.getByRole('region', { name: 'Working, 1' })).toBeInTheDocument();
+    off();
+  });
+
+  it('finds Resting and Done jobs too, and says so when nothing matches', () => {
+    setup();
+    const box = screen.getByRole('searchbox', { name: 'Find a job' });
+    fireEvent.change(box, { target: { value: 'shipped' } });
+    expect(screen.getByRole('link', { name: 'Shipped thing' })).toBeInTheDocument();
+    fireEvent.change(box, { target: { value: 'zebra' } });
+    expect(screen.getByRole('status')).toHaveTextContent('No job has “zebra”.');
+  });
+});

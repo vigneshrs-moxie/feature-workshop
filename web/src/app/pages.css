@@ -394,6 +394,17 @@ html[data-theme] .desk-console .gate-card.perm-card { padding: 0; border: 0; bor
 .jobs-list { margin: 0; padding: 0; list-style: none; border: 1px solid var(--border-2); border-radius: var(--card-radius); background: var(--surface-1); box-shadow: var(--elev-xs); }
 .jobs-list-row { position: relative; display: grid; grid-template-columns: 150px minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-4); border-bottom: 1px solid var(--border-1); }
 .jobs-list-row:last-child { border-bottom: 0; }
+/* Jobs' search (home/JobSearch.tsx): a box in the heading; its matches take the board's place. */
+.jobs-find { display: inline-flex; align-items: center; gap: 6px; width: min(340px, 100%); height: var(--control-h); padding: 0 8px 0 10px; border: 1px solid var(--border-2); border-radius: var(--radius-md); background: var(--surface-1); color: var(--text-3); }
+.jobs-find:focus-within { border-color: var(--focus-ring); box-shadow: 0 0 0 1px var(--focus-ring); }
+.jobs-find-in { flex: 1; min-width: 0; height: 100%; border: 0; background: none; color: var(--text-1); font: inherit; font-size: 14px; outline: none; }
+.jobs-find-in::placeholder { color: var(--text-3); }
+.jobs-find-in::-webkit-search-cancel-button { cursor: pointer; }
+.jobs-found { display: flex; flex-direction: column; gap: var(--space-2); }
+.jobs-found-count { margin: 0; font-size: 13px; color: var(--text-2); }
+.jobs-found-row { cursor: pointer; }
+.jobs-found-row.is-active { background: var(--hover-bg); box-shadow: inset 3px 0 0 var(--accent); }
+.jobs-found-key { margin-right: 8px; font-family: var(--font-mono); font-size: 12px; color: var(--text-2); }
 .jobs-empty { display: flex; flex-direction: column; gap: var(--space-4); }
 .jobs-empty-actions { justify-content: flex-start; }
 .jobs-folds { display: flex; flex-direction: column; gap: var(--space-2); }

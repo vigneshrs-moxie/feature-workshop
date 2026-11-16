@@ -70,6 +70,7 @@ export const KEYS = {
   'go-map': { keys: ['g m'], label: 'Go to the flow map', scope: 'global' },
   'go-table': { keys: ['g t'], label: 'Go to the Table', scope: 'global' },
   'go-desk': { keys: ['g d'], label: 'Go to the Desk', scope: 'global' },
+  'go-next': { keys: ['g n'], label: 'Open the next job that needs you', scope: 'global', where: 'The one that has waited longest, other than the job you are on.' },
   'go-settings': { keys: ['g s'], label: 'Go to Settings', scope: 'global' },
   'go-crew': { keys: ['g x'], label: 'Go to the Crew-dex (Play mode)', scope: 'global' },
   'github-check': { keys: ['u'], label: 'Check GitHub now', scope: 'global', where: 'Where the GitHub line shows: Jobs and a job’s Ship step.' },
@@ -149,6 +150,7 @@ export const KEYS = {
   'gate-decided': { keys: ['v'], label: 'Open or close the decisions made for you', scope: 'gate', where: 'Only when the card has some.' },
   // The Desk
   'jobs-open': { keys: ['o'], label: 'Open the job the next-step bar names', scope: 'jobs', where: 'When a job needs you.' },
+  'jobs-find': { keys: ['/'], label: 'Find a job', scope: 'jobs', where: 'Then ↓ ↑ to pick, Enter to open, Escape to clear.' },
   // The floor (Jobs' Floor layout, Play full)
   'floor-next': { keys: ['j'], label: 'The next bay', scope: 'floor' },
   'floor-prev': { keys: ['k'], label: 'The previous bay', scope: 'floor' },

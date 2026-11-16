@@ -747,3 +747,11 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 @container jp2convo (min-width: 560px) {
   .jp2[data-layout="wide"] .jp2-convo .jp2-cv-sbox { flex: 0 1 360px; }
 }
+/* Next: the job that has waited longest for him (left/Header.tsx NextNeedsYou; g n). */
+.jp2-next { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 340px; height: 28px; padding: 0 8px 0 10px; border: 1px solid var(--border-2); border-radius: 999px; color: var(--text-1); font-size: 12.5px; text-decoration: none; white-space: nowrap; }
+.jp2-next:hover { background: var(--hover-bg); }
+.jp2-next:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.jp2-next-w { flex: none; font-weight: 600; color: var(--lane-needs-you-fg); }
+.jp2-next-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.jp2-next-n { flex: none; color: var(--text-3); }
+.jp2[data-layout="phone"] .jp2-next { order: 6; flex: 1 1 100%; max-width: none; }

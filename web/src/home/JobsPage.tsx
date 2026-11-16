@@ -38,6 +38,8 @@ import { useWorkshop, useWorkshopState } from '../state/store';
 import { prefetchProps } from '../jobpage/recent';
 import { useNewJobPage } from '../jobpage/switch';
 import { StackJobCard, useStackIndex, type StackIndex } from '../views/Stack/StackRows';
+import { JobFind, JobResults } from './JobSearch';
+import { matchJobs } from './findJobs';
 import { StepDots } from '../views/Stack/StacksPage';
 import type { Permission, ReviewView } from '../api/types';
 import { GithubLine } from '../views/Review/GithubLine';
@@ -269,7 +271,16 @@ export function JobsPage() {
   // Yours' count: the jobs on its four lanes (Resting and Done have their own, under the board).
   const yoursCount = BOARD.reduce((n, l) => n + byLane[l].length, 0);
 
-  useKeyScope('jobs', { 'jobs-open': () => { if (!pick) return false; navigate({ name: 'job', slug: pick.slug }); } });
+  // The search (JobSearch.tsx; home/findJobs.ts): every job, both tabs, Resting and Done; it takes the board's place while it has words.
+  const [query, setQuery] = useState('');
+  const [active, setActive] = useState(0);
+  const findRef = useRef<HTMLInputElement>(null);
+  const found = query.trim() ? matchJobs([...open, ...jobs.filter((j) => stacks.partOf(j.slug))], query) : [];
+  const inStack = (slug: string) => Boolean(stacks.stackOf(slug));
+  useKeyScope('jobs', {
+    'jobs-open': () => { if (!pick) return false; navigate({ name: 'job', slug: pick.slug }); },
+    'jobs-find': () => { findRef.current?.focus(); findRef.current?.select(); },
+  });
   // The quick look (packet R): over the right side of the board, in the board's order for j and k.
   // It is in the address (#/?peek=<slug>), so a reload or Back to Jobs opens it again. Replaced, not
   // pushed: j and k would otherwise fill Back with every card looked at.
@@ -361,6 +372,7 @@ export function JobsPage() {
               </button>
             ))}
           </div>
+          <JobFind value={query} onChange={setQuery} inputRef={findRef} results={found} active={Math.min(active, Math.max(0, found.length - 1))} onActive={setActive} stackOf={inStack} />
           {play === 'full' && tab === 'yours' && <Segmented<JobsLayout> className="jobs-layout-switch" label="Jobs layout" value={layout} onChange={setLayout} options={LAYOUT_CHOICES} />}
           <GithubLine onlyStale />
         </>
@@ -375,6 +387,8 @@ export function JobsPage() {
             <Button keyId="new-job" onClick={() => ui.openSheet({ kind: 'new-job' })} title="Start a new job of your own (key: c).">New job</Button>
           </div>
         </section>
+      ) : query.trim() ? (
+        <JobResults query={query} results={found} total={jobs.length} active={Math.min(active, Math.max(0, found.length - 1))} onActive={setActive} stackOf={inStack} now={now} />
       ) : tab === 'auto' ? (
         <>
           {/* On a phone the groups are one after another, and a row opens its job (no quick look, as the lanes' folds). */}
