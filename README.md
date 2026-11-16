@@ -8,6 +8,10 @@ It comes in two parts:
 
 ![Jobs in four lanes: Working, Needs you, In review, Ready to merge](docs/readme/jobs-light.png)
 
+## Guide
+
+New to Starbase? The **[user guide](docs/guide/README.md)** teaches it step by step: the 5-minute tour, the Jobs page, a job's page, answering decisions fast, Auto and permissions, shipping, the website, every key, and what to do when something goes wrong.
+
 ## Install
 
 You need Node.js 22 or later, Git, the GitHub CLI (`gh`) and Claude Code, the last two signed in. `starbase doctor` checks all of them and tells you how to get what's missing.
