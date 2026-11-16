@@ -464,7 +464,14 @@ export function ConversationView({ searchRef, onOpen, column = false }: Conversa
             placeholder="Find in headlines and opened messages"
             value={words}
             onChange={(e) => setWords(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Escape' && words) { e.stopPropagation(); setWords(''); } }}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape' && words) { e.stopPropagation(); setWords(''); }
+              // Enter: to the first line that matches (then j k move, Enter opens it).
+              if (e.key === 'Enter' && words) {
+                const first = root.current?.querySelector<HTMLElement>('.jp2-cv-line');
+                if (first) { e.preventDefault(); first.focus(); }
+              }
+            }}
           />
         </label>
         {filtering && <span className="jp2-dim jp2-cv-count" role="status">{`${count} of ${total} lines`}</span>}

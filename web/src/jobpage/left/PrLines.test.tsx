@@ -292,3 +292,19 @@ describe('the deciding arrangement: the PR lines while a decision waits at Ship'
     expect(readerPane().getByRole('button', { name: 'Push and open PR #1' })).toBeInTheDocument();
   });
 });
+
+describe('missing moves: what will go folds on Escape (16 Nov)', () => {
+  it('Escape cancels it, and Cancel or Escape give the focus back to the line’s button; nothing is sent', async () => {
+    const o = open(payload({ ship: true }));
+    await settle();
+    fireEvent.click(shipLines().getByRole('button', { name: 'Push and open PR #1' }));
+    const panel = shipLines().getByRole('group', { name: /^What .* will do$/ });
+    act(() => { fireEvent.keyDown(panel, { key: 'Escape' }); });
+    expect(shipLines().queryByRole('group', { name: /^What .* will do$/ })).toBeNull();
+    expect(document.activeElement).toBe(shipLines().getByRole('button', { name: 'Push and open PR #1' }));
+    fireEvent.click(shipLines().getByRole('button', { name: 'Push and open PR #1' }));
+    fireEvent.click(shipLines().getByRole('button', { name: 'Cancel' }));
+    expect(document.activeElement).toBe(shipLines().getByRole('button', { name: 'Push and open PR #1' }));
+    expect(goes(o.post)).toHaveLength(0);
+  });
+});

@@ -531,3 +531,16 @@ describe('the glance layout: the reader beside the conversation’s column (targ
     expect(document.querySelector('section.jp2-convo')).toBeNull();
   });
 });
+
+describe('missing moves: Older gives the focus back (16 Nov)', () => {
+  it('after a pick from Older the focus is on Older again, not lost', async () => {
+    const o = open();
+    await show(o, { kind: 'doc', id: 'review.md' });
+    fireEvent.click(within(top()).getByRole('button', { name: 'Older' }));
+    const menu = within(top()).getByRole('menu', { name: 'Older' });
+    fireEvent.click(within(menu).getByRole('menuitemradio', { name: /^Review: db r2/ }));
+    await settle();
+    expect(title()).toBe('Review: db r2');
+    expect(document.activeElement).toBe(within(top()).getByRole('button', { name: 'Older' }));
+  });
+});

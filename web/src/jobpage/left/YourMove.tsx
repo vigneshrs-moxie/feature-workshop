@@ -28,6 +28,7 @@
 // a Go, or Allow once; r Send back; ↑ ↓ move through the options (outside the reader); Space picks the one moved to.
 
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { flushSync } from 'react-dom';
 import { ApiError } from '../../api/client';
 import type { GateResult, Job, Permission, Run } from '../../api/types';
 import { BRAND } from '../../app/brand';
@@ -300,6 +301,12 @@ function GateCard({ move, onOpen }: { move: GateMove; onOpen?: YourMoveProps['on
   const sent = sentAny ? goAsItStands(sentAny, facts) : null;
   /** Per question: the id whose words are open under it (left/Refs.tsx). */
   const [refOpen, setRefOpen] = useState<Record<string, string | null>>({});
+  /** Fold a question's id words (Escape or Close): the focus goes back to the id that opened them. */
+  const foldRef = (q: string, within: Element | null) => {
+    const id = within?.querySelector<HTMLElement>('.jp2-ref.is-open') ?? null;
+    flushSync(() => setRefOpen((o) => ({ ...o, [q]: null })));
+    id?.focus();
+  };
   const [line, setLine] = useState<string | null>(null);
   // Keep the Go as it now stands (held seen, a run adopted, its queued decision seen), or end it: the
   // card comes back, saying why when the website's decision did not run.
@@ -487,10 +494,10 @@ function GateCard({ move, onOpen }: { move: GateMove; onOpen?: YourMoveProps['on
           const name = `${uid}-q${q.id}`;
           const ownOpen = q.options.length === 0 || chosen === OWN;
           return (
-            <fieldset key={q.id} className="jp2-ym-q">
+            <fieldset key={q.id} className="jp2-ym-q" onKeyDown={refOpen[q.id] ? (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); foldRef(q.id, e.currentTarget); } } : undefined}>
               <legend className="jp2-ym-qt">{i + 1}. <RefText text={q.text} refs={move.refs} told={toldAt.get(`q:${q.id}`)} open={refOpen[q.id] ?? null} onPick={(id) => setRefOpen((o) => ({ ...o, [q.id]: o[q.id] === id ? null : id }))} /></legend>
               {refOpen[q.id] && move.refs?.[refOpen[q.id]!] && (
-                <RefOpen meaning={move.refs[refOpen[q.id]!]} onOpen={onOpen} onClose={() => setRefOpen((o) => ({ ...o, [q.id]: null }))} />
+                <RefOpen meaning={move.refs[refOpen[q.id]!]} onOpen={onOpen} onClose={(from) => foldRef(q.id, from.closest('fieldset'))} />
               )}
               {q.options.map((o) => (
                 <OptionRow

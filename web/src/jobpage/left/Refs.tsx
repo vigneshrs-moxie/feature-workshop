@@ -86,7 +86,8 @@ export function RefText({ text, refs, open = null, onPick, told }: RefTextProps)
 export interface RefOpenProps {
   meaning: RefMeaning;
   onOpen?(t: ReaderTarget, from?: HTMLElement | null): void;
-  onClose(): void;
+  /** Fold the words; `from` is the control pressed (Close). */
+  onClose(from: HTMLElement): void;
 }
 
 /** An id's words, under the question that mentions it. */
@@ -100,7 +101,7 @@ export function RefOpen({ meaning: r, onOpen, onClose }: RefOpenProps) {
             {`Open in ${r.where.name}`}
           </button>
         )}
-        <button type="button" className="link-button" onClick={onClose} title="Fold these words.">Close</button>
+        <button type="button" className="link-button" onClick={(e) => onClose(e.currentTarget)} title="Fold these words (key: Esc).">Close</button>
       </p>
     </div>
   );

@@ -15,6 +15,7 @@
 // step (usePrLead; plan "Open with the owner"); its click opens the reader's Ship with that line open.
 
 import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { flushSync } from 'react-dom';
 import { ApiError } from '../../api/client';
 import { BRAND } from '../../app/brand';
 import { Button } from '../../components/Button';
@@ -115,6 +116,9 @@ function Line({ slug, line, hosted, skip, bare = false }: { slug: string; line: 
     if (next && takeAsked(slug, line.n)) { setOpen(true); setProblem(null); }
   }, [heard, next, slug, line.n]);
   useEffect(() => { if (open) panelRef.current?.focus(); }, [open]);
+  /** The line's button, for Cancel and Escape to give the focus back to. */
+  const lineBtn = useRef<HTMLButtonElement>(null);
+  const cancel = () => { flushSync(() => setOpen(false)); lineBtn.current?.focus(); };
   // What was sent shows until the server's line moves on to something else.
   const showSent = sent && ((next && next.check === sent.check) || line.why === 'Sent to the Foreman') ? sent : null;
   const nextCheck = next?.check ?? null;
@@ -146,16 +150,16 @@ function Line({ slug, line, hosted, skip, bare = false }: { slug: string; line: 
         {!bare && <b className="jp2-prl-n">PR #{line.n}</b>}
         {!bare && <span className="jp2-prl-s">{line.word}{when}{why ? ` · ${why}` : ''}</span>}
         {next && !open && !showSent && (
-          <Button size="sm" className="jp2-prl-b" onClick={() => { setOpen(true); setProblem(null); }} title={next.round ? `Shows the steps first. ${BRAND.name} then does them itself, on GitHub.` : `Shows what will go first. Sends the Foreman: “${next.sends}”`}>{next.label}</Button>
+          <Button ref={lineBtn} size="sm" className="jp2-prl-b" onClick={() => { setOpen(true); setProblem(null); }} title={next.round ? `Shows the steps first. ${BRAND.name} then does them itself, on GitHub.` : `Shows what will go first. Sends the Foreman: “${next.sends}”`}>{next.label}</Button>
         )}
         {!next && !bare && line.url && <Button kind="quiet" size="sm" className="jp2-prl-b" href={line.url} target="_blank" rel="noreferrer">Open on GitHub</Button>}
       </div>
       {next && open && (
-        <div ref={panelRef} tabIndex={-1} className="jp2-prl-x" role="group" aria-label={`What ${next.label} will do`}>
+        <div ref={panelRef} tabIndex={-1} className="jp2-prl-x" role="group" aria-label={`What ${next.label} will do`} onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancel(); } }}>
           <ul className="jp2-prl-says">{next.says.map((s, i) => <li key={i} className={/^[0-9a-f]{7} /.test(s) ? 'is-commit' : s.startsWith('  ') ? 'is-sub' : undefined}>{s.trim()}</li>)}</ul>
           <div className="jp2-prl-acts">
             <Button kind="primary" size="sm" onClick={() => { void go(); }} title={next.round ? `${BRAND.name} does these steps itself, on GitHub, now.` : `Sends the Foreman: “${next.sends}”`}>{next.go}</Button>
-            <Button kind="quiet" size="sm" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button kind="quiet" size="sm" onClick={cancel} title="Send nothing (key: Esc).">Cancel</Button>
           </div>
         </div>
       )}

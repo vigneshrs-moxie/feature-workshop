@@ -710,3 +710,34 @@ describe('the decision card holds the brief', () => {
     o.unmount();
   });
 });
+
+describe('missing moves: an id’s words fold on Escape (16 Nov)', () => {
+  beforeEach(() => { vi.stubGlobal('matchMedia', (q: string) => ({ matches: /min-width/.test(q), media: q, addEventListener() {}, removeEventListener() {} })); });
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('Escape folds the words and gives the focus back to the id; so does Close', async () => {
+    const g = GATE();
+    const move: GateMove = {
+      ...g,
+      questions: [{ id: '1', text: 'Fix R-2 now, before PR #1?', options: [{ id: 'a', label: 'Yes', consequence: null, recommended: true }, { id: 'b', label: 'No', consequence: null, recommended: false }] }, g.questions[1]],
+      refs: { 'R-2': { id: 'R-2', title: 'The file name’s date', text: 'Major · the file name’s date.', where: { kind: 'findings', id: 'findings', name: 'Findings' } } },
+    };
+    const o = open({ move });
+    await settle();
+    const q1 = within(card()).getAllByRole('group')[0];
+    const id = within(q1).getByRole('button', { name: 'R-2' });
+    act(() => id.focus());
+    fireEvent.click(id);
+    expect(within(q1).getByRole('note', { name: 'R-2' })).toBeInTheDocument();
+    key('Escape', id);
+    expect(within(q1).queryByRole('note')).toBeNull();
+    expect(document.activeElement).toBe(within(q1).getByRole('button', { name: 'R-2' }));
+    fireEvent.click(within(q1).getByRole('button', { name: 'R-2' }));
+    const close = within(q1).getByRole('button', { name: 'Close' });
+    act(() => close.focus());
+    fireEvent.click(close);
+    expect(within(q1).queryByRole('note')).toBeNull();
+    expect(document.activeElement).toBe(within(q1).getByRole('button', { name: 'R-2' }));
+    o.unmount();
+  });
+});

@@ -668,3 +668,19 @@ describe('the glance layout: the conversation in its own column (a laptop)', () 
     expect(convo().querySelectorAll('.jp2-cv-full')).toHaveLength(2);
   });
 });
+
+describe('missing moves: Enter in the filter box (16 Nov)', () => {
+  it('Enter takes the focus to the first line that matches; with no match it stays in the box', async () => {
+    open();
+    await settle();
+    const box = screen.getByRole('searchbox', { name: 'Search the conversation' });
+    act(() => box.focus());
+    fireEvent.change(box, { target: { value: 'week' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(document.activeElement).toBe(items()[0].querySelector('.jp2-cv-line'));
+    act(() => box.focus());
+    fireEvent.change(box, { target: { value: 'nothing says this' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(document.activeElement).toBe(box);
+  });
+});

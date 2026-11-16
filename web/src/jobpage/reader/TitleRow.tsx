@@ -234,12 +234,20 @@ function SinceToggle({ id }: { id: string }) {
 
 const updatedOf = (meta: Record<string, unknown> | undefined): string | null => (typeof meta?.updatedAt === 'string' ? meta.updatedAt : null);
 
+/** A pick from Older just opened another target: the Older drawn for it takes the focus (its button is a new one). */
+let olderPicked = false;
+
 /** `Older`: a short menu under the button. ↓ ↑ move, Esc closes and gives the focus back, a click outside or Tab closes it. */
 function Older({ list, current, onOpen }: { list: OlderList; current: ReaderTarget; onOpen: TitleRowProps['onOpen'] }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
   const items = () => [...(box.current?.querySelectorAll<HTMLElement>('[role="menuitemradio"]') ?? [])];
+  useEffect(() => {
+    if (!olderPicked) return;
+    olderPicked = false;
+    button.current?.focus();
+  }, []);
   useEffect(() => {
     if (!open) return undefined;
     (items().find((i) => i.getAttribute('aria-checked') === 'true') ?? items()[0])?.focus();
@@ -270,7 +278,7 @@ function Older({ list, current, onOpen }: { list: OlderList; current: ReaderTarg
               {g.items.map((it) => {
                 const on = sameTarget(it.target, current);
                 return (
-                  <button key={placeKey(it.target)} type="button" role="menuitemradio" aria-checked={on} className="menu-item" onClick={(e) => { setOpen(false); if (!on) onOpen(it.target, e.currentTarget); }}>
+                  <button key={placeKey(it.target)} type="button" role="menuitemradio" aria-checked={on} className="menu-item" onClick={(e) => { setOpen(false); button.current?.focus(); if (!on) { olderPicked = true; onOpen(it.target, e.currentTarget); setTimeout(() => { olderPicked = false; }, 0); } }}>
                     {on ? <Icon name="check" size={16} /> : <span className="menu-icon-gap" aria-hidden="true" />}
                     <span className="menu-label">{it.label}</span>
                     {it.meta && <span className="jp2-rv-older-meta">{it.meta}</span>}
