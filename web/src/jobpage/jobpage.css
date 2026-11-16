@@ -556,7 +556,7 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
    The left pane's wrappers step aside (display: contents), so its parts sit in the page's grid. */
 .jp2[data-layout="wide"] .jp2-panes { display: grid; grid-template-columns: minmax(0, 1fr) 248px clamp(380px, 34vw, 640px); grid-template-rows: auto auto minmax(0, 1fr); grid-template-areas: "steps steps rows" "move move convo" "reader side convo"; }
 .jp2[data-layout="wide"] .jp2-left, .jp2[data-layout="wide"] .jp2-lscroll { display: contents; }
-.jp2[data-layout="wide"] .jp2-movewrap { grid-area: move; min-width: 0; max-height: 50vh; overflow-y: auto; scrollbar-width: thin; }
+.jp2[data-layout="wide"] .jp2-movewrap { grid-area: move; position: relative; min-width: 0; max-height: 50vh; overflow-y: auto; scrollbar-width: thin; }
 .jp2[data-layout="wide"] .jp2-movewrap:empty { display: none; }
 .jp2[data-layout="wide"] .jp2-ym { padding: 10px 24px 8px; }
 .jp2[data-layout="wide"] .jp2-pageproblem { padding: 12px 24px; }
@@ -579,7 +579,7 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2[data-layout="wide"] .jp2-jr { width: auto; flex: none; height: 26px; white-space: nowrap; }
 .jp2[data-layout="wide"] .jp2-jr .jp2-jr-more { margin-left: 4px; min-width: 0; }
 /* The step panel (left/StepPanel.tsx): what the picked step made, beside the reader */
-.jp2-sp { grid-area: side; min-height: 0; overflow-y: auto; padding: 12px 12px 24px 8px; scrollbar-width: thin; background: var(--bg-0); }
+.jp2-sp { grid-area: side; position: relative; min-height: 0; overflow-y: auto; padding: 12px 12px 24px 8px; scrollbar-width: thin; background: var(--bg-0); }
 .jp2-sp-head { display: flex; align-items: baseline; gap: 8px; margin: 0 0 2px; padding: 0 8px; }
 .jp2-sp-name { font-size: 14px; font-weight: 650; }
 .jp2-sp-word { font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; }
