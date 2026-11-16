@@ -1,5 +1,5 @@
 // <MenuButton />: a button that drops a short menu of links and actions (the gear, and the ☰ menu at
-// phone width). ↓ ↑ move, Esc closes and gives focus back to the button, a click outside or Tab
+// phone width). ↓ ↑ move, Esc or a pick closes it and gives focus back to the button, a click outside or Tab
 // closes it. While it is open the page's single-letter keys wait (data-keys-wait, keyRegistry.ts).
 // An action can be greyed out (its hint says why). A set of choices is a group under its heading, each
 // a radio item with a tick on the one in force (the new job page's Permissions for this job).
@@ -85,7 +85,7 @@ export function MenuButton({ label, hint, icon, children, entries, className = '
                 <div key={e.id} role="group" aria-labelledby={`${id}-${e.id}`}>
                   <div id={`${id}-${e.id}`} className="menu-heading">{e.label}</div>
                   {e.options.map((o) => (
-                    <button key={o.id} type="button" role="menuitemradio" aria-checked={o.checked} className="menu-item" title={o.hint} disabled={o.disabled} onClick={() => { close(false); o.run(); }}>
+                    <button key={o.id} type="button" role="menuitemradio" aria-checked={o.checked} className="menu-item" title={o.hint} disabled={o.disabled} onClick={() => { close(); o.run(); }}>
                       {o.checked ? <Icon name="check" size={16} /> : <span className="menu-icon-gap" aria-hidden="true" />}
                       <span className="menu-label">{o.label}</span>
                     </button>
@@ -104,7 +104,7 @@ export function MenuButton({ label, hint, icon, children, entries, className = '
             return e.kind === 'link' ? (
               <a key={e.id} role="menuitem" className="menu-item" href={e.href} title={e.hint} aria-current={e.current ? 'page' : undefined} onClick={() => close(false)}>{inner}</a>
             ) : (
-              <button key={e.id} type="button" role="menuitem" className="menu-item" title={e.hint} disabled={e.disabled} onClick={() => { close(false); e.run(); }}>{inner}</button>
+              <button key={e.id} type="button" role="menuitem" className="menu-item" title={e.hint} disabled={e.disabled} onClick={() => { close(); e.run(); }}>{inner}</button>
             );
           })}
         </div>
