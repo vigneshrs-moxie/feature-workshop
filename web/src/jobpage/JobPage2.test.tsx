@@ -139,6 +139,10 @@ const stepRow = (name: string) => {
 };
 const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
 const key = (k: string, target: Element = document.body) => act(() => { fireEvent.keyDown(target, { key: k }); });
+/** The glance layout (a laptop): the step panel beside the reader, and the conversation's own column. */
+const stepPanel = () => screen.getByRole('complementary', { name: 'This step' });
+const convoColumn = () => screen.getByRole('region', { name: 'Conversation' });
+const convoSearch = () => within(convoColumn()).getByRole('searchbox', { name: 'Search the conversation' });
 
 let offKeys: () => void = () => {};
 beforeEach(() => { windowWidth(1512); made.length = 0; nextPage.make = null; forgetRecentPages(); offKeys = installKeyListener(); resetChord(); });
@@ -152,7 +156,9 @@ describe('first paint and the payload', () => {
     expect(within(page()).getByText('Needs you', { selector: '.jp2-state' })).toBeInTheDocument();
     expect(screen.getByText('Review 4 is ready. Go ahead with PR #1?')).toBeInTheDocument();
     expect(within(screen.getByRole('navigation', { name: 'Steps' })).getAllByRole('button')).toHaveLength(7);
-    expect(stepRow('Review')).toHaveAttribute('aria-expanded', 'true');
+    // A laptop: the steps are a row of cells, the current one marked; nothing listed under it.
+    expect(stepRow('Review')).toHaveClass('is-current');
+    expect(stepRow('Review')).not.toHaveAttribute('aria-expanded');
     expect(screen.getByText('L3 · fieldbook · $96.40')).toBeInTheDocument();
     // The ticket key from the slug, as the server reads it, so the title does not move when the payload lands.
     expect(within(page()).getByText('ORBIT-905')).toBeInTheDocument();
@@ -164,6 +170,8 @@ describe('first paint and the payload', () => {
     expect(screen.getByRole('button', { name: 'Conversation · 52' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Decisions · 13 made for you' })).toBeInTheDocument();
     expect(readerTitle()).toBe('Brief #15 · Review · waiting');
+    // The step panel lists what the current step made.
+    expect(within(stepPanel()).getByRole('button', { name: /^Review \(combined\)/ })).toBeInTheDocument();
   });
 
   it('makes one store per job with the app’s client, keeps it across widths, and ends it when the page goes', async () => {
@@ -185,13 +193,16 @@ describe('addresses', () => {
     open(`#/job/${SLUG}/stage/plan`);
     await settle();
     expect(stepRow('Plan')).toHaveAttribute('aria-current', 'step');
-    // Only the current step is open (Task 10 fix round 1: the prototype's rule); the named step is
-    // marked and the reader shows its main output.
-    expect(stepRow('Review')).toHaveAttribute('aria-expanded', 'true');
+    // A laptop: no step is open in the row (the step panel lists the named step's outputs); the named
+    // step is marked and the reader shows its main output.
+    expect(stepRow('Review')).not.toHaveAttribute('aria-expanded');
     expect(stepRow('Build')).not.toHaveAttribute('aria-expanded');
+    expect(within(stepPanel()).getByText('Plan', { selector: '.jp2-sp-name' })).toBeInTheDocument();
     expect(readerTitle()).toBe('Implementation plan');
+    // The conversation's address: it is in its own column, so the reader keeps the step's main output.
     act(() => { window.location.hash = `#/job/${SLUG}/conversation`; window.dispatchEvent(new HashChangeEvent('hashchange')); });
-    expect(readerTitle()).toBe('Conversation');
+    expect(within(convoColumn()).getAllByRole('button', { name: /^Open all in this step$/ }).length).toBeGreaterThan(0);
+    expect(readerTitle()).not.toBe('Conversation');
     act(() => { window.location.hash = `#/job/${SLUG}/overview`; window.dispatchEvent(new HashChangeEvent('hashchange')); });
     expect(readerTitle()).toBe('Ticket and goal');
     act(() => { window.location.hash = `#/job/${SLUG}/id/FR-001`; window.dispatchEvent(new HashChangeEvent('hashchange')); });
@@ -213,16 +224,19 @@ describe('addresses', () => {
     open(`#/job/${SLUG}`);
     await settle();
     const entries = window.history.length;
-    fireEvent.click(screen.getByRole('button', { name: 'Conversation · 52' }));
-    expect(window.location.hash).toBe(`#/job/${SLUG}/read/conversation/conversation`);
-    expect(readerTitle()).toBe('Conversation');
+    // (A laptop: the Conversation row goes to the conversation's column, not the reader; the ticket
+    // is a pick the reader takes.)
+    fireEvent.click(screen.getByRole('button', { name: 'Ticket and goal' }));
+    expect(window.location.hash).toBe(`#/job/${SLUG}/read/ticket/ticket`);
+    expect(readerTitle()).toBe('Ticket and goal');
     fireEvent.click(stepRow('Plan'));
     expect(window.location.hash).toBe(`#/job/${SLUG}/stage/plan`);
     expect(stepRow('Plan')).toHaveAttribute('aria-current', 'step');
     // The step pick shows the step's main output in the reader (Task 10).
     expect(readerTitle()).toBe('Implementation plan');
-    // An output of the open (current) step opens in the reader.
-    fireEvent.click(screen.getByRole('button', { name: /^Review \(combined\)/ }));
+    // An output of the picked step (listed in the step panel) opens in the reader.
+    fireEvent.click(stepRow('Review'));
+    fireEvent.click(within(stepPanel()).getByRole('button', { name: /^Review \(combined\)/ }));
     expect(window.location.hash).toBe(`#/job/${SLUG}/read/doc/review.md`);
     expect(readerTitle()).toBe('Review (combined)');
     expect(window.history.length).toBe(entries);
@@ -281,11 +295,19 @@ describe('layout by width', () => {
     act(() => { store.setPick('q1', 'a'); });
     fireEvent.click(screen.getByRole('button', { name: 'Decisions · 13 made for you' }));
     const main = page();
+    // The box is the same element while the width stays on one side of 1100 px; crossing it, the box
+    // moves between the left pane and the conversation's column (the glance layout), and the draft goes with it.
+    let was = box;
+    let wide = true;
     for (const w of [900, 390, 1512, 1100, 760]) {
       resizeTo(w);
       expect(page()).toBe(main);
-      expect(screen.getByRole('textbox', { name: 'Message to the Foreman', hidden: true })).toBe(box);
-      expect(box).toHaveValue('Keep the week picker as it is.');
+      const now = screen.getByRole('textbox', { name: 'Message to the Foreman', hidden: true });
+      if ((w >= 1100) === wide) expect(now).toBe(was);
+      else expect(now.closest(w >= 1100 ? '.jp2-convo' : '.jp2-left')).not.toBeNull();
+      wide = w >= 1100;
+      was = now;
+      expect(now).toHaveValue('Keep the week picker as it is.');
       expect(store.getState().ui.picks).toEqual({ q1: 'a' });
       expect(readerTitle()).toBe('Decisions');
     }
@@ -319,7 +341,10 @@ describe('keys', () => {
     // Seven steps, then Ticket and goal, Conversation…
     expect(screen.getByRole('button', { name: 'Conversation · 52' })).toHaveClass('is-cursor');
     key('Enter');
-    expect(readerTitle()).toBe('Conversation');
+    // A laptop: the conversation is in its own column; Enter on its row puts the focus in its search box.
+    expect(document.activeElement).toBe(convoSearch());
+    expect(readerTitle()).toBe('Brief #15 · Review · waiting');
+    act(() => { (document.activeElement as HTMLElement).blur(); });
     key('k');
     key('k');
     key('Enter');
@@ -335,7 +360,10 @@ describe('keys', () => {
     expect(window.location.hash).toBe(`#/job/${SLUG}/read/ticket/ticket`);
     key('g');
     key('c');
-    expect(readerTitle()).toBe('Conversation');
+    // A laptop: g c goes to the conversation's column (its search box); the reader keeps the ticket.
+    expect(document.activeElement).toBe(convoSearch());
+    expect(readerTitle()).toBe('Ticket and goal');
+    expect(window.location.hash).toBe(`#/job/${SLUG}/read/ticket/ticket`);
     act(() => { (document.activeElement as HTMLElement | null)?.blur(); });
     key('/');
     expect(document.activeElement).toBe(screen.getByRole('searchbox', { name: 'Search the conversation' }));
@@ -368,15 +396,15 @@ describe('keys', () => {
     expect(document.activeElement).toBe(box);
     expect(document.querySelector('.is-cursor')).toBeNull();
     expect(readerTitle()).toBe('Brief #15 · Review · waiting');
-    // Nor in the conversation's search box.
+    // Nor in the conversation's search box (a laptop: the Conversation row puts the focus there).
     fireEvent.click(screen.getByRole('button', { name: 'Conversation · 52' }));
     const search = screen.getByRole('searchbox', { name: 'Search the conversation' });
-    search.focus();
+    expect(document.activeElement).toBe(search);
     key('g', search);
     key('t', search);
     key(']', search);
-    expect(readerTitle()).toBe('Conversation');
-    expect(window.location.hash).toBe(`#/job/${SLUG}/read/conversation/conversation`);
+    expect(readerTitle()).toBe('Brief #15 · Review · waiting');
+    expect(window.location.hash).toBe(before);
   });
 });
 
@@ -420,7 +448,7 @@ describe('the snapshot row is for the first paint only', () => {
     expect(drawn).toEqual(after);
     expect(screen.getByRole('heading', { level: 1, name: 'Crew schedule export' })).toBeInTheDocument();
     expect(screen.getByRole('navigation', { name: 'Steps' })).toBe(steps);
-    expect(stepRow('Review')).toHaveAttribute('aria-expanded', 'true');
+    expect(stepRow('Review')).toHaveClass('is-current');
   });
 });
 
@@ -555,7 +583,9 @@ describe('Task 10: the steps and the job rows on the page', () => {
 });
 
 describe('Task 10 fix round 1: the prototype’s step rule on the page', () => {
-  const blocks = () => [...document.querySelectorAll('.jp2-left .jp2-ym, .jp2-step, .jp2-st-row, .jp2-st-outs, .jp2-st-out, .jp2-st-none, .jp2-jr')].map((e) => e.className.replace(/ is-(sel|cursor)/g, '')).join('|');
+  // The left pane's blocks (on a laptop the steps row and the job's rows; the step panel beside the
+  // reader is not one of them: it lists the picked step's outputs, so it changes with the pick).
+  const blocks = () => [...document.querySelectorAll('.jp2-left .jp2-ym, .jp2-step, .jp2-st-row, .jp2-st-outs, .jp2-st-out, .jp2-st-none, .jp2-jr')].filter((e) => !e.closest('.jp2-sp')).map((e) => e.className.replace(/ is-(sel|cursor)/g, '')).join('|');
 
   it('a click, ] , Enter on a line and the address all mark the step, show its main output, and move no row', async () => {
     open(`#/job/${SLUG}`);
@@ -616,6 +646,8 @@ describe('Task 23 fix round: only the part that changed draws (speed rule 5)', (
   });
 
   it('a new line in the conversation draws its count and its line: not the frame, the header, Your move, the reader\'s title row or the message box', async () => {
+    // Under 1100 px, where the reader shows the conversation (a laptop's column: the last test in this file).
+    windowWidth(900);
     open(`#/job/${SLUG}/conversation`);
     await settle();
     await settle();
@@ -633,7 +665,7 @@ describe('Task 23 fix round: only the part that changed draws (speed rule 5)', (
     draws.frame = 0; draws.notes = 0; draws.buttons = []; drawn.header = 0; drawn.move = 0;
     await act(async () => { await made.at(-1)!.store.loadPage(); });
     await settle();
-    expect(screen.getByRole('button', { name: 'Conversation · 53' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Conversation · 53', hidden: true })).toBeInTheDocument();
     expect(document.querySelector('.jp2-rv-meta')?.textContent).toBe('53 items');
     expect(document.querySelector('[data-id="reply:speed-check"]')).not.toBeNull();
     expect(draws.frame).toBe(0);

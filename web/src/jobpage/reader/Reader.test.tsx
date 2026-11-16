@@ -101,7 +101,9 @@ describe('one thing at a time, under the same title row', () => {
       [{ kind: 'doc', id: 'review.md' }, 'doc', 'Review (combined)'],
       [{ kind: 'ticket', id: 'ticket' }, 'ticket', 'Ticket and goal'],
       [{ kind: 'decisions', id: 'decisions' }, 'decisions', 'Decisions'],
-      [{ kind: 'conversation', id: 'conversation' }, 'conversation', 'Conversation'],
+      // A laptop: the conversation is in its own column, so the reader shows the current step's main
+      // output instead (targets.ts readerBesideConvo; under 1100 px it is a view here: the end of this file).
+      [{ kind: 'conversation', id: 'conversation' }, 'findings', 'Findings'],
       [{ kind: 'not-yet', id: 'ship' }, 'not-yet', 'Ship'],
     ];
     for (const [t, kind, words] of cases) {

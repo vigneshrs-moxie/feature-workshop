@@ -82,7 +82,9 @@ function open(p: JobPagePayload, { post = vi.fn(async () => ({ ok: true, sent: t
 }
 
 const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
-const leftLines = () => within(document.querySelector<HTMLElement>('.jp2-st')!);
+/** Where the Ship step's PR lines are: on a laptop the step panel beside the reader (the glance layout);
+ *  under 1100 px under the Ship step's row on the left (the last test in this file). */
+const shipLines = () => within(document.querySelector<HTMLElement>('.jp2-sp')!);
 const readerPane = () => within(document.querySelector<HTMLElement>('.jp2-rv-body')!);
 const goes = (post: Fn) => post.mock.calls.filter((c) => /\/pr\/\d\/go$/.test(String(c[0])));
 
@@ -93,32 +95,32 @@ describe('the Ship step’s PR lines', () => {
   it('lists PR #1, #2 and #3, one line each, with at most one button; the first click shows what will go and sends nothing', async () => {
     const o = open(payload({ ship: true }));
     await settle();
-    const lines = [...document.querySelectorAll('.jp2-st .jp2-prl-line')];
+    const lines = [...document.querySelectorAll('.jp2-sp .jp2-prl-line')];
     expect(lines.map((l) => l.querySelector('.jp2-prl-n')?.textContent)).toEqual(['PR #1', 'PR #2', 'PR #3']);
     expect(lines[0].textContent).toContain('not open');
     expect(lines[1].textContent).toContain('after PR #1 is merged');
     expect(lines.map((l) => l.querySelectorAll('button').length)).toEqual([1, 0, 0]);
-    fireEvent.click(leftLines().getByRole('button', { name: 'Push and open PR #1' }));
-    for (const s of NEXT1.says) expect(leftLines().getByText(s)).toBeInTheDocument();
-    expect(leftLines().getByRole('button', { name: 'Push and open' })).toBeInTheDocument();
-    expect(leftLines().queryByRole('button', { name: 'Push and open PR #1' })).toBeNull();
+    fireEvent.click(shipLines().getByRole('button', { name: 'Push and open PR #1' }));
+    for (const s of NEXT1.says) expect(shipLines().getByText(s)).toBeInTheDocument();
+    expect(shipLines().getByRole('button', { name: 'Push and open' })).toBeInTheDocument();
+    expect(shipLines().queryByRole('button', { name: 'Push and open PR #1' })).toBeNull();
     expect(goes(o.post)).toHaveLength(0);
-    fireEvent.click(leftLines().getByRole('button', { name: 'Cancel' }));
-    expect(leftLines().queryByText('bbbbbbb Show the list')).toBeNull();
-    expect(leftLines().getByRole('button', { name: 'Push and open PR #1' })).toBeInTheDocument();
+    fireEvent.click(shipLines().getByRole('button', { name: 'Cancel' }));
+    expect(shipLines().queryByText('bbbbbbb Show the list')).toBeNull();
+    expect(shipLines().getByRole('button', { name: 'Push and open PR #1' })).toBeInTheDocument();
   });
 
   it('the second click is his yes: it sends the action and its check, and the line says it went', async () => {
     const o = open(payload({ ship: true }));
     await settle();
-    fireEvent.click(leftLines().getByRole('button', { name: 'Push and open PR #1' }));
-    await act(async () => { fireEvent.click(leftLines().getByRole('button', { name: 'Push and open' })); });
+    fireEvent.click(shipLines().getByRole('button', { name: 'Push and open PR #1' }));
+    await act(async () => { fireEvent.click(shipLines().getByRole('button', { name: 'Push and open' })); });
     expect(goes(o.post)).toEqual([[`/api/job/${SLUG}/pr/1/go`, { id: 'push-open', check: '0123456789ab' }]]);
-    expect(leftLines().getByText('Sent · the Foreman pushes to your fork and opens PR #1')).toBeInTheDocument();
-    expect(leftLines().queryByRole('button', { name: /Push and open/ })).toBeNull();
+    expect(shipLines().getByText('Sent · the Foreman pushes to your fork and opens PR #1')).toBeInTheDocument();
+    expect(shipLines().queryByRole('button', { name: /Push and open/ })).toBeNull();
     // The server's line then says it was sent: the words stay, no button comes back.
     await o.serve(payload({ ship: true, prs: [line(1, { why: 'Sent to the Foreman' }), LINES[1], LINES[2]] }));
-    expect(leftLines().queryByRole('button', { name: /Push and open/ })).toBeNull();
+    expect(shipLines().queryByRole('button', { name: /Push and open/ })).toBeNull();
   });
 
   it('a refusal says why in place and gives the button back; nothing is lost', async () => {
@@ -128,10 +130,10 @@ describe('the Ship step’s PR lines', () => {
     });
     open(payload({ ship: true }), { post });
     await settle();
-    fireEvent.click(leftLines().getByRole('button', { name: 'Push and open PR #1' }));
-    await act(async () => { fireEvent.click(leftLines().getByRole('button', { name: 'Push and open' })); });
-    expect(leftLines().getByRole('alert')).toHaveTextContent('That PR moved on since you looked: read its line again. Nothing was sent.');
-    expect(leftLines().getByRole('button', { name: 'Push and open PR #1' })).toBeInTheDocument();
+    fireEvent.click(shipLines().getByRole('button', { name: 'Push and open PR #1' }));
+    await act(async () => { fireEvent.click(shipLines().getByRole('button', { name: 'Push and open' })); });
+    expect(shipLines().getByRole('alert')).toHaveTextContent('That PR moved on since you looked: read its line again. Nothing was sent.');
+    expect(shipLines().getByRole('button', { name: 'Push and open PR #1' })).toBeInTheDocument();
   });
 
   it('Claude Code open in a terminal: Send anyway goes once he says none of them is the Foreman', async () => {
@@ -142,38 +144,38 @@ describe('the Ship step’s PR lines', () => {
     });
     open(payload({ ship: true }), { post });
     await settle();
-    fireEvent.click(leftLines().getByRole('button', { name: 'Push and open PR #1' }));
-    await act(async () => { fireEvent.click(leftLines().getByRole('button', { name: 'Push and open' })); });
-    await act(async () => { fireEvent.click(leftLines().getByRole('button', { name: 'None of them is the Foreman: send' })); });
+    fireEvent.click(shipLines().getByRole('button', { name: 'Push and open PR #1' }));
+    await act(async () => { fireEvent.click(shipLines().getByRole('button', { name: 'Push and open' })); });
+    await act(async () => { fireEvent.click(shipLines().getByRole('button', { name: 'None of them is the Foreman: send' })); });
     expect(goes(post).at(-1)).toEqual([`/api/job/${SLUG}/pr/1/go`, { id: 'push-open', check: '0123456789ab', confirmNoTerminal: true }]);
-    expect(leftLines().getByText('Sent · the Foreman pushes to your fork and opens PR #1')).toBeInTheDocument();
+    expect(shipLines().getByText('Sent · the Foreman pushes to your fork and opens PR #1')).toBeInTheDocument();
   });
 
   it('a line with no button says why; a merged PR says when; the read line says when GitHub was read, and Pull now reads it again', async () => {
     const o = open(payload({ ship: true, prs: [line(1, { state: 'merged', word: 'merged', at: MERGED_AT, number: 247, url: 'https://github.com/acme/portal/pull/247' }), line(2, { state: 'open', word: 'open · checks passed', number: 248, url: 'https://github.com/acme/portal/pull/248', why: 'Sent to the Foreman' }), LINES[2]] }));
     await settle();
-    const lines = [...document.querySelectorAll('.jp2-st .jp2-prl-line')];
+    const lines = [...document.querySelectorAll('.jp2-sp .jp2-prl-line')];
     expect(lines[0].textContent).toContain(`merged ${clockWords(MERGED_AT)}`);
     expect(lines[1].textContent).toContain('Sent to the Foreman');
     expect(within(lines[0] as HTMLElement).getByRole('link', { name: 'Open on GitHub' })).toHaveAttribute('href', 'https://github.com/acme/portal/pull/247');
-    expect(leftLines().getByText(`read from GitHub ${clockWords(READ_AT)}`)).toBeInTheDocument();
-    await act(async () => { fireEvent.click(leftLines().getByRole('button', { name: 'Pull now' })); });
+    expect(shipLines().getByText(`read from GitHub ${clockWords(READ_AT)}`)).toBeInTheDocument();
+    await act(async () => { fireEvent.click(shipLines().getByRole('button', { name: 'Pull now' })); });
     expect(o.post.mock.calls.filter((c) => String(c[0]).endsWith('/pull'))).toEqual([[`/api/job/${SLUG}/pr/1/pull`, {}]]);
-    expect(leftLines().getByText('Reading GitHub…')).toBeInTheDocument();
+    expect(shipLines().getByText('Reading GitHub…')).toBeInTheDocument();
   });
 
   it('GitHub not answering: the lines say what is known, the problem in words, and no button', async () => {
     open(payload({ ship: true, prs: [line(1, { why: 'No button while GitHub isn’t answering' }), LINES[1], LINES[2]], github: { ...GH, problem: 'GitHub didn’t answer. gh isn’t signed in: run gh auth login', run: 'gh auth login' } }));
     await settle();
-    expect(leftLines().getByRole('alert')).toHaveTextContent('GitHub didn’t answer. gh isn’t signed in: run gh auth login');
-    expect(leftLines().getByText('No button while GitHub isn’t answering', { exact: false })).toBeInTheDocument();
-    expect(document.querySelectorAll('.jp2-st .jp2-prl-line button')).toHaveLength(0);
+    expect(shipLines().getByRole('alert')).toHaveTextContent('GitHub didn’t answer. gh isn’t signed in: run gh auth login');
+    expect(shipLines().getByText('No button while GitHub isn’t answering', { exact: false })).toBeInTheDocument();
+    expect(document.querySelectorAll('.jp2-sp .jp2-prl-line button')).toHaveLength(0);
   });
 
   it('the website: the lines without buttons, no read line and no Pull now', async () => {
     open(payload({ ship: true, prs: [line(1), LINES[1], LINES[2]], github: null, hosted: true }), { hosted: true });
     await settle();
-    expect(document.querySelectorAll('.jp2-st .jp2-prl-line')).toHaveLength(3);
+    expect(document.querySelectorAll('.jp2-sp .jp2-prl-line')).toHaveLength(3);
     expect(screen.queryByRole('button', { name: 'Pull now' })).toBeNull();
   });
 });
@@ -232,12 +234,12 @@ describe('fix round 1', () => {
   it('opening the line never puts the focus on the yes (a held Enter can’t confirm); it goes to what will go', async () => {
     open(payload({ ship: true }));
     await settle();
-    const label = leftLines().getByRole('button', { name: 'Push and open PR #1' });
+    const label = shipLines().getByRole('button', { name: 'Push and open PR #1' });
     label.focus();
     fireEvent.click(label);
-    const yes = leftLines().getByRole('button', { name: 'Push and open' });
+    const yes = shipLines().getByRole('button', { name: 'Push and open' });
     expect(document.activeElement).not.toBe(yes);
-    expect(document.activeElement).toBe(leftLines().getByRole('group', { name: 'What Push and open PR #1 will do' }));
+    expect(document.activeElement).toBe(shipLines().getByRole('group', { name: 'What Push and open PR #1 will do' }));
   });
 });
 
@@ -247,5 +249,26 @@ describe('Task 21: Pull now’s answer', () => {
     const now = Date.parse('2026-11-14T14:05:00.000Z');
     expect(readWords('2026-11-14T14:04:30.000Z', now)).toBe('read just now');
     expect(readWords('2026-11-14T14:02:00.000Z', now)).toBe(`read from GitHub ${clockWords('2026-11-14T14:02:00.000Z')}`);
+  });
+});
+
+describe('the glance layout: where the PR lines show', () => {
+  it('on a laptop in the step panel beside the reader, not under the Ship cell; under 1100 px under the Ship step’s row, with no step panel', async () => {
+    open(payload({ ship: true }));
+    await settle();
+    expect(document.querySelectorAll('.jp2-sp .jp2-prl-line')).toHaveLength(3);
+    expect(document.querySelectorAll('.jp2-st .jp2-prl-line')).toHaveLength(0);
+    expect(shipLines().getByRole('button', { name: 'Push and open PR #1' })).toBeInTheDocument();
+  });
+
+  it('under 1100 px the Ship step’s row lists them, and opening one there shows what will go', async () => {
+    windowWidth(900);
+    open(payload({ ship: true }));
+    await settle();
+    expect(document.querySelector('.jp2-sp')).toBeNull();
+    const left = within(document.querySelector<HTMLElement>('.jp2-st')!);
+    expect([...document.querySelectorAll('.jp2-st .jp2-prl-line')].map((l) => l.querySelector('.jp2-prl-n')?.textContent)).toEqual(['PR #1', 'PR #2', 'PR #3']);
+    fireEvent.click(left.getByRole('button', { name: 'Push and open PR #1' }));
+    for (const s of NEXT1.says) expect(left.getByText(s)).toBeInTheDocument();
   });
 });

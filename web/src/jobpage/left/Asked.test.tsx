@@ -1,7 +1,7 @@
 // What you asked (Task 18, R5): when the Foreman comes back from a send-back with its answer to each
 // note, Your move shows `What you asked · 3 of 3 done` and one line per note that opens that exact
 // change; a note not done says why and has `Ask again`, which puts it back as a chip. Made-up job.
-import { act, fireEvent, screen, within } from '@testing-library/react';
+import { act, fireEvent, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { installKeyListener, resetChord } from '../../app/keyRegistry';
 import { clearAllSent } from '../../lib/sentState';
@@ -102,7 +102,8 @@ describe('What you asked', () => {
     const card = ym.querySelector('.jp2-card')!;
     expect(card).not.toBeNull();
     expect(card.compareDocumentPosition(asked()!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getByRole('button', { name: /^Go(?! faster)/ })).toBeTruthy();
+    // (In Your move: on a laptop the conversation's column beside it has lines that start with Go too.)
+    expect(within(ym).getByRole('button', { name: /^Go(?! faster)/ })).toBeTruthy();
   });
 });
 

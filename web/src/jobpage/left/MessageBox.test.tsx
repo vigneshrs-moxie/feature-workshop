@@ -132,7 +132,7 @@ describe('the draft', () => {
     expect(box()).toHaveValue('Typed on the old page, then here');
   });
 
-  it('survives a refresh, a step pick, a permission card and a width change, in the same box', async () => {
+  it('survives a refresh, a step pick, a permission card and a width change, in the same box (across 1100 px it moves, with the draft)', async () => {
     const o = open();
     type('Keep the week picker as it is.');
     const el = box();
@@ -149,11 +149,18 @@ describe('the draft', () => {
     asked.run = { ...RUNNING, status: 'waiting_permission' };
     await refresh(o, asked);
     expect(within(card()).getByText('npm test')).toBeInTheDocument();
-    for (const w of [900, 390, 1512]) {
-      resizeTo(w);
-      expect(box()).toBe(el);
-    }
-    expect(el).toHaveValue('Keep the week picker as it is.');
+    // A laptop keeps the box at the foot of the conversation's column; under 1100 px it is at the foot
+    // of the left pane: crossing 1100 px the box moves, and the draft goes with it.
+    expect(el.closest('.jp2-convo')).not.toBeNull();
+    resizeTo(900);
+    const narrow = box();
+    expect(narrow.closest('.jp2-left')).not.toBeNull();
+    expect(narrow).toHaveValue('Keep the week picker as it is.');
+    resizeTo(390);
+    expect(box()).toBe(narrow);
+    resizeTo(1512);
+    expect(box().closest('.jp2-convo')).not.toBeNull();
+    expect(box()).toHaveValue('Keep the week picker as it is.');
     expect(localStorage.getItem(`fw.draft.${SLUG}`)).toBe('Keep the week picker as it is.');
   });
 

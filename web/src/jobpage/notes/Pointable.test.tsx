@@ -334,6 +334,8 @@ describe('speed with notes present (fix round 1, I3)', () => {
   };
 
   it('200 items with notes on the open exchange: reopening stays under 100 ms, and a re-render searches for nothing', async () => {
+    // Under 1100 px, where the reader opens the conversation (on a laptop it stays in its own column).
+    vi.stubGlobal('matchMedia', (q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} }));
     const o = await opened({ job: longJob200, read: CONVO });
     for (let i = 0; i < 20 && reader().querySelectorAll('.jp2-cv-item .jp2-prose p').length < 3; i++) await settle();
     // Three notes on paragraphs of the open messages.

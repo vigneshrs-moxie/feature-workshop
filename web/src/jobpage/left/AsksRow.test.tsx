@@ -361,9 +361,15 @@ describe('⌘K', () => {
     const o = open();
     await settle();
     cmdK();
+    fireEvent.click(within(palette()!).getAllByRole('option').find((x) => x.textContent === 'Go to: Decisions')!);
+    expect(palette()).toBeNull();
+    expect(o.store.getState().ui.reader).toEqual({ kind: 'decisions', id: 'decisions' });
+    // A laptop: the conversation is in its own column; going to it puts the focus in its search box.
+    cmdK();
     fireEvent.click(within(palette()!).getAllByRole('option').find((x) => x.textContent === 'Go to: Conversation')!);
     expect(palette()).toBeNull();
-    expect(o.store.getState().ui.reader).toEqual({ kind: 'conversation', id: 'conversation' });
+    expect(document.activeElement).toBe(within(document.querySelector<HTMLElement>('section.jp2-convo')!).getByRole('searchbox', { name: 'Search the conversation' }));
+    expect(o.store.getState().ui.reader).toEqual({ kind: 'decisions', id: 'decisions' });
     cmdK();
     fireEvent.click(within(palette()!).getAllByRole('option').find((x) => x.textContent === 'Go to: Plan')!);
     expect(o.store.getState().ui.step).toBe('plan');

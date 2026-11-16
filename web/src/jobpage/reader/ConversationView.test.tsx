@@ -85,7 +85,10 @@ function open({ job = longJob, patch, hold = [], reader = CONVERSATION as typeof
 
 const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
 const reader = () => document.querySelector<HTMLElement>('.jp2-reader')!;
-const convo = () => reader().querySelector<HTMLElement>('[data-view="conversation"]')!;
+/** The conversation's view: in its own column on a laptop (the glance layout), in the reader under 1100 px. */
+const CONVO_VIEW = '.jp2-convo [data-view="conversation"], .jp2-reader [data-view="conversation"]';
+const column = () => document.querySelector<HTMLElement>('section.jp2-convo[aria-label="Conversation"]')!;
+const convo = () => document.querySelector<HTMLElement>(CONVO_VIEW)!;
 const items = () => [...convo().querySelectorAll<HTMLElement>('.jp2-cv-item')];
 const itemOf = (id: string) => items().find((x) => x.dataset.id === id)!;
 const lineOf = (id: string) => itemOf(id).querySelector<HTMLButtonElement>('.jp2-cv-line')!;
@@ -113,7 +116,7 @@ let maxTop: ((el: Element) => number | null) | null = null;
   });
 }
 function fakeLayout(): HTMLElement {
-  const scNow = () => document.querySelector<HTMLElement>('.jp2-reader [data-view="conversation"]');
+  const scNow = () => document.querySelector<HTMLElement>(CONVO_VIEW);
   const H: [string, number][] = [['.jp2-cv-line', 28], ['.jp2-cv-gh', 30], ['.jp2-cv-new', 24], ['.jp2-cv-sm-h', 24], ['.jp2-cv-sm-line', 22], ['.jp2-cv-full', -1]];
   const LEAF = H.map(([s]) => s).join(', ');
   const height = (el: Element) => { const h = H.find(([s]) => el.matches(s))?.[1] ?? 0; return h < 0 ? BODY_PX : h; };
@@ -210,9 +213,10 @@ describe('the conversation: one line per item, grouped by step and day', () => {
     expect(lineOf(OLD_REPLY)).toHaveAttribute('aria-expanded', 'true');
     const full = itemOf(OLD_REPLY).querySelector('.jp2-cv-full')!;
     expect(full.querySelector('.jp2-prose')!.textContent!.length).toBeGreaterThan(100);
-    // Still the conversation, not the message on its own.
-    expect(reader().querySelectorAll('[data-view]')).toHaveLength(1);
+    // Still the conversation, not the message on its own (in its column; the reader does not take it).
+    expect(column().querySelectorAll('[data-view]')).toHaveLength(1);
     expect(convo()).not.toBeNull();
+    expect(reader().querySelector('[data-view="conversation"], [data-view="message"]')).toBeNull();
     expect(o.item).toHaveBeenCalledWith(SLUG, OLD_REPLY);
     fireEvent.click(lineOf(OLD_REPLY));
     expect(lineOf(OLD_REPLY)).toHaveAttribute('aria-expanded', 'false');
@@ -249,14 +253,12 @@ describe('the conversation: one line per item, grouped by step and day', () => {
   it('on arrival the last exchange is open, a line marks where the new ones start, and it is scrolled into view', async () => {
     // His last look: after his last message, before the Foreman's answer.
     localStorage.setItem(seenKey(SLUG), '2026-11-04T14:47:00.000Z');
-    const o = open({ reader: null });
-    await settle();
-    // The Conversation row says 1 new before he opens it.
-    const row = screen.getByRole('button', { name: /^Conversation · 52 · 1 new$/ });
-    // Opened with the layout in place, as the browser would have it.
+    // A laptop: the conversation is in its own column as the page opens, with the layout in place, as
+    // the browser would have it. (Under 1100 px it opens in the reader: "marking seen" below.)
     fakeLayout();
-    act(() => { o.store.setReader(CONVERSATION); });
+    open({ reader: null });
     await settle();
+    const row = screen.getByRole('button', { name: /^Conversation · 52/ });
     expect(openIds()).toEqual([LAST_YOU, LAST_REPLY]);
     expect(itemOf(LAST_REPLY).querySelector('.jp2-cv-full .jp2-prose')).not.toBeNull();
     const marks = convo().querySelectorAll('.jp2-cv-new');
@@ -270,10 +272,8 @@ describe('the conversation: one line per item, grouped by step and day', () => {
   });
 
   it('it scrolls to the last exchange on arrival (with a little of what came before above it)', async () => {
-    const o = open({ reader: null });
-    await settle();
     fakeLayout();
-    act(() => { o.store.setReader(CONVERSATION); });
+    open({ reader: null });
     await settle();
     const sc = fakeLayout();
     const top = lineOf(LAST_YOU).getBoundingClientRect().top - sc.getBoundingClientRect().top;
@@ -330,18 +330,25 @@ describe('the conversation: one line per item, grouped by step and day', () => {
     expect(sc.scrollTop).toBe(sc.scrollHeight - sc.clientHeight);
   });
 
-  it('the Conversation row and g c show it', async () => {
+  it('the Conversation row and g c show it (a laptop: it is in its column already; they put the focus in its search box)', async () => {
     open({ reader: null });
     await settle();
-    expect(reader().querySelector('[data-view="conversation"]')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: /^Conversation · 52/ }));
+    // In its own column from the start; never in the reader.
+    expect(column().contains(convo())).toBe(true);
     expect(convo().querySelectorAll('.jp2-cv-group').length).toBeGreaterThan(3);
+    expect(reader().querySelector('[data-view="conversation"]')).toBeNull();
+    const box = within(column()).getByRole('searchbox', { name: 'Search the conversation' });
+    fireEvent.click(screen.getByRole('button', { name: /^Conversation · 52/ }));
+    expect(document.activeElement).toBe(box);
+    expect(reader().querySelector('[data-view="conversation"]')).toBeNull();
     act(() => { (document.activeElement as HTMLElement | null)?.blur(); });
     fireEvent.click(screen.getByRole('button', { name: 'Ticket and goal' }));
     expect(reader().querySelector('[data-view="conversation"]')).toBeNull();
+    expect(column().contains(convo())).toBe(true);
     act(() => { (document.activeElement as HTMLElement | null)?.blur(); });
     act(() => { fireEvent.keyDown(document.body, { key: 'g' }); });
     act(() => { fireEvent.keyDown(document.body, { key: 'c' }); });
+    expect(document.activeElement).toBe(box);
     expect(convo().querySelectorAll('.jp2-cv-group').length).toBeGreaterThan(3);
   });
 });
@@ -434,10 +441,8 @@ describe('nothing he reads moves', () => {
 describe('look fix: arrival and clearing the filter', () => {
   it('when most lines are new, it still opens at the last exchange (the New line stays where the new ones start)', async () => {
     localStorage.setItem(seenKey(SLUG), '2026-11-01T00:00:00.000Z');
-    const o = open({ reader: null });
-    await settle();
     fakeLayout();
-    act(() => { o.store.setReader(CONVERSATION); });
+    open({ reader: null });
     await settle();
     const sc = convo();
     const mark = convo().querySelector<HTMLElement>('.jp2-cv-new')!;
@@ -466,6 +471,9 @@ describe('look fix: arrival and clearing the filter', () => {
 
 describe('fast on a long job', () => {
   it('200 items: opening the conversation commits in under 100 ms (400 on CI) and draws lines, not 200 bodies', async () => {
+    // Under 1100 px, where the reader opens the conversation (on a laptop it is in its own column from
+    // the start: the last test in this file checks its lines and bodies there).
+    vi.stubGlobal('matchMedia', (q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} }));
     const o = open({ job: longJob200 as Fixture, reader: { kind: 'ticket', id: 'ticket' } as never });
     await settle();
     // Each open draws the view afresh (the reader keys a view by what it shows). The first open in a
@@ -511,10 +519,8 @@ describe('marking seen', () => {
 
 describe('fix round 1', () => {
   it('I1: a cold open (bodies not loaded yet) still puts the last exchange 120 px from the top once they land', async () => {
-    const o = open({ reader: null, hold: [LAST_YOU, LAST_REPLY] });
-    await settle();
     fakeLayout();
-    act(() => { o.store.setReader(CONVERSATION); });
+    const o = open({ reader: null, hold: [LAST_YOU, LAST_REPLY] });
     await settle();
     const sc = convo();
     const at = () => lineOf(LAST_YOU).getBoundingClientRect().top - sc.getBoundingClientRect().top;
@@ -527,10 +533,8 @@ describe('fix round 1', () => {
   });
 
   it('I1: once he has scrolled, a body landing late does not pull him back to the last exchange', async () => {
-    const o = open({ reader: null, hold: [LAST_YOU, LAST_REPLY] });
-    await settle();
     fakeLayout();
-    act(() => { o.store.setReader(CONVERSATION); });
+    const o = open({ reader: null, hold: [LAST_YOU, LAST_REPLY] });
     await settle();
     const sc = convo();
     sc.scrollTop = 200;
@@ -646,5 +650,17 @@ describe('Task 23 fix round 2: a new line draws its own group only (speed rule 5
   it('a group whose lines changed, or that gains the New mark, draws again', () => {
     expect(sameGroupProps(props([a], ['a']), props([a, b], ['a', 'b']))).toBe(false);
     expect(sameGroupProps(props([a, b], ['a', 'b']), props([a, b], ['a', 'b'], 'b'))).toBe(false);
+  });
+});
+
+describe('the glance layout: the conversation in its own column (a laptop)', () => {
+  it('200 items in the column: lines, not 200 bodies; only the last exchange asks for its texts', async () => {
+    const o = open({ job: longJob200 as Fixture, reader: null });
+    await settle();
+    expect(column().contains(convo())).toBe(true);
+    expect(convo().querySelectorAll('.jp2-cv-line')).toHaveLength(mainLines(longJob200.payload).length);
+    const asked = o.item.mock.calls.map((c) => c[1] as string);
+    for (const id of ['you:c24b0cee5d62', 'brief:briefs/060-review.md', 'reply:5fbf6afee61a']) expect(asked).toContain(id);
+    expect(convo().querySelectorAll('.jp2-cv-full')).toHaveLength(3);
   });
 });
