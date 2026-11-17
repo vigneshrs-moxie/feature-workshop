@@ -59,6 +59,7 @@ import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { StringDecoder } from 'node:string_decoder';
 import { tokenStore } from '../lib/orbit-token.js';
 import { slugTicketKey } from '../lib/orbit.js';
 import { makeEvent, parseCommand, PROTOCOL_VERSION } from '../lib/protocol.js';
@@ -422,53 +423,191 @@ export function jobRow(card) {
   };
 }
 
+// A line in the queue file that says "the next n oldest lines have reached the site" (no event has
+// this shape: every event has an eid and a type).
+const SENT_MARK = /^\{"queueSent":(\d+)\}$/;
+const sentMark = (n) => `{"queueSent":${n}}\n`;
+/** The file is rewritten only once this much of it has been sent, and at least half of it. */
+const COMPACT_MIN_BYTES = 1024 * 1024;
+/** The file is read and rewritten in pieces of about this size, so neither holds up the event loop. */
+const IO_CHUNK = 1024 * 1024;
+
 /**
- * The on-disk queue of events waiting for the site: one JSON line each. add, batch (the oldest
- * that fit in one request), drop (the first n, once the site has them). One file, one writer.
+ * The queue of events waiting for the site: one JSON line each in <state folder>/site-queue.jsonl,
+ * held in memory too. add, batch (the oldest that fit in one request), drop (the first n, once the
+ * site has them), size, whenEmpty; events emits 'drained' when the last one is dropped. One file,
+ * one writer (every change goes through `locked`, in order).
+ *
+ * The file is read once, at start (in pieces). An add appends its line before it resolves, so an
+ * event is on disk before it can be sent. A drop appends a short mark line ({"queueSent":n}: the
+ * next n oldest lines are sent) instead of rewriting the file; the file is rewritten (to a .tmp,
+ * then renamed over it) only once the sent part is at least 1 MB and at least half the file, and
+ * removed when nothing waits. A start skips the lines the marks count, so a crash at any point
+ * sends again at most the batch the site took before its mark was written, and never loses an
+ * event that wasn't sent. Sending one again is harmless: the site stores an event's eid once
+ * (hosted/site events table) and a record event is a put by kind and key (hosted/site/routes-mirror.js
+ * ctx.applyEvent.record → records.put), so a repeat writes the same value again.
+ * A queue file left by the version before the marks is plain lines, read the same way. A line that
+ * can't be parsed is skipped (counted, so it is dropped with its batch); a line cut short by a
+ * crash is followed by a new line before the next add. fs: fs/promises (tests count its calls).
  */
-export function eventQueue(file, { max = MAX_QUEUED, log = () => {} } = {}) {
+export function eventQueue(file, { max = MAX_QUEUED, log = () => {}, fs: io = fs.promises } = {}) {
   let lock = Promise.resolve();
   const locked = (fn) => { const p = lock.then(fn, fn); lock = p.catch(() => {}); return p; };
-  const readLines = () => {
-    let text = '';
-    try { text = fs.readFileSync(file, 'utf8'); } catch { return []; }
-    return text.split('\n').filter(Boolean);
-  };
-  const writeLines = (lines) => {
-    if (!lines.length) { fs.rmSync(file, { force: true }); return; }
+  const events = new EventEmitter();
+  let lines = []; // the lines in memory; lines[head] is the oldest still waiting
+  let sizes = []; // each line's bytes in the file, its newline included
+  let head = 0;
+  let liveBytes = 0; // the waiting lines' bytes
+  let fileBytes = 0; // the file's bytes: the waiting lines, the sent ones and the marks
+  let cutTail = false; // the file ends in a line cut short (no newline)
+  const count = () => lines.length - head;
+
+  async function load() {
+    lines = []; sizes = []; head = 0; liveBytes = 0; fileBytes = 0; cutTail = false;
+    let fh;
+    try { fh = await io.open(file, 'r'); } catch { return; }
+    let sent = 0;
+    try {
+      const decoder = new StringDecoder('utf8');
+      const buf = Buffer.alloc(IO_CHUNK);
+      let carry = '';
+      const take = (line, newline = 1) => {
+        const b = Buffer.byteLength(line) + newline;
+        fileBytes += b;
+        if (!line) return;
+        const m = SENT_MARK.exec(line);
+        if (m) { sent += Number(m[1]); return; }
+        lines.push(line);
+        sizes.push(b + 1 - newline);
+      };
+      for (;;) {
+        const { bytesRead } = await fh.read(buf, 0, IO_CHUNK, null);
+        if (!bytesRead) break;
+        const parts = (carry + decoder.write(buf.subarray(0, bytesRead))).split('\n');
+        carry = parts.pop();
+        for (const line of parts) take(line);
+      }
+      carry += decoder.end();
+      if (carry) { take(carry, 0); cutTail = true; }
+    } finally { await fh.close().catch(() => {}); }
+    head = Math.min(sent, lines.length);
+    for (let i = head; i < lines.length; i++) liveBytes += sizes[i];
+    if (!count()) await removeFile();
+    else await compactIfWorth();
+  }
+
+  async function append(text) {
+    if (!fileBytes) await io.mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
+    const out = cutTail ? `\n${text}` : text;
+    await io.appendFile(file, out, { mode: 0o600 });
+    cutTail = false;
+    fileBytes += Buffer.byteLength(out);
+  }
+
+  /** Forgets the n oldest waiting lines (memory only). */
+  function forget(n) {
+    for (let i = head; i < head + n; i++) liveBytes -= sizes[i];
+    head += n;
+    if (head > 1024 && head * 2 > lines.length) { lines = lines.slice(head); sizes = sizes.slice(head); head = 0; }
+  }
+
+  async function removeFile() {
+    await io.rm(file, { force: true });
+    lines = []; sizes = []; head = 0; liveBytes = 0; fileBytes = 0; cutTail = false;
+  }
+
+  /** Rewrites the file with only what waits, once the sent part is big enough to be worth it. */
+  async function compactIfWorth() {
+    const dead = fileBytes - liveBytes;
+    if (dead < COMPACT_MIN_BYTES || dead < liveBytes) return;
     const tmp = `${file}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, `${lines.join('\n')}\n`, { mode: 0o600 });
-    fs.renameSync(tmp, file);
-  };
+    try {
+      const fh = await io.open(tmp, 'w', 0o600);
+      try {
+        let piece = [];
+        let bytes = 0;
+        for (let i = head; i < lines.length; i++) {
+          piece.push(lines[i]);
+          bytes += sizes[i];
+          if (bytes >= IO_CHUNK || i === lines.length - 1) { await fh.write(`${piece.join('\n')}\n`); piece = []; bytes = 0; }
+        }
+      } finally { await fh.close(); }
+      await io.rename(tmp, file);
+      fileBytes = liveBytes;
+      cutTail = false;
+    } catch (err) {
+      log(`site link: the queue file couldn’t be tidied (it is again later): ${err.message}`);
+      await io.rm(tmp, { force: true }).catch(() => {});
+    }
+  }
+
+  // A file that can't be read starts the queue empty, as before (logged, never thrown at nobody).
+  const loadOrEmpty = () => load().catch((err) => {
+    log(`site link: the queue file couldn’t be read: ${err.message}`);
+    lines = []; sizes = []; head = 0; liveBytes = 0; fileBytes = 0; cutTail = false;
+  });
+  let ready = locked(loadOrEmpty);
   return {
     file,
-    add: (event) => locked(() => {
-      fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-      fs.appendFileSync(file, `${JSON.stringify(event)}\n`, { mode: 0o600 });
-      const lines = readLines();
-      if (lines.length > max) { log(`site link: more than ${max} events waiting; the oldest ${lines.length - max} are dropped.`); writeLines(lines.slice(lines.length - max)); }
+    events,
+    add: (event) => locked(async () => {
+      const line = JSON.stringify(event);
+      const over = count() + 1 - max;
+      await append(over > 0 ? `${line}\n${sentMark(over)}` : `${line}\n`);
+      lines.push(line);
+      sizes.push(Buffer.byteLength(line) + 1);
+      liveBytes += sizes[sizes.length - 1];
+      if (over > 0) {
+        log(`site link: more than ${max} events waiting; the oldest ${over} are dropped.`);
+        forget(over);
+        await compactIfWorth();
+      }
     }),
-    size: () => readLines().length,
+    /** How many lines wait (0 until the file has been read at start). */
+    size: () => count(),
     /** { events, count }: count lines from the front (some may be unreadable and skipped). */
     batch: (maxBytes = BATCH_BYTES) => locked(() => {
-      const events = [];
+      const out = [];
       let bytes = Buffer.byteLength('{"events":[]}');
-      let count = 0;
-      for (const line of readLines()) {
+      let n = 0;
+      for (let i = head; i < lines.length; i++) {
         let e;
-        try { e = JSON.parse(line); } catch { count++; continue; }
-        const b = Buffer.byteLength(line) + 1;
+        try { e = JSON.parse(lines[i]); } catch { n++; continue; }
+        const b = sizes[i];
         if (bytes + b > maxBytes) {
-          if (!events.length) { log('site link: one event was bigger than a batch may be, so it was dropped.'); count++; }
+          if (!out.length) { log('site link: one event was bigger than a batch may be, so it was dropped.'); n++; }
           break;
         }
         bytes += b;
-        events.push(e);
-        count++;
+        out.push(e);
+        n++;
       }
-      return { events, count };
+      return { events: out, count: n };
     }),
-    drop: (n) => locked(() => { writeLines(readLines().slice(n)); }),
+    drop: (n) => locked(async () => {
+      n = Math.min(n, count());
+      if (n <= 0) return;
+      if (n === count()) {
+        await removeFile();
+        events.emit('drained');
+        return;
+      }
+      await append(sentMark(n));
+      forget(n);
+      await compactIfWorth();
+    }),
+    /** Resolves once the file has been read and nothing waits. */
+    whenEmpty: () => new Promise((resolve) => {
+      ready.then(() => {
+        if (!count()) { resolve(); return; }
+        events.once('drained', resolve);
+      });
+    }),
+    /** Resolves once the file has been read at start (or again). */
+    whenReady: () => ready.then(() => {}),
+    /** Reads the file again (another process, `starbase login` or `logout`, may have removed it). */
+    reload: () => { ready = locked(loadOrEmpty); return ready; },
   };
 }
 
@@ -494,6 +633,7 @@ export function createSiteLink({ runner, stateDir, store, fetch: fetchFn = globa
   let done = new Map();
   try { done = new Map(JSON.parse(fs.readFileSync(doneFile, 'utf8'))); } catch { done = new Map(); }
   let site = null; // { url, token } while connected
+  let connectedBefore = false;
   let generation = 0;
   let running = false;
   let state = 'idle';
@@ -678,8 +818,14 @@ export function createSiteLink({ runner, stateDir, store, fetch: fetchFn = globa
 
     /** Evidence files, after the site has this look's evidence lists (the queue sent): each file straight to Blob. */
     async function sendEvidence(list) {
+      // Waits for the queue to say it drained (no polling), at most 15 seconds; a disconnect wakes the sleep.
       const end = timers.now() + 15_000;
-      while (site && queue.size() > 0 && timers.now() < end) await sleep(50);
+      await queue.whenReady();
+      while (site && queue.size() > 0 && timers.now() < end) {
+        let wake = null;
+        const drained = new Promise((resolve) => { wake = resolve; queue.events.once('drained', resolve); });
+        try { await Promise.race([drained, sleep(end - timers.now())]); } finally { queue.events.off('drained', wake); }
+      }
       if (!site || queue.size() > 0) return;
       for (const u of list) {
         await uploadEvidence({ ...u, sent: evidenceSent, ask: (body) => call('POST', '/api/runner/evidence/upload', body), done: (body) => call('POST', '/api/runner/evidence/done', body), putFile: putFile ?? fetchFn, log })
@@ -914,6 +1060,11 @@ export function createSiteLink({ runner, stateDir, store, fetch: fetchFn = globa
     me = file.person ?? null;
     offRunner = [runner.on('change', onChange), runner.on('run', onChange), runner.on('*', onRunnerEvent)];
     if (onAudit) offRunner.push(onAudit(onAuditLine) ?? (() => {}));
+    // The queue is held in memory: a connection after an earlier one (a login or logout since, which may
+    // have removed the queue file in their own process) reads the file again first.
+    if (connectedBefore) await queue.reload();
+    connectedBefore = true;
+    if (gen !== generation) return;
     const startRepos = await runner.read.startRepos?.().catch(() => null);
     helloBody = { name: file.name ?? thisLaptop().name, os: thisLaptop().os, version, protocol: PROTOCOL_VERSION, repos: repoChoices(startRepos ?? {}) };
     await send('hello', helloBody);
