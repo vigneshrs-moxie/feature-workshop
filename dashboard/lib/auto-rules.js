@@ -70,6 +70,8 @@ export const OUTSIDE_REASONS = Object.freeze({
   read: 'this only reads, but in a way Auto cannot judge (another folder, a setting or a place it cannot work out), so it needs you.',
   // Refused for how it is written, not for what it does (unreadOnly): the same words as the crew's row (lib/auto.js).
   unread: 'Auto could not read this command as it is written (a comment, a line break after cd, brackets, a backtick or a trailing &).',
+  // The workflow's org-branch call (gh api … git/refs) from a commit git does not place on the org remote's main (Nov 17).
+  orgMain: "this makes the job's branch on the org repository from a commit Starbase can't find on the org's main yet: fetch the org's main first, then run it again.",
 });
 /** The tool rule's sentence for a Bash call that starts a program where no reader can see it: git bisect run, a git setting or a variable that names a program. */
 export const HIDDEN_PROGRAM_REASON = 'this starts a program through a git setting, a git command or an environment variable, where Auto cannot check what runs, so it needs you.';
@@ -418,8 +420,8 @@ function bashVerdict(whole, hard, ctx, first = true) {
   const rule = PRIORITY.find((r) => st.hits.has(r));
   if (rule) {
     // Only the words change for a command refused for how it is written: it is still a stop under outside.
-    const unread = first && rule === 'outside' && st.hits.size === 1 && !st.deploy && !st.secret && unreadOnly(read, hard, ctx);
-    const why = rule === 'tool' ? HIDDEN_PROGRAM_REASON : rule !== 'outside' ? null : st.deploy ? OUTSIDE_REASONS.deploy : st.secret ? OUTSIDE_REASONS.secret : unread ? OUTSIDE_REASONS.unread : st.unknown ? OUTSIDE_REASONS.unknown : !st.nonRead ? OUTSIDE_REASONS.read : null;
+    const unread = first && rule === 'outside' && st.hits.size === 1 && !st.deploy && !st.secret && !st.orgSha && unreadOnly(read, hard, ctx);
+    const why = rule === 'tool' ? HIDDEN_PROGRAM_REASON : rule !== 'outside' ? null : st.deploy ? OUTSIDE_REASONS.deploy : st.secret ? OUTSIDE_REASONS.secret : st.orgSha ? OUTSIDE_REASONS.orgMain : unread ? OUTSIDE_REASONS.unread : st.unknown ? OUTSIDE_REASONS.unknown : !st.nonRead ? OUTSIDE_REASONS.read : null;
     return { stop: stop(rule, { ...(rule === 'outside' && st.unknown ? { unknownProgram: true } : {}), ...(why ? { reason: why } : {}) }) };
   }
   const why = st.asks[0] ?? plainWhy(command, plainEnv(st, ctx.cwd ?? null));
@@ -1100,13 +1102,13 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
     else if (!localPlain(cmd, a)) st.asks.push(`${cmd}, a program of the job's node_modules/.bin that Starbase does not read in this use`);
   }
   // T3c: a command that is not a read runs from a folder inside the job's (a cd moves it; a folder we can't tell stops).
-  const readOnly = psOk || programGroup(cmd) === 'read' || (cmd === 'git' && gitReads(args));
+  const readOnly = psOk || programGroup(cmd) === 'read' || (cmd === 'git' && (gitReads(args) || remoteRead(args, cwd ?? st.hint ?? null, ctx)));
   // A script of the installed workflow run by an interpreter asks, whatever the folder (R4); gh pr create is judged by its own rule (R4).
   const skill = skillScript(cmd, cmdWord, args, a, cwd ?? st.hint ?? null, st);
   const prCreate = cmd === 'gh' && (() => { const p = args.filter((x, k) => !(x.t.startsWith('-') || ['-R', '--repo'].includes(a[k - 1]))).map((x) => x.t); return p[0] === 'pr' && p[1] === 'create'; })();
   // sed and awk that only print, a test of a file, mkdir, touch, cp and mv (their paths are judged one by one) and a known
   // program asked its version are judged by what they name, whatever the folder; a lookup on GitHub asks (R13).
-  const sedRead = /^g?(sed|awk)$/.test(cmd) && !a.some((x) => /^-[A-Za-z]*i|^--in-place/.test(x));
+  const sedRead = (/^g?(sed|awk)$/.test(cmd) && !a.some((x) => /^-[A-Za-z]*i|^--in-place/.test(x))) || /^g?sed$/.test(cmd); // sed -i: its files are judged one by one (Nov 17)
   const ownPaths = ['mkdir', 'touch', 'cp', 'mv'].includes(cmd);
   const version = args.length === 1 && /^(--version|-v|-V)$/.test(a[0]) && !SHELLS.has(cmd);
   const ghLook = (cmd === 'gh') && ghLookup(args, a);
@@ -1282,8 +1284,32 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
       return;
     }
     case 'tar': case 'unzip': case 'gunzip': case 'bunzip2': case 'unrar': case '7z': case '7za': writes([...pos(), { t: '.', dyn: false }]); return;
-    case 'sed': case 'gsed': case 'awk': case 'gawk': {
-      const sed = cmd.endsWith('sed');
+    case 'sed': case 'gsed': {
+      // Read as sed reads its words (sedWords). On a Mac, sed is BSD's, where -i takes the next word as the backup's suffix
+      // (-i '' is no backup); a GNU sed earlier on the PATH would read the same words GNU's way, so both readings are judged
+      // there, but for -i '' or -i .bak with no -e or -f: GNU's sed would take that word as its script, which changes nothing
+      // ('') or is no sed command (.bak: it stops before it reads a file), and the script as a file (-i '' 's/a/b/' f), so that
+      // reading is left out. GNU's reading alone elsewhere and for gsed (Nov 17).
+      const bsd = cmd === 'sed' && MAC ? sedWords(args, true) : null;
+      const gnu = bsd && /^(\.[\w.~-]*)?$/.test(bsd.suffix ?? 'x') && !bsd.own ? null : sedWords(args, false);
+      const here = cwd ?? st.hint ?? null;
+      for (const w of [bsd, gnu].filter(Boolean)) {
+        if (w.scriptFile) { hit('outside'); st.nonRead = true; }
+        if (w.inPlace) {
+          st.nonRead = true;
+          const { files } = w;
+          // A suffix with a * puts GNU's backup in another folder: it can't be placed. Any other suffix's backup is judged as
+          // the path it makes with its file.
+          if (w.suffix && /\*/.test(w.suffix) && files.length) hit('outside');
+          writes(files);
+          if (w.suffix) writes(files.map((f) => ({ t: `${f.t}${w.suffix}`, dyn: f.dyn })));
+        } else if (w.files.some((x) => x.dyn || readElsewhere(physicalPath(x.t, here), st.readRoots))) st.asks.push('a read outside the job\'s folders'); // N4
+        for (const sc of w.scripts) scriptWrites(true, sc, cwd, st, writes);
+      }
+      return;
+    }
+    case 'awk': case 'gawk': {
+      const sed = false;
       const scripts = [];
       const files = [];
       let own = false; // a script given with -e / -f / --expression / --file
@@ -1695,6 +1721,57 @@ function pipStep(a, hit) {
   hit('outside');
 }
 
+/**
+ * sed's words as sed reads them: { scripts, files, inPlace, suffix, scriptFile }. bsd: the Mac's sed, where -i (and -I) take
+ * the next word as the backup's suffix, always, also when the shell made it from -i'' (an empty suffix is no backup); else
+ * GNU's, where a suffix is only ever glued (-i.bak). --in-place[=SUFFIX] never takes the next word. -e and -f take theirs
+ * (glued too); the first word that is not an option is the script when no -e or -f gave one. A word sed would not read
+ * as one of these leaves the rest read as files, which are judged one by one.
+ */
+function sedWords(args, bsd) {
+  const scripts = [];
+  const files = [];
+  let inPlace = false;
+  let suffix = null;
+  let own = false;
+  let scriptFile = false;
+  let opts = true;
+  for (let k = 0; k < args.length; k++) {
+    const x = args[k];
+    const t = x.t;
+    if (opts && t === '--') { opts = false; continue; }
+    if (opts && t.startsWith('--')) {
+      if (/^--in-place(=|$)/.test(t)) { inPlace = true; suffix = t.includes('=') ? t.slice(t.indexOf('=') + 1) : ''; continue; }
+      if (/^--expression$/.test(t)) { own = true; scripts.push(args[++k]?.t ?? ''); continue; }
+      if (/^--expression=/.test(t)) { own = true; scripts.push(t.slice(t.indexOf('=') + 1)); continue; }
+      if (/^--file(=|$)/.test(t)) { own = true; scriptFile = true; if (t === '--file') k++; continue; }
+      if (/^--(line-length)$/.test(t)) { k++; continue; }
+      continue; // --quiet, --regexp-extended, --separate, … only change how it prints
+    }
+    if (opts && t.length > 1 && t.startsWith('-')) {
+      for (let c = 1; c < t.length; c++) {
+        const ch = t[c];
+        const glued = t.slice(c + 1);
+        if (ch === 'e') { own = true; scripts.push(glued || (args[++k]?.t ?? '')); break; }
+        if (ch === 'f') { own = true; scriptFile = true; if (!glued) k++; break; }
+        if (ch === 'i' || (ch === 'I' && bsd)) {
+          inPlace = true;
+          if (glued) suffix = glued;
+          else if (bsd) { const v = args[++k]; suffix = v ? v.t : ''; if (v?.dyn) suffix = '*'; }
+          else suffix = '';
+          break;
+        }
+        if (ch === 'l' && !bsd) { if (!glued) k++; break; }
+      }
+      continue;
+    }
+    files.push(x);
+  }
+  const scriptWord = !own && files.length ? files.shift() : null;
+  if (scriptWord) scripts.push(scriptWord.t);
+  return { scripts, files: files.filter((x) => x.t !== ''), inPlace, suffix, scriptFile, scriptWord, own };
+}
+
 // What a sed or awk script writes: the files it names for output, and anything it runs.
 function scriptWrites(sed, script, cwd, st, writes) {
   if (sed) {
@@ -1764,6 +1841,9 @@ function ghStep(cmd, args, a, st) {
     // The workflow's one write there, exactly: the job's branch made on its own org repository from a commit of the org's main (I2).
     const org = a[0] === 'api' && !args.some((x) => x.dyn) ? orgBranchCall(a.slice(1), st.ctx) : null;
     if (org) { st.asks.push(org); return; }
+    // The same call from a commit git does not place on the org remote's main (not fetched yet, or not there): refused, and
+    // it says so, so the crew fetches the org's main and runs it again (Nov 17).
+    if (a[0] === 'api' && !args.some((x) => x.dyn) && orgBranchForm(a.slice(1), st.ctx)) { hit('outside'); st.orgSha = true; return; }
     if (m.toUpperCase() !== 'GET' || a.some((x) => /^(-f|-F|--field|--raw-field|--input)$/.test(x) || /^-[fF]./.test(x))) {
       hit('outside');
       // A write that merges branches (…/merges) or moves or deletes a ref that exists (…/git/refs/<name>) is a merge by another road.
@@ -1784,6 +1864,14 @@ function ghStep(cmd, args, a, st) {
  * (ctx.orgShas[sha] === true). Returns the Approver's reason with those facts, or null for anything else.
  */
 function orgBranchCall(rest, ctx) {
+  const form = orgBranchForm(rest, ctx);
+  if (!form || ctx.orgShas?.[form.sha] !== true) return null;
+  const { branch, sha } = form;
+  return `the workflow's org branch step: it makes the job's branch ${branch} on ${ctx.orgRepo} (the job's org repository) at ${sha}. Starbase checked the repository, that ${branch} is the job's own branch, and that the commit is on ${ctx.orgRemote ?? 'the org remote'}/main; GitHub refuses it if the branch exists.`;
+}
+
+/** orgBranchCall's form without its last check (the commit on the org's main): { branch, sha }, or null. */
+function orgBranchForm(rest, ctx) {
   if (typeof ctx?.orgRepo !== 'string' || !ctx.orgRepo) return null;
   let endpoint = null;
   let method = null;
@@ -1805,8 +1893,8 @@ function orgBranchCall(rest, ctx) {
   const f = Object.fromEntries(pairs);
   const branch = /^refs\/heads\/([\w./-]+)$/.exec(f.ref)?.[1];
   if (!branch || branch.includes('..') || PROTECTED.test(branch) || !(ctx.branches ?? []).includes(branch)) return null;
-  if (!/^[0-9a-f]{40}$/.test(f.sha) || ctx.orgShas?.[f.sha] !== true) return null;
-  return `the workflow's org branch step: it makes the job's branch ${branch} on ${ctx.orgRepo} (the job's org repository) at ${f.sha}. Starbase checked the repository, that ${branch} is the job's own branch, and that the commit is on ${ctx.orgRemote ?? 'the org remote'}/main; GitHub refuses it if the branch exists.`;
+  if (!/^[0-9a-f]{40}$/.test(f.sha)) return null;
+  return { branch, sha: f.sha };
 }
 
 // ---------- git ----------
@@ -1933,7 +2021,71 @@ function gitStep(args, assigns, cwd, st, xargs) {
     if (paths.some((x) => x.dyn || codeLater(physicalPath(x.t, eff), st.codeRoots))) hit('outside');
   }
   // Any other git command run in another folder (git -C <elsewhere>) acts there.
-  if (!GIT_READ.has(sub) && !readForm && eff !== cwd && !(eff && inRoots(eff, st.gitRoots))) hit('outside');
+  if (!GIT_READ.has(sub) && !readForm && eff !== cwd && !(eff && inRoots(eff, st.gitRoots)) && !remoteRead(args, cwd, ctx)) hit('outside');
+}
+
+/**
+ * git fetch and git ls-remote against the job's own repository's remotes, run in its main checkout or one of its worktrees
+ * (the owner's decision, Nov 17): they only read from GitHub or move remote-tracking refs. Read only as written here: no
+ * option but -C in front (a -c can start a program), only the options below (never --upload-pack, --exec or the like), a
+ * remote git names in that repository (never an address or a path), and after it branch names, or for ls-remote patterns;
+ * a refspec with a colon (which writes a local branch or ref) is not one. Anything else is judged as before.
+ */
+const FETCH_READ_OPTS = /^(-p|--prune|-q|--quiet|-v|--verbose|--no-tags|--all|--dry-run|--progress|--no-progress)$/;
+const LS_REMOTE_READ_OPTS = /^(-h|--heads|--branches|-t|--tags|--refs|-q|--quiet|--exit-code|--symref)$/;
+function remoteRead(args, cwd, ctx) {
+  let i = 0;
+  let at = cwd ? physicalPath(cwd, null) : null;
+  while (args[i]?.t.startsWith('-')) {
+    if (args[i].t !== '-C') return false;
+    const d = args[i + 1];
+    if (!d || d.dyn || !at) return false;
+    at = physicalPath(d.t, at);
+    i += 2;
+  }
+  const sub = args[i]?.t;
+  if (sub !== 'fetch' && sub !== 'ls-remote') return false;
+  const rest = args.slice(i + 1);
+  if (rest.some((x) => x.dyn)) return false;
+  const opts = sub === 'fetch' ? FETCH_READ_OPTS : LS_REMOTE_READ_OPTS;
+  const pos = [];
+  for (const x of rest) {
+    if (x.t.startsWith('-')) { if (!opts.test(x.t)) return false; continue; }
+    pos.push(x.t);
+  }
+  if (!at || !ownRepoFolder(at, ctx)) return false;
+  if (!pos.length) return true; // the branch's own remote, which is one of the repository's
+  if (sub === 'fetch' && rest.some((x) => x.t === '--all')) return false;
+  const [remote, ...refs] = pos;
+  if (!/^[A-Za-z0-9_][\w.-]*$/.test(remote) || !jobRemote(remote, ctx) || !knownRemote(remote, at, ctx)) return false;
+  const name = sub === 'fetch' ? /^[A-Za-z0-9_][\w./-]*$/ : /^[A-Za-z0-9_*][\w./*-]*$/;
+  return refs.every((r) => name.test(r) && !r.includes('..') && !r.endsWith('.lock'));
+}
+// The job's own remotes: its fork remote (origin unless the profile says) and its org remote, as the set-up reads them (N7).
+const jobRemote = (name, ctx) => [ctx.forkRemote || 'origin', 'origin', ctx.orgRemote, ...ORG_REMOTES].filter(Boolean).includes(name);
+// A remote git names in the job's repository: its address as git gives it, asked where the command runs, in the session's
+// folder or in a worktree of the job (the remotes of a repository are the same in every worktree of it).
+function knownRemote(name, at, ctx) {
+  if (typeof ctx.remoteUrl !== 'function') return false;
+  for (const d of [at, undefined, ...(ctx.worktrees ?? [])]) {
+    try { if (ctx.remoteUrl(name, d)) return true; } catch { /* git could not say there */ }
+  }
+  return false;
+}
+// The job's repository, as git acts in it: inside one of the job's worktrees or its main checkout, with no other repository
+// (a clone inside it) between the folder and that top.
+function ownRepoFolder(at, ctx) {
+  const tops = [...(ctx.worktrees ?? []), ctx.mainCheckout].filter((x) => typeof x === 'string' && path.isAbsolute(x)).map((x) => physicalPath(x, null)).filter(Boolean);
+  const top = tops.filter((t) => isInside(at, t)).sort((x, y) => y.length - x.length)[0];
+  if (!top) return false;
+  for (let dir = at, guard = 0; dir !== top; guard++) {
+    if (guard > 64) return false;
+    try { if (fs.existsSync(path.join(dir, '.git'))) return false; } catch { return false; }
+    const up = path.dirname(dir);
+    if (up === dir) return false;
+    dir = up;
+  }
+  return true;
 }
 
 // Is the source of a merge, pull or rebase anything but the org remote's main or one of the job's branches (m3)?

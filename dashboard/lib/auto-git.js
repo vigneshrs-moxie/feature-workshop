@@ -40,16 +40,19 @@ function parseWorktrees(text) {
 const FAILED_MS = 5000; // a failed or slow answer is asked again this soon
 const AGAIN_MS = 250; // a fresh look is not asked more often than this
 
-/** One cached git read: a result is kept REMEMBER_MS, a failure FAILED_MS; fresh asks again unless the last look is under a quarter second old. */
-async function remembered({ cache, key, now, fresh, ask }) {
+/**
+ * One cached git read: a result is kept REMEMBER_MS, a failure FAILED_MS; fresh asks again unless the last look is under a
+ * quarter second old. keep(value): false for an answer that is never kept once it has come (asked again next time).
+ */
+async function remembered({ cache, key, now, fresh, ask, keep = () => true }) {
   const stamp = now();
   let entry = cache?.get(key);
-  const stale = !entry || stamp - entry.at >= (entry.failed ? FAILED_MS : REMEMBER_MS) || (fresh && stamp - entry.at >= AGAIN_MS);
+  const stale = !entry || entry.gone || stamp - entry.at >= (entry.failed ? FAILED_MS : REMEMBER_MS) || (fresh && stamp - entry.at >= AGAIN_MS);
   if (stale) {
     entry = { at: stamp, failed: false, value: ask() };
     cache?.set(key, entry);
     const mine = entry;
-    entry.value.then((v) => { if (v === null) mine.failed = true; }, () => { mine.failed = true; });
+    entry.value.then((v) => { if (v === null) mine.failed = true; if (!keep(v)) mine.gone = true; }, () => { mine.failed = true; });
   }
   return entry.value;
 }
@@ -83,7 +86,8 @@ export function gitRemoteDefault({ repo, remote, exec, cache, now = Date.now }) 
 export function gitIsAncestor({ repo, sha, ref, exec, cache, now = Date.now }) {
   if (!repo || !/^[0-9a-f]{40}$/.test(String(sha ?? '')) || !/^[\w./-]+$/.test(String(ref ?? ''))) return Promise.resolve(null);
   return remembered({
-    cache, key: `ancestor\u0000${path.resolve(repo)}\u0000${sha}\u0000${ref}`, now, fresh: false,
+    // Only a yes is kept: a commit that is not there yet arrives with the next git fetch, which Auto allows (Nov 17).
+    cache, key: `ancestor\u0000${path.resolve(repo)}\u0000${sha}\u0000${ref}`, now, fresh: false, keep: (v) => v === true,
     ask: async () => {
       try { await exec(['merge-base', '--is-ancestor', sha, ref], { cwd: repo, timeout: LIMIT_MS }); return true; } catch (err) { return err?.code === 1 ? false : null; }
     },

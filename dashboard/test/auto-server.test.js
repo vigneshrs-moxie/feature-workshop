@@ -6482,3 +6482,37 @@ test('Nov 17: Fable answers until the job\'s Approver spend reaches $3, then Opu
     assert.equal(gate.model, 'Opus 5.5');
   } finally { await high.stop(); }
 });
+
+test('Nov 17 (3): the org-branch call from a commit of the org\'s main not fetched yet is refused and says to fetch; once git fetch (now allowed) brings it, it goes to the Approver', { timeout: 60_000 }, async () => {
+  const w = await world();
+  try {
+    const { autoVerdict, OUTSIDE_REASONS } = await import('../lib/auto-rules.js');
+    // The org's repository: a bare one with one commit more than this checkout has.
+    const org = path.join(w.root, 'org.git');
+    execFileSync('git', ['init', '-q', '--bare', '-b', 'main', org], { stdio: 'pipe' });
+    w.git('push', '-q', org, 'main');
+    const work = path.join(w.root, 'org-work');
+    execFileSync('git', ['clone', '-q', org, work], { stdio: 'pipe' });
+    execFileSync('git', ['-C', work, '-c', 'user.name=T', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false', 'commit', '-q', '--allow-empty', '-m', 'org work'], { stdio: 'pipe' });
+    execFileSync('git', ['-C', work, 'push', '-q', 'origin', 'main'], { stdio: 'pipe' });
+    const newer = execFileSync('git', ['-C', work, 'rev-parse', 'HEAD']).toString().trim();
+    w.git('remote', 'add', 'moxie', 'git@github.com:moxie-org/visit-app.git');
+    w.git('update-ref', 'refs/remotes/moxie/main', 'HEAD'); // what this checkout last fetched: the older main
+    w.git('worktree', 'add', '-q', '-b', 'feature/visit-audit', path.join(w.root, 'orbit-visit-audit'));
+    const command = `gh api -X POST repos/moxie-org/visit-app/git/refs -f ref=refs/heads/feature/visit-audit -f sha=${newer}`;
+    const run = { id: 'n17-org', featureDir: w.dir, cwd: w.dirs.repo, slug: w.slug, title: 'T' };
+    const v = (c, ctx) => autoVerdict({ kind: 'card', toolName: 'Bash', input: { command: c }, hardLine: null, blockedPath: null }, ctx);
+    const before = await w.driver.autoCtx(run, { toolName: 'Bash', input: { command } });
+    assert.notEqual(before.orgShas[newer], true);
+    assert.deepEqual({ verdict: v(command, before)?.verdict, reason: v(command, before)?.reason }, { verdict: 'stop', reason: OUTSIDE_REASONS.orgMain });
+    // The fetch that would bring it is allowed, from the main checkout, in the spellings the skills use.
+    for (const c of ['git fetch moxie --prune', 'git fetch moxie', 'git ls-remote moxie refs/heads/main']) assert.equal(v(c, before), null, c);
+    // What git fetch moxie does (the remote's address is GitHub's, so the test fetches from the bare repository into moxie/main).
+    w.git('fetch', '-q', org, '+refs/heads/main:refs/remotes/moxie/main');
+    const after = await w.driver.autoCtx(run, { toolName: 'Bash', input: { command } });
+    assert.equal(after.orgShas[newer], true, 'asked of git again at once: an answer that was not yes is never kept');
+    const asked = v(command, after);
+    assert.equal(asked?.verdict, 'ask');
+    assert.match(asked.why, /the workflow's org branch step/);
+  } finally { await w.stop(); }
+});

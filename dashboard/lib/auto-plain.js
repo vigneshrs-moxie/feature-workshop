@@ -348,7 +348,16 @@ function sedCheck(args, ctx) {
     if (t === '-n') { quiet = true; continue; }
     if (t === '-E' || t === '-r' || t === '-s') continue;
     if (t === '-e') { if (i + 1 >= args.length) ask('a sed with no script'); scripts.push(args[++i].t); continue; }
-    if (t === '-i' || /^-i[^/]*$/.test(t) || t === '--in-place') { inPlace = true; if (t === '-i' && args[i + 1]?.t === '') i++; continue; }
+    // -i alone, or after other flags (-Ei): on a Mac sed takes the next word as the backup's suffix ('' is none) (Nov 17).
+    if (/^-[nErs]*i$/.test(t)) {
+      inPlace = true;
+      if (/n/.test(t)) quiet = true;
+      // The word after it is read as the suffix when it is one ('' or .bak); any other word is read GNU's way, as the script
+      // (the fixed rules judge both readings, lib/auto-rules.js sedWords).
+      if (args[i + 1]?.t === '' || (process.platform === 'darwin' && /^\.[\w.~-]*$/.test(args[i + 1]?.t ?? '') && !args[i + 1].glob)) i++;
+      continue;
+    }
+    if (/^-i[^/]*$/.test(t) || t === '--in-place' || /^--in-place=[^/*]*$/.test(t)) { inPlace = true; continue; }
     if (t.startsWith('-') && t !== '-') ask(`the option ${t} of sed`);
     files.push(args[i]);
   }
@@ -447,7 +456,7 @@ const GIT = {
   show: BUILD(`${DIFF_FLAGS} ${LOG_FLAGS} s`, { text: LOG_TEXT }),
   add: INSIDE('A u n v N --all --update --dry-run --verbose --intent-to-add'),
   commit: BUILD('a q v s --all --amend --no-edit --quiet --verbose --allow-empty --no-verify --signoff m: --message: F: --file: --author: --date:', { text: ['-m', '--message', '--author', '--date'] }),
-  fetch: spec('q v p t --all --prune --quiet --verbose --tags --no-tags --depth: --unshallow', { pos: (pos) => remoteName(pos, 'fetch') }),
+  fetch: spec('q v p t --all --prune --quiet --verbose --tags --no-tags --depth: --unshallow --dry-run --progress --no-progress', { pos: (pos) => remoteName(pos, 'fetch') }),
   pull: spec('q v r --quiet --verbose --rebase --ff-only --no-rebase --no-edit --autostash --no-autostash --ff --no-ff --depth:', { pos: (pos) => remoteName(pos, 'pull') }),
   push: spec('u q v n --set-upstream --quiet --verbose --no-verify --dry-run --progress', { pos: (pos) => { if (pos.length > 2) ask('a push with several branches'); for (const x of pos) if (!/^[\w./@:^~-]+$/.test(x.t)) ask('an unusual push target'); } }),
   checkout: BUILD('b: B: q --detach --quiet', { pos: 'build' }),
@@ -482,7 +491,8 @@ const GIT = {
   'name-rev': READ('--name-only --tags --always'),
   'count-objects': READ('v H'),
   'show-ref': READ('--heads --tags --verify q --hash s --head'),
-  'ls-remote': spec('--heads --tags q', { pos: (pos) => { for (const x of pos) if (!/^[\w.-]+$/.test(x.t)) ask('an address given to ls-remote'); } }),
+  // A remote's name, then branch names or patterns (refs/heads/main): never an address or a path (Nov 17).
+  'ls-remote': spec('h t q --heads --tags --branches --refs --quiet --exit-code --symref', { pos: (pos) => pos.forEach((x, k) => { if (!(k === 0 ? /^[A-Za-z0-9_][\w.-]*$/ : /^[A-Za-z0-9_*][\w./*-]*$/).test(x.t) || x.t.includes('..')) ask('an address given to ls-remote'); }) }),
   'symbolic-ref': spec('q --short', { pos: (pos) => { if (pos.length > 1) ask('a symbolic-ref that changes a reference'); } }),
   version: spec('', { pos: 'none' }),
 };
@@ -895,14 +905,15 @@ const READ_ONLY = new Set(['cat', 'ls', 'head', 'tail', 'wc', 'grep', 'egrep', '
 function gitReadHere(args) {
   const at = args.findIndex((x) => !x.t.startsWith('-'));
   const sub = args[at]?.t;
-  return GIT_READS.has(sub) || gitReadForm(sub, args.slice(at + 1));
+  // git fetch only reads from GitHub and moves remote-tracking refs; where it may run is the fixed rules' (auto-rules.js remoteRead, Nov 17).
+  return GIT_READS.has(sub) || sub === 'fetch' || gitReadForm(sub, args.slice(at + 1));
 }
 // Commands judged by their own rule whatever the folder they run in (R4): gh pr create (its own rule, prCreateProblem),
 // starbase decisions for the job, and ps that only reads.
 function anyFolder(name, args, here, ctx, known = null) {
   const pos = args.filter((x) => !x.t.startsWith('-')).map((x) => x.t);
   // sed and awk that only print, mkdir, touch, cp and mv (each path judged on its own), and a known program's version (R13).
-  if (/^g?(sed|awk)$/.test(name)) return !args.some((x) => /^-[A-Za-z]*i|^--in-place/.test(x.t));
+  if (/^g?(sed|awk)$/.test(name)) return name.endsWith('sed') || !args.some((x) => /^-[A-Za-z]*i|^--in-place/.test(x.t)); // sed -i: its files must be inside (sedCheck, Nov 17)
   if (['mkdir', 'touch', 'cp', 'mv'].includes(name)) return true;
   if (args.length === 1 && /^(--version|-v|-V)$/.test(args[0].t) && typeof known === 'function' && known(name)) return true;
   if (name === 'gh') return pos[0] === 'pr' && pos[1] === 'create';
@@ -984,7 +995,7 @@ export function plainWhy(command, env = {}) {
         const sub = rest.find((x) => !x.t.startsWith('-'))?.t;
         const inTree = dirs.every((p) => p && trees.some((w) => isInside(p, w)));
         const subAt = rest.findIndex((x) => !x.t.startsWith('-'));
-        const mainRead = dirs.every((p) => p && main && isInside(p, main)) && ((GIT_READS.has(sub) && sub !== 'config') || gitReadForm(sub, rest.slice(subAt + 1)));
+        const mainRead = dirs.every((p) => p && main && isInside(p, main)) && ((GIT_READS.has(sub) && sub !== 'config') || sub === 'fetch' || gitReadForm(sub, rest.slice(subAt + 1)));
         if (!inTree && !mainRead) ask('the git subcommand option -C');
         args = rest;
         here = dirs;

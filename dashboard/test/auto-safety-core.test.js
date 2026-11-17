@@ -791,17 +791,21 @@ test('N7: the workflow\'s set-up lines run from the main checkout in their exact
   for (const c of ['git fetch moxie --prune', 'git fetch moxie', 'git fetch origin', `git ls-remote --heads origin ${BRANCH}`, `git ls-remote --heads moxie ${BRANCH}`,
     `git worktree add -b ${BRANCH} ../orbit-orbit-500-thing moxie/main`, `git worktree add -b ${BRANCH} ${WT} moxie/main`]) assert.equal(bash(c, ctx), null, c);
   assert.equal(bash(`gh api -X POST repos/moxie-org/orbit/git/refs -f ref=refs/heads/${BRANCH} -f sha=${'a'.repeat(40)}`, ctx), 'ask', 'the org-branch call asks from the main checkout as from the worktree');
-  // From a folder of the job's the gate is shut (R11): the lines answer by the ordinary rules (a fetch in the worktree passes, ls-remote asks).
+  // From a folder of the job's the gate is shut (R11): the lines answer by the ordinary rules. Since Nov 17 (the owner's decision)
+  // git fetch and git ls-remote against the job's own remotes pass in the worktree too.
   assert.equal(bash('git fetch moxie --prune', C5CTX({ orgRemote: 'moxie', setup })), null);
-  assert.equal(bash(`git ls-remote --heads origin ${BRANCH}`, C5CTX({ orgRemote: 'moxie', setup })), 'ask');
+  assert.equal(bash(`git ls-remote --heads origin ${BRANCH}`, C5CTX({ orgRemote: 'moxie', setup })), null);
   // One thing wrong: as today (a stop or an ask, never a pass).
   for (const c of ['git fetch upstream', 'git fetch git@github.com:someone/orbit.git', 'git fetch moxie --prune --tags', `git ls-remote --heads git@github.com:x/y.git ${BRANCH}`, `git ls-remote --heads upstream ${BRANCH}`,
-    `git ls-remote --heads origin ${BRANCH} other`, `git worktree add -b ${BRANCH} ../somewhere-else moxie/main`, `git worktree add -b ${BRANCH} ../orbit-orbit-500-thing origin/main`,
+    `git worktree add -b ${BRANCH} ../somewhere-else moxie/main`, `git worktree add -b ${BRANCH} ../orbit-orbit-500-thing origin/main`,
     'git worktree add -b main ../orbit-orbit-500-thing moxie/main', 'git worktree add -b feature/orbit-499-other ../orbit-orbit-500-thing moxie/main', `git worktree add ../orbit-orbit-500-thing ${BRANCH}`,
     'git fetch moxie --prune && touch x', 'git status && git add -A',
     // Two of its own forms may be joined by && (R4); one wrong half, another joiner or a third command is as today.
     'git fetch moxie && git worktree add -b x ../somewhere-else moxie/main', 'git fetch moxie; git worktree add -b x ../orbit-orbit-500-thing moxie/main', 'git fetch upstream && git fetch moxie',
-    'git fetch moxie && git fetch origin && git fetch moxie', `git -C ${WT} fetch moxie --prune && git fetch moxie`, `git -C ${HOME}/Projects/other fetch moxie --prune`]) assert.notEqual(bash(c, ctx), null, c);
+    `git -C ${HOME}/Projects/other fetch moxie --prune`]) assert.notEqual(bash(c, ctx), null, c);
+  // Since Nov 17 a fetch or ls-remote against the job's own remotes, from the main checkout or a worktree, is a read whatever its
+  // form or company (auto-rules.js remoteRead); the set-up's worktree add is still only its exact form.
+  for (const c of [`git ls-remote --heads origin ${BRANCH} other`, 'git fetch moxie && git fetch origin && git fetch moxie', `git -C ${WT} fetch moxie --prune && git fetch moxie`]) assert.equal(bash(c, ctx), null, c);
   assert.equal(bash('git fetch moxie && git worktree add -b x ../orbit-orbit-500-thing moxie/main', ctx), null, 'two of its own forms joined by && (R4)');
 });
 
