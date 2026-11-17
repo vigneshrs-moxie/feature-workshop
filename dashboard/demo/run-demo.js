@@ -1366,7 +1366,7 @@ async function longJob(size = 52) {
   const description = 'Let office managers download the crew schedule for a week as a CSV file.';
 
   // Its branch: each commit writes its files at its own time.
-  const git = (args, when) => execFileSync('git', ['-C', ACME, ...args], { stdio: 'pipe', env: when ? { ...process.env, GIT_AUTHOR_DATE: when, GIT_COMMITTER_DATE: when } : process.env }).toString().trim();
+  const git = (args, when) => execGitSync(['-C', ACME, ...args], { stdio: 'pipe', env: when ? { ...process.env, GIT_AUTHOR_DATE: when, GIT_COMMITTER_DATE: when } : process.env }).toString().trim();
   git(['switch', '-q', '-c', src.branch, 'main']);
   for (const c of src.commits) {
     for (const f of c.files) {
