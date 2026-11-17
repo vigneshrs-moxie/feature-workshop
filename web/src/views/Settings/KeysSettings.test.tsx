@@ -46,24 +46,26 @@ describe('Settings → Keys', () => {
   });
 
   it('lists every key the app has, from the registry, grouped by where it works', () => {
-    // The new job page's keys are listed while its switch is on (final W8).
-    localStorage.setItem('sb.jobPage', 'new');
     render(<KeysSettings />);
     const all = screen.getByRole('region', { name: 'Every key' });
-    // A key kept for later (keyDef(id).hidden: the new job page's n) is bound but not listed, here as in the ? sheet.
+    // A key kept for later (keyDef(id).hidden) is bound but not listed, here as in the ? sheet.
     for (const id of KEY_IDS) if (!keyDef(id).hidden) expect(within(all).getAllByText(KEYS[id].label).length, id).toBeGreaterThan(0);
-    // The new job page's n (Task 17) adds a note now, so it is listed.
+    // The job page's n (Task 17) adds a note now, so it is listed.
     expect(within(all).getAllByText(KEYS['jp-note'].label).length).toBeGreaterThan(0);
     expect(within(all).getByRole('region', { name: 'The Inbox' })).toHaveTextContent('Start a job on the ticket');
     expect(within(all).getByRole('region', { name: 'The open step' })).toHaveTextContent('The step after this one');
+    expect(within(all).getByRole('region', { name: 'The job page' })).toHaveTextContent('Open the step after');
     expect(all).toHaveTextContent('never work while you type');
-    localStorage.removeItem('sb.jobPage');
   });
 
-  it('final W8: leaves the new job page’s keys out while its switch is off', () => {
+  it('lists the job page’s keys with no switch: a stored sb.jobPage changes nothing', () => {
+    for (const stored of [null, 'new', 'old']) {
+      if (stored) localStorage.setItem('sb.jobPage', stored); else localStorage.removeItem('sb.jobPage');
+      const { unmount } = render(<KeysSettings />);
+      const all = screen.getByRole('region', { name: 'Every key' });
+      expect(within(all).getAllByText(KEYS['jp-step-prev'].label).length, String(stored)).toBeGreaterThan(0);
+      unmount();
+    }
     localStorage.removeItem('sb.jobPage');
-    render(<KeysSettings />);
-    const all = screen.getByRole('region', { name: 'Every key' });
-    expect(within(all).queryByText(KEYS['jp-step-prev'].label)).toBeNull();
   });
 });

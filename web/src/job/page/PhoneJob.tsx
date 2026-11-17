@@ -44,7 +44,7 @@ import { CopyDecisions } from '../CopyDecisions';
 import { NextStep } from '../NextStep';
 import { WhatAutoDecided } from '../WhatAutoDecided';
 import { ConversationPanel, newCount, seenKey } from './ConversationPanel';
-import { AUTO_START_WHERE, jobFacts, JobStateChip, MENU_ON_LAPTOP, TooBigChip, TryNewPage } from './JobTop';
+import { AUTO_START_WHERE, jobFacts, JobStateChip, MENU_ON_LAPTOP, TooBigChip } from './JobTop';
 import { Column, overviewNote, TheTicket, ticketFor, WhatWereBuilding } from './OverviewCard';
 import { StepBody } from './StepBody';
 import { StepPanel } from './StepPanel';
@@ -164,7 +164,7 @@ function JobScreen({ job, conversation, now, sent, evidence, write }: ScreenProp
             <Back to={() => navigate({ name: 'home' })}>Jobs</Back>
             <span className="sb-phone-spacer" />
             {hosted
-              ? <><span className="sb-phone-laptop">{MENU_ON_LAPTOP}</span><TryNewPage /></>
+              ? <span className="sb-phone-laptop">{MENU_ON_LAPTOP}</span>
               : <JobMenu job={job} dir={detail?.dir} policyOverride={detail?.policyOverride} run={run} worktree={detail?.worktree} started={Boolean(detail?.drive?.sessionId)} gear />}
           </div>
           <h1 className="sb-phone-title">{job.title || slug}</h1>

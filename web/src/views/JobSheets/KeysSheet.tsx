@@ -3,7 +3,6 @@
 import { KEY_IDS, KEYS, keyDef, keyLabel, SCOPES, useKeyRegistry, type KeyId, type KeyScope } from '../../app/keyRegistry';
 import { useKeysSetting } from '../../app/keysSetting';
 import { guideHref } from '../../app/router';
-import { useNewJobPage } from '../../jobpage/switch';
 import { Sheet } from '../../components/Sheet';
 import { Button } from '../../components/Button';
 import './jobSheets.css';
@@ -33,13 +32,10 @@ export function KeysSheet({ onClose }: { onClose: () => void }) {
   );
 }
 
-/** Every key in the registry, grouped by where it works; groups not on this page are marked (the new
- *  job page's only while its switch is on). Also in Settings → Keys. */
+/** Every key in the registry, grouped by where it works; groups not on this page are marked. Also in Settings → Keys. */
 export function KeyGroups() {
   const { active } = useKeyRegistry();
-  // The new job page's keys only while that page is switched on (jobpage/switch.ts).
-  const newPage = useNewJobPage();
-  const groups = GROUP_ORDER.filter((scope) => scope !== 'jobpage' || newPage)
+  const groups = GROUP_ORDER
     .map((scope) => ({ scope, ids: KEY_IDS.filter((id) => KEYS[id].scope === scope && !keyDef(id).hidden) })).filter((g) => g.ids.length);
   return (
     <>

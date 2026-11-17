@@ -42,8 +42,6 @@ describe('the ? sheet', () => {
   });
 
   it('every key in the registry is listed once, under its scope: the Inbox, the open step and the alert too', () => {
-    // The new job page's keys show while its switch is on (final W8).
-    localStorage.setItem('sb.jobPage', 'new');
     render(<KeysSheet onClose={() => {}} />);
     expect([...new Set(KEY_IDS.map((id) => KEYS[id].scope))].filter((s) => !GROUP_ORDER.includes(s))).toEqual([]);
     for (const id of KEY_IDS) {
@@ -60,25 +58,25 @@ describe('the ? sheet', () => {
   });
 });
 
-// Task 7 review M5: a key kept for later (the new job page's n, Task 17) is bound but not listed.
+// Task 7 review M5: a key kept for later is bound but not listed; the job page's n (Task 17) is listed.
 describe('the ? sheet and a key kept for later', () => {
-  it('lists the new job page’s n now that it adds a note (Task 17)', () => {
+  it('lists the job page’s n now that it adds a note (Task 17)', () => {
     expect(keyDef('jp-note').hidden).toBeUndefined();
-    localStorage.setItem('sb.jobPage', 'new');
     render(<KeysSheet onClose={() => {}} />);
     expect(screen.getByText(KEYS['jp-note'].label)).toBeInTheDocument();
     expect(within(screen.getByRole('region', { name: SCOPES.jobpage.title })).getByText('Search the conversation')).toBeInTheDocument();
   });
 });
 
-describe('final W8: the new job page’s keys while its switch is off', () => {
-  it('the old page’s ? sheet does not list them; switched on, it does', () => {
-    const { unmount } = render(<KeysSheet onClose={() => {}} />);
-    expect(screen.queryByRole('region', { name: SCOPES.jobpage.title })).toBeNull();
-    expect(screen.getByRole('region', { name: 'Everywhere' })).toBeInTheDocument();
-    unmount();
-    localStorage.setItem('sb.jobPage', 'new');
-    render(<KeysSheet onClose={() => {}} />);
-    expect(screen.getByRole('region', { name: SCOPES.jobpage.title })).toBeInTheDocument();
+describe('the job page’s keys with no switch', () => {
+  it('the ? sheet always lists them; a stored sb.jobPage changes nothing', () => {
+    for (const stored of [null, 'new', 'old']) {
+      if (stored) localStorage.setItem('sb.jobPage', stored); else localStorage.removeItem('sb.jobPage');
+      const { unmount } = render(<KeysSheet onClose={() => {}} />);
+      expect(screen.getByRole('region', { name: SCOPES.jobpage.title }), String(stored)).toBeInTheDocument();
+      expect(screen.getByRole('region', { name: 'Everywhere' })).toBeInTheDocument();
+      unmount();
+    }
+    localStorage.removeItem('sb.jobPage');
   });
 });

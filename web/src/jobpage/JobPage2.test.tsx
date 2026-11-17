@@ -13,7 +13,6 @@ import { longJob } from './fixtures/longJob';
 import { createJobStore, type JobStore } from './jobStore';
 import { JobPage2 } from './JobPage2';
 import { forgetRecentPages } from './recent';
-import { JOB_PAGE_KEY } from './switch';
 import type { JobBody, JobPagePayload } from './types';
 
 // Every store the page makes, so a test can see it made one per job and ended it.
@@ -422,20 +421,23 @@ describe('keys', () => {
 });
 
 describe('the website', () => {
-  it('mounts the new page when the switch is on, and the old one when it is off', async () => {
+  it('mounts the job page at a job’s address, its reader’s and a step’s; a stored sb.jobPage is ignored', async () => {
     const store = createStore();
     store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [ROW], meta: { token: null, settings: { play: { mode: 'off' } } } as never }) });
     const c = client();
     const api = { ...c.api, hosted: () => true } as unknown as ApiClient;
-    localStorage.setItem(JOB_PAGE_KEY, 'new');
     const { unmount } = render(<HostedWorkshop api={api} store={store} route={{ name: 'job', slug: SLUG, read: { kind: 'brief', id: BRIEF } }} />);
     expect(await screen.findByRole('main', { name: 'Job' })).toHaveClass('jp2');
     expect(await screen.findByRole('heading', { level: 1, name: 'Crew schedule export' })).toBeInTheDocument();
     expect(readerTitle()).toBe('Brief #15 · Review · waiting');
     unmount();
-    localStorage.removeItem(JOB_PAGE_KEY);
-    render(<HostedWorkshop api={api} store={store} route={{ name: 'job', slug: SLUG }} />);
-    expect(await screen.findByRole('main', { name: 'Job' })).not.toHaveClass('jp2');
+    // The old switch's key, from before the old page went: nothing reads it.
+    for (const stored of ['new', 'old', null]) {
+      if (stored) localStorage.setItem('sb.jobPage', stored); else localStorage.removeItem('sb.jobPage');
+      const again = render(<HostedWorkshop api={api} store={store} route={{ name: 'stage', slug: SLUG, stop: 'review' }} />);
+      expect(await screen.findByRole('main', { name: 'Job' })).toHaveClass('jp2');
+      again.unmount();
+    }
   });
 });
 
@@ -548,18 +550,16 @@ describe('Task 7 fix round 1', () => {
     expect(stepRow('Ship')).toHaveAttribute('aria-current', 'step');
   });
 
-  it('on the website the old page offers Try the new job page, and the new page’s ⋯ brings the old one back', async () => {
+  it('on the website the job page has no way to another job page: no Try the new job page, no Back to the old job page', async () => {
     const store = createStore();
     store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [ROW], meta: { token: null, settings: { play: { mode: 'off' } } } as never }) });
     const api = { ...client().api, hosted: () => true } as unknown as ApiClient;
     render(<HostedWorkshop api={api} store={store} route={{ name: 'job', slug: SLUG }} />);
-    expect(await screen.findByRole('main', { name: 'Job' })).not.toHaveClass('jp2');
-    fireEvent.click(screen.getByRole('button', { name: 'Try the new job page' }));
-    expect(localStorage.getItem(JOB_PAGE_KEY)).toBe('new');
     expect(await screen.findByRole('main', { name: 'Job' })).toHaveClass('jp2');
+    expect(screen.queryByRole('button', { name: 'Try the new job page' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'More for this job' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Back to the old job page' }));
-    expect(await screen.findByRole('main', { name: 'Job' })).not.toHaveClass('jp2');
+    expect(screen.queryByRole('menuitem', { name: /old job page/ })).toBeNull();
+    expect(document.body).not.toHaveTextContent(/old job page|new job page/i);
   });
 });
 

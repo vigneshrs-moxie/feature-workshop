@@ -26,7 +26,6 @@ import { AutoSwitch } from '../../job/AutoSwitch';
 import { WhatAutoDecided } from '../../job/WhatAutoDecided';
 import { LevelChip } from './LevelChip';
 import { formatCost, isActiveRun } from './thread';
-import { tryNewJobPage } from '../../jobpage/switch';
 
 const KIND_LABELS: Record<string, string> = { feature: 'Feature', bug: 'Bug fix' };
 
@@ -148,11 +147,6 @@ function LaptopJobMenu({ job, dir, policyOverride, run, worktree, started = fals
           <li>
             <button type="button" onClick={() => { setOpen(false); ui.openTry(slug); }} title="Open the Try it tab: run this job’s branch on your computer and click around.">
               Try it on your computer
-            </button>
-          </li>
-          <li>
-            <button type="button" onClick={() => { setOpen(false); tryNewJobPage(); }} title="Show this job on the new job page. Its ⋯ menu brings this page back.">
-              Try the new job page
             </button>
           </li>
           {started && (

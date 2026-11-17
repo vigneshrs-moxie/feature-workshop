@@ -5,8 +5,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../../api/client';
-import type { Gate, JobDetail, Permission, StageView, StopId } from '../../api/types';
-import { STOPS } from '../../components/stops/stops';
+import type { Gate, JobDetail, Permission } from '../../api/types';
 import { DeskView } from '../../home/DeskView';
 import { AutoSwitch } from '../../job/AutoSwitch';
 import { WhatAutoDecided } from '../../job/WhatAutoDecided';
@@ -16,6 +15,9 @@ import { clearDecisions } from '../../home/nudges';
 import { PermissionCard } from '../../components/permissions/PermissionCard';
 import { createStore, WorkshopContext, type Store } from '../../state/store';
 import { hrefFor } from '../../app/router';
+import { longJob } from '../../jobpage/fixtures/longJob';
+import { forgetRecentPages } from '../../jobpage/recent';
+import type { JobBody } from '../../jobpage/types';
 import { job, snapshot } from '../../state/test-fixtures';
 import { hostedStream, POLL_MS } from './hostedStream';
 import { HostedWorkshop } from './HostedWorkshop';
@@ -217,31 +219,28 @@ describe('Auto on the website', () => {
   });
 });
 
-// Part 3, Task 17: the website's job page is the new page, at a job's address and a step's, and
+// Part 3, Task 17: the website's job page is the job page, at a job's address and a step's, and
 // going from one to the other (a hashchange on the website) keeps it mounted, so typed words stay.
 describe('the job page on the website', () => {
-  const stageView = (slug: string, stop: StopId): StageView => ({
-    slug, stop, label: STOPS.find((s) => s.id === stop)!.label, state: 'done', stateWords: 'Done', since: null, stages: [],
-    agents: [], finished: [], terminalApp: null, terminalApps: [], docs: [], checks: null, handTest: null, plan: null, prs: [], review: { reviewers: [] },
-  });
   function site(route: MirrorRoute | 'address') {
+    forgetRecentPages();
     const store = createStore();
-    // Play subtle: the bar's calls carry the page's own words (No go: send back, Reply, Go: …).
     store.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [ALPHA], meta: { token: null, settings: { play: { mode: 'subtle' } } } as never }) });
     const get = vi.fn(async (path: string): Promise<unknown> => {
-      const stage = /^\/api\/job\/([^/]+)\/stage\/([a-z]+)$/.exec(path);
-      if (stage) return stageView(decodeURIComponent(stage[1]), stage[2] as StopId);
-      if (path.endsWith('/evidence')) return { evidence: null, commit: null, wanted: false, why: '', recording: false, problem: null, folder: '', folderUrl: '', watch: false };
+      if (/^\/api\/job\/alpha\/page/.test(path)) return { ...JSON.parse(JSON.stringify(longJob.payload)), slug: 'alpha', title: 'Job alpha', hosted: true };
+      if (/^\/api\/job\/alpha\/item/.test(path)) {
+        const b = longJob.bodies[decodeURIComponent(/[?&]id=([^&]+)/.exec(path)?.[1] ?? '')];
+        if (!b) throw new Error('Starbase answered 404.');
+        return { ...b, version: String(b.meta.hash ?? b.id) } satisfies JobBody;
+      }
       if (path.endsWith('/docs')) return { docs: [] };
-      if (path.endsWith('/commits')) return { commits: [] };
       if (path.endsWith('/decisions')) return { decisions: [] };
-      if (path.endsWith('/local')) return null;
       return { slug: 'alpha', thread: [], threadMore: false, gate: GATE, answeredBriefs: [], heldReply: null, options: { level: 1 }, queued: null } as JobDetail;
     });
     const api = { get, post: vi.fn(async () => ({ ok: true })), hosted: () => true } as unknown as ApiClient;
     // 'address': the site's own route from the address bar (useHostedRoute), as HostedApp mounts it.
     const utils = render(route === 'address' ? <AtTheAddress api={api} store={store} /> : <HostedWorkshop api={api} store={store} route={route} />);
-    return { ...utils, go: (next: MirrorRoute) => utils.rerender(<HostedWorkshop api={api} store={store} route={next} />) };
+    return { ...utils, get, go: (next: MirrorRoute) => utils.rerender(<HostedWorkshop api={api} store={store} route={next} />) };
   }
   /** The website's job page under the site's own route, which it shows as data-route. */
   function AtTheAddress({ api, store }: { api: ApiClient; store: Store }) {
@@ -262,43 +261,42 @@ describe('the job page on the website', () => {
     window.addEventListener('hashchange', () => done(), { once: true });
     window.location.hash = hash;
   });
-  const openTab = () => screen.getByRole('tab', { selected: true, hidden: true });
+  const stepRow = (name: string) => [...document.querySelectorAll<HTMLButtonElement>('.jp2-st-row')].find((b) => b.querySelector('.jp2-st-name')?.textContent === name)!;
+  const theBox = () => screen.getByRole('textbox', { name: 'Message to the Foreman' });
 
-  it('the website’s job page is the new page', async () => {
-    site({ name: 'job', slug: 'alpha' });
+  it('the website’s job page is the job page, at a job’s address and a step’s', async () => {
+    const { get } = site({ name: 'job', slug: 'alpha' });
     const page = await screen.findByRole('main', { name: 'Job' });
-    expect(page).toHaveClass('sb-job-page');
-    expect(within(page.querySelector<HTMLElement>('.sb-job-top')!).getByRole('heading', { name: 'Job alpha' })).toBeInTheDocument();
-    expect(within(page).getAllByRole('tab', { hidden: true })).toHaveLength(7);
-    expect(openTab().id).toBe('sb-step-plan');
-    // The job waits for him: the bar has its three calls on the website too.
-    expect(await screen.findByRole('button', { name: /^No go: send back/ })).toBeEnabled();
+    expect(page).toHaveClass('jp2');
+    expect(within(page).getByRole('heading', { level: 1, name: 'Job alpha' })).toBeInTheDocument();
+    expect(page.querySelectorAll('.jp2-st-row')).toHaveLength(7);
+    await waitFor(() => expect(get).toHaveBeenCalledWith('/api/job/alpha/page'));
+    expect(get.mock.calls.map((c) => c[0] as string).filter((p) => /\/stage\//.test(p))).toEqual([]);
     cleanup();
     // A step's address opens the same page on that step.
     site({ name: 'stage', slug: 'alpha', stop: 'review' });
-    expect(await screen.findByRole('main', { name: 'Job' })).toHaveClass('sb-job-page');
-    expect(openTab().id).toBe('sb-step-review');
+    expect(await screen.findByRole('main', { name: 'Job' })).toHaveClass('jp2');
+    await waitFor(() => expect(stepRow('Review')).toHaveAttribute('aria-current', 'step'));
   });
 
   it('the website’s step address keeps the page mounted', async () => {
     const { go } = site({ name: 'job', slug: 'alpha' });
     const page = await screen.findByRole('main', { name: 'Job' });
-    fireEvent.click(await screen.findByRole('button', { name: /^No go: send back/ }));
-    const box = await screen.findByRole('textbox', { name: /What should change\?/ });
-    box.focus();
+    const box = await screen.findByRole('textbox', { name: 'Message to the Foreman' });
+    act(() => { box.focus(); });
     fireEvent.change(box, { target: { value: 'Use the small table.' } });
     // The job's address, then a step's, then another step's: the same page, the same box, the same words.
     go({ name: 'stage', slug: 'alpha', stop: 'spec' });
     await act(async () => {});
-    expect(openTab().id).toBe('sb-step-spec');
+    expect(stepRow('Spec')).toHaveAttribute('aria-current', 'step');
     expect(screen.getByRole('main', { name: 'Job' })).toBe(page);
-    expect(screen.getByRole('textbox', { name: /What should change\?/ })).toBe(box);
+    expect(theBox()).toBe(box);
     expect(box).toHaveValue('Use the small table.');
     go({ name: 'stage', slug: 'alpha', stop: 'build' });
     await act(async () => {});
-    expect(openTab().id).toBe('sb-step-build');
+    expect(stepRow('Build')).toHaveAttribute('aria-current', 'step');
     expect(screen.getByRole('main', { name: 'Job' })).toBe(page);
-    expect(screen.getByRole('textbox', { name: /What should change\?/ })).toBe(box);
+    expect(theBox()).toBe(box);
     expect(box).toHaveValue('Use the small table.');
   });
 
@@ -309,12 +307,13 @@ describe('the job page on the website', () => {
       await screen.findByRole('main', { name: 'Job' });
       expect(heldRoute()).toBe('#/job/alpha/stage/test');
       const entries = window.history.length;
-      fireEvent.click(document.getElementById('sb-step-spec')!);
+      await waitFor(() => expect(stepRow('Spec')).toBeDefined());
+      fireEvent.click(stepRow('Spec'));
       await act(async () => {});
       expect(window.location.hash).toBe('#/job/alpha/stage/spec');
       expect(window.history.length).toBe(entries);
       expect(heldRoute()).toBe('#/job/alpha/stage/spec');
-      expect(openTab().id).toBe('sb-step-spec');
+      expect(stepRow('Spec')).toHaveAttribute('aria-current', 'step');
     } finally { cleanup(); await openAt(''); }
   });
 
@@ -323,13 +322,13 @@ describe('the job page on the website', () => {
     try {
       site('address');
       await screen.findByRole('main', { name: 'Job' });
-      expect(openTab().id).toBe('sb-step-test');
-      fireEvent.click(document.getElementById('sb-step-spec')!);
+      await waitFor(() => expect(stepRow('Test')).toHaveAttribute('aria-current', 'step'));
+      fireEvent.click(stepRow('Spec'));
       await act(async () => {});
-      expect(openTab().id).toBe('sb-step-spec');
+      expect(stepRow('Spec')).toHaveAttribute('aria-current', 'step');
       // A link (or Back) to the step the page opened at: a hashchange.
       act(() => { window.location.hash = '#/job/alpha/stage/test'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
-      await waitFor(() => expect(openTab().id).toBe('sb-step-test'));
+      await waitFor(() => expect(stepRow('Test')).toHaveAttribute('aria-current', 'step'));
     } finally { cleanup(); await openAt(''); }
   });
 });

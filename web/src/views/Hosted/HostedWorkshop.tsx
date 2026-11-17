@@ -12,9 +12,7 @@ import { useKeyListener } from '../../app/keyRegistry';
 import { UiProvider } from '../../app/ui';
 import { TooltipLayer } from '../../components/Tooltip';
 import { DeskPage } from '../../home/DeskPage';
-import { JobPage } from '../../job/page/JobPage';
 import { JobPage2 } from '../../jobpage/JobPage2';
-import { useNewJobPage } from '../../jobpage/switch';
 import { useNow } from '../../lib/time';
 import { useDelayedFlag } from '../../lib/useDelayedFlag';
 import { PlayLedgerProvider } from '../../play/PlayLedger';
@@ -65,7 +63,6 @@ export function LaptopLine() {
 function Body({ route }: { route: MirrorRoute }) {
   const state = useWorkshopState();
   useKeyListener();
-  const newPage = useNewJobPage();
   const slow = useDelayedFlag(state.status === 'loading');
   if (state.status !== 'ready') {
     return (
@@ -78,13 +75,9 @@ function Body({ route }: { route: MirrorRoute }) {
   switch (route.name) {
     case 'desk': page = <DeskPage />; break;
     // The job page at a job's address and at each step's: the same key, so it stays mounted between
-    // them. The new page while the switch is on (jobpage/switch.ts), first painted from the snapshot row.
-    case 'job': page = newPage
-      ? <JobPage2 key={route.slug} slug={route.slug} job={jobBySlug(state, route.slug)} view={route.view} read={route.read} />
-      : <JobPage key={route.slug} slug={route.slug} view={route.view} />; break;
-    case 'stage': page = newPage
-      ? <JobPage2 key={route.slug} slug={route.slug} job={jobBySlug(state, route.slug)} step={route.stop} />
-      : <JobPage key={route.slug} slug={route.slug} step={route.stop} />; break;
+    // them, first painted from the snapshot row.
+    case 'job': page = <JobPage2 key={route.slug} slug={route.slug} job={jobBySlug(state, route.slug)} view={route.view} read={route.read} />; break;
+    case 'stage': page = <JobPage2 key={route.slug} slug={route.slug} job={jobBySlug(state, route.slug)} step={route.stop} />; break;
     case 'stacks': page = <StacksPage />; break;
     case 'stack': page = <StackPage key={route.slug} slug={route.slug} />; break;
     default: page = <PartPage key={`${route.slug}/${route.n}`} slug={route.slug} n={route.n} />;

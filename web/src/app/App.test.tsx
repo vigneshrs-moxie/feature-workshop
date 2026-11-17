@@ -1,10 +1,12 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../api/client';
-import type { Gate, Snapshot, StageView, StopId } from '../api/types';
-import { STOPS } from '../components/stops/stops';
+import type { Snapshot } from '../api/types';
+import { longJob } from '../jobpage/fixtures/longJob';
+import { forgetRecentPages } from '../jobpage/recent';
+import type { JobBody } from '../jobpage/types';
 import type { EventSourceLike } from '../state/live';
-import { ev, job, permission, snapshot } from '../state/test-fixtures';
+import { job, snapshot } from '../state/test-fixtures';
 import { App } from './App';
 import { oldPages } from './router';
 
@@ -16,20 +18,23 @@ class FakeStream implements EventSourceLike {
   close() { this.readyState = 2; }
 }
 
-/** One step's view, as GET /api/job/:slug/stage/:stop answers it. */
-const stageView = (slug: string, stop: StopId): StageView => ({
-  slug, stop, label: STOPS.find((s) => s.id === stop)!.label, state: 'done', stateWords: 'Done', since: null, stages: [],
-  agents: [], finished: [], terminalApp: null, terminalApps: [], docs: [], checks: null, handTest: null, plan: null, prs: [], review: { reviewers: [] },
-});
-
 /**
- * What the test's dashboard answers, by route: the job page asks for a step's view, the evidence,
- * the documents and the commits as well as the job's details. `detail` adds to a job's details.
+ * What the test's dashboard answers, by route: the job page reads its payload (the made-up long job's,
+ * as this job, with its title) and its bodies; the drawer and the sheets read the job's details,
+ * its documents and its notes. `detail` adds to a job's details.
  */
 function serverGet(detail: (slug: string) => Record<string, unknown> = () => ({}), notes = '') {
   return vi.fn(async (path: string): Promise<unknown> => {
-    const stage = /^\/api\/job\/([^/]+)\/stage\/([a-z]+)$/.exec(path);
-    if (stage) return stageView(decodeURIComponent(stage[1]), stage[2] as StopId);
+    const page = /^\/api\/job\/([^/?]+)\/page/.exec(path);
+    if (page) {
+      const slug = decodeURIComponent(page[1]);
+      return { ...JSON.parse(JSON.stringify(longJob.payload)), slug, title: `Job ${slug}` };
+    }
+    if (/^\/api\/job\/[^/?]+\/item/.test(path)) {
+      const b = longJob.bodies[decodeURIComponent(/[?&]id=([^&]+)/.exec(path)?.[1] ?? '')];
+      if (!b) throw new Error('Starbase answered 404.');
+      return { ...b, version: String(b.meta.hash ?? b.id) } satisfies JobBody;
+    }
     if (path.endsWith('/evidence')) return { evidence: null, commit: null, wanted: false, why: '', recording: false, problem: null, folder: '/tmp/evidence', folderUrl: 'file:///tmp/evidence' };
     if (path.endsWith('/docs')) return { docs: [] };
     if (path.endsWith('/commits')) return { commits: [] };
@@ -53,9 +58,10 @@ function renderApp(snap: Snapshot | Error) {
   return { streams };
 }
 
-// A laptop's window, 1280 px wide (jsdom has no matchMedia): the job page shows the conversation
-// column beside the steps, as it does from 1100 px.
+// A laptop's window, 1280 px wide (jsdom has no matchMedia): the job page shows its two panes and
+// the conversation's column, as it does from 1100 px.
 beforeEach(() => {
+  forgetRecentPages();
   vi.stubGlobal('matchMedia', (q: string) => {
     const min = /min-width:\s*(\d+)px/.exec(q);
     const max = /max-width:\s*(\d+)px/.exec(q);
@@ -65,13 +71,14 @@ beforeEach(() => {
 afterEach(() => { window.location.hash = ''; localStorage.clear(); vi.unstubAllGlobals(); });
 
 describe('App shell', () => {
-  it('shows a job full width: the Job page with its seven stops, no Jobs or Preview pane', async () => {
+  it('shows a job full width: the job page with its seven steps, no Jobs or Preview pane', async () => {
     window.location.hash = '#/job/beta';
     renderApp(snapshot({ jobs: [job('alpha', 'needs-you'), job('beta', 'running'), job('gamma', 'done')] }));
     const page = await screen.findByRole('main', { name: 'Job' });
-    expect(within(page).getByRole('heading', { name: 'Job beta' })).toBeInTheDocument();
+    expect(page).toHaveClass('jp2');
+    expect(within(page).getByRole('heading', { level: 1, name: 'Job beta' })).toBeInTheDocument();
     // The seven stops are the job page's seven steps (a pick moves the address to #/job/beta/stage/<stop>).
-    expect(within(within(page).getByRole('tablist', { name: 'The job’s seven steps' })).getAllByRole('tab')).toHaveLength(7);
+    expect(within(within(page).getByRole('navigation', { name: 'Steps' })).getAllByRole('button')).toHaveLength(7);
     expect(screen.queryByRole('navigation', { name: 'Jobs' })).toBeNull();
     expect(screen.queryByRole('complementary', { name: 'Preview' })).toBeNull();
     // The top bar: the product's name, the five pages (the Desk with what waits for you), and the gear.
@@ -120,23 +127,25 @@ describe('App shell', () => {
     const open = vi.spyOn(oldPages, 'open').mockImplementation(() => {});
     window.location.hash = '#/job/beta';
     renderApp(snapshot());
-    expect(await screen.findByRole('heading', { name: 'Job beta' })).toBeInTheDocument();
-    // The job page: its seven steps, in order.
-    expect(within(screen.getByRole('tablist', { name: 'The job’s seven steps' })).getAllByRole('tab').map((t) => t.id)).toEqual(STOPS.map((s) => `sb-step-${s.id}`));
-    // Not in the page, the gear, the job menu, the keys sheet or any hover text.
+    expect(await screen.findByRole('heading', { level: 1, name: 'Job beta' })).toBeInTheDocument();
+    // The job page: its seven steps.
+    expect(within(screen.getByRole('navigation', { name: 'Steps' })).getAllByRole('button')).toHaveLength(7);
+    // Not in the page, the gear, the job's ⋯ menu, the keys sheet or any hover text.
     const said = () => [document.body.textContent ?? '', ...[...document.querySelectorAll('[title], [aria-label], [data-tip]')].map((e) => `${e.getAttribute('title') ?? ''} ${e.getAttribute('aria-label') ?? ''} ${e.getAttribute('data-tip') ?? ''}`)].join(' ');
     fireEvent.click(screen.getByRole('button', { name: 'Settings and more' }));
     expect(said()).not.toMatch(/classic/i);
     fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
-    fireEvent.click(screen.getByRole('button', { name: /Job menu/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'More for this job' }));
     expect(said()).not.toMatch(/classic/i);
-    fireEvent.keyDown(document, { key: 'Escape' });
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
     fireEvent.keyDown(document.body, { key: '?' });
     expect(screen.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeInTheDocument();
     expect(said()).not.toMatch(/classic/i);
     fireEvent.keyDown(document, { key: 'Escape' });
-    // ⌘K lists nothing for it; part of the word finds nothing; the exact word shows one row and Enter opens this job there.
-    fireEvent.keyDown(document.body, { key: 'k', metaKey: true });
+    // Every action (on the job page ⌘K is the page's own box, whose last row is Every action) lists
+    // nothing for it; part of the word finds nothing; the exact word shows one row and Enter opens this job there.
+    fireEvent.click(screen.getByRole('button', { name: 'Settings and more' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /^Every action/ }));
     const box = screen.getByRole('combobox', { name: 'Search actions' });
     expect(said().replace(/Search actions/, '')).not.toMatch(/classic/i);
     fireEvent.change(box, { target: { value: 'class' } });
@@ -153,7 +162,7 @@ describe('App shell', () => {
     expect(screen.getByRole('region', { name: 'Next step' })).toHaveTextContent('needs you');
   });
 
-  it('shows a job’s screens full width at #/job/<slug>/screens, with Back to the job; the Spec step links to them', async () => {
+  it('shows a job’s screens full width at #/job/<slug>/screens, with Back to the job', async () => {
     window.location.hash = '#/job/beta/screens';
     renderApp(snapshot({ jobs: [job('alpha', 'needs-you'), job('beta', 'running', { wireframes: { version: '2' } })] }));
     const view = await screen.findByRole('main', { name: 'Screens' });
@@ -165,17 +174,10 @@ describe('App shell', () => {
     expect(view.querySelector('iframe.screens-frame')).toHaveAttribute('src', 'http://127.0.0.1:4478/job/beta/wireframes');
     expect(within(view).getByRole('button', { name: 'Copy feedback' })).toBeInTheDocument();
     expect(within(view).queryByRole('link', { name: 'Open full screen' })).toBeNull();
-    // Back on the job: its Spec step links to the screens; a job without screens has no link.
+    // Back to the job: the job page.
     act(() => { window.location.hash = '#/job/beta'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
-    await screen.findByRole('heading', { name: 'Job beta' });
-    fireEvent.click(document.getElementById('sb-step-spec')!);
-    expect(await screen.findByRole('link', { name: /Review the screens/ })).toHaveAttribute('href', '#/job/beta/screens');
-    act(() => { window.location.hash = '#/job/alpha'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
-    await screen.findByRole('heading', { name: 'Job alpha' });
-    fireEvent.click(document.getElementById('sb-step-spec')!);
-    const spec = await screen.findByRole('tabpanel', { name: 'Spec' });
-    await waitFor(() => expect(spec.querySelector('.sb-step-body')).not.toBeNull());
-    expect(screen.queryByRole('link', { name: /Review the screens/ })).toBeNull();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Job beta' })).toBeInTheDocument();
+    expect(screen.getByRole('main', { name: 'Job' })).toHaveClass('jp2');
     // A job without screens at the screens address says so.
     act(() => { window.location.hash = '#/job/alpha/screens'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
     expect(await screen.findByRole('main', { name: 'Screens' })).toHaveTextContent('This job has no screens yet.');
@@ -203,10 +205,6 @@ describe('App shell', () => {
     expect(screen.getByText('Connecting…')).toBeInTheDocument();
     act(() => { streams[0].readyState = 1; streams[0].onopen?.(new Event('open')); });
     expect(screen.getByText('Live')).toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: /^Permission/ })).toBeNull();
-    act(() => { streams[0].onmessage?.(new MessageEvent('message', { data: JSON.stringify(ev(11, 'permission', 'beta', permission('p1', 'beta'))) })); });
-    // The permission alert takes the next-step bar's place on the job's page.
-    expect(screen.getByRole('region', { name: 'Permission: Run a command' })).toHaveTextContent('The Foreman wants to run a command');
   });
 
   it('says so when the dashboard can’t be reached', async () => {
@@ -215,11 +213,13 @@ describe('App shell', () => {
     expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
   });
 
-  it('⌘K opens the palette with only the actions valid now; picking one runs it', async () => {
+  it('Every action lists only the actions valid now; picking one runs it', async () => {
     window.location.hash = '#/job/alpha';
     renderApp(snapshot({ jobs: [job('alpha', 'idle'), job('beta', 'running')] }));
-    await screen.findByRole('heading', { name: 'Job alpha' });
-    fireEvent.keyDown(document.body, { key: 'k', metaKey: true });
+    await screen.findByRole('heading', { level: 1, name: 'Job alpha' });
+    // On the job page ⌘K is the page's own box: the gear's Every action is the app's.
+    fireEvent.click(screen.getByRole('button', { name: 'Settings and more' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /^Every action/ }));
     const box = screen.getByRole('combobox', { name: 'Search actions' });
     const names = screen.getAllByRole('option').map((o) => o.querySelector('.palette-label')?.textContent);
     expect(names).toEqual(expect.arrayContaining(['Mark done or dropped…', 'New job…', 'Open Job beta', 'Settings']));
@@ -234,7 +234,7 @@ describe('App shell', () => {
   it('the palette opens Mark done for the open job', async () => {
     window.location.hash = '#/job/alpha';
     renderApp(snapshot({ jobs: [job('alpha', 'idle')] }));
-    await screen.findByRole('heading', { name: 'Job alpha' });
+    await screen.findByRole('heading', { level: 1, name: 'Job alpha' });
     fireEvent.click(screen.getByRole('button', { name: 'Settings and more' }));
     fireEvent.click(screen.getByRole('menuitem', { name: /^Every action/ }));
     fireEvent.change(screen.getByRole('combobox', { name: 'Search actions' }), { target: { value: 'mark' } });
@@ -242,21 +242,20 @@ describe('App shell', () => {
     expect(screen.getByRole('dialog', { name: 'Mark “Job alpha” as done' })).toBeInTheDocument();
   });
 
-  it('c opens the new job sheet and ? the keys; j and k step through the jobs, but not while typing', async () => {
+  it('c opens the new job sheet and ? the keys; j and k step through the jobs from Jobs, and are the job page’s own on a job', async () => {
     renderApp(snapshot({ jobs: [job('alpha', 'needs-you'), job('beta', 'idle')] }));
     await screen.findByRole('main', { name: 'Jobs' });
     const hop = () => act(() => { window.dispatchEvent(new HashChangeEvent('hashchange')); });
     fireEvent.keyDown(document.body, { key: 'j' });
     expect(window.location.hash).toBe('#/job/alpha');
     hop();
+    // On the job page j and k move between its lines: the address stays.
+    await screen.findByRole('heading', { level: 1, name: 'Job alpha' });
     fireEvent.keyDown(document.body, { key: 'j' });
-    expect(window.location.hash).toBe('#/job/beta');
-    hop();
     fireEvent.keyDown(document.body, { key: 'k' });
     expect(window.location.hash).toBe('#/job/alpha');
-    hop();
 
-    const composer = await screen.findByRole('textbox', { name: /Your message to the Foreman/ });
+    const composer = await screen.findByRole('textbox', { name: 'Message to the Foreman' });
     fireEvent.keyDown(composer, { key: 'j' });
     expect(window.location.hash).toBe('#/job/alpha');
 
@@ -301,84 +300,71 @@ describe('App shell', () => {
   });
 });
 
-// Part 3, Task 17: the new job page is the job page, at a job's address and at each step's. A pick
-// moves the address in place (job to stage, stage to stage) and a link moves it with a hashchange;
-// either way the page stays mounted (one key, the job's), so words typed in What should change? stay.
+// Part 3, Task 17: the job page at a job's address and at each step's. A pick moves the address in
+// place (job to stage, stage to stage) and a link moves it with a hashchange; either way the page
+// stays mounted (one key, the job's), so words typed in its message box stay.
 describe('the job page at a job’s and a step’s address', () => {
-  const GATE: Gate = {
-    briefNumber: 2, briefFile: 'briefs/002-plan.md', headline: 'Plan v2 ready', stage: 'plan', nextStage: 'implement', nextProposed: 'Build step 1',
-    questions: [], decided: [], versions: null, raisedVersions: null, stale: false, waitingSince: '2026-10-21T09:00:00Z', runActive: false, parked: false,
-    level: 1, suggestedLevel: null, levelReason: null, usage: null,
-  };
-  const WAITING = job('alpha', 'needs-you', { stage: 'plan', lane: 'needs-you', waitingFor: 'approval', headline: 'The plan is ready. Start building?' });
-
-  function renderJob(jobs = [WAITING]) {
-    const get = serverGet((slug) => ({ gate: slug === 'alpha' ? GATE : null, answeredBriefs: [], heldReply: null, options: { level: 1 }, auto: null, drive: null }));
+  function renderJob(jobs = [job('alpha', 'needs-you', { stage: 'plan', lane: 'needs-you' })]) {
+    const get = serverGet();
     const api = { snapshot: vi.fn(async () => snapshot({ jobs })), setToken: vi.fn(), get, post: vi.fn(async () => ({ ok: true })), put: vi.fn() } as unknown as ApiClient;
     render(<App api={api} openStream={() => new FakeStream()} />);
     return { get };
   }
-  const openTab = () => screen.getByRole('tab', { selected: true, hidden: true });
-  const tabOf = (stop: StopId) => document.getElementById(`sb-step-${stop}`) as HTMLElement;
-  /** No go: send back, then words typed into What should change? */
-  async function typeAChange(words: string) {
-    fireEvent.click(await screen.findByRole('button', { name: /^No go: send back/ }));
-    const box = await screen.findByRole('textbox', { name: /What should change\?/ });
-    box.focus();
+  const stepRow = (name: string) => [...document.querySelectorAll<HTMLButtonElement>('.jp2-st-row')].find((b) => b.querySelector('.jp2-st-name')?.textContent === name)!;
+  /** Words typed into the job page's message box. */
+  async function typeInTheBox(words: string) {
+    const box = await screen.findByRole('textbox', { name: 'Message to the Foreman' });
+    act(() => { box.focus(); });
     fireEvent.change(box, { target: { value: words } });
     expect(box).toHaveValue(words);
     return box;
   }
 
-  it('a job’s address shows the new page', async () => {
+  it('a job’s address shows the job page, from the Jobs row, then its payload', async () => {
     window.location.hash = '#/job/alpha';
-    renderApp(snapshot({ jobs: [job('alpha', 'running', { stage: 'plan', lane: 'working' }), job('beta', 'idle')] }));
+    const { get } = renderJob([job('alpha', 'running', { stage: 'plan', lane: 'working' }), job('beta', 'idle')]);
     const page = await screen.findByRole('main', { name: 'Job' });
-    // The new page: its header, the seven steps with one open, and the conversation.
-    expect(page).toHaveClass('sb-job-page');
-    expect(within(page.querySelector<HTMLElement>('.sb-job-top')!).getByRole('heading', { name: 'Job alpha' })).toBeInTheDocument();
-    expect(within(page).getAllByRole('tab', { hidden: true })).toHaveLength(7);
-    expect(openTab().id).toBe('sb-step-plan');
-    expect(page.querySelectorAll('.sb-convo')).toHaveLength(1);
-    // The job's conversation address gives the conversation the page (the route's view reaches it).
+    expect(page).toHaveClass('jp2');
+    expect(within(page).getByRole('heading', { level: 1, name: 'Job alpha' })).toBeInTheDocument();
+    await waitFor(() => expect(get).toHaveBeenCalledWith('/api/job/alpha/page'));
+    // The heavy step view of the page that is gone is never asked for.
+    expect(get.mock.calls.map((c) => c[0] as string).filter((p) => /\/stage\//.test(p))).toEqual([]);
+    // The job's conversation address is the same page.
     cleanup();
     window.location.hash = '#/job/alpha/conversation';
-    renderApp(snapshot({ jobs: [job('alpha', 'running', { stage: 'plan', lane: 'working' })] }));
-    expect(await screen.findByRole('main', { name: 'Job' })).toHaveAttribute('data-view', 'conversation');
-    expect(screen.getByRole('main', { name: 'Job' })).toHaveClass('is-talk');
+    renderJob([job('alpha', 'running', { stage: 'plan', lane: 'working' })]);
+    expect(await screen.findByRole('main', { name: 'Job' })).toHaveClass('jp2');
   });
 
-  it('a step’s address shows the job page on that step', async () => {
+  it('a step’s address shows the job page on that step; the browser tab names the step and the job', async () => {
     window.location.hash = '#/job/alpha/stage/review';
     renderJob([job('alpha', 'running', { stage: 'plan', lane: 'working' })]);
     const page = await screen.findByRole('main', { name: 'Job' });
-    expect(page).toHaveClass('sb-job-page');
-    expect(openTab().id).toBe('sb-step-review');
-    expect(within(page).getByRole('tabpanel', { name: 'Review', hidden: true })).toBeInTheDocument();
-    // The browser tab still names the step and the job.
+    expect(page).toHaveClass('jp2');
+    await waitFor(() => expect(stepRow('Review')).toHaveAttribute('aria-current', 'step'));
     expect(document.title).toContain('Review · Job alpha');
   });
 
-  it('typing in What should change? then picking another step keeps the words', async () => {
+  it('typing in the message box then picking another step keeps the words', async () => {
     window.location.hash = '#/job/alpha';
     renderJob();
     const page = await screen.findByRole('main', { name: 'Job' });
-    const box = await typeAChange('Use the small table.');
+    await waitFor(() => expect(stepRow('Spec')).toBeDefined());
+    const box = await typeInTheBox('Use the small table.');
     // From the job's address to a step's (the pick rewrites the address in place).
-    fireEvent.click(tabOf('spec'));
+    fireEvent.click(stepRow('Spec'));
     await act(async () => {});
     expect(window.location.hash).toBe('#/job/alpha/stage/spec');
-    expect(openTab().id).toBe('sb-step-spec');
+    expect(stepRow('Spec')).toHaveAttribute('aria-current', 'step');
     expect(screen.getByRole('main', { name: 'Job' })).toBe(page);
-    expect(screen.getByRole('textbox', { name: /What should change\?/ })).toBe(box);
+    expect(screen.getByRole('textbox', { name: 'Message to the Foreman' })).toBe(box);
     expect(box).toHaveValue('Use the small table.');
     // And from one step's address to another's.
-    fireEvent.click(tabOf('build'));
+    fireEvent.click(stepRow('Build'));
     await act(async () => {});
     expect(window.location.hash).toBe('#/job/alpha/stage/build');
-    expect(openTab().id).toBe('sb-step-build');
     expect(screen.getByRole('main', { name: 'Job' })).toBe(page);
-    expect(screen.getByRole('textbox', { name: /What should change\?/ })).toBe(box);
+    expect(screen.getByRole('textbox', { name: 'Message to the Foreman' })).toBe(box);
     expect(box).toHaveValue('Use the small table.');
   });
 
@@ -386,55 +372,27 @@ describe('the job page at a job’s and a step’s address', () => {
     window.location.hash = '#/job/alpha';
     renderJob();
     const page = await screen.findByRole('main', { name: 'Job' });
-    const box = await typeAChange('Keep the old export.');
+    const box = await typeInTheBox('Keep the old export.');
     // A link (a hashchange) to one of the job's steps, then to another.
     act(() => { window.location.hash = '#/job/alpha/stage/test'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
-    await waitFor(() => expect(openTab().id).toBe('sb-step-test'));
+    await waitFor(() => expect(stepRow('Test')).toHaveAttribute('aria-current', 'step'));
     expect(screen.getByRole('main', { name: 'Job' })).toBe(page);
-    expect(screen.getByRole('textbox', { name: /What should change\?/ })).toBe(box);
+    expect(screen.getByRole('textbox', { name: 'Message to the Foreman' })).toBe(box);
     expect(box).toHaveValue('Keep the old export.');
     act(() => { window.location.hash = '#/job/alpha/stage/ship'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
-    await waitFor(() => expect(openTab().id).toBe('sb-step-ship'));
+    await waitFor(() => expect(stepRow('Ship')).toHaveAttribute('aria-current', 'step'));
     expect(screen.getByRole('main', { name: 'Job' })).toBe(page);
-    expect(screen.getByRole('textbox', { name: /What should change\?/ })).toBe(box);
     expect(box).toHaveValue('Keep the old export.');
   });
-});
 
-// Review Focus 1: a step view from an older laptop, or a half-written answer, never takes the page down.
-describe('a step view with missing parts', () => {
-  it('a step view with no agents shows the step with nobody working, and the page is whole', async () => {
-    window.location.hash = '#/job/alpha/stage/build';
-    const get = serverGet();
-    const answer = get.getMockImplementation()!;
-    // No agents, no finished, documents that are not a list, no terminal apps. Done, so whether the
-    // step is live is read from its agents.
-    // At Test: agents that are not a list, and a finished row with a hole before it and no terminal.
-    const tester = { who: 'feature-tester', role: 'Tester', model: null, doing: null, since: null, lastAt: null, status: 'done', ref: '7' };
-    get.mockImplementation(async (path: string) => (/\/stage\/test$/.test(path)
-      ? { slug: 'alpha', stop: 'test', label: 'Test', state: 'done', stateWords: 'Done', since: null, agents: 'nobody', finished: [null, tester] }
-      : /\/stage\/[a-z]+$/.test(path)
-        ? { slug: 'alpha', stop: path.split('/').pop(), label: 'Build', state: 'done', stateWords: 'Done', since: null, docs: {} }
-        : answer(path)));
-    const api = { snapshot: vi.fn(async () => snapshot({ jobs: [job('alpha', 'running', { stage: 'implement', lane: 'working' })] })), setToken: vi.fn(), get, post: vi.fn(async () => ({ ok: true })), put: vi.fn() } as unknown as ApiClient;
-    render(<App api={api} openStream={() => new FakeStream()} />);
-    const page = await screen.findByRole('main', { name: 'Job' });
-    const panel = within(page).getByRole('tabpanel', { name: 'Build' });
-    expect(await within(panel).findByText('Nobody is working here now.')).toBeInTheDocument();
-    // Documents that are not a list are not known: it says so, never that there are none.
-    expect(within(panel).getByText('This step’s documents aren’t known yet.')).toBeInTheDocument();
-    // The page is whole: the header, the seven steps, the bar and the conversation are all there.
-    expect(within(page.querySelector<HTMLElement>('.sb-job-top')!).getByRole('heading', { name: 'Job alpha' })).toBeInTheDocument();
-    expect(within(within(page).getByRole('tablist', { name: 'The job’s seven steps' })).getAllByRole('tab')).toHaveLength(7);
-    expect(within(page).getByRole('region', { name: 'Next step' })).toBeInTheDocument();
-    expect(within(page).getByRole('textbox', { name: /Your message to the Foreman/ })).toBeInTheDocument();
-    // Another step with the same answer: still whole.
-    fireEvent.click(document.getElementById('sb-step-test')!);
-    const test = await screen.findByRole('tabpanel', { name: 'Test' });
-    expect(await within(test).findByRole('heading', { name: 'Three kinds of test' })).toBeInTheDocument();
-    // The Tester's row shows; with no terminal facts its button rests.
-    expect(within(test).getByText('Finished its part')).toBeInTheDocument();
-    expect(screen.getByRole('main', { name: 'Job' })).toBe(page);
+  it('the old page’s addresses land on the job page: the overview, a requirement ID, a step', async () => {
+    for (const hash of ['#/job/alpha/overview', '#/job/alpha/id/FR-001', '#/job/alpha/stage/plan']) {
+      window.location.hash = hash;
+      renderJob();
+      expect(await screen.findByRole('main', { name: 'Job' }), hash).toHaveClass('jp2');
+      expect(screen.getByRole('heading', { level: 1, name: 'Job alpha' })).toBeInTheDocument();
+      cleanup();
+    }
   });
 });
 
@@ -447,11 +405,11 @@ describe('Job drawer in the shell', () => {
     return { get };
   }
 
-  it('the job menu opens it; Escape closes it and focus goes back to the job menu', async () => {
+  it('the job page’s ⋯ menu opens it; Escape closes it', async () => {
     renderWithJob();
-    await screen.findByRole('heading', { name: 'Job alpha' });
-    fireEvent.click(screen.getByRole('button', { name: /Job menu/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'Notes and options…' }));
+    await screen.findByRole('heading', { level: 1, name: 'Job alpha' });
+    fireEvent.click(screen.getByRole('button', { name: 'More for this job' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Notes and options' }));
     const drawer = screen.getByRole('dialog', { name: 'Notes and options' });
     expect(drawer).toHaveAttribute('aria-modal', 'true');
     expect(within(drawer).getByRole('tab', { name: 'Notes' })).toHaveFocus();
@@ -460,13 +418,13 @@ describe('Job drawer in the shell', () => {
     expect(window.location.hash).toBe('#/job/alpha');
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.queryByRole('dialog', { name: 'Notes and options' })).toBeNull();
-    expect(screen.getByRole('button', { name: /Job menu/ })).toHaveFocus();
   });
 
-  it('⌘K offers “Job notes and options” and opens the drawer', async () => {
+  it('Every action offers “Job notes and options” and opens the drawer', async () => {
     renderWithJob();
-    await screen.findByRole('heading', { name: 'Job alpha' });
-    fireEvent.keyDown(document.body, { key: 'k', metaKey: true });
+    await screen.findByRole('heading', { level: 1, name: 'Job alpha' });
+    fireEvent.click(screen.getByRole('button', { name: 'Settings and more' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /^Every action/ }));
     const box = screen.getByRole('combobox', { name: 'Search actions' });
     fireEvent.change(box, { target: { value: 'notes and options' } });
     expect(screen.getAllByRole('option').map((o) => o.querySelector('.palette-label')?.textContent)).toEqual(['Job notes and options']);
@@ -496,69 +454,37 @@ describe('Keys through the registry', () => {
     expect(screen.getByRole('dialog', { name: 'Command palette' })).toBeInTheDocument();
   });
 
-  it('on a job: n opens Notes and options, i puts the cursor in the message box', async () => {
+  it('on a job: i puts the cursor in the message box; Every action’s Write to the Foreman does too', async () => {
     window.location.hash = '#/job/alpha';
     const get = serverGet();
     const api = { snapshot: vi.fn(async () => snapshot({ jobs: [job('alpha', 'idle')] })), setToken: vi.fn(), get, post: vi.fn(), put: vi.fn() } as unknown as ApiClient;
     render(<App api={api} openStream={() => new FakeStream()} />);
-    await screen.findByRole('heading', { name: 'Job alpha' });
+    await screen.findByRole('heading', { level: 1, name: 'Job alpha' });
     expect(screen.getByRole('button', { name: 'New job' }).querySelector('kbd')).toHaveTextContent('c');
     fireEvent.keyDown(document.body, { key: 'i' });
-    const composer = screen.getByRole('textbox', { name: /Your message to the Foreman/ });
-    expect(composer).toHaveFocus();
-    fireEvent.keyDown(composer, { key: 'n' }); // typing: nothing opens
+    const box = screen.getByRole('textbox', { name: 'Message to the Foreman' });
+    expect(box).toHaveFocus();
+    fireEvent.keyDown(box, { key: 'n' }); // typing: nothing opens
     expect(screen.queryByRole('dialog')).toBeNull();
-    composer.blur();
-    fireEvent.keyDown(document.body, { key: 'n' });
-    expect(screen.getByRole('dialog', { name: 'Notes and options' })).toBeInTheDocument();
-    fireEvent.keyDown(document, { key: 'Escape' });
-    expect(screen.queryByRole('dialog')).toBeNull();
+    act(() => { box.blur(); });
+    fireEvent.click(screen.getByRole('button', { name: 'Settings and more' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /^Every action/ }));
+    const search = screen.getByRole('combobox', { name: 'Search actions' });
+    fireEvent.change(search, { target: { value: 'write to the foreman' } });
+    fireEvent.keyDown(search, { key: 'Enter' });
+    await waitFor(() => expect(box).toHaveFocus());
   });
 });
 
-// Task 7: the new job page behind the switch (sb.jobPage = 'new'), with its own keys while it is mounted.
-describe('the new job page’s switch', () => {
-  async function renderSwitchable() {
-    const { longJob } = await import('../jobpage/fixtures/longJob');
-    const base = serverGet();
-    const api = {
-      snapshot: vi.fn(async () => snapshot({ jobs: [job('alpha', 'needs-you'), job('beta', 'running'), job('gamma', 'idle')] })),
-      setToken: vi.fn(),
-      get: vi.fn(async (path: string) => {
-        if (/^\/api\/job\/beta\/page/.test(path)) return { ...JSON.parse(JSON.stringify(longJob.payload)), slug: 'beta', title: 'Beta, from its page' };
-        if (/^\/api\/job\/beta\/item/.test(path)) throw new Error('Starbase answered 404.');
-        return base(path);
-      }),
-    } as unknown as ApiClient;
-    render(<App api={api} openStream={() => new FakeStream()} />);
-  }
-  const hop = () => act(() => { window.dispatchEvent(new HashChangeEvent('hashchange')); });
-
-  it('mounts the new page only when sb.jobPage is new; each page’s menu switches to the other at the same address', async () => {
-    window.location.hash = '#/job/beta/stage/plan';
-    await renderSwitchable();
-    const old = await screen.findByRole('main', { name: 'Job' });
-    expect(old).toHaveClass('sb-job-page');
-    expect(old).not.toHaveClass('jp2');
-    fireEvent.click(screen.getByRole('button', { name: /Job menu/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'Try the new job page' }));
-    expect(localStorage.getItem('sb.jobPage')).toBe('new');
-    const fresh = await screen.findByRole('main', { name: 'Job' });
-    expect(fresh).toHaveClass('jp2');
-    expect(window.location.hash).toBe('#/job/beta/stage/plan');
-    expect(await screen.findByRole('heading', { level: 1, name: 'Beta, from its page' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'More for this job' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Back to the old job page' }));
-    expect(localStorage.getItem('sb.jobPage')).toBeNull();
-    expect(await screen.findByRole('main', { name: 'Job' })).toHaveClass('sb-job-page');
-  });
-
-  it('while the new page is mounted its keys win (j k, g t, c); ? lists them; the old meanings come back when it goes', async () => {
-    localStorage.setItem('sb.jobPage', 'new');
+// The switch between the old and the new job page is gone: a value kept in this browser from before
+// changes nothing, and the job page's keys win while it is mounted.
+describe('the job page with no switch', () => {
+  it('a stored sb.jobPage is ignored; the page’s keys win (j k, g t, c); ? lists them; on Jobs j is the next job again', async () => {
+    localStorage.setItem('sb.jobPage', 'old');
     window.location.hash = '#/job/beta';
-    await renderSwitchable();
+    renderApp(snapshot({ jobs: [job('alpha', 'needs-you'), job('beta', 'running'), job('gamma', 'idle')] }));
     expect(await screen.findByRole('main', { name: 'Job' })).toHaveClass('jp2');
-    await screen.findByRole('heading', { level: 1, name: 'Beta, from its page' });
+    await screen.findByRole('heading', { level: 1, name: 'Job beta' });
     fireEvent.keyDown(document.body, { key: 'j' });
     expect(window.location.hash).toBe('#/job/beta');
     fireEvent.keyDown(document.body, { key: 'g' });
@@ -570,38 +496,30 @@ describe('the new job page’s switch', () => {
     act(() => { (document.activeElement as HTMLElement).blur(); });
     fireEvent.keyDown(document.body, { key: '?' });
     const sheet = screen.getByRole('dialog', { name: 'Keyboard shortcuts' });
-    const group = within(sheet).getByRole('region', { name: 'The new job page' });
+    const group = within(sheet).getByRole('region', { name: 'The job page' });
     expect(group).not.toHaveTextContent('(not on this page)');
     expect(group).toHaveTextContent('Open the ticket and goal');
     fireEvent.click(within(sheet).getByRole('button', { name: 'Close' }));
-    // Back to the old page: j is the next job again.
-    act(() => { localStorage.removeItem('sb.jobPage'); window.dispatchEvent(new StorageEvent('storage', { key: 'sb.jobPage' })); });
-    expect(await screen.findByRole('main', { name: 'Job' })).toHaveClass('sb-job-page');
-    hop();
+    // Off the job page j is the next job again.
+    act(() => { window.location.hash = '#/'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    await screen.findByRole('main', { name: 'Jobs' });
     fireEvent.keyDown(document.body, { key: 'j' });
-    expect(window.location.hash).not.toMatch(/^#\/job\/beta/);
     expect(window.location.hash).toMatch(/^#\/job\//);
+    expect(localStorage.getItem('sb.jobPage')).toBe('old');
   });
 });
 
-describe('Jobs fetch the new job page ahead (Task 7 fix round 1)', () => {
+describe('Jobs fetch the job page ahead (Task 7 fix round 1)', () => {
   beforeEach(async () => { (await import('../jobpage/recent')).forgetRecentPages(); });
   afterEach(async () => { (await import('../jobpage/recent')).forgetRecentPages(); });
 
-  it('the pointer or the focus on a job card asks for its page once, only while the new page is on', async () => {
-    const { longJob } = await import('../jobpage/fixtures/longJob');
-    const base = serverGet();
-    const get = vi.fn(async (path: string) => (/\/page/.test(path) ? { ...JSON.parse(JSON.stringify(longJob.payload)), slug: 'beta' } : base(path)));
+  it('the pointer or the focus on a job card asks for its page once', async () => {
+    const get = serverGet();
     const api = { snapshot: vi.fn(async () => snapshot({ jobs: [job('alpha', 'needs-you'), job('beta', 'running')] })), setToken: vi.fn(), get } as unknown as ApiClient;
     const pages = () => get.mock.calls.map((c) => c[0] as string).filter((p) => p.includes('/page'));
-    const { unmount } = render(<App api={api} openStream={() => new FakeStream()} />);
-    await screen.findByRole('main', { name: 'Jobs' });
-    fireEvent.pointerEnter(screen.getAllByRole('link', { name: 'Job beta' })[0]);
-    expect(pages()).toEqual([]);
-    unmount();
-    localStorage.setItem('sb.jobPage', 'new');
     render(<App api={api} openStream={() => new FakeStream()} />);
     await screen.findByRole('main', { name: 'Jobs' });
+    expect(pages()).toEqual([]);
     const link = screen.getAllByRole('link', { name: 'Job beta' })[0];
     fireEvent.pointerEnter(link);
     fireEvent.focus(link);

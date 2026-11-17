@@ -27,7 +27,7 @@ export const SCOPES: Record<KeyScope, { title: string; where: string }> = {
   global: { title: 'Everywhere', where: 'On every page, outside a text box.' },
   rows: { title: 'Jobs', where: 'On every page but the Desk; the order is the Jobs list’s.' },
   job: { title: 'The open job', where: 'On a job’s page.' },
-  jobpage: { title: 'The new job page', where: 'On a job’s page while the new page is switched on; there its keys win over the others.' },
+  jobpage: { title: 'The job page', where: 'On a job’s page; there its keys win over the others.' },
   stage: { title: 'The open step', where: 'On a job’s page.' },
   stack: { title: 'Stacks', where: 'On Stacks, a stack’s page and a part’s page.' },
   alert: { title: 'The permission alert', where: 'While a permission waits at the top of a job.' },
@@ -89,8 +89,8 @@ export const KEYS = {
   'screens-focus': { keys: ['Enter'], label: 'Step into the screens (the page’s own keys then work)', scope: 'job', where: 'With the Screens tab showing and nothing else focused.' },
   'screens-leave': { keys: ['Escape'], label: 'Step out of the screens, back to the page', scope: 'job', where: 'Inside the screens.', listOnly: true },
   'send': { keys: ['Mod+Enter'], label: 'In the message box: preview and send, or steer a reply in progress', scope: 'job', always: true, listOnly: true },
-  // The new job page (jobpage/JobPage2.tsx, behind the switch): while it is mounted these win; the
-  // keys' other meanings (j k next job, g t the Table, c New job, n Notes and options) come back after.
+  // The job page (jobpage/JobPage2.tsx): while it is mounted these win; the keys' other meanings
+  // (j k next job, g t the Table, c New job, n Notes and options) come back after.
   'jp-step-prev': { keys: ['['], label: 'Open the step before', scope: 'jobpage' },
   'jp-step-next': { keys: [']'], label: 'Open the step after', scope: 'jobpage' },
   'jp-line-next': { keys: ['j'], label: 'Move to the next line', scope: 'jobpage', where: 'The steps and the job’s rows on the left; the conversation’s lines when you are in it.' },

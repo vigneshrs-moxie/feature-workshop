@@ -14,7 +14,6 @@ import { createStore, WorkshopContext, type Store } from '../../state/store';
 import { job as jobRow, snapshot } from '../../state/test-fixtures';
 import { longJob } from '../fixtures/longJob';
 import { createJobStore } from '../jobStore';
-import { JOB_PAGE_KEY } from '../switch';
 import type { JobPagePayload, JobState } from '../types';
 import { JobStoreContext } from '../useJob';
 import { Header, NOTE_MS, STATE_WORDS } from './Header';
@@ -114,13 +113,13 @@ describe('the header', () => {
 });
 
 describe('the ⋯ menu', () => {
-  it('holds everything rare, in the brief’s order, with the page switch last', () => {
+  it('holds everything rare, in the brief’s order; no page switch', () => {
     mount();
     openMenu();
     expect(menuNames()).toEqual([
       'Mark done or dropped', 'Notes and options', 'Change model',
       'Follow my setting (Routine steps automatic)', ...POLICIES.map((p) => p.label),
-      'Copy decisions', 'How this page works', 'Open the folder in a terminal', 'Back to the old job page',
+      'Copy decisions', 'How this page works', 'Open the folder in a terminal',
     ]);
     expect(within(screen.getByRole('menu')).getByRole('group', { name: 'Permissions for this job' })).toBeInTheDocument();
   });
@@ -182,20 +181,12 @@ describe('the ⋯ menu', () => {
     expect(within(head()).getByText('Opened the job’s folder in a terminal.').closest('[role="status"]')).not.toBeNull();
   });
 
-  it('Back to the old job page turns the switch off', () => {
-    localStorage.setItem(JOB_PAGE_KEY, 'new');
-    mount();
-    openMenu();
-    fireEvent.click(item('Back to the old job page'));
-    expect(localStorage.getItem(JOB_PAGE_KEY)).toBeNull();
-  });
-
-  it('on the website it hides the laptop’s items: what remains is Copy decisions, How this page works and the page switch', () => {
+  it('on the website it hides the laptop’s items: what remains is Copy decisions and How this page works', () => {
     const p = payload({ hosted: true });
     delete p.local;
     mount({ p, hosted: true });
     openMenu();
-    expect(menuNames()).toEqual(['Copy decisions', 'How this page works', 'Back to the old job page']);
+    expect(menuNames()).toEqual(['Copy decisions', 'How this page works']);
     expect(within(screen.getByRole('menu')).queryByRole('group')).toBeNull();
   });
 

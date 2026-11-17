@@ -501,22 +501,17 @@ describe('the site’s Jobs page: Yours and Auto', () => {
   });
 });
 
-describe('the website’s Jobs fetch the new job page ahead (Task 7 fix round 1)', () => {
+describe('the website’s Jobs fetch the job page ahead (Task 7 fix round 1)', () => {
   afterEach(async () => { localStorage.clear(); (await import('../../jobpage/recent')).forgetRecentPages(); });
 
-  it('the pointer or the focus on a job asks for its page once, only while the new page is on', async () => {
+  it('the pointer or the focus on a job asks for its page once', async () => {
     const { s, api } = site({ laptops: [laptop(1, 'Olive’s Mac', true, [job(1, 1, 'Add export')])] });
     render(<HostedApp api={api} />);
     const link = (await screen.findByText('Add export')).closest('a')!;
     const slug = decodeURIComponent(link.getAttribute('href')!.replace('#/job/', ''));
-    fireEvent.pointerEnter(link);
     expect(s.calls.filter((c) => c.path.includes('/page'))).toEqual([]);
-    cleanup();
-    localStorage.setItem('sb.jobPage', 'new');
-    render(<HostedApp api={api} />);
-    const again = (await screen.findByText('Add export')).closest('a')!;
-    fireEvent.pointerEnter(again);
-    fireEvent.focus(again);
+    fireEvent.pointerEnter(link);
+    fireEvent.focus(link);
     await waitFor(() => expect(s.calls.filter((c) => c.path.includes('/page')).map((c) => c.path)).toEqual([`/api/job/${encodeURIComponent(slug)}/page`]));
   });
 });

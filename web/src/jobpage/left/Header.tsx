@@ -1,6 +1,6 @@
-// The new job page's header (plan Task 8): one row. The ticket key (a link to Orbit when the page knows
+// The job page's header (plan Task 8): one row. The ticket key (a link to Orbit when the page knows
 // its address), the title, ONE state word (Needs you, Working, Waiting on GitHub, Paused, Done); at the
-// right, dim, the level, the repository and the cost (over 10 cents, as the old page shows it); then the
+// right, dim, the level, the repository and the cost (over 10 cents); then the
 // Auto switch with its word, and the ⋯ menu with everything rare.
 //
 // The Auto switch is the shared one (job/AutoSwitch.tsx), optimistic: it flips at once and flips back
@@ -14,10 +14,9 @@
 //   Permissions for this job    the job's own setting (app/jobActions setJobPolicy), a tick on the one in force
 //   Copy decisions              job/CopyDecisions's panel
 //   How this page works         the page's three cards (components/page/Page Guide)
-//   Open the folder in a terminal  POST /api/job/:slug/local { action: 'open', what: 'terminal' } (as StepPanel)
-//   Back to the old job page    the page switch (switch.ts)
+//   Open the folder in a terminal  POST /api/job/:slug/local { action: 'open', what: 'terminal' }
 // On the website the laptop's items are not there (the website answers them "on your laptop"): it keeps
-// Copy decisions, How this page works and the page switch.
+// Copy decisions and How this page works.
 //
 // Lines sit in the row itself, left of Auto, never over the panes: what a menu item did (gone after a
 // few seconds) or why it could not (until Dismiss), Auto's refusal (until Dismiss), and on the website
@@ -45,7 +44,6 @@ import { formatCost, isActiveRun } from '../../panes/Foreman/thread';
 import { DecisionsTab } from '../../panes/Preview/DecisionsTab';
 import { jobBySlug } from '../../state/reducer';
 import { useWorkshop } from '../../state/store';
-import { backToOldJobPage } from '../switch';
 import type { JobState } from '../types';
 import { useJob } from '../useJob';
 
@@ -274,8 +272,6 @@ const MoreMenu = memo(function MoreMenu({ slug, job, onNote }: { slug: string; j
       }),
     });
   }
-  entries.push({ kind: 'sep', id: 'sep-page' });
-  entries.push({ kind: 'action', id: 'old-page', label: 'Back to the old job page', hint: 'Show this job on the job page you had before. You can switch again from its job menu.', run: backToOldJobPage });
 
   return (
     <>

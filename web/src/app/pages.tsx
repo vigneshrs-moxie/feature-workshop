@@ -47,7 +47,6 @@ export const Pages = {
   screens: lazyPage(() => import('../views/Screens/ScreensView').then((m) => m.ScreensView)),
   notFound: lazyPage(() => import('../views/NotFound/NotFoundView').then((m) => m.NotFoundView)),
   home: lazyPage(() => import('../home/HomeView').then((m) => m.HomeView)),
-  oldJob: lazyPage(() => import('../job/page/JobPage').then((m) => m.JobPage)),
   floorLab: lazyPage(() => import('../play/floor3d/FloorLab').then((m) => m.default)),
   hosted: lazyPage(() => import('../views/Hosted/HostedApp').then((m) => m.HostedApp)),
   // The user guide, with its pages' words and pictures' addresses: fetched only when it is opened
@@ -66,7 +65,7 @@ export function preloadNav(id: string) {
 }
 
 /** Every page's chunk, one after another while the browser is idle, from 3 s after the app is up (so none lands on the first click: a job opened from Jobs a moment after it loads). */
-const IDLE_ORDER: PageId[] = ['desk', 'inbox', 'stacks', 'telemetry', 'settings', 'stack', 'stackPart', 'home', 'oldJob', 'screens', 'crew', 'achievements', 'notFound'];
+const IDLE_ORDER: PageId[] = ['desk', 'inbox', 'stacks', 'telemetry', 'settings', 'stack', 'stackPart', 'home', 'screens', 'crew', 'achievements', 'notFound'];
 export function usePreloadPagesWhenIdle(ready: boolean) {
   useEffect(() => {
     if (!ready) return undefined;

@@ -36,7 +36,6 @@ import { relativeTime, useNow } from '../lib/time';
 import { usePlayIfAny } from '../play/usePlay';
 import { useWorkshop, useWorkshopPick } from '../state/store';
 import { prefetchProps } from '../jobpage/recent';
-import { useNewJobPage } from '../jobpage/switch';
 import { StackJobCard, useStackIndex, type StackIndex } from '../views/Stack/StackRows';
 import { JobFind, JobResults } from './JobSearch';
 import { matchJobs } from './findJobs';
@@ -167,8 +166,8 @@ export function chipTone(lane: JobLane, word: string): ChipTone {
 const JobCard = memo(function JobCard({ job, now, play, review, full, onPeek, peeked }: { job: Job; now: Date; play: 'full' | 'subtle' | 'off'; review?: ReviewView | null; full: boolean; onPeek?: (slug: string) => void; peeked?: boolean }) {
   const lane = laneOf(job);
   const { permissions } = useWorkshopPick('permissions');
-  // The new job page's payload, fetched ahead as the pointer or the focus reaches the job.
-  const ahead = prefetchProps(useWorkshop().api, job.slug, useNewJobPage());
+  // The job page's payload, fetched ahead as the pointer or the focus reaches the job.
+  const ahead = prefetchProps(useWorkshop().api, job.slug, true);
   const chip = stateChip(job, permissions);
   const t = since(job);
   const working = lane === 'working' && chip.word === 'Working';
@@ -242,7 +241,6 @@ export const TABS: readonly { id: JobsTab; name: string; title: string }[] = [
 export function JobsPage() {
   const { jobs, autoQueue } = useWorkshopPick('jobs', 'autoQueue');
   const { api } = useWorkshop();
-  const newPage = useNewJobPage();
   const now = useNow();
   const ui = useUi();
   const playState = usePlayIfAny();
@@ -368,7 +366,7 @@ export function JobsPage() {
         return (
           <li key={j.slug} className={`jobs-list-row lane-${l}`}>
             <Chip tone={chipTone(l, LANE_INFO[l].word)} icon={LANE_INFO[l].icon} className={`state-chip is-${l}`}>{LANE_INFO[l].word}</Chip>
-            <a className="job-card-title" href={stacks.stackOf(j.slug) ? stackHref(j.slug) : jobHref(j.slug)} {...prefetchProps(api, j.slug, newPage && !stacks.stackOf(j.slug))}>{j.title || j.slug}</a>
+            <a className="job-card-title" href={stacks.stackOf(j.slug) ? stackHref(j.slug) : jobHref(j.slug)} {...prefetchProps(api, j.slug, !stacks.stackOf(j.slug))}>{j.title || j.slug}</a>
             {stacks.stackOf(j.slug)
               ? <StepDots steps={stacks.stackOf(j.slug)!.steps} label="Stack" />
               : <StopMap job={{ ...j, lane: l }} compact tips label={`${j.title || j.slug}: its stops`} />}

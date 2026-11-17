@@ -23,7 +23,6 @@ import { NewJobSheet } from '../views/JobSheets/NewJobSheet';
 import { JobsPage } from '../home/JobsPage';
 import { nextNeedsYou } from '../home/findJobs';
 import { JobPage2 } from '../jobpage/JobPage2';
-import { useNewJobPage } from '../jobpage/switch';
 import { PlayLedgerProvider } from '../play/PlayLedger';
 import { PlayEggs, usePaletteEggs } from '../play/PlayEggs';
 import { PlayToasts } from '../play/PlayToasts';
@@ -42,7 +41,7 @@ import { useDelayedFlag } from '../lib/useDelayedFlag';
 import { hostedPage } from '../views/Hosted/mode';
 import { BRAND } from './brand';
 
-// Every page but Jobs and the new job page is in its own chunk (app/pages.tsx). FloorLab is a page
+// Every page but Jobs and the job page is in its own chunk (app/pages.tsx). FloorLab is a page
 // reachable only by its address, for checking the 3D floor by eye (packet S): never linked or named
 // anywhere in the app, and it loads no 3D unless Play is full.
 const DeskPage = Pages.desk.Component;
@@ -59,7 +58,6 @@ const GalleryView = Pages.gallery.Component;
 const ScreensView = Pages.screens.Component;
 const NotFoundView = Pages.notFound.Component;
 const HomeView = Pages.home.Component;
-const JobPage = Pages.oldJob.Component;
 const FloorLab = Pages.floorLab.Component;
 const GuideView = Pages.guide.Component;
 // The hosted site's app (sign-in, the mirror's jobs) is its own chunk too: on the hosted site it is
@@ -76,7 +74,6 @@ function Sheets({ route }: { route: Route }) {
   const ui = useUi();
   const play = usePlay();
   const eggs = usePaletteEggs();
-  const newPage = useNewJobPage();
   const [problem, setProblem] = useState<string | null>(null);
   const slug = route.name === 'job' || route.name === 'stage' ? route.slug : null;
 
@@ -86,8 +83,8 @@ function Sheets({ route }: { route: Route }) {
     newJob: () => ui.openSheet({ kind: 'new-job' }),
     stop: (runId) => attempt(stopRun(api, runId)),
     // After the palette has closed and given focus back: as the c key does on the job page (which
-    // shows its message box first when it is out of sight), else the box on the page.
-    focusComposer: () => setTimeout(() => { if (!pressKey('write')) focusMessageBox(); }, 0),
+    // shows its message box first when it is out of sight), else the box on the page (a part's page).
+    focusComposer: () => setTimeout(() => { if (!pressKey('jp-write')) focusMessageBox(); }, 0),
     markDone: (s) => ui.openSheet({ kind: 'close-job', slug: s, worktree: ui.current?.slug === s ? ui.current.worktree : undefined }),
     reopen: (s) => attempt(reopenJob(api, s)),
     jobDrawer: (s) => ui.openSheet({ kind: 'job-drawer', slug: s }),
@@ -165,7 +162,7 @@ function Sheets({ route }: { route: Route }) {
       )}
       {sheet?.kind === 'palette' && (
         <PaletteSheet
-          context={{ slug, current: ui.current, onSettings: route.name === 'settings', onCrew: route.name === 'crew', onAchievements: route.name === 'achievements', play: play.on, newJobPage: newPage && slug !== null }}
+          context={{ slug, current: ui.current, onSettings: route.name === 'settings', onCrew: route.name === 'crew', onAchievements: route.name === 'achievements', play: play.on }}
           handlers={handlers}
           onClose={ui.closeSheet}
           onEgg={eggs}
@@ -209,7 +206,6 @@ function Shell({ onRetry }: { onRetry: () => void }) {
   const post = useMemo(() => (path: string, body: unknown) => api.post(path, body), [api]);
   const slug = route.name === 'job' || route.name === 'stage' || route.name === 'screens' || route.name === 'stack' ? route.slug : null;
   const job = useWorkshopSelector((s) => jobBySlug(s, slug));
-  const newPage = useNewJobPage();
   const jobTitle = job ? job.title || job.slug : slug;
   usePresence(post);
   // The Crew-dex and Achievements are part of Play: with Play mode Off, #/crew and #/achievements show the same as #/.
@@ -249,11 +245,9 @@ function Shell({ onRetry }: { onRetry: () => void }) {
   const page = route.name === 'gallery' ? <GalleryView />
     : route.name === 'guide' ? <GuideView page={route.page} section={route.section} />
     : route.name === 'screens' ? <ScreensView key={route.slug} slug={route.slug} />
-    // The new job page while the switch is on (jobpage/switch.ts), first painted from the snapshot row.
-    : route.name === 'job' && newPage ? <JobPage2 key={route.slug} slug={route.slug} job={job} view={route.view} read={route.read} />
-    : route.name === 'stage' && newPage ? <JobPage2 key={route.slug} slug={route.slug} job={job} step={route.stop} />
-    : route.name === 'job' ? <JobPage key={route.slug} slug={route.slug} view={route.view} />
-      : route.name === 'stage' ? <JobPage key={route.slug} slug={route.slug} step={route.stop} />
+    // The job page (jobpage/JobPage2.tsx), first painted from the snapshot row.
+    : route.name === 'job' ? <JobPage2 key={route.slug} slug={route.slug} job={job} view={route.view} read={route.read} />
+      : route.name === 'stage' ? <JobPage2 key={route.slug} slug={route.slug} job={job} step={route.stop} />
       : route.name === 'stacks' ? <StacksPage />
       : route.name === 'stack' ? <StackPage key={route.slug} slug={route.slug} />
       : route.name === 'stack-part' ? <PartPage key={`${route.slug}/${route.n}`} slug={route.slug} n={route.n} />

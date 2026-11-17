@@ -59,8 +59,6 @@ export interface CommandContext {
   onAchievements?: boolean;
   /** Play mode isn't Off (the Crew-dex and Achievements are listed only then). */
   play?: boolean;
-  /** The new job page is open: n is not Notes and options there (its ⋯ menu has them). */
-  newJobPage?: boolean;
 }
 
 /** Every job in Jobs-pane order (Needs you first), as j and k step through them. */
@@ -91,8 +89,8 @@ function jobCommands(ctx: CommandContext, h: CommandHandlers, job: Job): Command
     });
   } else {
     out.push({
-      id: 'write', label: 'Write to the Foreman', section: 'This job', keys: 'write', keywords: 'message send composer',
-      hint: 'Jump to the message box at the foot of the conversation.',
+      id: 'write', label: 'Write to the Foreman', section: 'This job', keys: 'jp-write', keywords: 'message send composer',
+      hint: 'Jump to the job’s message box.',
       run: h.focusComposer,
     });
   }
@@ -138,7 +136,7 @@ function jobCommands(ctx: CommandContext, h: CommandHandlers, job: Job): Command
   }
 
   out.push({
-    id: 'job-drawer', label: 'Job notes and options', section: 'This job', keys: ctx.newJobPage ? undefined : 'notes', keywords: 'notes options settings level flow stages skip reviewers models fable',
+    id: 'job-drawer', label: 'Job notes and options', section: 'This job', keywords: 'notes options settings level flow stages skip reviewers models fable',
     hint: `Open ${title}’s notes (notes.md, read by the Foreman every session) and its options: level, stages, reviewers, testing, Fable, models.`,
     run: () => h.jobDrawer(job.slug),
   });

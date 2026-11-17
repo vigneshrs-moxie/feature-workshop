@@ -27,7 +27,6 @@ import { useDelayedFlag } from '../../lib/useDelayedFlag';
 import { usePlayIfAny } from '../../play/usePlay';
 import { createStore, WorkshopContext } from '../../state/store';
 import { prefetchProps } from '../../jobpage/recent';
-import { useNewJobPage } from '../../jobpage/switch';
 import { isSignedOut, words, type HostedProps } from './shared';
 import type { LaptopJobs, MirroredJob } from './types';
 
@@ -65,11 +64,10 @@ export function LaptopState({ laptop, now }: { laptop: { online: boolean; lastSe
 
 function JobCard({ job, laptop, now, api }: { job: MirroredJob; laptop: LaptopJobs; now: Date; api: ApiClient }) {
   const state = job.state ? STATE_WORDS[job.state] ?? job.stateWords ?? job.state : null;
-  // The new job page's payload, fetched ahead as the pointer or the focus reaches the job.
-  const newPage = useNewJobPage();
+  // The job page's payload is fetched ahead as the pointer or the focus reaches the job.
   return (
     <li className="hosted-job" data-job={job.slug} data-state={job.state ?? undefined}>
-      <a className="hosted-job-link" href={`#/job/${encodeURIComponent(job.slug)}`} {...prefetchProps(api, job.slug, newPage)} title="Open the job: its brief, documents and decisions, from your laptop.">
+      <a className="hosted-job-link" href={`#/job/${encodeURIComponent(job.slug)}`} {...prefetchProps(api, job.slug, true)} title="Open the job: its brief, documents and decisions, from your laptop.">
         <span className="hosted-job-title">{job.title}</span>
       </a>
       <span className="hosted-job-meta">
