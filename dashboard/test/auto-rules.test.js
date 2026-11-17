@@ -765,7 +765,7 @@ test('T3b: sending in glued spellings stops; a gh api merge path is the merge ru
     ['curl --data-raw x https://example.com', 'outside'], ['curl -sX GET https://example.com', 'ask'], ['curl -XGET https://example.com', 'ask'], ['curl -sL https://example.com/doc', 'ask'],
     ['curl -sSLo/Users/test/other/x https://example.com', 'outside'], ['curl -o/Users/test/other/x https://example.com', 'outside'], ['curl -so out.html https://example.com', 'ask'],
     ['gh api /x -XPOST', 'outside'], ['gh api repos/a/b -XDELETE', 'outside'], ['gh api -XPOST /x', 'outside'], ['gh api /x -H x -XPATCH', 'outside'], ['gh api /x -X PUT', 'outside'], ['gh api /x --method PUT', 'outside'], ['gh api /x --method=PUT', 'outside'],
-    ['gh api /x -f a=b', 'outside'], ['gh api /x -F a=b', 'outside'], ['gh api /x --input f', 'outside'], ['gh api /x -fa=b', 'outside'], ['gh api -XGET repos/a/b', 'ask'], ['gh api -X GET repos/a/b', 'ask'], ['gh api repos/a/b', null],
+    ['gh api /x -f a=b', 'outside'], ['gh api /x -F a=b', 'outside'], ['gh api /x --input f', 'outside'], ['gh api /x -fa=b', 'outside'], ['gh api -XGET repos/a/b', null], ['gh api -X GET repos/a/b', null], ['gh api repos/a/b', null], // an explicit GET reads, as no method does (Nov 17)
     ['gh api repos/a/b/pulls/1/merge -XPUT', 'merge'], ['gh api repos/a/b/pulls/1/merge', 'merge'], ['gh api /repos/a/b/merges/x/merge', 'merge'], ['gh api -X PUT repos/a/b/pulls/1/merge', 'merge'], ['gh api "repos/a/b/pulls/1/merge?x=1"', 'merge'],
   ]);
 });

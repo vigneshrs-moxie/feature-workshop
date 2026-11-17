@@ -206,3 +206,48 @@ test('Nov 17 (4): sed -i\'\' (no space) is -i on its own: judged as a Mac\'s sed
   assert.equal(answer(`gsed -i 's/a/b/' ${JOB}/decisions.md`, ctxOf(M)), 'ask');
   assert.equal(answer(`gsed -i 's/a/b/' ${HOME}/Projects/other/notes.md`, ctxOf(M)), 'stop:outside');
 });
+
+// ---------- 7: the reads a normal L1 or L2 job runs, from the main checkout and from the worktree ----------
+
+test('Nov 17 (7): git reads with a range, a pathspec or HEAD:path pass in the main checkout as in the worktree', () => {
+  const reads = [
+    'git status', 'git status --short', 'git log --oneline -10', 'git log --oneline moxie/main..HEAD', 'git log --oneline -15 -- app/src/lib', 'git diff', 'git diff --stat',
+    'git diff moxie/main...HEAD', 'git diff --name-only moxie/main...HEAD', 'git diff HEAD~1 -- app/src/lib/x.ts', 'git show HEAD', 'git show --stat HEAD', 'git show HEAD:app/package.json',
+    'git rev-parse HEAD', 'git rev-parse moxie/main', 'git merge-base HEAD moxie/main', 'git merge-base --is-ancestor moxie/main HEAD', 'git branch --list', 'git branch --show-current', 'git remote -v',
+    'git rev-list --count moxie/main..HEAD', 'git ls-files app/src', 'git grep -n copyTicketId',
+  ];
+  const rows = [];
+  for (const c of reads) rows.push(['M', c, 'pass'], ['W', c, 'pass'], ['JOB', `git -C ${M} ${c.slice(4)}`, 'pass'], ['M', `git -C ${W} ${c.slice(4)}`, 'pass']);
+  table(rows);
+  // What still is not a read: an option that writes a file or runs a program, a -c, another folder.
+  table(['git diff --output=/tmp/x', 'git log --ext-diff -p', 'git -c diff.external=/tmp/x diff', `git -C ${HOME}/Projects/other log moxie/main..HEAD`, 'git diff moxie/main...HEAD > ../notes.txt'].map((c) => ['M', c, 'not pass']));
+});
+
+test('Nov 17 (7): listings that print names (find, tree, du, ls -R) pass from the main checkout; a recursive read of text there still asks', () => {
+  const rows = [];
+  for (const c of ["find app/src -name '*.ts'", "find . -name '*.test.ts' -not -path '*/node_modules/*'", 'find app/src -type f', 'tree -L 2 app/src', 'du -sh app', 'ls -R app/src']) rows.push(['M', c, 'pass'], ['W', c, 'pass']);
+  // grep -r prints text, and the main checkout holds the app's .env files: it still asks (a judgement call, in the report).
+  rows.push(['M', 'grep -rn copyTicketId app/src', 'ask'], ['W', 'grep -rn copyTicketId app/src', 'pass']);
+  // find that runs or deletes, and a listing outside the job and the repository, are as before.
+  for (const c of ['find app/src -name "*.ts" -exec rm {} \\;', 'find app/src -delete', `find ${HOME}/Projects/other -name '*.md'`, `tree ${HOME}/Projects/other`]) rows.push(['M', c, 'not pass']);
+  table(rows);
+});
+
+test('Nov 17 (7): gh reads pass from any of the job\'s folders, --repo and a GET\'s query fields included; gh writes do not', () => {
+  const reads = [
+    'gh pr view 12', 'gh pr view 12 --json state,url', `gh pr list --head ${B}`, `gh pr list --repo moxie-org/orbit --head ${B} --json number,url`, 'gh pr list --repo moxie-org/orbit --state open',
+    'gh pr checks 12', 'gh pr checks 12 --repo moxie-org/orbit', 'gh pr status', 'gh pr diff 12', `gh run list --branch ${B}`, 'gh run view 123', 'gh repo view moxie-org/orbit',
+    'gh api repos/moxie-org/orbit/pulls', `gh api 'repos/moxie-org/orbit/pulls?head=moxie-org:${B}'`, 'gh api repos/moxie-org/orbit/branches/main', 'gh api repos/moxie-org/orbit/commits/main --jq .sha',
+    `gh api -X GET repos/moxie-org/orbit/pulls -f head=moxie-org:${B}`, 'gh api repos/moxie-org/orbit/pulls/12/comments', 'gh pr view 12 --comments',
+  ];
+  const rows = [];
+  for (const c of reads) rows.push(['M', c, 'pass'], ['W', c, 'pass'], ['JOB', c, 'pass']);
+  // gh auth status and gh api user stay where they were: in the job's folders only (not on the owner's list).
+  rows.push(['W', 'gh auth status', 'pass'], ['M', 'gh auth status', 'stop:outside'], ['M', 'gh api user', 'stop:outside']);
+  for (const c of [
+    'gh pr checkout 12', 'gh pr merge 12', 'gh pr comment 12 --body hi', 'gh issue create --title x', 'gh auth status --show-token', 'gh auth token',
+    'gh api -X POST repos/moxie-org/orbit/issues -f title=x', 'gh api repos/moxie-org/orbit/issues -f title=x', 'gh api -X GET repos/moxie-org/orbit/pulls -F body=@/etc/hosts',
+    'gh api -X GET repos/moxie-org/orbit/pulls --input notes.json', 'gh api -X PATCH repos/moxie-org/orbit/pulls/12 -f state=closed', 'gh api -X PUT repos/moxie-org/orbit/pulls/12/merge',
+  ]) rows.push(['M', c, 'not pass'], ['W', c, 'not pass']);
+  table(rows);
+});

@@ -1,6 +1,7 @@
 // The walk (deep review A, second re-check, section 3): an ordinary Orbit job from its first step to PR #1, each line as
-// the skills spell it, from the session's folder (the repository's main checkout). Every row passes but six that ask
-// (rows 6, 9, 12, 14, 18 and 24); no row stops. The layout is the owner's, on disk in a temp folder: the job folder under
+// the skills spell it, from the session's folder (the repository's main checkout). Every row passes but five that ask
+// (rows 6, 9, 12, 18 and 24); no row stops. Since Nov 17 row 14 (git log with a pathspec in the main checkout) passes, and
+// find, tree and du there (names only) moved from row 9 to row 7. The layout is the owner's, on disk in a temp folder: the job folder under
 // ~/.claude/feature-work, skills installed as links into a checkout, the handbook a link into ~/Projects, the app's
 // packages installed in the worktree. No git is run and no model is called.
 import test from 'node:test';
@@ -76,14 +77,14 @@ const WALK = [
   [4, 'pre', 'pass', [sh('git status --short'), sh('git rev-parse --abbrev-ref HEAD'), sh(`git -C ${M} status --short`), sh(`git -C ${M} log -1 --format='%h %s'`)]],
   [5, 'pre', 'pass', [['Write', { file_path: `${JOB}/workflow-status.md`, content: '# status' }], ['Write', { file_path: `${JOB}/status.json`, content: '{}' }], ['Write', { file_path: `${JOB}/briefs/002-spec.md`, content: '# brief' }], ['Edit', { file_path: `${JOB}/decisions.md`, old_string: 'a', new_string: 'b' }], ['TodoWrite', { todos: [] }]]],
   [6, 'pre', 'ask', [['Read', { file_path: `${HOME}/.claude/ops-handbook.md` }]]],
-  [7, 'pre', 'pass', [['Read', { file_path: `${M}/app/src/lib/auth.ts` }], sh('ls app/src'), sh('cat app/package.json'), sh('head -40 app/package.json'), sh('wc -l app/src/lib/auth.ts'), sh('grep -n "copyTicketId" app/src/lib/auth.ts')]],
+  [7, 'pre', 'pass', [['Read', { file_path: `${M}/app/src/lib/auth.ts` }], sh('ls app/src'), sh('cat app/package.json'), sh('head -40 app/package.json'), sh('wc -l app/src/lib/auth.ts'), sh('grep -n "copyTicketId" app/src/lib/auth.ts'), sh('find app/src -name "*.test.ts"'), sh('tree -L 2 app/src'), sh('du -sh app')]],
   [8, 'pre', 'pass', [['Grep', { pattern: 'copyTicketId' }], ['Glob', { pattern: 'app/src/**/*.tsx' }]]],
-  [9, 'pre', 'ask', [['Grep', { pattern: 'copyTicketId', path: `${M}/app/src` }], ['Glob', { pattern: '**/*.tsx', path: `${M}/app/src` }], ['Glob', { pattern: `${M}/app/src/**/*.test.ts` }], sh('grep -rn "copyTicketId" app/src'), sh(`grep -rn "copyTicketId" ${M}/app/src --include="*.ts"`), sh('rg -n "copyTicketId" app/src'), sh('find app/src -name "*.test.ts"'), sh('tree -L 2 app/src'), sh('du -sh app')]],
+  [9, 'pre', 'ask', [['Grep', { pattern: 'copyTicketId', path: `${M}/app/src` }], ['Glob', { pattern: '**/*.tsx', path: `${M}/app/src` }], ['Glob', { pattern: `${M}/app/src/**/*.test.ts` }], sh('grep -rn "copyTicketId" app/src'), sh(`grep -rn "copyTicketId" ${M}/app/src --include="*.ts"`), sh('rg -n "copyTicketId" app/src')]],
   [10, 'pre', 'pass', [['Agent', { subagent_type: 'feature-spec-writer', description: 'Spec', prompt: 'Stage: spec' }], ['SendMessage', { to: 'agent-1', message: 'Fix: …' }]]],
   [11, 'pre', 'pass', [['Write', { file_path: `${JOB}/spec.md`, content: '# spec' }], ['Write', { file_path: `${M}/docs/plans/2026-11-11-thing-product-spec.md`, content: '# spec' }], ['Edit', { file_path: `${JOB}/workflow-status.md`, old_string: 'a', new_string: 'b' }]]],
   [12, 'pre', 'ask', [sh(`python3 ${SKILLS}/wireframe/build.py --job orbit-500-thing ${JOB}/wireframes.src.json`)]],
   [13, 'pre', 'pass', [sh(`git -C ${M} rev-parse HEAD`), sh(`git -C ${M} grep -n "copyTicketId" -- app/src`), sh(`git -C ${M} ls-files app/src/lib`)]],
-  [14, 'pre', 'ask', [sh(`git -C ${M} log --oneline -15 -- app/src/lib`)]],
+  [14, 'pre', 'pass', [sh(`git -C ${M} log --oneline -15 -- app/src/lib`)]],
   [15, 'pre', 'pass', [['Write', { file_path: `${JOB}/findings.md`, content: '# findings' }]]],
   [16, 'pre', 'pass', ['implementation-plan.md', 'test-plan.md', 'acceptance.md', 'dev-tests.md', 'quick-plan.md'].map((f) => ['Write', { file_path: `${JOB}/${f}`, content: '# plan' }])],
   [17, 'pre', 'pass', [['Read', { file_path: `${SKILLS}/workflow-common/git-workflow.md` }]]],
@@ -119,7 +120,7 @@ const WALK = [
   [45, 'post', 'pass', [sh(`gh pr create --repo moxie-org/orbit --head test:${B} --base ${B} --title "feat(tickets): ORBIT-500 add copy ID button" --body-file ${JOB}/pr1-body.md`)]],
 ];
 
-test('the walk: from the main checkout, rows 6, 9, 12, 14, 18 and 24 ask, every other row passes, and no row stops', () => {
+test('the walk: from the main checkout, rows 6, 9, 12, 18 and 24 ask, every other row passes, and no row stops', () => {
   assert.equal(WALK.length, 45);
   const wrong = [];
   for (const [row, phase, want, calls] of WALK) {

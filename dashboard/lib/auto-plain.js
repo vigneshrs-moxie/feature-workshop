@@ -207,6 +207,12 @@ function readablePath(word, ctx) {
 }
 // A recursive read from a root outside the job's folders can reach any secret place under it.
 function rootsInside(roots, ctx) { for (const x of roots) if (!insideAll(x, ctx)) ask('a recursive read that starts outside the job'); }
+// A listing that prints names or sizes, never a file's text (find, tree, du, ls -R): it may also start in the repository's main
+// checkout, which the job may read (Nov 17). A recursive read of text (grep -r) still starts in the job's own folders.
+function namesInside(roots, ctx) {
+  const main = typeof ctx.ctx?.mainCheckout === 'string' ? physicalPath(ctx.ctx.mainCheckout, null) : null;
+  for (const x of roots) if (!insideAll(x, ctx) && !(main && ctx.cands.every((c) => { const p = physicalPath(x.t, c); return Boolean(p) && isInside(p, main); }))) ask('a recursive read that starts outside the job');
+}
 
 // ---------- per-kind argument checks ----------
 
@@ -304,7 +310,7 @@ const FIND_TESTS = new Set(['-name', '-iname', '-path', '-ipath', '-type', '-max
 const FIND_VALUE = new Set(['-name', '-iname', '-path', '-ipath', '-type', '-maxdepth', '-mindepth', '-mtime', '-mmin', '-newer', '-size', '-perm', '-user', '-regex']);
 function findCheck(args, ctx) {
   let i = 0;
-  while (i < args.length && !args[i].t.startsWith('-') && args[i].t !== '!') { readablePath(args[i], ctx); rootsInside([args[i]], ctx); i++; }
+  while (i < args.length && !args[i].t.startsWith('-') && args[i].t !== '!') { readablePath(args[i], ctx); namesInside([args[i]], ctx); i++; }
   for (; i < args.length; i++) {
     const t = args[i].t;
     if (!FIND_TESTS.has(t)) ask(`the find test ${t}`);
@@ -537,21 +543,26 @@ function gitCheck(args, ctx) {
     if (sub === 'checkout' || sub === 'switch') switchCheck(sub, { pos, vals, flags, paths }, ctx);
     return;
   }
+  // In the repository's main checkout, which the job may read, a read's words (a range, a pathspec, HEAD:path) are a read's:
+  // they need not be inside the job's folders (Nov 17).
+  const main = typeof ctx.ctx?.mainCheckout === 'string' ? physicalPath(ctx.ctx.mainCheckout, null) : null;
+  if (MAIN_READS.has(sub) && main && ctx.cands.length && ctx.cands.every((c) => { const p = physicalPath('.', c); return Boolean(p) && isInside(p, main); })) { check({ ...sp, pos: 'read' }, rest, ctx, `git ${sub}`); return; }
   check(sp, rest, ctx, `git ${sub}`);
 }
+const MAIN_READS = new Set(['diff', 'log', 'show', 'status']);
 
 // ---------- gh ----------
 
-const GH_LIST = '--json: --jq: -q: --state: -s: --limit: -L: --author: --label: -l: --base: -B: --head: -H: --search: -S: --comments -c --watch --required --name-only --patch --draft --web';
-const GH_TEXT = ['--json', '--jq', '-q', '--state', '-s', '--author', '--label', '-l', '--base', '-B', '--head', '-H', '--search', '-S'];
+const GH_LIST = '--json: --jq: -q: --state: -s: --limit: -L: --author: --label: -l: --base: -B: --head: -H: --search: -S: --comments -c --watch --required --name-only --patch --draft --web --repo: -R:';
+const GH_TEXT = ['--json', '--jq', '-q', '--state', '-s', '--author', '--label', '-l', '--base', '-B', '--head', '-H', '--search', '-S', '--repo', '-R'];
 const GH = {
   pr: {
     create: BUILD('--fill --fill-first --fill-verbose --title: -t: --body: -b: --base: -B: --head: -H: --draft -d --label: -l: --reviewer: -r: --assignee: -a: --milestone: -m: --no-maintainer-edit --body-file: -F: --repo: -R:', { text: ['--title', '-t', '--body', '-b', '--base', '-B', '--head', '-H', '--label', '-l', '--reviewer', '-r', '--assignee', '-a', '--milestone', '-m', '--repo', '-R'] }),
-    view: BUILD('--json: --jq: -q: --comments -c', { text: GH_TEXT }), list: BUILD(GH_LIST.replace('--web', ''), { text: GH_TEXT }), status: BUILD(''), checks: BUILD('--watch --required --json: --jq: -q: --interval: -i:'), diff: BUILD('--name-only --patch --color:'), // checkout: someone else's code arrives; it asks (m4)
+    view: BUILD('--json: --jq: -q: --comments -c --repo: -R:', { text: GH_TEXT }), list: BUILD(GH_LIST.replace('--web', ''), { text: GH_TEXT }), status: BUILD('--repo: -R:', { text: GH_TEXT }), checks: BUILD('--watch --required --json: --jq: -q: --interval: -i: --repo: -R:', { text: GH_TEXT }), diff: BUILD('--name-only --patch --color: --repo: -R:', { text: GH_TEXT }), // checkout: someone else's code arrives; it asks (m4)
   },
   issue: { view: BUILD('--json: --jq: -q: --comments -c'), list: BUILD(GH_LIST.replace('--web', '')), status: BUILD('') },
-  repo: { view: BUILD('--json: --jq: -q') },
-  run: { view: BUILD('--json: --jq: -q --log --log-failed --job: -j: --exit-status'), list: BUILD('--json: --jq: -q --limit: -L: --branch: -b: --status: -s: --workflow: -w:'), watch: BUILD('--exit-status --interval: -i:') },
+  repo: { view: spec('--json: --jq: -q', { pos: (pos) => { if (pos.some((x) => !/^[\w.-]+\/[\w.-]+$/.test(x.t))) ask('arguments to gh Starbase does not read'); } }) }, // OWNER/REPO, not a path (Nov 17)
+  run: { view: BUILD('--json: --jq: -q --log --log-failed --job: -j: --exit-status'), list: BUILD('--json: --jq: -q --limit: -L: --branch: -b: --status: -s: --workflow: -w:', { text: ['--json', '--jq', '-q', '--branch', '-b', '--status', '-s', '--workflow', '-w'] }), watch: BUILD('--exit-status --interval: -i:') },
   release: { view: BUILD('--json: --jq: -q'), list: BUILD('--limit: -L: --json: --jq: -q') },
   workflow: { view: BUILD(''), list: BUILD('--json: --jq: -q') },
   auth: { status: BUILD('') },
@@ -566,8 +577,13 @@ function ghCheck(args, ctx) {
   }
   const [group, action] = words.map((x) => x.t);
   if (group === 'api') {
-    const { pos } = check(spec('--paginate --jq: -q:', { pos: 'text' }), args.slice(args.findIndex((x) => x.t === 'api') + 1), ctx, 'gh api');
+    const { pos, vals } = check(spec('--paginate --jq: -q: -X: --method: -f: --raw-field: -F: --field:', { pos: 'text' }), args.slice(args.findIndex((x) => x.t === 'api') + 1), ctx, 'gh api');
     if (pos.length !== 1 || /\/merge/.test(pos[0].t) || /:\/\//.test(pos[0].t)) ask('a gh api call Starbase does not read'); // only a path relative to the API
+    // Fields are a GET's query only when the method is said to be GET (else gh sends a POST); never a file's text (-F x=@file) (Nov 17).
+    const method = vals.filter(([f]) => f === '-X' || f === '--method').map(([, x]) => String(x.t).toUpperCase());
+    const fields = vals.filter(([f]) => ['-f', '--raw-field', '-F', '--field'].includes(f));
+    if (fields.length && (method.length !== 1 || method[0] !== 'GET' || fields.some(([f, x]) => ['-F', '--field'].includes(f) && /=@/.test(x.t)))) ask('a gh api call that sends something');
+    if (method.some((m) => m !== 'GET')) ask('a gh api call that sends something');
     return;
   }
   const sp = GH[group]?.[action];
@@ -839,7 +855,7 @@ function runProgram(name, args, ctx, raw) {
   if (['grep', 'egrep', 'fgrep'].includes(name) && ['-r', '-R', '--recursive'].some((f) => flags.has(f))) rootsInside(hasPattern ? pos : pos.slice(1), ctx);
   else if (name === 'rg') rootsInside(hasPattern ? pos : pos.slice(1), ctx);
   else if (name === 'diff' && ['-r', '--recursive'].some((f) => flags.has(f))) rootsInside(pos, ctx);
-  else if (['tree', 'du'].includes(name) || (name === 'ls' && flags.has('-R')) ) rootsInside(pos, ctx);
+  else if (['tree', 'du'].includes(name) || (name === 'ls' && flags.has('-R')) ) namesInside(pos, ctx);
   return raw;
 }
 
@@ -908,6 +924,7 @@ function gitReadHere(args) {
   // git fetch only reads from GitHub and moves remote-tracking refs; where it may run is the fixed rules' (auto-rules.js remoteRead, Nov 17).
   return GIT_READS.has(sub) || sub === 'fetch' || gitReadForm(sub, args.slice(at + 1));
 }
+const GH_ANY_FOLDER = { pr: ['view', 'list', 'status', 'checks', 'diff'], issue: ['view', 'list', 'status'], repo: ['view'], run: ['view', 'list', 'watch'], release: ['view', 'list'], workflow: ['view', 'list'] };
 // Commands judged by their own rule whatever the folder they run in (R4): gh pr create (its own rule, prCreateProblem),
 // starbase decisions for the job, and ps that only reads.
 function anyFolder(name, args, here, ctx, known = null) {
@@ -916,7 +933,8 @@ function anyFolder(name, args, here, ctx, known = null) {
   if (/^g?(sed|awk)$/.test(name)) return name.endsWith('sed') || !args.some((x) => /^-[A-Za-z]*i|^--in-place/.test(x.t)); // sed -i: its files must be inside (sedCheck, Nov 17)
   if (['mkdir', 'touch', 'cp', 'mv'].includes(name)) return true;
   if (args.length === 1 && /^(--version|-v|-V)$/.test(args[0].t) && typeof known === 'function' && known(name)) return true;
-  if (name === 'gh') return pos[0] === 'pr' && pos[1] === 'create';
+  // gh's reads change nothing on this computer, whatever the folder (ghCheck judges their words, Nov 17).
+  if (name === 'gh') return (pos[0] === 'pr' && pos[1] === 'create') || pos[0] === 'api' || pos[0] === 'search' || pos[0] === 'status' || Boolean(GH_ANY_FOLDER[pos[0]]?.includes(pos[1]));
   if (name === 'starbase') return starbaseDecisions(args.map((x) => x.t), here, ctx);
   if (name === 'ps') return psRead(args.map((x) => x.t));
   return false;

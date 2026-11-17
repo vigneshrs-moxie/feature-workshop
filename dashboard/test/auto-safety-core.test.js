@@ -1010,8 +1010,8 @@ test('R13: other spellings of the same steps, from the session\'s folder (the ma
   // A known program with --version (or -v, -V) and nothing else.
   for (const c of ['node --version', 'npm --version', 'gh --version', 'git --version', 'node -v', 'python3 -V', 'python3 --version']) want(c, null);
   for (const c of ['gh auth status', 'node --version x.js', 'bash -v', 'npm -v install', 'whatever --version']) want(c, 'outside');
-  // gh lookups ask; a write to GitHub still stops.
-  for (const c of ['gh pr view --repo moxie-org/orbit --json url,state', `gh pr list --repo moxie-org/orbit --head ${BRANCH} --json url`, 'gh pr checks 12 --repo moxie-org/orbit', `gh api repos/moxie-org/orbit/branches/${BRANCH}`, `gh api repos/moxie-org/orbit/git/ref/heads/${BRANCH}`, `gh api -X GET repos/moxie-org/orbit/pulls`]) want(c, 'ask');
+  // gh lookups pass from the main checkout since Nov 17 (they change nothing on this computer); a write to GitHub still stops.
+  for (const c of ['gh pr view --repo moxie-org/orbit --json url,state', `gh pr list --repo moxie-org/orbit --head ${BRANCH} --json url`, 'gh pr checks 12 --repo moxie-org/orbit', `gh api repos/moxie-org/orbit/branches/${BRANCH}`, `gh api repos/moxie-org/orbit/git/ref/heads/${BRANCH}`, `gh api -X GET repos/moxie-org/orbit/pulls`]) want(c, null);
   for (const c of ['gh api -X DELETE repos/moxie-org/orbit/issues/1/labels/x', 'gh api repos/moxie-org/orbit/issues -f title=x', 'gh api --input body.json repos/moxie-org/orbit/issues', 'gh api -F title=x repos/moxie-org/orbit/issues', 'gh pr comment 12 -b x', 'gh api user']) want(c, 'outside');
   // npm --prefix <folder> is cd <folder> && npm; ( cd <folder> && … ) is the line inside.
   for (const [c, control] of [[`npm --prefix ${A} run check`, `cd ${A} && npm run check`], [`npm --prefix ${A} ci`, `cd ${A} && npm ci`], [`npm run check --prefix ${A}`, `cd ${A} && npm run check`], [`npm --prefix=${A} test`, `cd ${A} && npm test`],

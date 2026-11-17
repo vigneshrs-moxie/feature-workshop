@@ -1102,7 +1102,7 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
     else if (!localPlain(cmd, a)) st.asks.push(`${cmd}, a program of the job's node_modules/.bin that Starbase does not read in this use`);
   }
   // T3c: a command that is not a read runs from a folder inside the job's (a cd moves it; a folder we can't tell stops).
-  const readOnly = psOk || programGroup(cmd) === 'read' || (cmd === 'git' && (gitReads(args) || remoteRead(args, cwd ?? st.hint ?? null, ctx)));
+  const readOnly = psOk || programGroup(cmd) === 'read' || (cmd === 'git' && (gitReads(args) || remoteRead(args, cwd ?? st.hint ?? null, ctx))) || (cmd === 'gh' && ghRead(args, a));
   // A script of the installed workflow run by an interpreter asks, whatever the folder (R4); gh pr create is judged by its own rule (R4).
   const skill = skillScript(cmd, cmdWord, args, a, cwd ?? st.hint ?? null, st);
   const prCreate = cmd === 'gh' && (() => { const p = args.filter((x, k) => !(x.t.startsWith('-') || ['-R', '--repo'].includes(a[k - 1]))).map((x) => x.t); return p[0] === 'pr' && p[1] === 'create'; })();
@@ -1806,7 +1806,46 @@ function ghLookup(args, a) {
   if (p[0] !== 'api' || p.length !== 2 || !/^\/?repos\//.test(p[1])) return false;
   const k = a.findIndex((x) => /^(-X|--method)$/.test(x));
   const m = k >= 0 ? a[k + 1] : (a.find((x) => /^(-X.|--method=)/.test(x)) ?? '').replace(/^(-X|--method=)/, '') || 'GET';
-  return String(m).toUpperCase() === 'GET' && !a.some((x) => /^(-f|-F|--field|--raw-field|--input)(=|$)/.test(x) || /^-[fF]./.test(x));
+  return String(m).toUpperCase() === 'GET' && !apiSends(a);
+}
+
+/**
+ * Does this gh api call send anything: --input, or a field when the method is not said to be GET (gh then sends a POST), or a
+ * field read from a file (-F x=@file)? A field with -X GET is part of the query (Nov 17).
+ */
+function apiSends(a) {
+  const k = a.findIndex((x) => /^(-X|--method)$/.test(x));
+  const said = k >= 0 ? a[k + 1] : (a.find((x) => /^(-X.|--method=)/.test(x)) ?? '').replace(/^(-X|--method=)/, '');
+  const get = String(said ?? '').toUpperCase() === 'GET';
+  if (a.some((x) => /^--input(=|$)/.test(x))) return true;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const field = /^(-f|-F|--field|--raw-field)$/.test(x) ? { flag: x, value: a[i + 1] ?? '' } : /^(-[fF])(.+)$/.test(x) ? { flag: x.slice(0, 2), value: x.slice(2) } : /^(--field|--raw-field)=(.*)$/.test(x) ? { flag: x.split('=')[0], value: x.slice(x.indexOf('=') + 1) } : null;
+    if (!field) continue;
+    if (!get || (/^(-F|--field)$/.test(field.flag) && /=@/.test(field.value))) return true;
+  }
+  return false;
+}
+
+/**
+ * A gh command that only reads from GitHub, whatever the folder it runs in (gh changes nothing on this computer for these):
+ * pr view, list, status, checks and diff; issue view, list and status; repo view; run view, list and watch; release and
+ * workflow view and list; search; status; api on a repository's path with GET and nothing sent (Nov 17). gh auth status is not
+ * one: it stays where it was (in the job's folders only).
+ */
+const GH_READS = { pr: ['view', 'list', 'status', 'checks', 'diff'], issue: ['view', 'list', 'status'], repo: ['view'], run: ['view', 'list', 'watch'], release: ['view', 'list'], workflow: ['view', 'list'] };
+function ghRead(args, a) {
+  if (args.some((x) => x.dyn)) return false;
+  const p = args.filter((x, k) => !(x.t.startsWith('-') || ['-R', '--repo', '-X', '--method', '--json', '--jq', '-q', '--head', '-H', '--base', '-B', '--state', '-s', '--limit', '-L', '--search', '-S', '--author', '--label', '-l', '--branch', '-b', '--interval', '-i', '-f', '-F', '--field', '--raw-field'].includes(a[k - 1]))).map((x) => x.t);
+  const [group, action] = p;
+  if (group === 'api') {
+    if (p.length !== 2 || !/^\/?repos\//.test(p[1]) || /\/merges?(\?.*)?$/.test(p[1])) return false;
+    const k = a.findIndex((x) => /^(-X|--method)$/.test(x));
+    const m = k >= 0 ? a[k + 1] : (a.find((x) => /^(-X.|--method=)/.test(x)) ?? '').replace(/^(-X|--method=)/, '') || 'GET';
+    return String(m).toUpperCase() === 'GET' && !apiSends(a);
+  }
+  if (group === 'search' || group === 'status') return true;
+  return Boolean(GH_READS[group]?.includes(action));
 }
 
 function ghStep(cmd, args, a, st) {
@@ -1844,7 +1883,7 @@ function ghStep(cmd, args, a, st) {
     // The same call from a commit git does not place on the org remote's main (not fetched yet, or not there): refused, and
     // it says so, so the crew fetches the org's main and runs it again (Nov 17).
     if (a[0] === 'api' && !args.some((x) => x.dyn) && orgBranchForm(a.slice(1), st.ctx)) { hit('outside'); st.orgSha = true; return; }
-    if (m.toUpperCase() !== 'GET' || a.some((x) => /^(-f|-F|--field|--raw-field|--input)$/.test(x) || /^-[fF]./.test(x))) {
+    if (m.toUpperCase() !== 'GET' || apiSends(a)) {
       hit('outside');
       // A write that merges branches (…/merges) or moves or deletes a ref that exists (…/git/refs/<name>) is a merge by another road.
       if (a.some((x) => /\/merges(\?.*)?$/.test(x) || /\/git\/refs\/[^?]/.test(x))) hit('merge');
