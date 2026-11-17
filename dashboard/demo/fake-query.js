@@ -41,10 +41,10 @@
 // Like Claude Code it says when it has gone idle; it ends once the dashboard closes its input.
 
 import { randomUUID } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { execGitSync } from '../lib/git.js';
 import { suggestLevel } from '../lib/level-rules.js';
 import { parseReviewFindings } from '../lib/play.js';
 import { FABLE_POINTS, flowFor, isLevel, levelLabel, OPUS, REVIEWERS, skippedFor } from '../lib/options.js';
@@ -359,7 +359,7 @@ async function fixComments(dir, text) {
   const tmp = await fs.realpath(os.tmpdir()).catch(() => null);
   const real = wt ? await fs.realpath(wt).catch(() => null) : null;
   const canCommit = Boolean(tmp && real && real.startsWith(tmp + path.sep));
-  const git = (args) => execFileSync('git', ['-C', real, ...args], { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, GIT_AUTHOR_NAME: 'Demo Foreman', GIT_AUTHOR_EMAIL: 'foreman@example.com', GIT_COMMITTER_NAME: 'Demo Foreman', GIT_COMMITTER_EMAIL: 'foreman@example.com' } }).toString().trim();
+  const git = (args) => execGitSync(['-C', real, ...args], { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, GIT_AUTHOR_NAME: 'Demo Foreman', GIT_AUTHOR_EMAIL: 'foreman@example.com', GIT_COMMITTER_NAME: 'Demo Foreman', GIT_COMMITTER_EMAIL: 'foreman@example.com' } }).toString().trim();
   const out = [];
   for (const a of asked) {
     if (a.id.startsWith('i') || !canCommit) {
