@@ -3869,7 +3869,8 @@ test('I5: his own Go or Send back on the waiting step, seen on a fresh read, is 
 
 // The job's workflow-status.md only mentions another branch (a parent a stacked job names): no Repository field, so a guess.
 // Since Nov 17 a branch the text only mentions is a guess only when git has it: the branch is made first.
-const mentionBranch = (w, branch) => { w.git('branch', branch); return fs.writeFile(path.join(w.dir, 'workflow-status.md'), `# Visit audit\n\nStacked on the parent branch \`${branch}\` for now.\n`); };
+/** The job's workflow-status.md mentions `branch`, which git has (made here unless a worktree made it already). */
+const mentionBranch = (w, branch) => { if (!w.git('branch', '--list', branch).toString().trim()) w.git('branch', branch); return fs.writeFile(path.join(w.dir, 'workflow-status.md'), `# Visit audit\n\nStacked on the parent branch \`${branch}\` for now.\n`); };
 const prOpenOnMap = (w) => w.until(async () => ((await w.runner.local.refreshFlow()).repos ?? []).some((r) => r.lanes.some((l) => l.slug === w.slug && l.pr1?.state === 'open')), 'the map to show PR #1');
 
 test('a job whose branch is only a guess has no lane on the flow map: Auto does not finish, and the card has no finish and no PR #1 nudge', { timeout: 40_000 }, async () => {
