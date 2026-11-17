@@ -1231,8 +1231,16 @@ function holdFirst(w) {
   const made = w.local.autoDatabase;
   let held = false;
   let release;
-  const wait = new Promise((r) => { release = r; });
-  w.local.autoDatabase = async (f, o) => { if (f.slug === w.list[0].slug && !held) { held = true; await wait; } return made(f, o); };
+  // A real copy is live Postgres programs, which keep Node running; this held promise is not. On Node 22
+  // a test whose only timer is unref'd (the door's waitMs) would then end its event loop and be cancelled.
+  let alive = null;
+  const wait = new Promise((r) => { release = () => { clearInterval(alive); r(); }; });
+  w.local.autoDatabase = async (f, o) => {
+    if (f.slug === w.list[0].slug && !held) { held = true; alive = setInterval(() => {}, 1000); await wait; }
+    return made(f, o);
+  };
+  const done = w.done;
+  w.done = async () => { release(); return done(); }; // a test that fails while it holds still lets the file end
   const asked = [];
   const start = w.local.startServer.bind(w.local);
   w.local.startServer = (f, opts) => { asked.push({ slug: f.slug, opts: opts ?? 'his' }); return start(f, opts); };

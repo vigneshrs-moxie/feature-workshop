@@ -470,7 +470,9 @@ test('evidence: the watch mark is made or touched as a plain file, never through
   const mark = path.join(dir, 'watching');
   assert.equal(await markWatched(mark), true, 'made when it isn’t there');
   assert.ok((await fs.lstat(mark)).isFile());
-  const old = new Date(Date.now() - 60_000);
+  // A whole second: Node 22 sets and reads a time through float seconds, so a time with
+  // milliseconds can come back 0.001 ms off and the exact check below would fail by chance.
+  const old = new Date(Math.floor((Date.now() - 60_000) / 1000) * 1000);
   await fs.utimes(mark, old, old);
   assert.equal(await markWatched(mark), true);
   assert.ok(Date.now() - (await fs.stat(mark)).mtimeMs < 5000, 'touched again: fresh');

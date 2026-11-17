@@ -494,7 +494,8 @@ async function withFakeOrbit(answer, run) {
   } finally {
     await dashboard?.stop();
     await new Promise((resolve) => { orbit.close(resolve); orbit.closeAllConnections?.(); });
-    await fs.rm(root, { recursive: true, force: true });
+    // On Windows what the dashboard started may hold the repository for a moment after it stops (EBUSY).
+    await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 }
 

@@ -112,7 +112,14 @@ test('askHaiku passes no tools, no settings, no saved session and Haiku', async 
 });
 test('a slow answer is cut off at the timeout with the exact words', async () => {
   let ctrl;
-  const queryFn = ({ options }) => { ctrl = options.abortController; return (async function* () { await new Promise(() => {}); })(); };
+  // A real hang is a live Claude Code process, which keeps Node running until the abort. A bare
+  // pending promise does not: on Node 22 the event loop then ends before the (unref'd) timeout fires.
+  const hang = () => new Promise(() => {
+    if (ctrl.signal.aborted) return; // already cut off: nothing to keep alive
+    const alive = setInterval(() => {}, 1000);
+    ctrl.signal.addEventListener('abort', () => clearInterval(alive), { once: true });
+  });
+  const queryFn = ({ options }) => { ctrl = options.abortController; return (async function* () { await hang(); })(); };
   await assert.rejects(askHaiku({ system: 'S', prompt: 'P' }, { queryFn, timeoutMs: 20 }), { message: "Haiku didn't answer in time." });
   assert.equal(ctrl.signal.aborted, true);
 });

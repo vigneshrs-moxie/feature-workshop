@@ -248,3 +248,23 @@ test('C-M1: a worker resumed at 09:30:01 after handing back at 09:20 is running,
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+// Windows CI (run 43466953613): a session log is JSON lines, so a folder named in it has every \ written
+// as \\ (and every " as \"). A Windows job folder is full of backslashes, so the plain path never matched
+// and no session was the job's. A backslash is a legal name character on macOS, so this runs here too.
+test('a session log names its job folder the way JSON writes it: a folder with \\ or " in its path is still found', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'workshop-escaped-'));
+  try {
+    // Windows cannot name a folder with \ or ", but its temp path is full of \, so a plain name is the real case there.
+    const dir = path.join(root, 'feature-work', process.platform === 'win32' ? 'plain-job' : 'odd\\name "q"');
+    await fs.mkdir(dir, { recursive: true });
+    const session = path.join(root, 'projects', '-tmp-repo', 'sess-odd');
+    await fs.mkdir(path.dirname(session), { recursive: true });
+    const line = JSON.stringify({ sessionId: 'sess-odd', cwd: '/tmp/repo', type: 'user', timestamp: '2026-11-10T09:00:00Z', message: { role: 'user', content: `/feature Odd. Private folder: ${dir}` } });
+    await fs.writeFile(`${session}.jsonl`, `${line}\n`);
+    const byFeature = await new SessionIndex(path.join(root, 'projects')).sessionsByFeature([dir]);
+    assert.deepEqual(byFeature[dir].map((s) => s.parsed.sessionId), ['sess-odd']);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
