@@ -1,4 +1,5 @@
-# Both test suites on Windows and macOS (plan §4.4, packet H). Runs on every push and pull request.
+# Both test suites on macOS (plan §4.4, packet H). Runs on every push and pull request. Windows was
+# switched off on 17 Nov 2026 (Starbase has one user, on a Mac); put windows-latest back in the list to run it again.
 name: Tests
 
 on:
@@ -11,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest]
+        os: [macos-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     env:
