@@ -3868,7 +3868,8 @@ test('I5: his own Go or Send back on the waiting step, seen on a fresh read, is 
 // ---------- A branch Starbase only guessed (lib/locate.js branchGuessed): nothing that decides for Auto rests on it ----------
 
 // The job's workflow-status.md only mentions another branch (a parent a stacked job names): no Repository field, so a guess.
-const mentionBranch = (w, branch) => fs.writeFile(path.join(w.dir, 'workflow-status.md'), `# Visit audit\n\nStacked on the parent branch \`${branch}\` for now.\n`);
+// Since Nov 17 a branch the text only mentions is a guess only when git has it: the branch is made first.
+const mentionBranch = (w, branch) => { w.git('branch', branch); return fs.writeFile(path.join(w.dir, 'workflow-status.md'), `# Visit audit\n\nStacked on the parent branch \`${branch}\` for now.\n`); };
 const prOpenOnMap = (w) => w.until(async () => ((await w.runner.local.refreshFlow()).repos ?? []).some((r) => r.lanes.some((l) => l.slug === w.slug && l.pr1?.state === 'open')), 'the map to show PR #1');
 
 test('a job whose branch is only a guess has no lane on the flow map: Auto does not finish, and the card has no finish and no PR #1 nudge', { timeout: 40_000 }, async () => {
@@ -3877,8 +3878,9 @@ test('a job whose branch is only a guess has no lane on the flow map: Auto does 
     await mentionBranch(w, 'feature/other-thing');
     // The demo's map would open PR #1 for a job at the pr1 stage, on the branch the job is given; status.json names no PR.
     await w.writeStatus(status(1, { stage: 'pr1', stage_state: 'working', waiting_for: null, repo: undefined }));
-    await new Promise((r) => setTimeout(r, 1600));
-    const job = await w.runner.read.job(w.slug);
+    // git's branch list is remembered for 15 seconds (lib/locate.js): asked until the new branch is in it.
+    let job = null;
+    for (let i = 0; i < 40 && job?.branch !== 'feature/other-thing'; i++) { await new Promise((r) => setTimeout(r, 500)); job = await w.runner.read.job(w.slug); }
     assert.deepEqual({ branch: job.branch, guessed: job.locate.branchGuessed }, { branch: 'feature/other-thing', guessed: true });
     // refreshFlow answers with the map as it was and refreshes behind: asked until the job's lane is gone (it was there before the guess).
     await w.until(async () => !((await w.runner.local.refreshFlow()).repos ?? []).flatMap((r) => r.lanes).some((l) => l.slug === w.slug), 'no lane at all');
@@ -6536,7 +6538,9 @@ test('Nov 17: an L1 Auto job runs from its set-up to PR #1 open with today\'s ca
   };
   let w = null;
   let ctx = null; // filled once the world exists: the folders and the org's commit
-  const sh = (command, effect) => ({ tool: 'Bash', input: { command, description: 'x' }, effect });
+  // pause: the time the next call comes after this one (a model takes seconds; Starbase asks git for the worktrees again at
+  // most every quarter second, so a call straight after git worktree add would still see the old list).
+  const sh = (command, effect, pause = 0) => ({ tool: 'Bash', input: { command, description: 'x' }, effect, pause });
   const replies = () => [
     // 1. The set-up from the main checkout (the session's folder), then the quick plan.
     [
@@ -6544,7 +6548,7 @@ test('Nov 17: an L1 Auto job runs from its set-up to PR #1 open with today\'s ca
       sh('git ls-remote moxie refs/heads/main'),
       sh(`git ls-remote --heads origin ${BR}`),
       sh('git fetch moxie --prune && git ls-remote moxie refs/heads/main'),
-      sh(`git worktree add -b ${BR} ../orbit-visit-audit moxie/main`, () => w.git('worktree', 'add', '-q', '-b', BR, ctx.wt, 'refs/remotes/moxie/main')),
+      sh(`git worktree add -b ${BR} ../orbit-visit-audit moxie/main`, () => w.git('worktree', 'add', '-q', '-b', BR, ctx.wt, 'refs/remotes/moxie/main'), 400),
       sh(`gh api -X POST repos/moxie-org/visit-app/git/refs -f ref=refs/heads/${BR} -f sha=${ctx.orgSha}`),
       sh(`sed -i '' 's/Status: open/Status: planned/' ${ctx.job}/decisions.md && grep -c 'Status: planned' ${ctx.job}/decisions.md`),
       { tool: 'Read', input: { file_path: `${ctx.job}/status.json` } },
@@ -6595,6 +6599,7 @@ test('Nov 17: an L1 Auto job runs from its set-up to PR #1 open with today\'s ca
         outcomes.push({ reply: n, tool: c.tool, call: c.input.command ?? c.input.file_path, behavior: result.behavior, message: result.message });
         if (result.behavior === 'allow') {
           if (c.effect) c.effect();
+          if (c.pause) await new Promise((r) => setTimeout(r, c.pause));
           if (c.tool === 'Write') { await fs.mkdir(path.dirname(c.input.file_path), { recursive: true }); await fs.writeFile(c.input.file_path, c.input.content); }
         }
       }
