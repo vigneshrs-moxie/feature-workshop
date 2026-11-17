@@ -105,6 +105,7 @@ export function autoLog(lines = [], { title = '', now = null, record = null, sto
     const stop = l.what === 'stop';
     const e = { at: text(l.at), stage: stageLabel(l.stage), chose: stop ? reasonOf(l.reason ?? l.why) : text(l.chose), asked: text(l.asked), why: text(l.why) };
     if (text(l.risk)) e.risk = text(l.risk);
+    if (text(l.model)) e.model = text(l.model); // which model the Approver ran on (Nov 17)
     if (Array.isArray(l.answers) && l.answers.length) e.answers = l.answers.map((a) => ({ question: text(a?.question), choice: text(a?.choice), reason: text(a?.reason) }));
     // A risky call (Auto queue, Task 6): Auto asked the Approver once more, and `first` is what it said first.
     if (l.risky === true) { e.risky = true; e.first = text(l.first); }
@@ -146,6 +147,7 @@ export function capAutoLog(v) {
   const entries = v.entries.slice(0, L.entries).map((e) => {
     const o = { ...e, at: cut(e.at, L.at), stage: cut(e.stage, L.stage), chose: cut(e.chose, L.text), asked: cut(e.asked, L.text), why: cut(e.why, L.text) };
     if (typeof e.risk === 'string') o.risk = cut(e.risk, L.text);
+    if (typeof e.model === 'string') o.model = cut(e.model, L.tag);
     if (typeof e.first === 'string') o.first = cut(e.first, L.text);
     if (Array.isArray(e.answers)) o.answers = e.answers.slice(0, L.answers).map((a) => ({ ...a, question: cut(a?.question, L.text), choice: cut(a?.choice, L.text), reason: cut(a?.reason, L.text) }));
     return o;
@@ -165,6 +167,7 @@ export function autoLogMarkdown(view) {
     for (const a of e.answers ?? []) out.push(`- ${md(a.question)} → ${md(a.choice)}. Why: ${md(a.reason)}`);
     if (md(e.why)) out.push(`Why: ${md(e.why)}`);
     if (md(e.risk)) out.push(`Risk: ${md(e.risk)}`);
+    if (md(e.model)) out.push(`Answered by: ${md(e.model)}`);
     out.push('');
   }
   return `${out.join('\n').replace(/\n+$/, '')}\n`;

@@ -24,10 +24,10 @@
 
 import { AUTO_CARDS_PER_REPLY, AUTO_MARK, OWN_SENDS, REFUSED_RULES, YOURS_NOW, finishBody, refuseNote, refuseReason, wroteWhileWaiting } from '../lib/auto.js';
 import { AUTO_STOP_REASONS, HIDDEN_PROGRAM_REASON, OUTSIDE_REASONS, autoVerdict, fixedStop, plainPushCard, pr1StepGate, refusedAsWritten, refusedOutright } from '../lib/auto-rules.js';
-import { APPROVER_BUDGET_USD, approverCut, approverPaths, approverRoots, callPreview, checkAnswer } from '../lib/approver.js';
+import { APPROVER_BUDGET_USD, approverCut, approverModelFor, approverModelName, approverPaths, approverRoots, callPreview, checkAnswer } from '../lib/approver.js';
 import { DECIDING_KINDS } from '../lib/gate.js';
 import { ownLevelStands } from '../lib/auto-level.js';
-import { PR1_ONLY_LINE, prDecisions } from '../lib/auto-log.js';
+import { PR1_ONLY_LINE, autoCost, prDecisions } from '../lib/auto-log.js';
 import { STAGE_IDS } from '../lib/stages.js';
 
 /** Anything the Approver wrote, on one line: nothing it writes can start a line of its own, and no copy of the mark gets through. */
@@ -438,6 +438,20 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     ? update(job.dir, (prev) => (prev ? { ...prev, spent: Math.max(0, Math.round(((prev.spent ?? 0) - amount) * 1e9) / 1e9) } : null))
     : null);
   const addSpent = (job, cost) => (cost > 0 ? update(job.dir, (prev) => (prev ? { ...prev, spent: (prev.spent ?? 0) + cost } : null)) : null);
+  /**
+   * The model for this job's next ask (lib/approver.js approverModelFor): by everything its Approver has spent, the costUsd on
+   * all its Auto lines (autoCost) and the money on its record not on a line yet (spent). A failed read counts as nothing spent.
+   */
+  async function approverModel(job) {
+    let lines = [];
+    try { lines = await state.auditFor(job.dir, Infinity); } catch { lines = []; }
+    const rec = job.auto?.spent;
+    return approverModelFor(autoCost(lines) + (Number.isFinite(rec) && rec > 0 ? rec : 0));
+  }
+  /** What the next ask is told after a failed one (lib/approver.js approverPrompt's retry): Starbase's own words, never an id. */
+  const retryWords = (res, checked) => (res?.ok ? checked?.retry ?? checked?.problem : res?.retry ?? res?.problem) ?? null;
+  /** The model that answered, for the Auto line: its name, or nothing. */
+  const modelLine = (model) => (approverModelName(model) ? { model: approverModelName(model) } : {});
 
   async function attend(first, firstGate) {
     const n = firstGate.briefNumber;
@@ -445,6 +459,9 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     // ask, so the next try asks only the safer question again, and the dead end shows its words.
     let firstAnswer = null;
     let firstAt = null;
+    // What was wrong with the last failed answer, told to the next ask; and the model of the answer that is sent.
+    let retry = null;
+    let answeredBy = null;
     for (let tries = 0; tries < 3; tries++) {
       // Everything is read again at each turn: the Approver can take minutes.
       const job = await look(first, n);
@@ -483,7 +500,8 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
         const roots = approverRoots({ featureDir: job.dir, worktrees: job.worktrees, specDirs: job.specDirs });
         // One ask, by the same rules for the first and the second: the answer, or 'dropped' or 'failed'.
         const ask = async (t) => {
-          const res = await askApprover(t, { roots, job });
+          const model = await approverModel(job);
+          const res = await askApprover({ ...t, model, ...(retry ? { retry } : {}) }, { roots, job });
           // A run that timed out is charged the ceiling it was given, whatever partial cost it reported.
           const cost = res?.ok === false && TIMED_OUT.test(res.problem ?? '') ? APPROVER_BUDGET_USD : Number.isFinite(res?.costUsd) ? res.costUsd : 0;
           const checked = res?.ok ? checkAnswer(t, res.answer) : null;
@@ -496,9 +514,12 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
           if (await youSpokeSince(job, askedAt)) { await settleDropped(job, cost); return 'dropped'; }
           if (!checked?.ok) {
             await update(job.dir, (prev) => (prev ? { ...prev, failures: (prev.failures ?? 0) + 1, problem: res?.ok ? checked.problem : res?.problem ?? 'It ended with an error.', spent: (prev.spent ?? 0) + cost } : null));
+            retry = retryWords(res, checked);
             return 'failed';
           }
           await addSpent(job, cost);
+          retry = null;
+          answeredBy = model;
           return checked.answer;
         };
         if (!firstAnswer) {
@@ -516,6 +537,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
           if (answer === 'dropped') return;
           if (answer === 'failed') continue;
         }
+        if (answeredBy) task = { ...task, model: answeredBy };
       }
       const sent = await send(job, gate, task, answer, askedAt);
       if (sent === 'failed') continue;
@@ -623,6 +645,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
       }),
       costUsd: spent,
       ...risky,
+      ...modelLine(task.model),
     });
     await paidOff(job, spent);
     return 'sent';
@@ -790,8 +813,10 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     // One ask, by the same rules for the first and the second: the answer, FAILED after a failure that is no dead end yet, or
     // null once the card is done with here.
     const FAILED = Symbol('failed');
+    let retry = null; // what was wrong with the last failed answer, told to the next ask
     const askOne = async (t) => {
-      const res = await askApprover(t, { roots, job });
+      const model = await approverModel(job);
+      const res = await askApprover({ ...t, model, ...(retry ? { retry } : {}) }, { roots, job });
       const cost = res?.ok === false && TIMED_OUT.test(res.problem ?? '') ? APPROVER_BUDGET_USD : Number.isFinite(res?.costUsd) ? res.costUsd : 0;
       const checked = res?.ok ? checkAnswer(t, res.answer) : null;
       // The Approver can take minutes: is the card still waiting, and is Auto still on and not stopped?
@@ -816,11 +841,14 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
         // The same sentence as for a gate (stopFor): the problem without its closing full stop. On a second look the dead end
         // shows what the Approver first said, as for a gate.
         const hitAgain = fixedStop({ kind: 'job', failures: count, problem: String(problem).replace(/\.$/, '') });
+        retry = retryWords(res, checked);
         if (!hitAgain) return FAILED;
         await stopOnCard(job, hitAgain, leave, { cardId: card.id, ...(t.safer ? { why: firstWords(t.safer) } : {}) });
         return null;
       }
       await addSpent(job, cost);
+      retry = null;
+      t.model = model; // the model that answered, for the Auto line (answerCard)
       return checked.answer;
     };
     // A card has no later pass (the reply counts as running while it waits): one failure is asked again at once, with the same
@@ -989,7 +1017,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     });
     await audit(job, task.kind === 'question' ? 'question' : 'permission', {
       asked: oneLine(task.kind === 'question' ? task.questions.map((q) => q.text).join(' / ') : card.plain?.headline ?? card.toolName),
-      chose, why, risk: answer.risk, ...(lines ? { answers: lines } : {}), costUsd: spent, ...risky,
+      chose, why, risk: answer.risk, ...(lines ? { answers: lines } : {}), costUsd: spent, ...risky, ...modelLine(task.model),
     });
     await paidOff(job, spent);
   }

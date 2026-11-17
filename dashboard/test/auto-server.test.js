@@ -6406,3 +6406,79 @@ test('a job Auto stopped on a fresh gate is reminded four hours after the gate',
     assert.deepEqual(w.notes.filter((n) => REMINDER.test(n.body)).map((n) => n.slug), [w.slug]);
   } finally { await w.stop(); }
 });
+
+// ---------- Nov 17: the plan gate with no questions, the retry's words, and the Approver's model ----------
+
+const approverResult = (structured, cost = 0.1) => (async function* () { yield { type: 'result', subtype: 'success', is_error: false, total_cost_usd: cost, structured_output: structured }; })();
+
+test('Nov 17: a plan gate with no questions is approved when the Approver answers it with answers anyway (dropped, not a failure)', { timeout: 30_000 }, async () => {
+  const seen = [];
+  const approverQuery = ({ prompt, options }) => {
+    seen.push({ prompt, options });
+    return approverResult({ decision: 'go', answers: [{ id: 'plan', choice: null, other: 'Go.', reason: 'The plan matches the ticket.' }], why: 'The plan matches the ticket.', risk: 'low' });
+  };
+  const w = await world({ approverQuery, jobStatus: status(1, { questions: [], decided_on_your_behalf: [] }) });
+  try {
+    await w.pass();
+    assert.equal(seen.length, 1, 'one ask, no failure');
+    const [send] = await w.sends();
+    assert.equal(send?.kind, 'approve');
+    const rec = await w.record();
+    assert.equal(rec.failures, 0);
+    assert.equal(rec.stopped, null);
+    const [gate] = await w.autoLines('gate');
+    assert.deepEqual(gate.answers, []);
+  } finally { await w.stop(); }
+});
+
+test('Nov 17: after a refused answer, the second ask is told what was wrong, and its answer goes', { timeout: 30_000 }, async () => {
+  const seen = [];
+  const approverQuery = ({ prompt }) => {
+    seen.push(prompt);
+    const answers = (seen.length === 1 ? ['1'] : ['1', '2']).map((id) => ({ id, choice: 'a', other: null, reason: 'The recommendation.' }));
+    return approverResult({ decision: 'go', answers, why: 'Fine.', risk: 'low' });
+  };
+  const w = await world({ approverQuery });
+  try {
+    await w.pass();
+    assert.equal(seen.length, 2);
+    assert.equal(seen[0].includes('Your last answer'), false);
+    assert.match(seen[1], /Your last answer could not be used: question 2 has no answer\. Answer again in the agreed shape, and fix that\./);
+    assert.equal((await w.sends()).length, 1);
+    assert.equal((await w.record()).stopped, null);
+  } finally { await w.stop(); }
+});
+
+test('Nov 17: a failure that is not about the shape is said to the next ask in its own words', { timeout: 30_000 }, async () => {
+  const w = await world({ ask: (task, n) => (n === 1 ? failure(`It went over its $${APPROVER_BUDGET_USD.toFixed(2)} budget before it answered.`, APPROVER_BUDGET_USD) : goodAnswer(task)) });
+  try {
+    await w.pass();
+    assert.equal(w.asks.length, 2);
+    assert.equal(w.asks[0].task.retry, undefined);
+    assert.equal(w.asks[1].task.retry, 'It went over its $0.40 budget before it answered.');
+    assert.equal((await w.sends()).length, 1);
+    assert.ok(Math.abs((await w.autoLines('gate'))[0].costUsd - (APPROVER_BUDGET_USD + 0.12)) < 1e-9, 'the budget hit is paid for and counted as one try');
+  } finally { await w.stop(); }
+});
+
+test('Nov 17: Fable answers until the job\'s Approver spend reaches $3, then Opus; the Auto line says which model answered', { timeout: 30_000 }, async () => {
+  const { autoLog, autoLogMarkdown } = await import('../lib/auto-log.js');
+  // $2.90 already spent (on the record, not yet on a line): Fable.
+  const low = await world({ auto: { ...autoRecord(null, { on: true, now: OLD }), spent: 2.9 }, ask: (task) => ({ ...goodAnswer(task), model: task.model }) });
+  try {
+    await low.pass();
+    assert.equal(low.asks[0].task.model, FABLE);
+    const [gate] = await low.autoLines('gate');
+    assert.equal(gate.model, 'Fable 5.2');
+    assert.match(autoLogMarkdown(autoLog(await low.lines())), /Answered by: Fable 5\.2/);
+  } finally { await low.stop(); }
+  // $3 reached (lines already written count too): Opus for every ask after it.
+  const high = await world({ auto: { ...autoRecord(null, { on: true, now: OLD }), spent: 1 }, ask: (task) => ({ ...goodAnswer(task), model: task.model }) });
+  try {
+    await fs.writeFile(path.join(high.dirs.state, 'audit.jsonl'), `${JSON.stringify({ at: OLD, action: 'auto', what: 'gate', featureDir: high.dir, slug: high.slug, costUsd: 2 })}\n`, { flag: 'a' });
+    await high.pass();
+    assert.equal(high.asks[0].task.model, OPUS);
+    const gate = (await high.autoLines('gate')).at(-1);
+    assert.equal(gate.model, 'Opus 5.5');
+  } finally { await high.stop(); }
+});

@@ -19,10 +19,17 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { FABLE } from './options.js';
+import { FABLE, OPUS } from './options.js';
 
 export const APPROVER_MAX_TURNS = 30;
-export const APPROVER_BUDGET_USD = 1;
+/** The most one answer may cost (the owner's decision, Nov 17). Over it, the answer is one failed try. */
+export const APPROVER_BUDGET_USD = 0.4;
+/** Once a job's Approver spend reaches this, its remaining asks are answered by Opus instead of Fable (Nov 17). */
+export const APPROVER_JOB_FABLE_USD = 3;
+/** The model for a job's next ask, from what its Approver has spent so far (all its Auto lines' costUsd and the record's spent). */
+export const approverModelFor = (spentUsd) => (Number.isFinite(spentUsd) && spentUsd >= APPROVER_JOB_FABLE_USD ? OPUS : FABLE);
+/** The model's name as the Auto log says it. */
+export const approverModelName = (model) => (model === OPUS ? 'Opus 5.5' : model === FABLE ? 'Fable 5.2' : null);
 export const APPROVER_TIMEOUT_MS = 300_000;
 export const APPROVER_REFUSED = 'The Approver only reads the job\'s own files.';
 
@@ -401,6 +408,8 @@ export function approverPrompt(task, { roots = null } = {}) {
     ...said,
     '</material>',
     '',
+    // After a refused answer: what was wrong, in Starbase's own words (checkAnswer's retry: questions by number, never an id).
+    ...(t.retry ? [`Your last answer could not be used: ${factLine(t.retry, 300).replace(/\.$/, '')}. Answer again in the agreed shape, and fix that.`, ''] : []),
     'Answer in the agreed shape.',
   ].join('\n');
 }
@@ -440,7 +449,7 @@ function textProblem(v, name, max, { nullable: canBeNull = false } = {}) {
 export function checkAnswer(task, raw) {
   const kind = task?.kind;
   if (!Object.hasOwn(FIELDS, kind)) return { ok: false, problem: 'the task is of no known kind' };
-  const no = (problem) => ({ ok: false, problem });
+  const no = (problem) => ({ ok: false, problem, retry: problem });
   const shape = shapeProblem(raw, FIELDS[kind], 'it');
   if (shape) return no(shape);
   const { decision, why, risk } = raw;
@@ -455,6 +464,10 @@ export function checkAnswer(task, raw) {
   // One id, one question: a task that names one twice is refused whatever the answer (m7).
   const ids = (Array.isArray(task.questions) ? task.questions : []).map((q) => String(q?.id));
   if (new Set(ids).size !== ids.length) return no('two questions share one id');
+  // Nothing was asked (a plan with only Go or Send back): whatever answers it gave are dropped, never read (Nov 17).
+  if (!ids.length) return { ok: true, answer: { decision, answers: [], why, risk } };
+  // A problem about one question: the owner's words name its id; the retry's name it by its number (an id is the job's words).
+  const noQ = (id, rest) => ({ ok: false, problem: `question ${id} ${rest}`, retry: `question ${ids.indexOf(id) + 1} ${rest}` });
 
   if (!Array.isArray(raw.answers)) return no('answers is not a list');
   const answers = [];
@@ -473,15 +486,15 @@ export function checkAnswer(task, raw) {
     for (const a of answers) if (!questions.has(a.id)) return no('an answer is for no question asked');
     for (const [id, q] of questions) {
       const given = answers.filter((a) => a.id === id);
-      if (given.length === 0) return no(`question ${id} has no answer`);
-      if (given.length > 1) return no(`question ${id} has two answers`);
+      if (given.length === 0) return noQ(id, 'has no answer');
+      if (given.length > 1) return noQ(id, 'has two answers');
       const [a] = given;
       const optionIds = (Array.isArray(q?.options) ? q.options : []).map((o) => String(o?.id));
       if (optionIds.length) {
-        if (!optionIds.includes(a.choice)) return no(`the choice for question ${id} is not one of its options`);
-        if (a.other !== null) return no(`question ${id} has options, so other must be empty`); // no free text beside a choice (m7)
+        if (!optionIds.includes(a.choice)) return { ok: false, problem: `the choice for question ${id} is not one of its options`, retry: `the choice for question ${ids.indexOf(id) + 1} is not one of its options` };
+        if (a.other !== null) return noQ(id, 'has options, so other must be empty'); // no free text beside a choice (m7)
       } else if (a.choice !== null || a.other === null || !a.other.trim()) {
-        return no(`question ${id} has no options, so it needs other and no choice`);
+        return noQ(id, 'has no options, so it needs other and no choice');
       }
     }
   }
@@ -497,12 +510,15 @@ export function checkAnswer(task, raw) {
  */
 export async function askApprover(task, { query, options = {}, timeoutMs = APPROVER_TIMEOUT_MS, roots = null } = {}) {
   const abort = options.abortController ?? new AbortController();
+  // The task's model (Starbase's choice by the job's spend: approverModelFor) is the session's; anything else leaves the options' own.
+  const model = [FABLE, OPUS].includes(task?.model) ? task.model : null;
+  const said = model ? { model } : {};
   let costUsd = 0;
   let last = null;
   const run = (async () => {
     const q = query({
       prompt: approverPrompt(task, { roots }),
-      options: { ...options, abortController: abort, outputFormat: { type: 'json_schema', schema: answerSchema(task?.kind, { safer: Boolean(task?.safer) }) } },
+      options: { ...options, ...said, abortController: abort, outputFormat: { type: 'json_schema', schema: answerSchema(task?.kind, { safer: Boolean(task?.safer) }) } },
     });
     for await (const msg of q) {
       if (msg?.type !== 'result') continue;
@@ -520,9 +536,10 @@ export async function askApprover(task, { query, options = {}, timeoutMs = APPRO
     abort.abort();
     return { ok: false, problem: 'It took longer than 5 minutes.', costUsd };
   }
-  if (how === 'error' || !last || last.subtype !== 'success' || last.is_error) return { ok: false, problem: 'It ended with an error.', costUsd };
-  if (last.structured_output === undefined) return { ok: false, problem: 'Its answer wasn\'t in the agreed shape: it gave no answer.', costUsd };
+  if (how !== 'error' && last?.subtype === 'error_max_budget_usd') return { ok: false, problem: `It went over its $${Number(options.maxBudgetUsd ?? APPROVER_BUDGET_USD).toFixed(2)} budget before it answered.`, costUsd, ...said };
+  if (how === 'error' || !last || last.subtype !== 'success' || last.is_error) return { ok: false, problem: 'It ended with an error.', costUsd, ...said };
+  if (last.structured_output === undefined) return { ok: false, problem: 'Its answer wasn\'t in the agreed shape: it gave no answer.', costUsd, ...said };
   const checked = checkAnswer(task, last.structured_output);
-  if (!checked.ok) return { ok: false, problem: `Its answer wasn't in the agreed shape: ${checked.problem}.`, costUsd };
-  return { ok: true, answer: checked.answer, costUsd };
+  if (!checked.ok) return { ok: false, problem: `Its answer wasn't in the agreed shape: ${checked.problem}.`, retry: checked.retry, costUsd, ...said };
+  return { ok: true, answer: checked.answer, costUsd, ...said };
 }
