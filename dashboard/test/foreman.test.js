@@ -185,9 +185,10 @@ test('locateJob: a branch guessed by name is never another ticket\'s, and a gues
   assert.equal(field.branchGuessed, false);
   const chosen = await locateJob({ ...job, override: { repoPath: repo, branch: 'feature/orbit-463-mine' } });
   assert.equal(chosen.branchGuessed, false);
+  // A branch the text only mentions is a guess, used only when git has it (Nov 17): this one it does not.
   const mentioned = await locateJob({ ...job, wsText: 'Stacked on the parent branch `feature/parent-work` for now.', override: { repoPath: repo } });
-  assert.equal(mentioned.branch, 'feature/parent-work');
-  assert.equal(mentioned.branchGuessed, true);
+  assert.equal(mentioned.branch, null);
+  assert.equal(mentioned.branchGuessed, false);
 
   // A branch with one word of its own never matches a job that merely has that word.
   const repo2 = path.join(root, 'acme');
@@ -559,4 +560,54 @@ test('jobPaused: the usage limit pauses a job; a crash\'s pause holds only until
   jobPaused({ limit: true, locked: ask });
   jobPaused({ restart: 'clean', locked: ask });
   assert.equal(asked, 0);
+});
+
+// ---------- Nov 17: a branch is never a plain word, and a guess git does not have is no branch ----------
+
+test('Nov 17 (5): locateJob takes no plain word for a branch, drops a guessed branch git does not have, and finds feature/<slug> once it exists', async () => {
+  const { parseWorkflowStatus } = await import('../lib/workflow-status.js');
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'workshop-locate-nov17-')));
+  let n = 0;
+  const repoWith = async (...branches) => {
+    const repo = path.join(root, `r${n++}`);
+    const run = (...a) => execFileSync('git', ['-C', repo, ...a], { stdio: 'pipe' });
+    await fs.mkdir(repo);
+    run('init', '-q', '-b', 'main'); run('config', 'user.email', 't@example.invalid'); run('config', 'user.name', 'T');
+    await fs.writeFile(path.join(repo, 'a'), 'a'); run('add', '.'); run('commit', '-qm', 'a');
+    for (const b of branches) run('branch', b);
+    return repo;
+  };
+  const job = { slug: 'orbit-463-manager-talent-score-dashboard', title: 'ORBIT-463: Manager talent score dashboard' };
+  // The real record: the Repository field says the branch will be made later.
+  const text = (repo) => `# ORBIT-463\n\n**Repository:** \`${repo}\` · branch create after the plan is approved · commit abc1234\n\n**Current stage:** Plan, waiting for you\n`;
+  try {
+    const repo = await repoWith();
+    const ws = parseWorkflowStatus(text(repo));
+    assert.equal(ws.repository.branch, null, '"create" is no branch');
+    const none = await locateJob({ ...job, wsRepository: ws.repository, wsText: text(repo), override: { repoPath: repo } });
+    assert.deepEqual({ branch: none.branch, guessed: none.branchGuessed }, { branch: null, guessed: false });
+    // Once the skills have made feature/<slug>, it is found by name: a guess, so never the job's own for the finish line.
+    const made = await repoWith('feature/orbit-463-manager-talent-score-dashboard', 'feature/orbit-463-other-try');
+    const found = await locateJob({ ...job, wsRepository: parseWorkflowStatus(text(made)).repository, wsText: text(made), override: { repoPath: made } });
+    assert.deepEqual({ branch: found.branch, guessed: found.branchGuessed, exists: found.branchExists }, { branch: 'feature/orbit-463-manager-talent-score-dashboard', guessed: true, exists: true });
+    assert.equal(ownBranch({ branch: found.branch, locate: found }), null);
+    assert.equal(ownLane({ slug: job.slug, locate: found }, new Map([[job.slug, { position: 'org' }]])), null);
+    // A bug job's fix/<slug> the same way.
+    const fixed = await repoWith('fix/orbit-463-manager-talent-score-dashboard');
+    assert.equal((await locateJob({ ...job, wsText: '', override: { repoPath: fixed } })).branch, 'fix/orbit-463-manager-talent-score-dashboard');
+    // A branch the text only mentions and git does not have is not used; one git has still is (a guess).
+    const mentioned = await locateJob({ ...job, wsText: 'Branch `feature/orbit-463-not-made-yet` comes after the plan.', override: { repoPath: repo } });
+    assert.deepEqual({ branch: mentioned.branch, guessed: mentioned.branchGuessed }, { branch: null, guessed: false });
+    const real = await repoWith('feature/orbit-463-score-count');
+    const there = await locateJob({ ...job, wsText: 'Branch `feature/orbit-463-score-count` holds the work.', override: { repoPath: real } });
+    assert.deepEqual({ branch: there.branch, guessed: there.branchGuessed }, { branch: 'feature/orbit-463-score-count', guessed: true });
+    // The records stay as they were: status.json's branch and a real Repository field branch are the job's even before git has them.
+    const recorded = await locateJob({ ...job, statusBranch: 'feature/orbit-463-manager-talent-score-dashboard', override: { repoPath: repo } });
+    assert.deepEqual({ branch: recorded.branch, guessed: recorded.branchGuessed, exists: recorded.branchExists }, { branch: 'feature/orbit-463-manager-talent-score-dashboard', guessed: false, exists: false });
+  } finally { await fs.rm(root, { recursive: true, force: true }); }
+});
+
+test('Nov 17 (5): branchesIn reads no plain word as a branch', () => {
+  assert.deepEqual(branchesIn('We will create the branch create after approval; branch new, branch tbd, branch none, branch `to`.'), []);
+  assert.deepEqual(branchesIn('on branch `feature/a-b`; branch fix/c-d; branch `orbit-463-x`'), ['feature/a-b', 'fix/c-d', 'orbit-463-x']);
 });

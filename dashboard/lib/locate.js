@@ -7,6 +7,7 @@ import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { execGit } from './git.js';
+import { branchLike } from './workflow-status.js';
 
 function git(dir, args) {
   return new Promise((resolve) => {
@@ -62,7 +63,9 @@ export function branchesIn(text) {
   let m;
   while ((m = re.exec(String(text ?? '')))) {
     const b = (m[1] ?? m[2]).replace(/[.,:;]+$/, '');
-    if (!/^(main|master|staging|name|named|and|is|at|from|to)$/i.test(b)) out.push(b);
+    // A plain word is never a branch (branch create after …), in backticks or not (Nov 17).
+    const quoted = m[2] !== undefined || /`/.test(m[0].slice(m[0].search(/\s/)));
+    if (!/^(main|master|staging|name|named|and|is|at|from|to)$/i.test(b) && branchLike(b, { quoted })) out.push(b);
   }
   return [...new Set(out)];
 }
@@ -200,19 +203,31 @@ export async function locateJob(clues) {
   let branch = clues.override?.branch ?? clues.statusBranch ?? null;
   let branchSource = clues.override?.branch ? 'your choice' : clues.statusBranch ? 'status.json' : null;
   let branchGuessed = false;
-  if (!branch) {
-    const fromText = [clues.wsRepository?.branch, ...branchesIn(clues.wsText).filter((b) => !otherTicket(b))].filter((b) => b && !/^(main|master|staging)$/.test(b));
-    if (fromText.length) { branch = fromText[0]; branchSource = 'workflow-status.md'; branchGuessed = branch !== clues.wsRepository?.branch; }
-  }
   // Search known repositories for a branch named after the job when there's still no repo or branch.
   const repos = repo ? [repo.path] : [];
   if (!repo) for (const r of clues.knownRepos ?? []) if (!repos.includes(r)) repos.push(r);
+  if (!branch) {
+    const field = clues.wsRepository?.branch && !/^(main|master|staging)$/.test(clues.wsRepository.branch) ? clues.wsRepository.branch : null;
+    const mentioned = branchesIn(clues.wsText).filter((b) => !otherTicket(b) && b !== field && !/^(main|master|staging)$/.test(b));
+    if (field) { branch = field; branchSource = 'workflow-status.md'; }
+    else {
+      // A branch the text only mentions is a guess: used only when git has it (Nov 17), else the search below looks by name.
+      for (const b of mentioned) {
+        let has = false;
+        for (const r of repos) if ((await localBranches(r)).includes(b)) { has = true; break; }
+        if (has) { branch = b; branchSource = 'workflow-status.md'; branchGuessed = true; break; }
+      }
+    }
+  }
+  // The names the workflow gives a job's branch (git-workflow.md): feature/<slug>, or fix/<slug> for a bug job.
+  const expected = clues.slug ? [`feature/${clues.slug}`, `fix/${clues.slug}`] : [];
   let branchExists = false;
   for (const r of repos) {
     const branches = await localBranches(r);
     if (branch && branches.includes(branch)) { branchExists = true; if (!repo) repo = { path: r, source: `has branch ${branch}` }; break; }
     if (!branch) {
-      const match = branches.find((b) => !otherTicket(b) && slugAt.test(b.toLowerCase()))
+      const match = expected.find((b) => branches.includes(b))
+        ?? branches.find((b) => !otherTicket(b) && slugAt.test(b.toLowerCase()))
         ?? branches.find(byWords);
       if (match && !/^(main|master|staging)$/.test(match)) {
         branch = match; branchSource = `git branch in ${path.basename(r)}`; branchExists = true; branchGuessed = true;

@@ -366,3 +366,12 @@ test('cuts never split a character in two', () => {
   assert.ok(tail.length <= 1200);
   assert.equal(loneSurrogate.test(describeTool('Bash', { command: `${'d'.repeat(48)}${smile}${'e'.repeat(10)}` })), false, 'a feed line');
 });
+
+test('Nov 17 (5): the Repository field\'s branch must look like a branch: never a plain word such as create', () => {
+  const branchOf = (line) => parseWorkflowStatus(`# X\n\n**Repository:** ${line}\n\n**Current stage:** Plan\n`).repository?.branch ?? null;
+  for (const line of ['`/r` · branch create after the plan is approved', '/r · branch new', '/r · branch tbd', '/r · branch none yet', '/r · branch `create`', '/r · branch to be made', '/r · branch will be feature/x', '/r · branch the job\'s own']) assert.equal(branchOf(line), null, line);
+  assert.equal(branchOf('/r · branch `feature/orbit-463-x` · commit 1a2b3c4'), 'feature/orbit-463-x');
+  assert.equal(branchOf('/r · branch feature/orbit-463-x'), 'feature/orbit-463-x');
+  assert.equal(branchOf('/r · branch `orbit-463-x`'), 'orbit-463-x');
+  assert.equal(branchOf('/r · branch main · commit 1a2b3c4'), 'main', 'the main checkout\'s branch (locateJob leaves main out)');
+});

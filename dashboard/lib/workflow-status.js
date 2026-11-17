@@ -33,11 +33,31 @@ function parseSpec(text) {
   return { path: stripInline(parts[0]) || null, version, status, raw: text };
 }
 
+// Words a record puts after "branch" that are never a branch's name ("branch create after the plan", "branch tbd").
+const NOT_BRANCHES = new Set(['create', 'created', 'creating', 'new', 'none', 'no', 'tbd', 'todo', 'to', 'will', 'after', 'before', 'the', 'a', 'an', 'not', 'yet', 'pending', 'later', 'once', 'when', 'is', 'at', 'from', 'and', 'of', 'on', 'for', 'name', 'named', 'unknown', 'null', 'undefined', 'n/a', 'this', 'that', 'it', 'its', 'here', 'own', 'same']);
+const WELL_KNOWN = /^(main|master|staging|develop|trunk)$/i;
+
+/**
+ * Does this word, written after "branch" in a record, look like a branch's name (Nov 17)? Never a plain word (create, new,
+ * none, tbd, to, …); in backticks any other branch-shaped name; bare, only with a / or a - in it, or a well-known name (main).
+ */
+export function branchLike(word, { quoted = false } = {}) {
+  const b = String(word ?? '').replace(/[.,:;)]+$/, '');
+  if (!/^[\w][\w./-]*$/.test(b) || b.includes('..') || NOT_BRANCHES.has(b.toLowerCase())) return false;
+  return quoted || /[/-]/.test(b) || WELL_KNOWN.test(b);
+}
+
 function parseRepository(text) {
   if (!text) return null;
+  // The first word after "branch" that looks like a branch; a plain word (branch create after …) is none.
+  let branch = null;
+  for (const m of text.matchAll(/branch\s+(?:`([^`\s·]+)`|([^\s`·]+))/gi)) {
+    const word = (m[1] ?? m[2]).replace(/[.,:;)]+$/, '');
+    if (branchLike(word, { quoted: m[1] !== undefined })) { branch = word; break; }
+  }
   return {
     path: stripInline(text.split('·')[0]) || null,
-    branch: /branch\s+`?([^\s`·]+)`?/i.exec(text)?.[1] ?? null,
+    branch,
     commit: /commit\s+`?([0-9a-f]{7,40})`?/i.exec(text)?.[1] ?? null,
     raw: text,
   };
