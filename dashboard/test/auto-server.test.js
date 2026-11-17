@@ -6516,3 +6516,145 @@ test('Nov 17 (3): the org-branch call from a commit of the org\'s main not fetch
     assert.match(asked.why, /the workflow's org branch step/);
   } finally { await w.stop(); }
 });
+
+// ---------- Nov 17 (b): an L1 job in Auto from its set-up to PR #1 open, the way today's real job ran ----------
+
+test('Nov 17: an L1 Auto job runs from its set-up to PR #1 open with today\'s calls and a plan gate with no questions, and Auto never stops or refuses', { timeout: 120_000 }, async () => {
+  const BR = 'feature/visit-audit';
+  const outcomes = [];
+  let reply = 0;
+  const approverCalls = [];
+  // The Approver as the runner runs it (lib/approver.js askApprover and checkAnswer), on a fake model: a go that answers a
+  // plan nobody asked questions about (as today's did), and an allow for each card it is shown.
+  const approverQuery = ({ prompt, options }) => {
+    const permission = !options.outputFormat.schema.properties.answers;
+    approverCalls.push({ prompt, permission });
+    const out = permission
+      ? { decision: 'allow', why: 'The job\'s own step.', risk: 'low' }
+      : { decision: 'go', answers: [{ id: 'plan', choice: null, other: 'Go.', reason: 'The plan matches the ticket.' }], why: 'The plan matches the ticket.', risk: 'low' };
+    return (async function* () { yield { type: 'result', subtype: 'success', is_error: false, total_cost_usd: 0.05, structured_output: out }; })();
+  };
+  let w = null;
+  let ctx = null; // filled once the world exists: the folders and the org's commit
+  const sh = (command, effect) => ({ tool: 'Bash', input: { command, description: 'x' }, effect });
+  const replies = () => [
+    // 1. The set-up from the main checkout (the session's folder), then the quick plan.
+    [
+      sh('git fetch moxie --prune', () => w.git('fetch', '-q', ctx.org, '+refs/heads/main:refs/remotes/moxie/main')),
+      sh('git ls-remote moxie refs/heads/main'),
+      sh(`git ls-remote --heads origin ${BR}`),
+      sh('git fetch moxie --prune && git ls-remote moxie refs/heads/main'),
+      sh(`git worktree add -b ${BR} ../orbit-visit-audit moxie/main`, () => w.git('worktree', 'add', '-q', '-b', BR, ctx.wt, 'refs/remotes/moxie/main')),
+      sh(`gh api -X POST repos/moxie-org/visit-app/git/refs -f ref=refs/heads/${BR} -f sha=${ctx.orgSha}`),
+      sh(`sed -i '' 's/Status: open/Status: planned/' ${ctx.job}/decisions.md && grep -c 'Status: planned' ${ctx.job}/decisions.md`),
+      { tool: 'Read', input: { file_path: `${ctx.job}/status.json` } },
+      { tool: 'Read', input: { file_path: `${ctx.wt}/README.md` } },
+      sh(`git -C ${ctx.wt} status --short`),
+      sh('git log --oneline -5'),
+      sh(`git -C ${ctx.wt} log --oneline moxie/main..HEAD`),
+      sh('git diff --stat moxie/main...HEAD'),
+      sh(`gh pr list --repo moxie-org/visit-app --head ${BR} --json number,url`),
+      { tool: 'Write', input: { file_path: `${ctx.job}/implementation-plan.md`, content: '# Plan\n' } },
+    ],
+    // 2. The build, in the worktree.
+    [
+      { tool: 'Write', input: { file_path: `${ctx.wt}/src/visits.js`, content: 'export const visits = [];\n' } },
+      sh(`cd ${ctx.wt} && npm test`),
+      sh(`git -C ${ctx.wt} add src/visits.js && git -C ${ctx.wt} commit -m "feat(visits): add audit columns"`, () => {
+        execFileSync('git', ['-C', ctx.wt, 'add', 'src/visits.js'], { stdio: 'pipe' });
+        execFileSync('git', ['-C', ctx.wt, '-c', 'user.name=T', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'feat(visits): add audit columns'], { stdio: 'pipe' });
+      }),
+      sh(`git -C ${ctx.wt} diff --stat moxie/main...HEAD`),
+      sh(`sed -i '' 's/Status: planned/Status: built/' ${ctx.job}/decisions.md`),
+    ],
+    // 3. PR #1: the push to the fork, its body, and the pull request from the fork into the job's org branch.
+    [
+      sh(`git -C ${ctx.wt} push -u origin ${BR}`),
+      { tool: 'Write', input: { file_path: `${ctx.job}/pr1-body.md`, content: '## What\n- Audit columns.\n' } },
+      sh(`gh pr create --repo moxie-org/visit-app --head me:${BR} --base ${BR} --title "feat(visits): audit columns" --body-file ${ctx.job}/pr1-body.md`),
+      sh(`gh pr view --repo moxie-org/visit-app --json number,url,state ${BR}`),
+    ],
+  ];
+  // What the Foreman writes when each reply ends: the plan gate (no questions), the PR #1 step's gate, then PR #1 open.
+  const after = async (n) => {
+    const touch = (k) => fs.writeFile(path.join(w.dir, 'briefs', `00${k}-plan.md`), `**Visit audit · step ${k}**\n`);
+    if (n === 1) { await touch(1); await w.writeStatus(status(1, { stage: 'plan', questions: [], decided_on_your_behalf: [], branch: BR, next_proposed: 'Build it' })); }
+    if (n === 2) { await touch(2); await w.writeStatus(status(2, { stage: 'pr1', brief: { number: 2, path: 'briefs/002-plan.md', headline: 'Visit audit · push and open PR #1' }, questions: [], decided_on_your_behalf: [], branch: BR, next_proposed: 'Push and open PR #1' })); }
+    if (n === 3) await w.writeStatus(status(2, { stage: 'pr1', stage_state: 'working', waiting_for: null, questions: [], decided_on_your_behalf: [], branch: BR, prs: [{ number: 1, url: 'https://github.com/moxie-org/visit-app/pull/1', state: 'open' }] }));
+  };
+  const query = (texts) => ({ prompt, options }) => {
+    const sid = options.resume ?? crypto.randomUUID();
+    const gen = (async function* () {
+      yield { type: 'system', subtype: 'init', session_id: sid, model: options.model ?? OPUS, apiKeySource: 'none', cwd: options.cwd, permissionMode: 'default' };
+      const it = prompt[Symbol.asyncIterator]();
+      const first = await it.next();
+      texts.push(first.value?.message?.content ?? '');
+      const n = ++reply;
+      for (const c of replies()[n - 1] ?? []) {
+        const result = await options.canUseTool(c.tool, c.input, { signal: new AbortController().signal, toolUseID: crypto.randomUUID() });
+        outcomes.push({ reply: n, tool: c.tool, call: c.input.command ?? c.input.file_path, behavior: result.behavior, message: result.message });
+        if (result.behavior === 'allow') {
+          if (c.effect) c.effect();
+          if (c.tool === 'Write') { await fs.mkdir(path.dirname(c.input.file_path), { recursive: true }); await fs.writeFile(c.input.file_path, c.input.content); }
+        }
+      }
+      await after(n);
+      yield { type: 'result', subtype: 'success', is_error: false, result: 'ok', total_cost_usd: 0, session_id: sid, permission_denials: [] };
+      yield { type: 'system', subtype: 'session_state_changed', state: 'idle', session_id: sid };
+      while (!(await it.next()).done) { /* until the dashboard closes its input */ }
+    })();
+    gen.interrupt = async () => {};
+    gen.setPermissionMode = async () => {};
+    return gen;
+  };
+  w = await world({ query, approverQuery, jobStatus: status(1, { stage: 'plan', stage_state: 'working', waiting_for: null, questions: [], decided_on_your_behalf: [] }) });
+  try {
+    // The repository: the fork is origin, the org is moxie; the org's main has one commit more than this checkout.
+    await fs.writeFile(path.join(w.dirs.repo, 'package.json'), JSON.stringify({ name: 'visit-app', private: true, scripts: { test: 'node --test' } }));
+    w.git('add', 'package.json'); w.git('commit', '-q', '-m', 'package');
+    w.git('remote', 'add', 'origin', 'git@github.com:me/visit-app.git');
+    w.git('remote', 'add', 'moxie', 'git@github.com:moxie-org/visit-app.git');
+    const org = path.join(w.root, 'org.git');
+    execFileSync('git', ['init', '-q', '--bare', '-b', 'main', org], { stdio: 'pipe' });
+    w.git('push', '-q', org, 'main');
+    w.git('update-ref', 'refs/remotes/moxie/main', 'HEAD');
+    const work = path.join(w.root, 'org-work');
+    execFileSync('git', ['clone', '-q', org, work], { stdio: 'pipe' });
+    execFileSync('git', ['-C', work, '-c', 'user.name=T', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false', 'commit', '-q', '--allow-empty', '-m', 'org work'], { stdio: 'pipe' });
+    execFileSync('git', ['-C', work, 'push', '-q', 'origin', 'main'], { stdio: 'pipe' });
+    ctx = { org, wt: path.join(w.root, 'orbit-visit-audit'), job: w.dir, orgSha: execFileSync('git', ['-C', work, 'rev-parse', 'HEAD']).toString().trim() };
+    await fs.writeFile(path.join(w.dir, 'decisions.md'), '# Decisions\n\nStatus: open\n');
+
+    // Reply 1, as Auto's start would send it; then each pass answers the gate that waits.
+    await w.runner.handle({ type: 'reply', slug: w.slug, text: 'Start the job.' }, { from: 'local' });
+    await w.until(() => reply >= 1 && outcomes.filter((o) => o.reply === 1).length === replies()[0].length, 'the set-up and the plan');
+    await w.idle();
+    await w.pass();
+    await w.until(() => reply >= 2 && outcomes.filter((o) => o.reply === 2).length === replies()[1].length, 'the build');
+    await w.idle();
+    await w.pass();
+    await w.until(() => reply >= 3 && outcomes.filter((o) => o.reply === 3).length === replies()[2].length, 'PR #1');
+    await w.idle();
+    await w.pass();
+    await w.pass();
+
+    const refused = outcomes.filter((o) => o.behavior !== 'allow');
+    assert.deepEqual(refused, [], 'every call of the job is allowed');
+    assert.equal(outcomes.length, replies().flat().length, 'every call was made');
+    // The Approver judged the two gates and the org-branch call (the one GitHub write Auto may allow), and was told the facts.
+    assert.equal(approverCalls.filter((c) => !c.permission).length, 2);
+    assert.ok(approverCalls.some((c) => c.permission && /the workflow's org branch step/.test(c.prompt)), 'the org-branch call reached the Approver');
+    assert.deepEqual((await w.autoLines('stop')).map((l) => l.reason), [], 'Auto never stops');
+    assert.deepEqual((await w.autoLines('refuse')).map((l) => l.asked), [], 'Auto refuses nothing');
+    assert.equal((await w.autoLines('gate')).length, 2, 'both gates were approved by Auto');
+    assert.deepEqual((await w.autoLines('gate'))[0].answers, [], 'the plan gate\'s stray answers were dropped');
+    const rec = await w.record();
+    assert.equal(rec.on, false);
+    assert.equal(rec.stopped ?? null, null);
+    assert.equal((await w.autoLines('finished')).length, 1);
+    const { autoLog } = await import('../lib/auto-log.js');
+    assert.equal(autoLog(await w.lines(), { record: rec }).summary[1], 'Auto finished: PR #1 is open.');
+    const notes = await w.told(1);
+    assert.deepEqual(notes.map((n) => n.body), ['PR #1 is open.']);
+  } finally { await w.stop(); }
+});
