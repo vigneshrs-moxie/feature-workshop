@@ -18,7 +18,7 @@
 // and gh is whatever fake the caller passes. Nothing here reads a token or talks to GitHub but
 // through gh.
 
-import { execFile } from 'node:child_process';
+import { execGit } from './git.js';
 import path from 'node:path';
 import { ORG_REMOTES, ORG_URL, hardLine } from './hard-lines.js';
 import { scrub } from './orbit.js';
@@ -48,7 +48,7 @@ export const isYes = (y) => Boolean(y && y[YES] === true);
 
 function runGit(dir, args, { timeout = 120000 } = {}) {
   return new Promise((resolve) => {
-    execFile('git', ['-C', dir, ...args], { timeout, maxBuffer: 4 * 1024 * 1024, windowsHide: true, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } },
+    execGit(['-C', dir, ...args], { timeout, maxBuffer: 4 * 1024 * 1024, windowsHide: true, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } },
       (err, stdout, stderr) => resolve({ ok: !err, out: String(stdout ?? ''), err: err ? String(stderr || err.message).trim().split('\n').slice(-1)[0] : null }));
   });
 }

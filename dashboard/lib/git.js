@@ -2,16 +2,49 @@
 // at the end): a pull request's checks, its review comments and a failed check's log.
 // Commands run through execFile (no shell) with validated arguments and a time limit.
 
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+
+// Every git command Starbase itself starts goes through execGit, execGitSync or runGit
+// (dashboard/test/git-fsmonitor.test.js fails on any other). They turn off core.fsmonitor: that
+// setting names a program git runs on a status, diff or commit, and a job folder's git settings are
+// not trusted code. The git the Foreman and its crew run themselves is theirs, not this.
+const NO_FSMONITOR = ['-c', 'core.fsmonitor=false'];
+
+/** git through execFile (args, options, callback as execFile takes them), with core.fsmonitor off. */
+export function execGit(args, options, callback) {
+  return execFile('git', [...NO_FSMONITOR, ...args], options, callback);
+}
+
+/** git through execFileSync (args, options), with core.fsmonitor off: its stdout. */
+export function execGitSync(args, options) {
+  return execFileSync('git', [...NO_FSMONITOR, ...args], options);
+}
+
+/**
+ * The environment for gh, which can start git itself: core.fsmonitor off for every git it starts,
+ * added after any GIT_CONFIG_KEY_n / GIT_CONFIG_VALUE_n already there (none is overwritten).
+ */
+export function noFsmonitorEnv(base = process.env) {
+  const count = Number.parseInt(base.GIT_CONFIG_COUNT ?? '', 10);
+  const n = Number.isInteger(count) && count > 0 ? count : 0;
+  return { ...base, GIT_CONFIG_COUNT: String(n + 1), [`GIT_CONFIG_KEY_${n}`]: 'core.fsmonitor', [`GIT_CONFIG_VALUE_${n}`]: 'false' };
+}
+
+/** git as promisify(execFile) runs it, with core.fsmonitor off: { stdout, stderr }, or rejects with the error carrying both. */
+export function runGit(args, options = {}) {
+  return new Promise((resolve, reject) => {
+    execGit(args, options, (err, stdout, stderr) => (err ? reject(Object.assign(err, { stdout, stderr })) : resolve({ stdout, stderr })));
+  });
+}
 
 const REF = /^(?!-)[\w./@{}^~-]{1,200}$/;
 const SHA = /^[0-9a-f]{4,40}$/i;
 
 function git(dir, args, { maxBuffer = 8 * 1024 * 1024 } = {}) {
   return new Promise((resolve, reject) => {
-    execFile('git', ['-C', dir, ...args], { timeout: 15000, maxBuffer, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' } }, (err, stdout) => {
+    execGit(['-C', dir, ...args], { timeout: 15000, maxBuffer, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' } }, (err, stdout) => {
       if (err) reject(err); else resolve(stdout);
     });
   });
@@ -114,7 +147,7 @@ export function ghRunner(bin = 'gh', { timeout = 30000 } = {}) {
   // A .js stand-in (STARBASE_GH in tests) runs through node: Windows can't start a script directly.
   const viaNode = /\.[cm]?js$/i.test(bin);
   return (args) => new Promise((resolve) => {
-    execFile(viaNode ? process.execPath : bin, viaNode ? [bin, ...args] : args, { timeout, maxBuffer: 16 * 1024 * 1024, windowsHide: true, env: { ...process.env, GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1' } },
+    execFile(viaNode ? process.execPath : bin, viaNode ? [bin, ...args] : args, { timeout, maxBuffer: 16 * 1024 * 1024, windowsHide: true, env: noFsmonitorEnv({ ...process.env, GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1' }) },
       (err, stdout, stderr) => resolve({ ok: !err, out: String(stdout ?? ''), err: err ? String(stderr || err.message).split('\n')[0] : null }));
   });
 }

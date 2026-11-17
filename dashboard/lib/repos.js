@@ -23,12 +23,11 @@
 //
 // Nothing here writes to a repository: git is only asked where a folder's checkout and remotes are.
 
-import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isGitRepo } from './git.js';
+import { execGit, isGitRepo } from './git.js';
 import { setProfileOrgs } from './hard-lines.js';
 import { GENERAL, PROFILE_FILE, fillPattern, ownProfileFile, githubOfUrl, githubOrg, loadProfile, portsLabel } from './profile.js';
 import { writeFileAtomic } from './atomic-write.js';
@@ -75,7 +74,7 @@ export async function checkRepo(p) {
 
 function git(dir, args) {
   return new Promise((resolve) => {
-    execFile('git', ['-C', dir, ...args], { timeout: 5000, windowsHide: true, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' } },
+    execGit(['-C', dir, ...args], { timeout: 5000, windowsHide: true, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' } },
       (err, stdout) => resolve(err ? null : String(stdout).trim()));
   });
 }

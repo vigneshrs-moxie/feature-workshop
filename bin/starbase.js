@@ -22,7 +22,7 @@
 // service manager, GitHub, the terminal) comes through `deps`, so tests inject fakes.
 
 import '../dashboard/lib/env-boot.js'; // first: the old environment names still work (lib/env-names.js)
-import { execFile, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -638,8 +638,9 @@ async function cmdRepo(ctx, { args, values }) {
 /** The org/repo of the folder's origin remote, when it is on GitHub, else ''. */
 async function originGithub(dir) {
   const { githubOfUrl } = await import('../dashboard/lib/profile.js');
+  const { execGit } = await import('../dashboard/lib/git.js');
   return new Promise((resolve) => {
-    execFile('git', ['-C', dir, 'remote', 'get-url', 'origin'], { timeout: 5000, windowsHide: true }, (err, stdout) => resolve(err ? '' : githubOfUrl(String(stdout).trim()) ?? ''));
+    execGit(['-C', dir, 'remote', 'get-url', 'origin'], { timeout: 5000, windowsHide: true }, (err, stdout) => resolve(err ? '' : githubOfUrl(String(stdout).trim()) ?? ''));
   });
 }
 

@@ -25,6 +25,7 @@
 
 import { EventEmitter } from 'node:events';
 import { execFile } from 'node:child_process';
+import { execGit, noFsmonitorEnv } from './git.js';
 import path from 'node:path';
 
 import { ORG_REMOTES, ORG_URL } from './hard-lines.js';
@@ -50,13 +51,15 @@ export function githubProblem(err) {
 }
 const BRANCH = /^(?!-)[\w./-]{1,200}$/;
 
-function run(cmd, args, { cwd, timeout = 15000 } = {}) {
+// start(args, options, callback): execGit, or execFile for gh.
+function run(start, args, { cwd, timeout = 15000 } = {}) {
   return new Promise((resolve) => {
-    execFile(cmd, args, { cwd, timeout, maxBuffer: 16 * 1024 * 1024, windowsHide: true, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' } },
+    start(args, { cwd, timeout, maxBuffer: 16 * 1024 * 1024, windowsHide: true, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' } },
       (err, stdout, stderr) => resolve({ ok: !err, out: String(stdout ?? ''), err: err ? String(stderr || err.message).split('\n')[0] : null }));
   });
 }
-const git = (dir, args, opts) => run('git', ['-C', dir, ...args], opts);
+const git = (dir, args, opts) => run(execGit, ['-C', dir, ...args], opts);
+const execGh = (args, options, callback) => execFile('gh', args, { ...options, env: noFsmonitorEnv(options.env) }, callback);
 
 /** "Owner/name" for a GitHub address, or null. */
 export function githubSlug(url) {
@@ -113,7 +116,7 @@ async function registeredProfile(repo) {
  * this one doesn't read them). profileFor(repo): its profile (lib/profile.js) or null; the org
  * remote, the fork and the org's GitHub name come from it when it names them.
  */
-export async function gatherRepo({ repo, jobs, fetch = false, prs = null, git: gitFn = git, gh = (args) => run('gh', args, { timeout: 30000 }), profileFor = registeredProfile }) {
+export async function gatherRepo({ repo, jobs, fetch = false, prs = null, git: gitFn = git, gh = (args) => run(execGh, args, { timeout: 30000 }), profileFor = registeredProfile }) {
   const errors = [];
   const remotesOut = await gitFn(repo, ['remote', '-v']);
   const remotes = new Map();

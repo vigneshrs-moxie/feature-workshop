@@ -1,6 +1,6 @@
 // What Auto's fixed stop list needs from git, read without holding the server up: the branch checked out
 // in the job's folder (every call) and where each remote pushes (remembered for a minute per job).
-// exec(file, args, { cwd, timeout }) -> stdout text; it rejects on a failure or a timeout. A read that
+// exec(args, { cwd, timeout }) -> git's stdout text (the runner's goes through lib/git.js runGit); it rejects on a failure or a timeout. A read that
 // fails or is slow gives null, and the rules stop a push they can't place (lib/auto-rules.js).
 import path from 'node:path';
 
@@ -8,7 +8,7 @@ const LIMIT_MS = 3000;
 const REMEMBER_MS = 60_000;
 
 const read = async (exec, args, cwd) => {
-  try { return String(await exec('git', args, { cwd, timeout: LIMIT_MS })).trim(); } catch { return null; }
+  try { return String(await exec(args, { cwd, timeout: LIMIT_MS })).trim(); } catch { return null; }
 };
 
 // name -> push address for one folder, with '' for the branch's own push remote.
@@ -85,7 +85,7 @@ export function gitIsAncestor({ repo, sha, ref, exec, cache, now = Date.now }) {
   return remembered({
     cache, key: `ancestor\u0000${path.resolve(repo)}\u0000${sha}\u0000${ref}`, now, fresh: false,
     ask: async () => {
-      try { await exec('git', ['merge-base', '--is-ancestor', sha, ref], { cwd: repo, timeout: LIMIT_MS }); return true; } catch (err) { return err?.code === 1 ? false : null; }
+      try { await exec(['merge-base', '--is-ancestor', sha, ref], { cwd: repo, timeout: LIMIT_MS }); return true; } catch (err) { return err?.code === 1 ? false : null; }
     },
   });
 }

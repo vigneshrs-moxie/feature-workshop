@@ -40,7 +40,7 @@ import fsSync from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execFileSync } from 'node:child_process';
+import { execGitSync } from '../lib/git.js';
 import { defaultsFor, defaultsForLevel, writeAutoOption, writeOptions } from '../lib/options.js';
 import { autoRecord } from '../lib/auto.js';
 import { suggestLevel } from '../lib/level-rules.js';
@@ -203,7 +203,7 @@ ${approvals}
 
 // A real (throwaway) git repo so the Code tab and the New job dialog have something to show.
 async function makeRepo() {
-  const git = (...args) => execFileSync('git', ['-C', ACME, ...args], { stdio: 'pipe' }).toString().trim();
+  const git = (...args) => execGitSync(['-C', ACME, ...args], { stdio: 'pipe' }).toString().trim();
   await fs.mkdir(path.join(ACME, 'docs', 'plans'), { recursive: true });
   await fs.mkdir(path.join(ACME, 'app'), { recursive: true });
   git('init', '-q', '-b', 'main');

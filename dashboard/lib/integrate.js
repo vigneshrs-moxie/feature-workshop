@@ -8,7 +8,8 @@
 // Git runs through execFile (no shell) with validated names and a time limit. Nothing here
 // pushes, ever.
 
-import { execFile, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
+import { execGit } from './git.js';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -24,7 +25,7 @@ const WEB_NAV = 'web/src/app/App.tsx'; // the top bar, where the nav links are
 /** Run git in `dir`. Resolves { code, stdout, stderr }; never rejects for a non-zero exit. */
 export function git(dir, args, { timeout = 30000, maxBuffer = 8 * 1024 * 1024 } = {}) {
   return new Promise((resolve) => {
-    execFile('git', ['-C', dir, ...args], { timeout, maxBuffer, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0', LC_ALL: 'C' } }, (err, stdout, stderr) => {
+    execGit(['-C', dir, ...args], { timeout, maxBuffer, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0', LC_ALL: 'C' } }, (err, stdout, stderr) => {
       resolve({ code: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout: String(stdout ?? ''), stderr: String(stderr ?? '') || (err && typeof err.code !== 'number' ? err.message : '') });
     });
   });

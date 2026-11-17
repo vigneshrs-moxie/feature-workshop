@@ -553,9 +553,8 @@ test('I9: a very long command stops without being read, and quickly', () => {
 
 test('I9: the git facts are read once, with a limit, and remembered for a minute', async () => {
   const calls = [];
-  const exec = async (file, args, opts) => {
-    calls.push([file, ...args]);
-    assert.equal(file, 'git');
+  const exec = async (args, opts) => {
+    calls.push(['git', ...args]);
     assert.ok(opts.timeout <= 3000);
     if (args[0] === 'symbolic-ref') return 'feature/x\n';
     if (args[0] === 'remote') return 'origin\tgit@github.com:me/orbit.git (fetch)\norigin\tgit@github.com:me/orbit.git (push)\nupstream\tgit@github.com:other/orbit.git (push)\n';

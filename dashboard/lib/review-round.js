@@ -25,7 +25,7 @@
 //
 // Nothing in this file writes to GitHub: every write is a lib/gh-write.js call with your yes.
 
-import { execFile } from 'node:child_process';
+import { execGit } from './git.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { scrub, scrubDeep } from './orbit.js';
@@ -50,7 +50,7 @@ export function gitRead(dir, args, { timeout = 15000 } = {}) {
     || (args[0] === 'merge-base' && (args[1] !== '--is-ancestor' || args.length !== 4 || !operands()));
   if (!READ_GIT.has(args[0]) || odd) return Promise.resolve({ ok: false, out: '', err: 'not a read' });
   return new Promise((resolve) => {
-    execFile('git', ['-C', dir, ...args], { timeout, maxBuffer: 4 * 1024 * 1024, windowsHide: true, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' } },
+    execGit(['-C', dir, ...args], { timeout, maxBuffer: 4 * 1024 * 1024, windowsHide: true, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' } },
       // code: git's exit code (merge-base --is-ancestor answers 1 for "no"), null when it didn't run to an end.
       (err, stdout, stderr) => resolve({ ok: !err, out: String(stdout ?? ''), err: err ? String(stderr || err.message).split('\n')[0] : null, code: err ? (typeof err.code === 'number' ? err.code : null) : 0 }));
   });

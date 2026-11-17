@@ -9,7 +9,7 @@
 // With the job's folder (opts.jobDir), it is refused while another running process holds the job's
 // lock (a terminal /feature session, lib/lock.js), and this process's own lock goes once it's removed.
 
-import { execFile } from 'node:child_process';
+import { execGit } from './git.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { heldElsewhere, describeLock, release } from './lock.js';
@@ -21,7 +21,7 @@ const PAGE_KEYS = new Set(['AUTH_URL', 'NEXTAUTH_URL', 'NEXT_PUBLIC_APP_URL', 'A
 
 function git(dir, args, timeout = 20000) {
   return new Promise((resolve) => {
-    execFile('git', ['-C', dir, ...args], { timeout, maxBuffer: 16 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } }, (err, stdout, stderr) => {
+    execGit(['-C', dir, ...args], { timeout, maxBuffer: 16 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } }, (err, stdout, stderr) => {
       resolve({ ok: !err, out: String(stdout).trim(), err: String(stderr).trim(), killed: Boolean(err?.killed) });
     });
   });

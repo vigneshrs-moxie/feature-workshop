@@ -17,6 +17,7 @@ import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { noFsmonitorEnv } from './git.js';
 import { shellFor } from './platform.js';
 import { runCommand } from './service.js';
 import { PRODUCT } from './state.js';
@@ -64,7 +65,7 @@ const OFFLINE = /could not resolve|error connecting|dial tcp|no such host|networ
  */
 export async function checkForUpdate({ run = runCommand, env = process.env, current = currentVersion() } = {}) {
   const repo = releaseRepo(env);
-  const r = await run('gh', ['release', 'view', '--repo', repo, '--json', 'tagName,assets'], { timeout: 15_000 });
+  const r = await run('gh', ['release', 'view', '--repo', repo, '--json', 'tagName,assets'], { timeout: 15_000, env: noFsmonitorEnv() });
   if (r.missing) return { status: 'unavailable', current, message: 'GitHub CLI (gh) isn’t on this computer, so updates can’t be checked. Install it (starbase doctor says how).' };
   if (r.code !== 0) {
     if (OFFLINE.test(said(r))) return { status: 'offline', current, message: 'GitHub can’t be reached right now (no network?), so updates weren’t checked.' };
@@ -109,7 +110,7 @@ export function sha256File(file) {
  */
 export async function downloadVerified({ run = runCommand, env = process.env, tag, asset, tmpRoot = os.tmpdir() }) {
   const dir = await fsp.mkdtemp(path.join(tmpRoot, 'starbase-update-'));
-  const r = await run('gh', ['release', 'download', tag, '--repo', releaseRepo(env), '--pattern', asset, '--pattern', SUMS_FILE, '--dir', dir], { timeout: 300_000 });
+  const r = await run('gh', ['release', 'download', tag, '--repo', releaseRepo(env), '--pattern', asset, '--pattern', SUMS_FILE, '--dir', dir], { timeout: 300_000, env: noFsmonitorEnv() });
   if (r.code !== 0) return { ok: false, dir, message: `The download of ${tag} didn’t finish (${said(r).split('\n')[0] || `gh stopped with code ${r.code}`}). Nothing was changed.` };
   const file = path.join(dir, asset);
   let sums;

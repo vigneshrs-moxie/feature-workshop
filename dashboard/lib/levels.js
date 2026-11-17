@@ -6,7 +6,7 @@
 // The rules themselves (RISK_TRIGGERS, suggestLevel) live in level-rules.js, which has no Node
 // built-ins so the new UI imports the same file; this module adds reading the changed paths.
 
-import { execFile } from 'node:child_process';
+import { execGit } from './git.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -26,7 +26,7 @@ export function changedPaths(worktree, base = 'main', { timeout = 5000 } = {}) {
     if (typeof worktree !== 'string' || !path.isAbsolute(worktree) || !SAFE_REF.test(String(base)) || String(base).includes('..')) return resolve(null);
     try { if (!fs.statSync(worktree).isDirectory()) return resolve(null); } catch { return resolve(null); }
     const args = ['-C', worktree, 'diff', '--numstat', '-z', '--no-renames', '--no-color', '--no-ext-diff', '--no-textconv', `${base}...HEAD`, '--'];
-    execFile('git', args, { timeout, maxBuffer: 1024 * 1024, windowsHide: true, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' } }, (err, stdout) => {
+    execGit(args, { timeout, maxBuffer: 1024 * 1024, windowsHide: true, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' } }, (err, stdout) => {
       if (err) return resolve(null);
       // Each record is "added<TAB>deleted<TAB>path<NUL>" (no renames, so never the two-path form).
       const out = [];
@@ -47,7 +47,7 @@ export function changedPaths(worktree, base = 'main', { timeout = 5000 } = {}) {
  */
 export function diffSummary(worktree, base = 'main', { timeout = 5000 } = {}) {
   const run = (args) => new Promise((resolve) => {
-    execFile('git', ['-C', worktree, ...args], { timeout, maxBuffer: 1024 * 1024, windowsHide: true, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' } }, (err, stdout) => resolve(err ? null : String(stdout)));
+    execGit(['-C', worktree, ...args], { timeout, maxBuffer: 1024 * 1024, windowsHide: true, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' } }, (err, stdout) => resolve(err ? null : String(stdout)));
   });
   return (async () => {
     if (typeof worktree !== 'string' || !path.isAbsolute(worktree) || !SAFE_REF.test(String(base)) || String(base).includes('..')) return null;

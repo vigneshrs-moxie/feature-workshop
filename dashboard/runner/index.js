@@ -75,8 +75,6 @@ import { DOC_MAX_BYTES, DocError, describeDoc, docVersion, jsonHtml, listJobDocs
 import { PlayBook, PlayError, PAGE_SECRETS, PLAY_EVENTS, TEAPOT, hexCommit, ledgerView, parseReviewFindings, playSettings, themeUnlocked, validatePlayPatch } from '../lib/play.js';
 import { parseStatusJson } from '../lib/status-json.js';
 import { autoModeEnvironment, remotesOf } from '../lib/auto-env.js';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { GIT_SETTING_CHANGE, goAheadCovers, ORG_REMOTES, PR_STAGES, setApiPort, setStateDir } from '../lib/hard-lines.js';
 import { jobRepo, verifiedJobContext } from '../lib/auto-context.js';
 import { guessedWorktree, guessWords, jobTerminals, ownBranch, ownCodeDir, ownLane, ownWorktree } from '../lib/locate.js';
@@ -334,7 +332,7 @@ export async function createRunner(config) {
     recordedRepos.set(dir, { repo: line?.repo ?? null, at: Date.now() });
     return line?.repo ?? null;
   }
-  const gitStdout = async (file, args, opts) => (await execGit(file, args, { ...opts, windowsHide: true })).stdout;
+  const gitStdout = async (args, opts) => (await git.runGit(args, { ...opts, windowsHide: true })).stdout;
 
   // The Foreman session's own Claude Code settings: the job's auto mode environment (lib/auto-env.js),
   // so auto mode's safety model knows the job's repo, fork and org remote. Added to your settings.
@@ -352,7 +350,6 @@ export async function createRunner(config) {
   // remote, the branch checked out, and where each remote pushes. Git is asked asynchronously with a
   // 3 second limit (lib/auto-git.js), so a slow answer never holds the server; a failed one gives a ctx
   // that stops pushes. The job's branches are its own and its stack's parts.
-  const execGit = promisify(execFile);
   const autoGitCache = new Map();
   const gitSettingCalls = new Set(); // runs whose last call may have changed a git setting
   // call: { toolName, input } when the context is for one call: a commit it names for the org branch is placed by git first (I2).
