@@ -768,6 +768,11 @@ export function buildJobPage(facts) {
       worktree: typeof detail.worktree === 'string' ? detail.worktree : null,
       policyOverride: typeof detail.policyOverride === 'string' ? detail.policyOverride : null,
       started: Boolean(detail.drive?.sessionId),
+      // A branch Starbase only guessed (lib/locate.js branchGuessed): the page offers "This is the job's branch",
+      // which confirms the repository and branch (POST /api/job/:slug/repo). Laptop only, like the rest of local.
+      guess: card.repo?.branchGuessed && card.repo.branch
+        ? { branch: String(card.repo.branch), repoPath: typeof detail.repoPath === 'string' ? detail.repoPath : (typeof detail.locate?.path === 'string' ? detail.locate.path : null) }
+        : null,
     },
     heldReply: detail.heldReply ?? null,
     usage,

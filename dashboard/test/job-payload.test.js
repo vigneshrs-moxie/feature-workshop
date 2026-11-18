@@ -483,8 +483,8 @@ test('the ⋯ menu’s laptop items get the job’s folder, worktree, own permis
   f.detail.worktree = '/made/up/worktrees/widget-export';
   f.detail.policyOverride = 'ask-all';
   f.detail.drive = { mode: 'workshop', model: 'claude-opus-5-5', sessionId: 'sess-1' };
-  assert.deepEqual(buildJobPage(f).local, { dir: '/made/up/jobs/orbit-901-widget-export', worktree: '/made/up/worktrees/widget-export', policyOverride: 'ask-all', started: true });
-  assert.deepEqual(buildJobPage(facts()).local, { dir: null, worktree: null, policyOverride: null, started: false });
+  assert.deepEqual(buildJobPage(f).local, { dir: '/made/up/jobs/orbit-901-widget-export', worktree: '/made/up/worktrees/widget-export', policyOverride: 'ask-all', started: true, guess: null });
+  assert.deepEqual(buildJobPage(facts()).local, { dir: null, worktree: null, policyOverride: null, started: false, guess: null });
   assert.equal('local' in mirrorJobPage({ ...f.card, ...f.detail }), false);
 });
 
@@ -688,4 +688,14 @@ test('Task 21: a PR comment’s Needs-you card is not the move; the new comments
   // A permission still wins the card itself.
   f.detail.permissionsPending = [{ id: 'p9', kind: 'permission', toolName: 'Bash', createdAt: T(14), plain: { headline: 'Run the tests' }, input: { command: 'npm test' } }];
   assert.equal(buildJobPage(f).move.kind, 'permission');
+});
+
+test('a branch Starbase only guessed is in local.guess with its repository, for the page to confirm; a known branch gives none', () => {
+  const guessed = facts();
+  guessed.card.repo = { name: 'widgets', branch: 'create-thing', branchGuessed: true };
+  guessed.detail.repoPath = '/repos/widgets';
+  const p = buildJobPage(guessed);
+  assert.deepEqual(p.local.guess, { branch: 'create-thing', repoPath: '/repos/widgets' });
+  assert.equal(p.facts.branch, null, 'a guess is never the facts\' branch');
+  assert.equal(buildJobPage(facts()).local.guess, null);
 });

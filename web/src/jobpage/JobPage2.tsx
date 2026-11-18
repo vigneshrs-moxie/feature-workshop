@@ -64,6 +64,7 @@ import { YourMove } from './left/YourMove';
 import { branchOf, loadCommits, loadDiff } from './reader/branch';
 import { ConversationView, stepLine } from './reader/ConversationView';
 import { StepPanel } from './left/StepPanel';
+import { BranchGuess } from './left/BranchGuess';
 import { stateFromRow } from './left/Header';
 import { briefTarget, DecideTabs } from './reader/DecideTabs';
 import { Splitter } from './Splitter';
@@ -423,11 +424,13 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
   return (
     <main ref={page} className="jp2" aria-label="Job" data-layout={layout} data-deciding={deciding ? '' : undefined} data-convo={wide && !convoShown ? 'hidden' : undefined} data-screen={screenNow ?? undefined} data-covered={(phone ? screenNow === 'reader' : covered) ? '' : undefined}>
       {!phone && <Header job={job} />}
+      {!phone && <BranchGuess />}
       <div className="jp2-panes">
         <div className="jp2-left" aria-hidden={leftHidden || undefined} inert={leftHidden || undefined}>
           <div className="jp2-lscroll">
             {/* On the phone the header is the top of the job screen and scrolls with it. */}
             {phone && <Header job={job} />}
+            {phone && <BranchGuess />}
             <div className="jp2-movewrap">
               <PageProblem />
               <YourMove job={job} onOpen={pickReader} />

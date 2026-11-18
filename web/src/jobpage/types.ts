@@ -243,7 +243,9 @@ export interface JobPagePayload {
   lock?: JobLockInfo | null;
   /** Laptop only: what the ⋯ menu's laptop items need (the job's folder, its worktree, its own
    *  permission setting, whether its Foreman has a session). */
-  local?: { dir: string | null; worktree: string | null; policyOverride: PolicyId | null; started: boolean };
+  local?: { dir: string | null; worktree: string | null; policyOverride: PolicyId | null; started: boolean;
+    /** A branch Starbase only guessed, with the repository it is in (left/BranchGuess.tsx); null or absent when the branch is known. */
+    guess?: { branch: string; repoPath: string | null } | null };
   heldReply: null | { kind: string; gateBrief: number | null; at: string };
   usage: null | { limited: boolean; resetsAt: string | null; label: string | null; line: string | null };
   closed: Closed | null;

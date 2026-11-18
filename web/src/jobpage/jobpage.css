@@ -779,3 +779,12 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2-st.is-across .jp2-st-row.is-skipped .jp2-st-icon { opacity: .6; }
 .jp2-st-tick { position: absolute; right: -3px; bottom: -2px; display: grid; place-items: center; width: 13px; height: 13px; border-radius: 50%; background: var(--status-ok); color: var(--surface-0); box-shadow: 0 0 0 1.5px var(--surface-0); }
 .jp2-st.is-across .jp2-st-row { grid-template-areas: "mark name" "mark word"; }
+/* A branch Starbase only guessed (left/BranchGuess.tsx): one slim row under the header, with the button
+   that confirms it. Its words are the needs-you tint's, since Auto and Send back wait on it. */
+.jp2-guess { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 6px 12px 6px 24px; border-bottom: 1px solid var(--border-1); background: var(--lane-needs-you-bg); color: var(--lane-needs-you-fg); font-size: 13px; line-height: 18px; }
+.jp2-guess-says { flex: 1 1 320px; min-width: 0; margin: 0; }
+.jp2-guess code { font-family: var(--font-mono); font-size: 12.5px; color: var(--text-1); }
+.jp2-guess-repo { color: var(--text-2); }
+.jp2-guess-why { color: var(--text-2); }
+.jp2-guess-error { flex-basis: 100%; margin: 0; color: var(--text-1); font-weight: 500; }
+.jp2[data-layout="phone"] .jp2-guess { padding: 8px 16px; }
