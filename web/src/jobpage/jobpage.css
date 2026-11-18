@@ -805,6 +805,15 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2-st.is-across .jp2-st-row.is-skipped .jp2-st-icon { opacity: .6; }
 .jp2-st-tick { position: absolute; right: -3px; bottom: -2px; display: grid; place-items: center; width: 13px; height: 13px; border-radius: 50%; background: var(--status-ok); color: var(--surface-0); box-shadow: 0 0 0 1.5px var(--surface-0); }
 .jp2-st.is-across .jp2-st-row { grid-template-areas: "mark name" "mark word"; }
+/* The step in progress, at a glance (18 Nov): in Play full its crew member, 30 px, standing on the icon's
+   place and rising a little above it (the row keeps its height); else its icon in the working colour,
+   bobbing while it works (still under reduced motion). */
+.jp2-st.is-across .jp2-st-row.is-current .jp2-st-icon.has-crew { background: none; }
+.jp2-st-crew { position: absolute; left: 50%; bottom: -2px; display: block; width: 30px; height: 30px; transform: translateX(-50%); pointer-events: none; }
+.jp2-st-crew > * { display: block; }
+.jp2-st.is-across .jp2-st-row.is-current .jp2-st-icon.is-working:not(.has-crew) { color: var(--lane-working-fg); animation: jp2-st-bob 1.2s ease-in-out infinite; }
+@keyframes jp2-st-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+@media (prefers-reduced-motion: reduce) { .jp2-st.is-across .jp2-st-row.is-current .jp2-st-icon.is-working:not(.has-crew) { animation: none; } }
 /* A branch Starbase only guessed (left/BranchGuess.tsx): one slim row under the header, with the button
    that confirms it. Its words are the needs-you tint's, since Auto and Send back wait on it. */
 .jp2-guess { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 6px 12px 6px 24px; border-bottom: 1px solid var(--border-1); background: var(--lane-needs-you-bg); color: var(--lane-needs-you-fg); font-size: 13px; line-height: 18px; }

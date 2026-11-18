@@ -23,22 +23,50 @@
 //
 // On a laptop (`across`, the glance layout of 16 Nov) the steps are a row of cells across the page:
 // a mark and the name, the result word under it; no outputs and no duration (left/StepPanel.tsx,
-// beside the reader, lists what the picked step made).
+// beside the reader, lists what the picked step made). The step in progress shows, at a glance, that it
+// runs (18 Nov, his ask: the old page's moving crew member): in Play full its icon is the step's crew
+// member, working (moving) while the job works or a reply runs, waiting while it waits for him, idle
+// otherwise (CrewMember keeps still under reduced motion); outside Play full its own icon, in the
+// working colour with a gentle bob while it works. Before the payload the snapshot row's state says so.
 
-import { memo, useRef } from 'react';
+import { memo, useContext, useRef, useSyncExternalStore } from 'react';
 import type { Job } from '../../api/types';
 import { Icon, type IconName } from '../../components/Icon';
+import { CrewMember } from '../../play/CrewMember';
+import { STOP_CREW } from '../../play/crewPack';
+import { usePlayIfAny } from '../../play/usePlay';
+import { WorkshopContext } from '../../state/store';
 import { STOPS } from '../../components/stops/stops';
 import { spentWords, statesOf } from '../stepWords';
 import { outputTarget, readerOf, sameTarget } from '../targets';
 import type { JobState, Output, ReaderTarget, StepRow, StopId } from '../types';
 import { useJob } from '../useJob';
 import { sinceWords } from './YourMove';
+import { stateFromRow } from './Header';
+import { RUN_ACTIVE } from './MessageBox';
 import { PhoneChevron } from '../phone/PhoneJob2';
 import { PrLines } from './PrLines';
 
 /** Each step's icon (components/stops/stops.ts), as the old page's step cards show it. */
 const STOP_ICON: Record<string, IconName> = Object.fromEntries(STOPS.map((s) => [s.id, s.icon]));
+
+const NO_STORE = () => () => {};
+
+/**
+ * What the step in progress is doing: working (the job works, or a reply runs), waiting (for him), or
+ * idle. Before the payload, from the snapshot row. Works with no app store above (the app's live run then
+ * counts as none).
+ */
+function useCurrentFace(job: Job | null): 'working' | 'waiting' | 'idle' {
+  const w = useContext(WorkshopContext);
+  const slug = useJob((s) => s.slug);
+  const liveRuns = useSyncExternalStore(w?.store.subscribe ?? NO_STORE, () => (w ? RUN_ACTIVE.has(w.store.getState().runs[slug]?.status ?? '') : false));
+  const payloadRuns = useJob((s) => RUN_ACTIVE.has(s.payload?.run?.status ?? ''));
+  const paid = useJob((s) => s.payload?.state ?? null);
+  const state = paid ?? (job ? stateFromRow(job) : null);
+  if (state === 'working' || liveRuns || payloadRuns) return 'working';
+  return state === 'needs-you' ? 'waiting' : 'idle';
+}
 
 /** The seven steps before the payload, from the snapshot row: names and states only. */
 export function stepsFromRow(job: Job | null): StepRow[] {
@@ -135,6 +163,8 @@ export const Steps = memo(function Steps({ job, cursor, onStep, onOpen, phone = 
   const owner = steps ? (rows.find((s) => s.id === pick && owns(s, target)) ?? rows.find((s) => owns(s, target)) ?? null) : null;
   const marked = owner && owner.id !== current ? owner.id : null;
   const here = marked ?? current;
+  const face = useCurrentFace(job);
+  const crew = usePlayIfAny()?.full ?? false;
 
   return (
     <nav className={`jp2-st${across ? ' is-across' : ''}`} aria-label="Steps">
@@ -156,8 +186,11 @@ export const Steps = memo(function Steps({ job, cursor, onStep, onOpen, phone = 
             >
               {across ? (
                 // A laptop: each step's own icon (the old page's step cards), its colour saying where it is; a done step's carries a small tick.
-                <span className="jp2-st-mark jp2-st-icon" aria-hidden="true">
-                  <Icon name={STOP_ICON[s.id] ?? 'file'} size={18} />
+                // The step in progress: its crew member in Play full (moving while it works), else its icon, bobbing while it works.
+                <span className={`jp2-st-mark jp2-st-icon${s.state === 'current' && crew && STOP_CREW[s.id] ? ' has-crew' : ''}${s.state === 'current' && face === 'working' ? ' is-working' : ''}`} aria-hidden="true">
+                  {s.state === 'current' && crew && STOP_CREW[s.id]
+                    ? <span className="jp2-st-crew"><CrewMember type={STOP_CREW[s.id]!} size={30} label="" state={face} /></span>
+                    : <Icon name={STOP_ICON[s.id] ?? 'file'} size={18} />}
                   {s.state === 'done' && <span className="jp2-st-tick"><Icon name="check" size={10} /></span>}
                 </span>
               ) : (

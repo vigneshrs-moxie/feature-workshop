@@ -6,7 +6,8 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import { describe, expect, it } from 'vitest';
 import type { ApiClient } from '../../api/client';
 import type { Job } from '../../api/types';
-import { job as jobRow } from '../../state/test-fixtures';
+import { job as jobRow, LEVELS, snapshot } from '../../state/test-fixtures';
+import { createStore, WorkshopContext } from '../../state/store';
 import { longJob } from '../fixtures/longJob';
 import { createJobStore, type JobStore } from '../jobStore';
 import { readerOf } from '../targets';
@@ -334,5 +335,78 @@ describe('missing moves: Ship’s PR lines have room in the step panel (16 Nov)'
     // Every laptop arrangement with the panel reads its width from that property.
     expect(css.match(/var\(--jp2-side-w, 248px\)/g)).toHaveLength(3);
     expect(css).not.toMatch(/minmax\(0, 1fr\) 248px/);
+  });
+});
+
+// The step in progress at a glance (18 Nov): the old page's moving crew member in Play full, else its icon bobbing.
+describe('the step in progress, at a glance', () => {
+  function mountWith(mode: 'full' | 'lite' | 'off', p: JobPagePayload | null = payload(), { phone = false, row = null as Job | null } = {}) {
+    const api = { get: async () => ({}), post: async () => ({}), hosted: () => false } as unknown as ApiClient;
+    const store: JobStore = createJobStore(SLUG, { api, initial: p, events: () => () => {} });
+    const app = createStore();
+    app.dispatch({ type: 'snapshot', snapshot: snapshot({ jobs: [], permissions: [], meta: { token: 't', levels: LEVELS, settings: { policy: 'hands-off', play: { mode, questDone: 'first-pr', sounds: false } } } as never }) });
+    render(
+      <WorkshopContext.Provider value={{ api, store: app }}>
+        <JobStoreContext.Provider value={store}>
+          <Steps job={row} cursor={null} onStep={() => {}} onOpen={() => {}} across={!phone} phone={phone} />
+        </JobStoreContext.Provider>
+      </WorkshopContext.Provider>,
+    );
+  }
+  const crewOf = (name: string) => row(name).querySelector<SVGElement>('.jp2-st-crew .crew');
+
+  it('Play full, the job working: the current step is its crew member, working and moving; the others keep their icons', () => {
+    mountWith('full', payload({ state: 'working' }));
+    const crew = crewOf('Review')!;
+    expect(crew).not.toBeNull();
+    expect(crew).toHaveClass('is-working');
+    expect(crew).toHaveAttribute('data-state', 'working');
+    expect(crew).toHaveClass('is-animated');
+    expect(row('Review').querySelector('.jp2-st-icon')).toHaveClass('has-crew', 'is-working');
+    for (const name of ['Spec', 'Investigate', 'Plan', 'Build', 'Test', 'Ship']) {
+      expect(crewOf(name)).toBeNull();
+      expect(row(name).querySelector('.jp2-st-icon svg')).not.toBeNull();
+    }
+  });
+
+  it('Play full, a reply running while the job waits on GitHub: working', () => {
+    mountWith('full', payload({ state: 'waiting-github', run: { id: 'r', status: 'running', startedAt: null, lastAction: null } }));
+    expect(crewOf('Review')).toHaveAttribute('data-state', 'working');
+  });
+
+  it('Play full, waiting for him: the crew member waits', () => {
+    mountWith('full', payload({ state: 'needs-you', run: null }));
+    expect(crewOf('Review')).toHaveAttribute('data-state', 'waiting');
+    expect(row('Review').querySelector('.jp2-st-icon')).not.toHaveClass('is-working');
+  });
+
+  it('Play full, paused: idle', () => {
+    mountWith('full', payload({ state: 'paused', run: null }));
+    expect(crewOf('Review')).toHaveAttribute('data-state', 'idle');
+  });
+
+  it('not Play full: the step’s own icon, marked is-working while it works', () => {
+    mountWith('lite', payload({ state: 'working' }));
+    expect(crewOf('Review')).toBeNull();
+    const icon = row('Review').querySelector('.jp2-st-icon')!;
+    expect(icon).toHaveClass('is-working');
+    expect(icon).not.toHaveClass('has-crew');
+    expect(icon.querySelector('svg')).not.toBeNull();
+    expect(row('Build').querySelector('.jp2-st-icon')).not.toHaveClass('is-working');
+  });
+
+  it('before the payload, the snapshot row says how the step in progress stands (here: waiting for him)', () => {
+    mountWith('full', null, { row: jobRow(SLUG, 'needs-you', { lane: 'needs-you', stage: 'review', stageState: 'waiting', needsYou: true }) });
+    const current = rows().find((r) => r.classList.contains('is-current'))!;
+    expect(current).toBeDefined();
+    expect(current.querySelector('.jp2-st-crew .crew')).toHaveAttribute('data-state', 'waiting');
+    expect(current.querySelector('.jp2-st-icon')).not.toHaveClass('is-working');
+  });
+
+  it('the phone’s steps are unchanged: a mark, no crew member, no bob', () => {
+    mountWith('full', payload({ state: 'working' }), { phone: true });
+    expect(document.querySelector('.jp2-st-crew')).toBeNull();
+    expect(document.querySelector('.is-working')).toBeNull();
+    expect(row('Review').querySelector('.jp2-st-mark .jp2-dot')).not.toBeNull();
   });
 });
