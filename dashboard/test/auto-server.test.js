@@ -5223,7 +5223,7 @@ test('a card raised on a stopped Auto job is told as on any job', { timeout: 30_
 // ---------- Auto queue Task 20: a ticket's job gets a short branch name, checked by code ----------
 
 const T471 = { key: 'ORBIT-471', title: 'Can we have a filter here for active / inactive employees', url: null };
-const SHORT_471 = 'can-we-have-a-filter-here-for-active';
+const SHORT_471 = 'filter-active-inactive-employees';
 const NAME_PROBLEM_WORDS = 'Use short words joined by hyphens, like employee-status-filter (up to five words, 40 characters).';
 /** A fake namer: answer(input, n) or a fixed answer; every ask is kept in .calls. */
 function namerOf(answer) {
@@ -5339,6 +5339,15 @@ test('a job with no ticket asks no model', { timeout: 30_000 }, async () => {
     assert.equal(out.slug, 'visit-export-button', 'slugify(description), as today, whatever name says');
     assert.equal(namer.calls.length, 0);
     assert.deepEqual(await nameLines(w), [], 'no name line');
+  } finally { await w.stop(); }
+});
+
+test('a job with no ticket and a long description is cut where a word ends, never mid-word', { timeout: 30_000 }, async () => {
+  // Nov 18: a slug ended "-priority-mediu".
+  const w = await world({ auto: null, namer: namerOf('x') });
+  try {
+    const out = await w.hooks.startJob({ description: 'Bug report from the portal feedback page with priority medium and more', repoPath: w.dirs.repo, options: { level: 1 } });
+    assert.equal(out.slug, 'bug-report-from-the-portal-feedback-page-with');
   } finally { await w.stop(); }
 });
 

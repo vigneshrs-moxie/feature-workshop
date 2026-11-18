@@ -359,7 +359,7 @@ test('a ticket: its key in any lenient form, a clean title and link; a bad key i
 
 test('a ticket’s slug and branch: orbit-<n>-<short-title>, feature/ or fix/ by kind', () => {
   const t = normalizeTicket({ key: 'ORBIT-479', title: 'Feedback API and MCP for the portal’s team members' });
-  assert.equal(ticketSlug(t), 'orbit-479-feedback-api-and-mcp-for-the-portals');
+  assert.equal(ticketSlug(t), 'orbit-479-feedback-api-mcp-portals-team-members');
   assert.ok(shortTitle(t.title).length <= 40);
   assert.equal(ticketSlug({ key: 'ORBIT-7', title: null }), 'orbit-7');
   assert.equal(ticketSlug({ key: 'ORBIT-7', title: '!!!' }), 'orbit-7');
@@ -421,11 +421,11 @@ test('POST /api/jobs with a ticket: the job, its folder and branch carry the key
     assert.equal(bad.body.error, TICKET_KEY_PROBLEM);
     const r = await post({ description: 'ORBIT-479: Feedback API and MCP', kind: 'bug', repoPath: repo, options: { level: 2 }, ticket: { key: 'ORBIT-479', title: 'Feedback API and MCP', url: 'https://orbit.example.com/t/479' } });
     assert.equal(r.status, 200, JSON.stringify(r.body));
-    assert.equal(r.body.slug, 'orbit-479-feedback-api-and-mcp');
+    assert.equal(r.body.slug, 'orbit-479-feedback-api-mcp');
     const dir = path.join(featuresDir, r.body.slug);
     const options = JSON.parse(await fs.readFile(path.join(dir, 'options.json'), 'utf8'));
     assert.equal(options.ticket.key, 'ORBIT-479');
-    assert.equal(options.branch, 'fix/orbit-479-feedback-api-and-mcp');
+    assert.equal(options.branch, 'fix/orbit-479-feedback-api-mcp');
     const status = JSON.parse(await fs.readFile(path.join(dir, 'status.json'), 'utf8'));
     assert.equal(status.ticket.key, 'ORBIT-479');
     const audit = (await fs.readFile(path.join(dirs.state, 'audit.jsonl'), 'utf8')).split('\n').filter(Boolean).map((l) => JSON.parse(l));
@@ -434,7 +434,7 @@ test('POST /api/jobs with a ticket: the job, its folder and branch carry the key
     assert.match(send.text, /Orbit ticket: ORBIT-479 .*\n> Feedback API and MCP\n/);
     assert.ok(send.text.includes(TICKET_DETAILS_UNREAD), 'no Orbit set up here: the could-not-read sentence');
     await assert.rejects(fs.access(path.join(dir, 'ticket.md')), 'and no file');
-    assert.match(send.text, /Branch: fix\/orbit-479-feedback-api-and-mcp /);
+    assert.match(send.text, /Branch: fix\/orbit-479-feedback-api-mcp /);
     assert.equal(audit.find((e) => e.action === 'new-job').ticket, 'ORBIT-479');
     // The demo Foreman's later writes keep the ticket block, so the check never sends anything back.
     const end = Date.now() + 10000;

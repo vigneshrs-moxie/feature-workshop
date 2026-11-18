@@ -213,7 +213,8 @@ export function prRows(prs, lane) {
     return p && typeof p === 'object' ? p : null;
   };
   return [1, 2, 3].map((n) => {
-    const s = list.find((p) => p && typeof p === 'object' && Number(p.number) === n) ?? null;
+    // A new round on the map (lib/flow.js laneOf): status.json's PR #2 and #3 are the last round's, so not this one's.
+    const s = n >= 2 && lane?.newRound === true ? null : list.find((p) => p && typeof p === 'object' && Number(p.number) === n) ?? null;
     const word = String(s?.state ?? '').toLowerCase();
     // An older record with only a url counts as open (lib/finish.js).
     let state = wordIn(STATUS_PR_STATE, word) ?? (str(s?.url) ? 'open' : 'not-started');

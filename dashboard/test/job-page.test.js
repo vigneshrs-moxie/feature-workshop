@@ -318,6 +318,15 @@ const LANE_PR = (over = {}) => ({
   review: null, checks: 'pending', mergedAt: null, updatedAt: '2026-11-10T10:00:00.000Z', createdAt: '2026-11-10T09:00:00.000Z', ...over,
 });
 
+test('prRows: a new round on the map leaves PR #2 and #3 not started, whatever status.json kept from the last round', () => {
+  // Nov 18, orbit-463: PR #1 #276 open (the follow-up); status.json still has last round's PR #2 #259 merged.
+  const prs = [{ number: 1, url: 'https://github.com/o/r/pull/276', state: 'open' }, { number: 2, url: 'https://github.com/o/r/pull/259', state: 'merged' }, { number: 3, url: null, state: 'not_started' }];
+  const lane = { pr1: LANE_PR({ number: 276, url: 'https://github.com/o/r/pull/276' }), pr2: null, newRound: true };
+  assert.deepEqual(prRows(prs, lane).map((r) => [r.n, r.state, r.number]), [[1, 'open', 276], [2, 'not-started', null], [3, 'not-started', null]]);
+  // A lane without the mark still falls back to the record.
+  assert.equal(prRows(prs, { pr1: lane.pr1, pr2: null })[1].state, 'merged');
+});
+
 test('prRows: PR #1 open and waiting for a review, the other two not started', () => {
   const prs = [{ number: 1, label: 'fork → org branch', url: 'https://github.com/o/r/pull/7', state: 'open' }, { number: 2, url: null, state: 'not_started' }, { number: 3, url: null, state: 'not_started' }];
   const rows = prRows(prs, { pr1: LANE_PR(), pr2: null });

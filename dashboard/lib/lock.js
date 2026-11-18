@@ -166,6 +166,17 @@ export class JobLocked extends HttpError {
 }
 
 /**
+ * The job's own branch for its lock: status.json's branch, else the branch of the job's worktree, else (only then)
+ * the branch of the folder the Foreman runs in, which is often the main checkout on another branch (Nov 18).
+ */
+export function jobBranchOf(featureDir, cwd) {
+  let status = null;
+  try { status = featureDir ? JSON.parse(fs.readFileSync(path.join(featureDir, 'status.json'), 'utf8')) : null; } catch { status = null; }
+  if (typeof status?.branch === 'string' && status.branch.trim()) return status.branch.trim();
+  return (typeof status?.worktree === 'string' && status.worktree ? branchOf(status.worktree) : null) ?? branchOf(cwd);
+}
+
+/**
  * The branch checked out in a folder (or the git folder above it), or null (not git, detached).
  * Read from .git/HEAD directly, without running git, so it costs no time when a reply starts.
  */

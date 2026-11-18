@@ -220,6 +220,31 @@ test('driver: a reply takes the job’s lock as it starts and gives it back when
   assert.equal(fs.existsSync(lockFile(jobDir)), false, 'released on stop');
 });
 
+test('driver: the lock records the job’s own branch (status.json, else its worktree’s), not the main checkout’s the Foreman runs in', async () => {
+  // The main checkout is on another job's branch (Nov 18: orbit-463's lock said snapshot-local-db-for-mac).
+  const root = await tmp();
+  const repo = path.join(root, 'repo');
+  fs.mkdirSync(path.join(repo, '.git', 'worktrees', 'wt'), { recursive: true });
+  fs.writeFileSync(path.join(repo, '.git', 'HEAD'), 'ref: refs/heads/snapshot-local-db-for-mac\n');
+  const wt = path.join(root, 'wt');
+  fs.mkdirSync(wt);
+  fs.writeFileSync(path.join(wt, '.git'), `gitdir: ${path.join(repo, '.git', 'worktrees', 'wt')}\n`);
+  fs.writeFileSync(path.join(repo, '.git', 'worktrees', 'wt', 'HEAD'), 'ref: refs/heads/feature/orbit-463-x\n');
+  const state = new State(await tmp('workshop-lock-state-'));
+  const lockedBranch = async (status) => {
+    const jobDir = await tmp('workshop-lock-job-');
+    if (status) fs.writeFileSync(path.join(jobDir, 'status.json'), JSON.stringify(status));
+    const driver = new Driver({ queryFn: pretendQuery(), state, projectsDir: await tmp() });
+    const run = await driver.start({ featureDir: jobDir, slug: 'orbit-463-x', title: 'X', cwd: repo, text: 'Go' });
+    const branch = readLock(jobDir).branch;
+    await ended(driver, run.id);
+    return branch;
+  };
+  assert.equal(await lockedBranch({ branch: 'feature/orbit-463-recorded', worktree: wt }), 'feature/orbit-463-recorded', 'status.json’s branch');
+  assert.equal(await lockedBranch({ branch: null, worktree: wt }), 'feature/orbit-463-x', 'the job’s worktree’s branch');
+  assert.equal(await lockedBranch(null), 'snapshot-local-db-for-mac', 'nothing recorded: the folder it runs in, as before');
+});
+
 test('driver: a job open in a terminal refuses the start with the lock card’s details, and nothing is sent', async () => {
   const jobDir = await tmp('workshop-lock-job-');
   const state = new State(await tmp('workshop-lock-state-'));

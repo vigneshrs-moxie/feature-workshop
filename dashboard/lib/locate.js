@@ -208,7 +208,10 @@ export async function locateJob(clues) {
   if (!repo) for (const r of clues.knownRepos ?? []) if (!repos.includes(r)) repos.push(r);
   if (!branch) {
     const field = clues.wsRepository?.branch && !/^(main|master|staging)$/.test(clues.wsRepository.branch) ? clues.wsRepository.branch : null;
-    const mentioned = branchesIn(clues.wsText).filter((b) => !otherTicket(b) && b !== field && !/^(main|master|staging)$/.test(b));
+    // Only a branch named after the job, as the git search below asks: notes also name other jobs' branches and the
+    // checkout's own in passing (Nov 18).
+    const mentioned = branchesIn(clues.wsText).filter((b) => !otherTicket(b) && b !== field && !/^(main|master|staging)$/.test(b)
+      && (slugAt.test(b.toLowerCase()) || byWords(b)));
     if (field) { branch = field; branchSource = 'workflow-status.md'; }
     else {
       // A branch the text only mentions is a guess: used only when git has it (Nov 17), else the search below looks by name.

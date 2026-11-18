@@ -178,13 +178,16 @@ test('the title and description are cut and fenced; avoid names are named and re
 
 test('a name fills the slug\'s and the branch\'s {title}; with none, both are as today; a restart reads the name back from the slug', async () => {
   const { ticketSlug, ticketBranch, slugName } = await import('../lib/options.js');
-  assert.equal(ticketSlug(TICKET), 'orbit-471-can-we-have-a-filter-here-for-active', 'today\'s rule');
+  assert.equal(ticketSlug(TICKET), 'orbit-471-filter-active-inactive-employees', 'no name: the short title, filler left out');
+  // Fewer than two words left once the filler is out: the title's words as they are.
+  assert.equal(ticketSlug({ key: 'ORBIT-9', title: 'Please fix it' }), 'orbit-9-please-fix-it');
+  assert.equal(ticketSlug({ key: 'ORBIT-9', title: 'Can we have this' }), 'orbit-9-can-we-have-this');
   assert.equal(ticketSlug(TICKET, null, { name: 'employee-status-filter' }), 'orbit-471-employee-status-filter');
   assert.equal(ticketBranch('feature', 'orbit-471-employee-status-filter', { ticket: TICKET, name: 'employee-status-filter' }), 'feature/orbit-471-employee-status-filter');
   const titled = { slug: 'w{n}-{title}', branch: 'work/{kind}/{title}', kinds: { feature: 'feat', bug: 'fix' } };
   assert.equal(ticketSlug(TICKET, titled, { name: 'status-filter' }), 'w471-status-filter');
   assert.equal(ticketBranch('bug', 'w471-status-filter', { profile: titled, ticket: TICKET, name: 'status-filter' }), 'work/fix/status-filter');
-  assert.equal(ticketBranch('bug', 'x', { profile: titled, ticket: TICKET }), 'work/fix/can-we-have-a-filter-here-for-active', 'no name: the short title');
+  assert.equal(ticketBranch('bug', 'x', { profile: titled, ticket: TICKET }), 'work/fix/filter-active-inactive-employees', 'no name: the short title');
   assert.equal(slugName('orbit-471-employee-status-filter', TICKET), 'employee-status-filter');
   assert.equal(slugName('orbit-471-employee-status-filter-2', TICKET), 'employee-status-filter-2');
   assert.equal(slugName('w471-status-filter', TICKET, titled), 'status-filter');

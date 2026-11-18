@@ -266,7 +266,7 @@ test('POST /api/jobs/name answers with the name, slug and branch, reserves nothi
   execFileSync('git', ['-C', repo, 'init', '-q'], { stdio: 'pipe' });
   const post = (p, body, token = snap.meta.token) => fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { 'X-Starbase-Token': token } : {}) }, body: JSON.stringify(body) });
   const ticket = { key: 'ORBIT-471', title: 'Can we have a filter here for active / inactive employees' };
-  const short = 'orbit-471-can-we-have-a-filter-here-for-active';
+  const short = 'orbit-471-filter-active-inactive-employees';
   const ask = { ticket, description: `ORBIT-471: ${ticket.title}`, kind: 'bug', repoPath: repo, avoid: ['status-filter'] };
   assert.equal((await post('/api/jobs/name', ask, null)).status, 403, 'token-checked like every POST');
   const before = await fs.readdir(featuresDir);
@@ -274,7 +274,7 @@ test('POST /api/jobs/name answers with the name, slug and branch, reserves nothi
   const res = await post('/api/jobs/name', ask);
   assert.equal(res.status, 200);
   const named = await res.json();
-  assert.deepEqual(named, { name: 'can-we-have-a-filter-here-for-active', by: 'title', slug: short, branch: `fix/${short}` });
+  assert.deepEqual(named, { name: 'filter-active-inactive-employees', by: 'title', slug: short, branch: `fix/${short}` });
   assert.deepEqual(await (await post('/api/jobs/name', ask)).json(), named, 'nothing was held: the same answer again');
   assert.deepEqual(await fs.readdir(featuresDir), before, 'nothing was written');
   assert.equal((await post('/api/jobs/name', { ...ask, avoid: ['a', 'b', 'c', 'd', 'e', 'f'] })).status, 400);
