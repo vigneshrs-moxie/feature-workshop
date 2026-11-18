@@ -406,3 +406,63 @@ test('F5 (M1): a message that can’t go is his: Auto stops at the go-ahead as y
     assert.equal(w.asks.length, 0, 'the Approver was not asked');
   } finally { await w.stop(); }
 });
+
+// ---------- A message sent into the reply that the Foreman never read (the job page's Send while it works) ----------
+
+/** Send words into the reply going (POST /api/runs/:id/steer). The stub Foreman never reads its input while it holds a reply. */
+async function steerIn(w, text) {
+  const run = (await w.runs()).find((r) => ACTIVE.has(r.status));
+  const r = await w.post(`/api/runs/${run.id}/steer`, { text });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.steer.state, 'queued');
+  return r.body.steer;
+}
+
+test('S1: a message sent into the reply that the Foreman never read goes as a new message when the reply ends, once', { timeout: 60_000 }, async () => {
+  const w = await world();
+  try {
+    await w.busy();
+    await steerIn(w, 'Use the short header.');
+    assert.equal(sentTexts(w, 'Use the short header.').length, 0, 'not read yet');
+    w.end();
+    await w.until(() => sentTexts(w, 'Use the short header.').length === 1, 'the unread message to go as a new one');
+    await w.until(async () => (await w.page()).waiting === null, 'the payload to drop it');
+    assert.deepEqual(await w.file(), {});
+    w.end();
+    await w.idle();
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(sentTexts(w, 'Use the short header.').length, 1, 'once');
+  } finally { await w.stop(); }
+});
+
+test('S2: after a plain stop the unread message is kept for his Send, not sent and not lost', { timeout: 60_000 }, async () => {
+  const w = await world();
+  try {
+    await w.busy();
+    await steerIn(w, 'Drop the footer.');
+    assert.equal((await w.stopReply()).status, 200);
+    await w.idle();
+    const p = await w.until(async () => { const x = await w.page(); return x.waiting?.why ? x : null; }, 'the payload to show it kept');
+    assert.equal(p.waiting.text, 'Drop the footer.');
+    assert.equal(p.waiting.why, 'Kept: you stopped the reply. Press Send to send it.');
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(sentTexts(w, 'Drop the footer.').length, 0, 'not sent by itself');
+    const s = await w.post(`/api/job/${SLUG}/waiting/send`, {});
+    assert.equal(s.status, 200, JSON.stringify(s.body));
+    await w.until(() => sentTexts(w, 'Drop the footer.').length === 1, 'his Send to send it');
+  } finally { await w.stop(); }
+});
+
+test('S3: an unread message joins the one already waiting: one message, in the order he wrote them', { timeout: 60_000 }, async () => {
+  const w = await world();
+  try {
+    await w.busy();
+    assert.equal((await w.post(`/api/job/${SLUG}/send`, { kind: 'message', text: 'First words.', queue: true })).status, 202);
+    await steerIn(w, 'Second words.');
+    await steerIn(w, 'Third words.');
+    w.end();
+    const both = await w.until(() => w.texts.find((t) => t.includes('First words.') && t.includes('Second words.') && t.includes('Third words.')), 'all three to go as one message');
+    assert.ok(both.indexOf('First words.') < both.indexOf('Second words.') && both.indexOf('Second words.') < both.indexOf('Third words.'), 'in his order');
+    assert.equal(sentTexts(w, 'Second words.').length, 1, 'once');
+  } finally { await w.stop(); }
+});

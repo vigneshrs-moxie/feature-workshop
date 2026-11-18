@@ -1481,6 +1481,16 @@ export async function createRunner(config) {
       // So does everything once Starbase is stopping (the next start sends it).
       const still = waitingMessages.get(dir);
       if (stopping || !still || (!asked && (still.held || still.toBox))) return;
+      // Replaced, or added to (keepUnread), while this look was under way: what waits now is what goes.
+      if (still.text !== w.text) {
+        try {
+          out = sendPlan(f, drive, { confirmNoTerminal: still.confirmNoTerminal }, still.text);
+        } catch (err) {
+          await waitingMessages.refuse(dir, whyNot(err));
+          waitingMoved(slug);
+          return;
+        }
+      }
       const taken = await waitingMessages.take(dir);
       if (!taken) return;
       waitingMoved(slug);
@@ -2371,7 +2381,24 @@ export async function createRunner(config) {
   driver.on('permission', (p) => { broadcast('permission', p); events.emit('permission', p.slug, p); });
   driver.on('permission-gone', (p) => { broadcast('permission-gone', p); events.emit('permission-gone', p.slug ?? null, p); });
   // Where a steered message is (queued, delivered, acted-on, cancelled): the new UI only.
-  driver.on('steer', (s) => { events.emit('steer', s.slug ?? null, s); });
+  driver.on('steer', (s) => {
+    events.emit('steer', s.slug ?? null, s);
+    if (s.state === 'cancelled') keepUnread(s);
+  });
+  // A message sent into a reply that ended, or was stopped, before the Foreman read it is not lost (the job
+  // page's Send while it works): it becomes the job's waiting message, after the words already waiting. The
+  // reply's end then treats it as any waiting message (the 'run' listener below): it goes as a new message; after
+  // a plain stop it is kept until his Send; at a go-ahead or a question its words go back to the box.
+  // The driver reports it cancelled before it reports the reply ended, and the words are in memory before this
+  // returns (lib/queued.js put), so the end always finds them.
+  function keepUnread(s) {
+    const dir = driver.runs.get(s.runId)?.featureDir;
+    if (!dir || !s.text) return;
+    const was = waitingMessages.get(dir);
+    const text = was ? `${was.text}\n\n${s.text}` : s.text;
+    waitingMessages.put(dir, { slug: s.slug ?? was?.slug ?? path.basename(dir), text, confirmNoTerminal: was?.confirmNoTerminal === true }, { replace: true })
+      .then(() => waitingMoved(s.slug ?? path.basename(dir)), (err) => console.error(`unread message (${s.slug ?? dir}):`, err?.message ?? err));
+  }
   // How long a Foreman reply usually takes (lib/run-typical.js), for the running rows' "usually 2m".
   // Read from the audit at start and again after each reply ends.
   let runTypical = { all: null, byKind: {} };
