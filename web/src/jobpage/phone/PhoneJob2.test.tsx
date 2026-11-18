@@ -43,10 +43,12 @@ describe('the job screen', () => {
     for (let i = 1; i < parts.length; i++) expect(before(parts[i - 1], parts[i])).toBe(true);
     // The header scrolls with the screen: nothing of it stays above the panes.
     expect(document.querySelector('.jp2 > .jp2-head')).toBeNull();
-    // The box comes after the scroll area (the asks row between them, Task 19), so it never lies over the last row.
+    // The box comes after the scroll area (the asks row and the line above the box between them, Task 19), so it never lies over the last row.
     const box = screen.getByRole('textbox', { name: 'Message to the Foreman' });
     expect(scroll.nextElementSibling).toHaveClass('jp2-asks');
-    expect(scroll.nextElementSibling!.nextElementSibling).toContainElement(box);
+    // The line above the box (what the Foreman is doing) sits between the asks row and the box.
+    expect(scroll.nextElementSibling!.nextElementSibling).toHaveClass('jp2-now');
+    expect(scroll.nextElementSibling!.nextElementSibling!.nextElementSibling).toContainElement(box);
     expect(scroll).not.toContainElement(box);
     // The reader is not on this screen.
     expect(reader()).toHaveAttribute('aria-hidden', 'true');

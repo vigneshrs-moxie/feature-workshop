@@ -896,7 +896,7 @@ describe('final W10: the website shows his waiting message without Cancel or Sen
 
 describe('talk any time: Send goes into the running reply', () => {
   it('a 404 finished (the reply ended meanwhile) sends the same words as a plain message, with no error', async () => {
-    const post = vi.fn(async (path: string): Promise<unknown> => {
+    const post = vi.fn(async (path: string, _body?: unknown): Promise<unknown> => {
       if (path.endsWith('/steer')) throw new ApiError(404, 'That reply already finished. Send your message as a new one.', { code: 'finished' });
       return { run: { id: 'r1' } };
     });

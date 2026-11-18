@@ -107,7 +107,9 @@ describe('the row', () => {
     const o = open();
     await settle();
     const asks = document.querySelector('.jp2-asks')!;
-    expect(asks.nextElementSibling).toBe(document.querySelector('.jp2-mbw'));
+    // The line above the box (what the Foreman is doing) sits between them.
+    expect(asks.nextElementSibling).toHaveClass('jp2-now');
+    expect(asks.nextElementSibling!.nextElementSibling).toBe(document.querySelector('.jp2-mbw'));
     // The long job is at Review.
     expect(rowLabels()).toEqual(['Fix the open findings', 'Go faster', 'Where are we?', 'Explain this step']);
     pickStep(o, 'test');
