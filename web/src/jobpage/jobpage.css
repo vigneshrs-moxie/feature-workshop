@@ -274,7 +274,7 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2[data-layout="mid"] .jp2-reader, .jp2[data-layout="phone"] .jp2-reader { position: absolute; inset: 0; z-index: 2; visibility: hidden; transform: translateX(24px); opacity: 0; transition: transform 120ms ease-out, opacity 120ms ease-out, visibility 0s linear 120ms; }
 .jp2[data-covered][data-layout="mid"] .jp2-reader, .jp2[data-covered][data-layout="phone"] .jp2-reader { visibility: visible; transform: none; opacity: 1; transition: transform 120ms ease-out, opacity 120ms ease-out, visibility 0s; }
 .jp2[data-layout="mid"] .jp2-back, .jp2[data-layout="phone"] .jp2-back { flex: none; display: flex; align-items: center; height: 40px; padding: 0 12px 0 28px; border-bottom: 1px solid var(--border-1); background: var(--surface-0); }
-.jp2[data-layout="mid"] .jp2-left .jp2-lscroll > *, .jp2[data-layout="mid"] .jp2-mbw { width: 100%; max-width: 640px; margin-left: auto; margin-right: auto; }
+.jp2[data-layout="mid"] .jp2-left .jp2-lscroll > *, .jp2[data-layout="mid"] .jp2-now, .jp2[data-layout="mid"] .jp2-mbw { width: 100%; max-width: 640px; margin-left: auto; margin-right: auto; }
 @media (prefers-reduced-motion: reduce) {
   .jp2-reader { transition: none !important; }
   .jp2-rv-body { animation: none; }
@@ -511,6 +511,25 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2-mb-replace { flex: none; margin-left: auto; }
 .jp2[data-layout="phone"] .jp2-mb:has(+ .jp2-mb-wait) { padding-bottom: 8px; }
 .jp2[data-layout="phone"] .jp2-mb-wait { padding: 0 18px 30px; font-size: 14px; line-height: 20px; }
+/* What he sent into the running reply (talk any time): one line each, its words cut, then where it is. */
+.jp2-mb-steers { display: block; }
+.jp2-mb-steer { display: flex; align-items: baseline; gap: 8px; min-width: 0; margin: 0; }
+.jp2-mb-steer-words { flex: 0 1 auto; min-width: 0; overflow: hidden; color: var(--text-1); white-space: nowrap; text-overflow: ellipsis; }
+.jp2-mb-steer-says { flex: none; color: var(--text-2); }
+.jp2-mb-steer-more { margin: 0; color: var(--text-3); }
+/* The line above the box (talk any time): is it working, on what, for how long. One line, always there. */
+.jp2-now { flex: none; display: flex; align-items: center; gap: 6px; min-width: 0; min-height: 26px; padding: 4px 12px 0; border-top: 1px solid var(--border-1); font-size: 12.5px; line-height: 18px; color: var(--text-2); background: var(--surface-0); }
+.jp2-now + .jp2-mbw { border-top: 0; }
+.jp2-now-say { display: flex; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0; white-space: nowrap; }
+.jp2-now-what { flex: none; color: var(--text-1); font-weight: 500; }
+.jp2-now-time { flex: none; font-variant-numeric: tabular-nums; }
+.jp2-now-act { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.jp2-now-idle { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.jp2-now .jp2-ym-stop { flex: none; }
+.jp2-now-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: jp2-now-pulse 1.6s ease-in-out infinite; }
+@keyframes jp2-now-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .jp2-now-dot { animation: none; } }
+.jp2[data-layout="phone"] .jp2-now { padding: 6px 18px 0; font-size: 14px; line-height: 20px; }
 /* Point, then say (Task 17, R4): drawn over the reader's scroll area, never in the text's flow. */
 /* The `+` sits over the left margin, never in the block: no line height changes, no word moves. */
 .jp2-pt-plus { position: absolute; z-index: 20; display: inline-grid; place-items: center; width: 18px; height: 18px; margin: 0; padding: 0; border-radius: 5px; border: 1px solid var(--border-3); background: var(--surface-1); color: var(--text-2); font: inherit; font-size: 14px; font-weight: 600; line-height: 1; cursor: pointer; box-shadow: var(--elev-xs); }
@@ -598,7 +617,7 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2-dtab-meta { font-size: 12px; font-weight: 400; color: var(--text-3); }
 /* The conversation hidden: its message box (and the asks) stay, along the foot. */
 .jp2[data-convo="hidden"] .jp2-convo { grid-area: box; border-top: 1px solid var(--border-1); }
-.jp2[data-convo="hidden"] .jp2-convo > :not(.jp2-asks):not(.jp2-mbw) { display: none; }
+.jp2[data-convo="hidden"] .jp2-convo > :not(.jp2-asks):not(.jp2-now):not(.jp2-mbw) { display: none; }
 .jp2-convo-top { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px 0 16px; }
 .jp2-convo-top .jp2-convo-h { padding: 0; }
 .jp2[data-layout="wide"] .jp2-left, .jp2[data-layout="wide"] .jp2-lscroll { display: contents; }

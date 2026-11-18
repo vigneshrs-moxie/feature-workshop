@@ -4,24 +4,33 @@
 //   - with Go (Your move), they are the approval's note;
 //   - with Send back (Your move), they are the change;
 //   - alone, with Send, they are a message to the Foreman (POST /api/job/:slug/send).
-// No Reply mode, no Steer.
+// No Reply mode and no Steer button: Send itself goes into a running reply.
 //
 // The draft lives in the page's store, which keeps it under the old page's key (fw.draft.<slug>), so
 // a refresh, a step pick, a permission card, a width change and a reload all find the same words.
 //
 // Send shows `Sent` at once and empties the box; a refusal puts the words back (before anything
 // typed since) with the server's reason in plain words. It sends once however fast he clicks.
-// While a reply runs the box says `Sends when it finishes` (the prototype's words), with `Stop it and
-// send now` beside it in the same row (on the phone, with no room in the row, on its own line above
-// the box: Task 15). A message waits for the Foreman (Task 16, R8): Send while a reply runs posts it
-// with `queue: true` and the server keeps it (one per job, lib/queued.js) and sends it when the reply
-// ends. Its words show under the box at once, with `Cancel` (POST …/waiting/cancel; the words come back
-// to the box). A second one is refused naming the first: `Replace it` sends with `replace: true`. When
-// it was time to send and the server still said no (the usage limit, the terminal), the payload's
-// `waiting.why` says so in its place. `Stop it and send now` makes the words wait, then stops the reply
-// (POST /api/runs/:id/stop): the server sends them as it ends.
-// The website cannot keep a message waiting (its decisions wait for the laptop instead): there the
-// waiting message shows read-only, Send while a reply runs keeps the words in the box, and `Stop it and
+// While a reply runs, Send goes into that reply (talk any time, 18 Nov): on the laptop it posts the
+// words to POST /api/runs/:id/steer and the Foreman reads them at its next step, as he can butt in at
+// any moment in the terminal. The box says `Write to the Foreman… it reads this at its next step`. Under
+// the box, each message sent into this reply shows where it is (the app's steers: sent, read by the
+// Foreman, being answered; at most three, older ones folded), and goes when the reply ends. The reply
+// ending before he was answered (`unanswered`) puts the words back in the box once, with a line saying
+// so; a message the Foreman never read (`cancelled`) the server keeps as the job's waiting message and
+// sends when the reply ends, so the waiting block below shows it. The reply having ended meanwhile (404
+// finished) sends the words as a plain message; a reply that is stopping (409) makes them wait instead.
+// `Stop it and send now` is the interrupt: it sits beside the box in the same row (on the phone, with no
+// room in the row, on its own line above the box: Task 15). A message waits for the Foreman (Task 16,
+// R8): Stop it and send now posts it with `queue: true` and the server keeps it (one per job,
+// lib/queued.js) and sends it when the reply ends. Its words show under the box at once, with `Cancel`
+// (POST …/waiting/cancel; the words come back to the box). A second one is refused naming the first:
+// `Replace it` sends with `replace: true`. When it was time to send and the server still said no (the
+// usage limit, the terminal), the payload's `waiting.why` says so in its place. `Stop it and send now`
+// makes the words wait, then stops the reply (POST /api/runs/:id/stop): the server sends them as it ends.
+// The website cannot keep a message waiting or reach a running reply (its decisions wait for the laptop
+// instead): there the waiting message shows read-only, Send while a reply runs keeps the words in the box
+// (`Sends when it finishes`), and `Stop it and
 // send now` stops the reply, then sends the words once the run has ended (once more if the server still
 // says busy right after; it gives up waiting after STOP_WAIT_MS with a plain line). At a go-ahead or a
 // question the box says `Your own answer, or a message to the Foreman…` (the prototype's words).
@@ -31,8 +40,9 @@
 // Keys: c and i put the cursor here (the page's jp-write); ⌘↵ in the box is Go while a go-ahead
 // waits (Your move's jp-go), else Send.
 
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ClipboardEvent, type KeyboardEvent, type RefObject } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ClipboardEvent, type KeyboardEvent, type RefObject } from 'react';
 import { ApiError } from '../../api/client';
+import type { Steer } from '../../api/types';
 import { BRAND } from '../../app/brand';
 import { pressKey } from '../../app/keyRegistry';
 import { Button } from '../../components/Button';
@@ -52,6 +62,19 @@ const ACTIVE = new Set(['starting', 'running', 'waiting_permission', 'stopping']
 export const PLACEHOLDER = 'Write to the Foreman…';
 /** The prototype's short words (it sits beside Stop it and send now). */
 export const WHILE_RUNNING = 'Sends when it finishes';
+/** While a reply runs on the laptop: Send goes into it (talk any time), and its short form on the phone. */
+export const INTO_REPLY = 'Write to the Foreman… it reads this at its next step';
+const INTO_REPLY_SHORT = 'Message the Foreman…';
+/** Where a message sent into the reply is (the app's steer states). */
+export const STEER_WORDS: Partial<Record<Steer['state'], string>> = {
+  queued: 'Sent · the Foreman reads it at its next step',
+  delivered: 'Read by the Foreman',
+  'acted-on': 'The Foreman is answering it',
+};
+/** The reply ended before the Foreman answered: the words are back in the box. */
+export const UNANSWERED = 'The reply ended before the Foreman answered your last message. Its words are back in the box.';
+/** At most this many messages sent into the reply show under the box (older ones fold). */
+const STEER_ROWS = 3;
 /** At a go-ahead or a question (the prototype's PHQ), and its short form on the phone. */
 export const AT_ASK = 'Your own answer, or a message to the Foreman…';
 const AT_ASK_SHORT = 'Message the Foreman…';
@@ -103,6 +126,20 @@ const isSecond = (err: unknown): err is ApiError => err instanceof ApiError && e
 const isBusy = (err: unknown) => err instanceof ApiError && err.status === 409 && !err.body.code && /still working/i.test(err.message);
 
 type RunFacts = { id: string | null; status: string | null } | null;
+
+type SteerRow = Pick<Steer, 'id' | 'runId' | 'text' | 'state'>;
+/**
+ * This job's messages sent into the runs in `runs`, oldest first, as one string: a string stays the same
+ * value while nothing about them changes, so the box draws again only when one does (speed rule 5).
+ */
+function steersKey(steers: Record<string, Steer>, slug: string, runs: ReadonlySet<string>): string {
+  if (!runs.size) return '';
+  const mine: Steer[] = [];
+  for (const k in steers) { const x = steers[k]; if (x && x.slug === slug && runs.has(x.runId)) mine.push(x); }
+  if (!mine.length) return '';
+  mine.sort((a, b) => String(a.queuedAt ?? '').localeCompare(String(b.queuedAt ?? '')));
+  return JSON.stringify(mine.map((x): SteerRow => ({ id: x.id, runId: x.runId, text: x.text, state: x.state })));
+}
 
 /**
  * The run the Foreman is on, as fresh as the page can know it: the app's live run (the stream's
@@ -160,7 +197,7 @@ export { LOCKED };
 
 export const MessageBox = memo(function MessageBox({ boxRef, onOpen }: MessageBoxProps) {
   const store = useJobStore();
-  const { api } = useWorkshop();
+  const { api, store: app } = useWorkshop();
   const slug = useJob((s) => s.slug);
   const draft = useJob((s) => s.ui.draft);
   /** Notes pointed in the reader (R4): they go with the next Send (at a gate: Send back or Go). */
@@ -172,6 +209,21 @@ export const MessageBox = memo(function MessageBox({ boxRef, onOpen }: MessageBo
   const running = Boolean(run && ACTIVE.has(run.status ?? ''));
   const narrow = useNarrow();
   const hosted = useJob((s) => s.payload?.hosted === true);
+  /** The run Send goes into now (the laptop, a reply running), else null. */
+  const intoRun = running && !hosted ? run?.id ?? null : null;
+  /** The runs this box has seen running: their messages' ends (unanswered) are watched after the run ends. */
+  const seenRuns = useRef<Set<string>>(new Set());
+  if (intoRun && !seenRuns.current.has(intoRun)) seenRuns.current = new Set([...seenRuns.current, intoRun]);
+  const steerCache = useRef<{ steers: Record<string, Steer> | null; runs: ReadonlySet<string> | null; key: string }>({ steers: null, runs: null, key: '' });
+  const steerKey = useSyncExternalStore(app.subscribe, () => {
+    const steers = app.getState().steers;
+    const c = steerCache.current;
+    if (c.steers !== steers || c.runs !== seenRuns.current) steerCache.current = { steers, runs: seenRuns.current, key: steersKey(steers, slug, seenRuns.current) };
+    return steerCache.current.key;
+  });
+  const steerList = useMemo<SteerRow[]>(() => (steerKey ? JSON.parse(steerKey) as SteerRow[] : []), [steerKey]);
+  // Rows: this reply's messages, while it runs (a cancelled one shows as the waiting message instead).
+  const steerRows = intoRun ? steerList.filter((x) => x.runId === intoRun && STEER_WORDS[x.state]) : [];
   const waitText = useJob((s) => s.payload?.waiting?.text ?? null);
   const waitWhy = useJob((s) => s.payload?.waiting?.why ?? null);
   const waitAt = useJob((s) => s.payload?.waiting?.at ?? null);
@@ -324,6 +376,61 @@ export const MessageBox = memo(function MessageBox({ boxRef, onOpen }: MessageBo
     return kept ? 'waiting' : 'sent';
   }, [api, store, slug, noTerminal, focusBox]);
 
+  /**
+   * Send while a reply runs (the laptop): the words go into that reply (POST /api/runs/:id/steer) and the
+   * Foreman reads them at its next step. Shown at once under the box (the app's steers). The reply having
+   * ended meanwhile (404 finished) sends them as a plain message; a reply stopping (409) makes them wait.
+   */
+  const steer = useCallback(async (runId: string) => {
+    if (out.current) return;
+    const words = store.getState().ui.draft;
+    const text = words.trim();
+    const notes = store.getState().ui.notes;
+    if (!text && !notes.length) { focusBox(); return; }
+    const message = composeFor(notes, words);
+    out.current = true;
+    setPhase('sending');
+    setLine(null);
+    store.clearGaveBack();
+    store.setDraft('');
+    if (notes.length) store.setNotes([]);
+    let r: { steer?: Steer } | null;
+    try {
+      r = await api.post<{ steer?: Steer }>(`/api/runs/${encodeURIComponent(runId)}/steer`, { text: message });
+    } catch (err) {
+      out.current = false;
+      setPhase('idle');
+      // His words back, before anything typed since; his notes back as chips.
+      const now = store.getState().ui.draft;
+      if (!now.trim()) store.setDraft(words);
+      else if (!now.includes(text)) store.setDraft(`${text}\n\n${now}`);
+      if (notes.length) store.setNotes(notesBack(store.getState().ui.notes, notes));
+      if (err instanceof ApiError && err.status === 404 && err.body.code === 'finished') { void send(); return; }
+      if (err instanceof ApiError && err.status === 409) { void queue(); return; }
+      setLine({ words: sendRefusal(err), problem: true });
+      return;
+    }
+    if (r?.steer) app.dispatch({ type: 'steer', steer: r.steer });
+    out.current = false;
+    setPhase('sent');
+  }, [api, app, store, focusBox, send, queue]);
+
+  // The reply ended before the Foreman answered a message he sent into it: its words back in the box, once.
+  const unanswered = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    let back = false;
+    for (const x of steerList) {
+      if (x.state !== 'unanswered' || unanswered.current.has(x.id)) continue;
+      unanswered.current.add(x.id);
+      const now = store.getState().ui.draft;
+      const text = x.text.trim();
+      if (!now.trim()) store.setDraft(x.text);
+      else if (!now.includes(text)) store.setDraft(`${text}\n\n${now}`);
+      back = true;
+    }
+    if (back) { setPhase('idle'); setLine({ words: UNANSWERED, problem: false }); }
+  }, [steerList, store]);
+
   /** Cancel: off the page at once; the words come back to the box (before anything typed since) once the server has removed it. */
   const cancelWaiting = useCallback(async () => {
     const text = waits?.text ?? '';
@@ -395,11 +502,12 @@ export const MessageBox = memo(function MessageBox({ boxRef, onOpen }: MessageBo
     if (running) {
       // The website can't keep a message waiting: the words stay in the box.
       if (hosted) { setLine({ words: KEPT, problem: false }); return; }
-      void queue();
+      // The laptop: into the reply, read at the Foreman's next step (talk any time).
+      if (run?.id) void steer(run.id); else void queue();
       return;
     }
     void send();
-  }, [store, focusBox, locked, running, hosted, queue, send]);
+  }, [store, focusBox, locked, running, hosted, run?.id, steer, queue, send]);
 
   /** Stop it and send now, on this computer: the words wait (if any), then the reply stops; the server sends them as it ends. */
   const stopThenSend = useCallback(async () => {
@@ -474,7 +582,7 @@ export const MessageBox = memo(function MessageBox({ boxRef, onOpen }: MessageBo
     pressSend();
   }
 
-  const placeholder = running ? WHILE_RUNNING
+  const placeholder = running ? (hosted ? WHILE_RUNNING : narrow ? INTO_REPLY_SHORT : INTO_REPLY)
     : phase === 'sent' && !draft ? (narrow ? AFTER_SENT_SHORT : AFTER_SENT)
       : asked ? (narrow ? AT_ASK_SHORT : AT_ASK) : PLACEHOLDER;
   const sentShown = phase === 'sending' || (phase === 'sent' && !draft);
@@ -550,11 +658,22 @@ export const MessageBox = memo(function MessageBox({ boxRef, onOpen }: MessageBo
           className="jp2-mb-send"
           disabled={locked}
           onClick={pressSend}
-          title={locked ? `Off: ${LOCKED}` : backNow ? 'Send back: your notes, and the words in the box, are the change. The Foreman stays at this step, revises and asks you again.' : running ? (hosted ? 'The Foreman is replying: your words stay in the box until it finishes.' : 'The Foreman is replying: your message waits and goes when it finishes.') : noteCount ? 'Send your notes, and the words in the box, to the Foreman as one message.' : 'Send your words to the Foreman as a message.'}
+          title={locked ? `Off: ${LOCKED}` : backNow ? 'Send back: your notes, and the words in the box, are the change. The Foreman stays at this step, revises and asks you again.' : running ? (hosted ? 'The Foreman is replying: your words stay in the box until it finishes.' : 'The Foreman is working: your message goes into this reply and it reads it at its next step.') : noteCount ? 'Send your notes, and the words in the box, to the Foreman as one message.' : 'Send your words to the Foreman as a message.'}
         >
           {sentShown ? 'Sent' : backNow ? backLabel(noteCount) : sendLabel(noteCount)}
         </Button>
       </div>
+      {steerRows.length > 0 && (
+        <div className="jp2-mb-wait jp2-mb-steers" role="status">
+          {steerRows.length > STEER_ROWS && <p className="jp2-mb-steer-more">+{steerRows.length - STEER_ROWS} earlier</p>}
+          {steerRows.slice(-STEER_ROWS).map((x) => (
+            <p key={x.id} className="jp2-mb-steer" data-state={x.state}>
+              <span className="jp2-mb-steer-words" title={x.text}>{x.text}</span>
+              <span className="jp2-mb-steer-says">{STEER_WORDS[x.state]}</span>
+            </p>
+          ))}
+        </div>
+      )}
       {waits && (
         <div className={`jp2-mb-wait${waits.why ? ' is-problem' : ''}`} role="status">
           <p className="jp2-mb-wait-says">{fresh(going) ? 'Sending…' : waits.why ? `Not sent yet: ${waits.why}` : WAITS}</p>

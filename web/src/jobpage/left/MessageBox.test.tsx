@@ -107,6 +107,16 @@ const waitPost = () => vi.fn(async (path: string, body?: unknown): Promise<unkno
   const b = (body ?? {}) as { queue?: boolean; text?: string };
   return b.queue ? { ok: true, waiting: { text: b.text, at: '2026-11-13T12:00:00.000Z', why: null } } : { run: { id: 'r1' } };
 });
+/** A server that takes a message into the running reply (POST /api/runs/:id/steer → { steer }). */
+let steerN = 0;
+const steerPost = () => vi.fn(async (path: string, body?: unknown): Promise<unknown> => {
+  if (path.endsWith('/steer')) return { steer: { id: `s${++steerN}`, runId: 'run-now', slug: SLUG, text: (body as { text: string }).text, state: 'queued', queuedAt: `2026-11-04T15:0${steerN % 10}:00.000Z` } };
+  return { run: { id: 'r1' } };
+});
+/** What he sent into the reply, one row each (words, then where it is). */
+const steerRows = () => [...document.querySelectorAll('.jp2-mb-steer')].map((r) => r.textContent!.replace(/(\S)(Sent|Read|The Foreman)/, '$1 $2'));
+/** A steer event from the stream: where a message sent into the reply is now. */
+const steerEvent = (app: Store, id: string, text: string, state: string) => act(() => { app.dispatch({ type: 'steer', steer: { id, runId: 'run-now', slug: SLUG, text, state } as never }); });
 /** A page fetch with the payload as it now is (a refresh). */
 async function refresh(o: Opened, next: JobPagePayload) {
   o.serve(next);
@@ -358,16 +368,18 @@ describe('words with Go and with Send back', () => {
 });
 
 describe('while a reply runs', () => {
-  it('the box says Sends when it finishes, with Stop it and send now beside it in the same row; Send makes the words wait for the Foreman (Task 16)', async () => {
-    const o = open({ move: null, patch: { run: RUNNING }, post: waitPost() });
-    expect(box()).toHaveAttribute('placeholder', 'Sends when it finishes');
+  it('the box says the Foreman reads it at its next step, with Stop it and send now beside it in the same row; Send goes into the reply (talk any time)', async () => {
+    const o = open({ move: null, patch: { run: RUNNING }, post: steerPost() });
+    expect(box()).toHaveAttribute('placeholder', 'Write to the Foreman… it reads this at its next step');
+    expect(send()).toHaveAttribute('title', 'The Foreman is working: your message goes into this reply and it reads it at its next step.');
     expect(screen.getByRole('button', { name: 'Stop it and send now' }).parentElement).toBe(box().parentElement);
     type('Also the header.');
     fireEvent.click(send());
     await settle();
-    expect(callsTo(o.post, '/send').map((c) => JSON.stringify(c[1]))).toEqual(['{"kind":"message","text":"Also the header.","queue":true,"confirmNoTerminal":false}']);
+    expect(o.post.mock.calls.map((c) => [c[0], JSON.stringify(c[1])])).toEqual([['/api/runs/run-now/steer', '{"text":"Also the header."}']]);
     expect(box()).toHaveValue('');
-    expect(waitRow()).toHaveTextContent('Also the header.');
+    expect(send()).toHaveTextContent('Sent');
+    expect(steerRows()).toEqual(['Also the header. Sent · the Foreman reads it at its next step']);
     expect(document.querySelector('.jp2-mb-line')).toBeNull();
   });
 
@@ -533,10 +545,10 @@ describe('Task 11 fix round 1', () => {
 });
 
 describe('Task 11 fix round 1: the phone', () => {
-  it('on the phone the row has no room for Stop it and send now: it has its own line above the box (Task 15); the box says Sends when it finishes and Send makes the words wait (Task 16)', async () => {
+  it('on the phone the row has no room for Stop it and send now: it has its own line above the box (Task 15); Send goes into the reply (talk any time)', async () => {
     windowWidth(390);
-    const o = open({ move: null, patch: { run: RUNNING }, post: waitPost() });
-    expect(box()).toHaveAttribute('placeholder', 'Sends when it finishes');
+    const o = open({ move: null, patch: { run: RUNNING }, post: steerPost() });
+    expect(box()).toHaveAttribute('placeholder', 'Message the Foreman…');
     const stop = screen.getByRole('button', { name: 'Stop it and send now' });
     const row = box().closest('.jp2-mb')!;
     expect(row).not.toContainElement(stop);
@@ -544,9 +556,9 @@ describe('Task 11 fix round 1: the phone', () => {
     type('Also the header.');
     fireEvent.click(send());
     await settle();
-    expect(callsTo(o.post, '/send')).toHaveLength(1);
+    expect(callsTo(o.post, '/steer')).toHaveLength(1);
     expect(box()).toHaveValue('');
-    expect(waitRow()).toHaveTextContent('Also the header.');
+    expect(steerRows()).toEqual(['Also the header. Sent · the Foreman reads it at its next step']);
   });
 });
 
@@ -681,12 +693,12 @@ describe('Task 16: a message waits for the Foreman', () => {
   const waiting = (text: string, why: string | null = null) => ({ text, at: '2026-11-13T12:00:00.000Z', why });
   const withWaiting = (v: number, w: ReturnType<typeof waiting> | null, patch: Partial<JobPagePayload> = {}) => { const p = { ...payload(), ...patch }; p.v = v; p.move = null; p.waiting = w; return p; };
 
-  it('shows the waiting words under the box with Cancel at once, before the server answers, and once when the payload has them', async () => {
+  it('shows the waiting words (Stop it and send now) under the box with Cancel at once, before the server answers, and once when the payload has them', async () => {
     let answer: (v: unknown) => void = () => {};
     const post = vi.fn((_path: string, _body?: unknown) => new Promise((r) => { answer = r; }));
     const o = open({ move: null, patch: { run: RUNNING }, post });
     type('Also the header.');
-    fireEvent.click(send());
+    fireEvent.click(screen.getByRole('button', { name: 'Stop it and send now' }));
     const row = waitRow()!;
     expect(row).toHaveTextContent('Sends when the Foreman finishes');
     expect(row).toHaveTextContent('Also the header.');
@@ -725,8 +737,9 @@ describe('Task 16: a message waits for the Foreman', () => {
     expect(document.querySelector('.jp2-mb-line')).toHaveTextContent('It had already gone to the Foreman.');
   });
 
-  it('a second message while one waits: the words come back, the line names the first, and Replace it sends them in its place', async () => {
+  it('a second message while one waits (the reply stopping): the words come back, the line names the first, and Replace it sends them in its place', async () => {
     const post = vi.fn()
+      .mockRejectedValueOnce(new ApiError(409, 'The reply is stopping.'))
       .mockRejectedValueOnce(new ApiError(409, 'A message is already waiting for the Foreman: “First words.” Replace it, or cancel it first.', { code: 'waiting', waiting: waiting('First words.') }))
       .mockResolvedValueOnce({ ok: true, waiting: waiting('Second words.') });
     open({ move: null, patch: { run: RUNNING, waiting: waiting('First words.') }, post });
@@ -739,6 +752,7 @@ describe('Task 16: a message waits for the Foreman', () => {
     fireEvent.click(within(line).getByRole('button', { name: 'Replace it' }));
     await settle();
     expect(post.mock.calls.map((c) => JSON.stringify(c[1]))).toEqual([
+      '{"text":"Second words."}',
       '{"kind":"message","text":"Second words.","queue":true,"confirmNoTerminal":false}',
       '{"kind":"message","text":"Second words.","queue":true,"replace":true,"confirmNoTerminal":false}',
     ]);
@@ -794,7 +808,7 @@ describe('Task 16: a message waits for the Foreman', () => {
     const post = vi.fn().mockRejectedValueOnce(new ApiError(409, 'This job is being started again on another model right now. Wait for that to finish.'));
     open({ move: null, patch: { run: RUNNING }, post });
     type('Also the header.');
-    fireEvent.click(send());
+    fireEvent.click(screen.getByRole('button', { name: 'Stop it and send now' }));
     await settle();
     expect(box()).toHaveValue('Also the header.');
     expect(waitRow()).toBeNull();
@@ -877,5 +891,98 @@ describe('final W10: the website shows his waiting message without Cancel or Sen
     await settle();
     expect(within(waitRow()!).queryAllByRole('button')).toEqual([]);
     expect(b.post.mock.calls.filter((c: unknown[]) => String(c[0]).includes('/waiting/'))).toEqual([]);
+  });
+});
+
+describe('talk any time: Send goes into the running reply', () => {
+  it('a 404 finished (the reply ended meanwhile) sends the same words as a plain message, with no error', async () => {
+    const post = vi.fn(async (path: string): Promise<unknown> => {
+      if (path.endsWith('/steer')) throw new ApiError(404, 'That reply already finished. Send your message as a new one.', { code: 'finished' });
+      return { run: { id: 'r1' } };
+    });
+    open({ move: null, patch: { run: RUNNING }, post });
+    type('Also the header.');
+    fireEvent.click(send());
+    await settle();
+    expect(post.mock.calls.map((c) => [c[0], JSON.stringify(c[1])])).toEqual([
+      ['/api/runs/run-now/steer', '{"text":"Also the header."}'],
+      [`/api/job/${SLUG}/send`, '{"kind":"message","text":"Also the header.","confirmNoTerminal":false}'],
+    ]);
+    expect(box()).toHaveValue('');
+    expect(send()).toHaveTextContent('Sent');
+    expect(document.querySelector('.jp2-mb-line')).toBeNull();
+  });
+
+  it('a 409 (the reply is stopping) makes the words wait for the Foreman instead', async () => {
+    const post = vi.fn(async (path: string, body?: unknown): Promise<unknown> => {
+      if (path.endsWith('/steer')) throw new ApiError(409, 'The reply is stopping.');
+      return { ok: true, waiting: { text: (body as { text: string }).text, at: '2026-11-13T12:00:00.000Z', why: null } };
+    });
+    open({ move: null, patch: { run: RUNNING }, post });
+    type('Also the header.');
+    fireEvent.click(send());
+    await settle();
+    expect(callsTo(post, '/send').map((c) => JSON.stringify(c[1]))).toEqual(['{"kind":"message","text":"Also the header.","queue":true,"confirmNoTerminal":false}']);
+    expect(box()).toHaveValue('');
+    expect(waitRow()).toHaveTextContent('Also the header.');
+    expect(document.querySelector('.jp2-mb-line')).toBeNull();
+  });
+
+  it('any other refusal puts the words back with the reason', async () => {
+    const post = vi.fn(async () => { throw new ApiError(500, 'Something broke.'); });
+    open({ move: null, patch: { run: RUNNING }, post });
+    type('Also the header.');
+    fireEvent.click(send());
+    await settle();
+    expect(box()).toHaveValue('Also the header.');
+    expect(foot().getByRole('alert')).toHaveTextContent('Not sent: Something broke.');
+  });
+
+  it('each message shows where it is: sent, read, being answered; a cancelled one shows no row; at most three, older ones folded', async () => {
+    const o = open({ move: null, patch: { run: RUNNING }, post: steerPost() });
+    steerEvent(o.app, 'a', 'One.', 'queued');
+    expect(steerRows()).toEqual(['One. Sent · the Foreman reads it at its next step']);
+    steerEvent(o.app, 'a', 'One.', 'delivered');
+    expect(steerRows()).toEqual(['One. Read by the Foreman']);
+    steerEvent(o.app, 'a', 'One.', 'acted-on');
+    expect(steerRows()).toEqual(['One. The Foreman is answering it']);
+    expect(document.querySelector('.jp2-mb-steer-words')).toHaveAttribute('title', 'One.');
+    steerEvent(o.app, 'b', 'Two.', 'cancelled');
+    expect(steerRows()).toHaveLength(1);
+    for (const id of ['c', 'd', 'e']) steerEvent(o.app, id, `${id}.`, 'queued');
+    expect(steerRows()).toHaveLength(3);
+    expect(document.querySelector('.jp2-mb-steer-more')).toHaveTextContent('+1 earlier');
+    // The reply ends: the rows go.
+    act(() => { o.app.dispatch({ type: 'event', event: { v: 2, type: 'run', job: SLUG, seq: 999999, data: { id: 'run-now', slug: SLUG, status: 'done' } } } as never); });
+    expect(document.querySelector('.jp2-mb-steers')).toBeNull();
+  });
+
+  it('unanswered: the words come back to the box once, with a line saying so', async () => {
+    const o = open({ move: null, patch: { run: RUNNING }, post: steerPost() });
+    type('Also the header.');
+    fireEvent.click(send());
+    await settle();
+    const id = Object.keys(o.app.getState().steers)[0]!;
+    type('And the footer.');
+    act(() => { o.app.dispatch({ type: 'event', event: { v: 2, type: 'run', job: SLUG, seq: 999999, data: { id: 'run-now', slug: SLUG, status: 'done' } } } as never); });
+    steerEvent(o.app, id, 'Also the header.', 'unanswered');
+    expect(box()).toHaveValue('Also the header.\n\nAnd the footer.');
+    expect(document.querySelector('.jp2-mb-line')).toHaveTextContent('The reply ended before the Foreman answered your last message. Its words are back in the box.');
+    type('');
+    steerEvent(o.app, 'other', 'x', 'queued');
+    expect(box()).toHaveValue('');
+  });
+
+  it('a second fast click sends once', async () => {
+    let answer: (v: unknown) => void = () => {};
+    const post = vi.fn((_path: string, _body?: unknown) => new Promise((r) => { answer = r; }));
+    open({ move: null, patch: { run: RUNNING }, post });
+    type('Also the header.');
+    fireEvent.click(send());
+    fireEvent.click(send());
+    type('More.');
+    fireEvent.click(send());
+    expect(post).toHaveBeenCalledTimes(1);
+    await act(async () => { answer({ steer: { id: 'z', runId: 'run-now', slug: SLUG, text: 'Also the header.', state: 'queued' } }); });
   });
 });

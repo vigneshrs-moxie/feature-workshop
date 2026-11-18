@@ -58,6 +58,7 @@ import { Header } from './left/Header';
 import { JobRows } from './left/JobRows';
 import { AsksContext, AsksRow, useAskRunner } from './left/AsksRow';
 import { MessageBox } from './left/MessageBox';
+import { NowLine } from './left/NowLine';
 import { Steps, stepsFromRow } from './left/Steps';
 import { PhonePrLines, usePrLead, usePrOpeningRead } from './left/PrLines';
 import { YourMove } from './left/YourMove';
@@ -441,6 +442,8 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
             <JobRows cursor={cursor} first={lines.findIndex((l) => l.target)} onOpen={pickReader} wide={wide} convoShown={wide && convoShown} />
           </div>
           {!wide && <AsksRow runner={asks} job={job} phone={phone} lead={prLead.lead} onLead={prLead.onLead} />}
+          {/* The line above the box: is it working, on what, for how long (talk any time). */}
+          {!wide && <NowLine />}
           {!wide && <MessageBox boxRef={box} onOpen={pickReader} />}
         </div>
         {screenNow === 'step' && step && <PhoneStep id={step} job={job} onBack={moves.back} onOpen={pickReader} />}
@@ -481,6 +484,7 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
               <ConversationView searchRef={search} onOpen={pickReader} column />
             </AsksContext.Provider>
             <AsksRow runner={asks} job={job} phone={false} lead={prLead.lead} onLead={prLead.onLead} />
+            <NowLine />
             <MessageBox boxRef={box} onOpen={pickReader} />
           </section>
         )}
