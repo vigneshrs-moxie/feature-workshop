@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
-import { Registry, BUNDLED_DIR, REPOS_FILE, recentRepos, reposDoor } from '../lib/repos.js';
+import { Registry, BUNDLED_DIR, REPOS_FILE, recentRepos, reposDoor, keptAnswer } from '../lib/repos.js';
 import { PROFILE_FILE } from '../lib/profile.js';
 import { ORG_REMOTES, ORG_URL, hardLine, setProfileOrgs } from '../lib/hard-lines.js';
 
@@ -363,4 +363,25 @@ test('Settings → Repos routes: list, add (400 with each error), check, remove;
   assert.equal(again.status, 400);
   assert.match(again.data.error, /isn’t in the list/);
   await fs.rm(fx.root, { recursive: true, force: true });
+});
+
+test('GET /api/repos\'s answer (keptAnswer) is kept a minute, shared while it loads, forgotten on drop() or a failed load', async () => {
+  let t = 0;
+  let loads = 0;
+  let fail = false;
+  const get = keptAnswer(60_000, async () => { loads++; if (fail) throw new Error('git broke'); return { repos: [loads] }; }, () => t);
+  const [a, b] = await Promise.all([get(), get()]);
+  assert.equal(loads, 1, 'two callers at once share one load');
+  assert.equal(a, b);
+  t = 59_999;
+  assert.equal(await get(), a, 'still kept just under a minute later');
+  t = 60_000;
+  assert.deepEqual(await get(), { repos: [2] }, 'read again after a minute');
+  get.drop();
+  assert.deepEqual(await get(), { repos: [3] }, 'read again at once after drop() (a repository added or forgotten)');
+  get.drop();
+  fail = true;
+  await assert.rejects(get(), /git broke/);
+  fail = false;
+  assert.deepEqual(await get(), { repos: [5] }, 'a failed load is not kept');
 });
