@@ -56,6 +56,17 @@ When reviewers comment on a pull request, the PR's own view in the reader lists 
 - Then the PR line's button is `Push the fixes (n commits)`.
 - A failed check shows `Show the failure` (its failing lines) and `Fix it`, which sends the Foreman the failing lines to fix on the branch.
 
+### The review round
+
+When a reviewer's review starts a round, the PR's view says where the round is, under the PR's line:
+
+- **Which round and what it waits on**, in one line with the line under it, for example `Round 2 · Waiting on Raj to review PR #2 again` and `Round 1 went back at 2:02 pm. Nothing for you to do.`
+- **While Send back runs, and after it stopped:** each step (push, replies, resolve, ask for a review again) with its state, and what GitHub said if a step failed. `Try again from here` picks up where it stopped.
+- **Approved:** who merges it, into what and how.
+- **`Rounds on PR #2`** (folded): each round with how many items, when it opened and when it went back, and the current round from start to end.
+
+The round's comments and replies are the rows above it, and its Send back is `Push the fixes`: they are not listed twice. `Merge`, `Remind` and `Ask for a review` stay on the job's quick look (its next-step bar). The round is read when the PR's view opens and again when the PR's line changes. Not on the website.
+
 ## Other Ship asks
 
 In the asks row and `⌘K` on the Ship step: `Pull PR comments`, `Shorten the PR text`, `Mark done` (opens the same Mark done sheet as the `⋯` menu; it never marks in one click), and in `⌘K` only `Test steps for stakeholders`, `Fix the ticket number…` and `New branch with only this change`.

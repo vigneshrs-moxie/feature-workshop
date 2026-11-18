@@ -16,6 +16,7 @@ From left to right:
 - **Dim facts:** the level (`L2`), the repository, and the cost so far (shown once it is over 10 cents).
 - **`Next: <job> · n wait ›`**: the job that has waited longest for you, other than this one. One click, or `g` then `n`, opens it. This is how you work through a queue without going back to Jobs.
 - **The Auto switch** with its word (`On` or `Off`). See [page 6](06-auto-and-permissions.md).
+- **`What Auto decided`**, right after the switch, on a job Auto is on or has run on: one click opens the list in the reader (what Auto approved or answered for you, newest first, and why). It shows on the website too.
 - **The `⋯` menu** ("More for this job") with everything rare:
 
 | Item | What it does |
@@ -60,7 +61,7 @@ A permission (a command that needs your yes) takes the same place on the left, w
 
 ### 4. When nothing waits: the reader and the step panel
 
-- **The reader** shows one thing at a time: a brief, a document (spec, plan, findings, test plan), the changes (commits, files and the diff), the checks and recording, the PR lines, a message. Its title row says what it is, its version, its step and when; `‹` `›` step to the previous and next thing; `Older` lists older versions and earlier rounds. Lines stop at about 80 characters so they stay easy to read.
+- **The reader** shows one thing at a time: a brief, a document (spec, plan, findings, test plan), the changes (commits, files and the diff), the checks and recording, the PR lines, a PR with its comments and review round, `What Auto decided`, a message. Its title row says what it is, its version, its step and when; `‹` `›` step to the previous and next thing; `Older` lists older versions and earlier rounds. Lines stop at about 80 characters so they stay easy to read.
 - **The step panel** ("What it made") beside the reader: the picked step's name and result, how long it took (or since when it runs), and every output as a row that opens in the reader.
 - A line above the reader says what the job is doing now, for example "Working · Run the unit tests (npm test) · 465 of 577".
 

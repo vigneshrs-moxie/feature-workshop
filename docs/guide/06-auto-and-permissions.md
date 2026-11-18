@@ -77,7 +77,7 @@ Only dead ends stop an Auto job. It then shows under `Needs you` (on Jobs' Auto 
 
 ### What Auto decided
 
-Every risky call and every refusal is listed on the job (`What Auto decided`), with what was in doubt, what Auto chose and why. The count of risky calls shows on the job's card. PR #1's description gets a short section, "Decisions Auto made", with one line per risky call.
+Every risky call and every refusal is listed on the job (`What Auto decided`), with what was in doubt, what Auto chose and why. On the job page the `What Auto decided` button sits right after the Auto switch in the header and opens the list in the reader; the job's quick look, the Desk and Jobs keep their own button. The count of risky calls shows on the job's card. PR #1's description gets a short section, "Decisions Auto made", with one line per risky call.
 
 ### Auto start: tickets that start by themselves
 
