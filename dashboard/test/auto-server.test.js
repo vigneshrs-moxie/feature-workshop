@@ -5342,6 +5342,15 @@ test('a job with no ticket asks no model', { timeout: 30_000 }, async () => {
   } finally { await w.stop(); }
 });
 
+test('a job with no ticket and a long description is cut where a word ends, never mid-word', { timeout: 30_000 }, async () => {
+  // Nov 18: a slug ended "-priority-mediu".
+  const w = await world({ auto: null, namer: namerOf('x') });
+  try {
+    const out = await w.hooks.startJob({ description: 'Bug report from the portal feedback page with priority medium and more', repoPath: w.dirs.repo, options: { level: 1 } });
+    assert.equal(out.slug, 'bug-report-from-the-portal-feedback-page-with');
+  } finally { await w.stop(); }
+});
+
 test('a second job on the same name gets -2', { timeout: 30_000 }, async () => {
   const namer = namerOf('employee-status-filter');
   const w = await world({ auto: null, namer });

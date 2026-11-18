@@ -1599,7 +1599,10 @@ export async function createRunner(config) {
   }
 
   function slugify(s) {
-    return String(s).toLowerCase().normalize('NFKD').replace(/[^\w\s-]/g, '').trim().replace(/[\s_]+/g, '-').replace(/-+/g, '-').slice(0, 48).replace(/-$/, '') || 'job';
+    const full = String(s).toLowerCase().normalize('NFKD').replace(/[^\w\s-]/g, '').trim().replace(/[\s_]+/g, '-').replace(/-+/g, '-');
+    // At most 48 characters, cut at the last hyphen at or under 48 so no word is cut (Nov 18: "-priority-mediu").
+    const at = full.length > 48 ? full.slice(0, 49).lastIndexOf('-') : -1;
+    return (full.length <= 48 ? full : at > 0 ? full.slice(0, at) : full.slice(0, 48)).replace(/-$/, '') || 'job';
   }
 
   // restartOf: the folder of the job a restart is starting again (its folder already moved aside). Its
