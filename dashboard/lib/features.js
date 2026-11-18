@@ -1,10 +1,11 @@
 // Builds the dashboard's view of every feature from disk. Read-only.
 
 import fs from 'node:fs/promises';
+import { Buffer } from 'node:buffer';
 import path from 'node:path';
 import { parseWorkflowStatus } from './workflow-status.js';
 import { parseStatusJson } from './status-json.js';
-import { parseSessionLog, usageByModel, activityState, quietHint, spendSince } from './session-log.js';
+import { usageByModel, activityState, quietHint, spendSince, newLogState, cloneLogState, feedSessionLog } from './session-log.js';
 import { agentInfo } from './stages.js';
 import { readOptions, skippedFor } from './options.js';
 import { estimateCost, calibrationFactors } from './cost.js';
@@ -54,12 +55,48 @@ const isWorkflowSession = (parsed, text) =>
   text.includes('"skill":"feature') ||
   /<command-name>\/?feature(-[a-z]+)?<\/command-name>/.test(text);
 
-// Caches parsed logs by file path + size + mtime, so refreshes only re-read changed files.
+// How many bytes of a log's start are kept to tell a log that grew from one that was replaced.
+const HEAD_BYTES = 256;
+const NL = 0x0a;
+
+// Bytes [start, end) of an open file, with a positioned read (never the whole file).
+async function readRange(fh, start, end) {
+  const buf = Buffer.alloc(Math.max(0, end - start));
+  let got = 0;
+  while (got < buf.length) {
+    const { bytesRead } = await fh.read(buf, got, buf.length - got, start + got);
+    if (!bytesRead) break;
+    got += bytesRead;
+  }
+  return got < buf.length ? buf.subarray(0, got) : buf;
+}
+
+// How many times `needle` is in `text` (as the old text.split(needle).length - 1 counted).
+function countIn(text, needle) {
+  if (!needle) return 0;
+  let n = 0;
+  for (let i = text.indexOf(needle); i !== -1; i = text.indexOf(needle, i + needle.length)) n++;
+  return n;
+}
+
+// Caches parsed logs by file path + size + mtime, so refreshes only re-read changed files. A log only
+// grows (JSON lines appended), so a changed log is read on from where the last read stopped: the
+// parser's state after the last whole line is kept with its byte offset, and only the bytes after it
+// are read. A last line not yet ended with a newline is read into a copy each time and kept for
+// next time, so the result is always what a full read of the file says. A log that got shorter,
+// whose first bytes changed, or that turned out to be a workflow session (whose whole text is kept)
+// is read again in full.
 export class SessionIndex {
   constructor(projectsDir) {
     this.projectsDir = projectsDir;
     this.cache = new Map();
+    this.fullReads = 0; // tests and measuring: how many logs were read in full
+    this.partReads = 0; // … and how many were read on from their offset
+    this.#allLoading = null;
   }
+
+  #allLoading;
+  #metas = new Map();
 
   async #load(file) {
     const st = await statOrNull(file);
@@ -67,14 +104,71 @@ export class SessionIndex {
     const key = `${st.size}:${st.mtimeMs}`;
     const hit = this.cache.get(file);
     if (hit && hit.key === key) return hit.value;
-    const text = await readText(file);
-    if (text === null) return null;
-    const parsed = parseSessionLog(text);
-    const isWorkflow = isWorkflowSession(parsed, text);
+    let fh;
+    try { fh = await fs.open(file, 'r'); } catch { return null; }
+    try {
+      const size = (await fh.stat()).size;
+      const head = await readRange(fh, 0, Math.min(HEAD_BYTES, size));
+      const kept = hit?.kept;
+      const grew = kept && size >= kept.offset && head.subarray(0, kept.head.length).equals(kept.head);
+      const entry = grew ? await this.#readOn(fh, file, kept, head, size) : null;
+      const next = entry ?? await this.#readAll(fh, file, head, size);
+      if (!next) return null;
+      next.value.mtimeMs = st.mtimeMs;
+      this.cache.set(file, { key, value: next.value, kept: next.kept });
+      return next.value;
+    } finally {
+      await fh.close().catch(() => {});
+    }
+  }
+
+  // The value handed out for a kept state and the unfinished last line after it (not kept).
+  #valueOf(file, kept, tailText) {
+    let parsed = kept.state.out;
+    if (tailText) parsed = feedSessionLog(cloneLogState(kept.state), tailText).out;
+    const isWorkflow = kept.isWorkflow || (Boolean(tailText) && isWorkflowSession(parsed, tailText));
+    const text = kept.isWorkflow ? kept.text + tailText : '';
+    // How many times the log names a folder (the session's owner, sessionsByFeature), counted once per
+    // folder over the kept text and added to as the log grows.
+    const mentions = (needle) => {
+      if (!kept.counts.has(needle)) kept.counts.set(needle, countIn(kept.text, needle));
+      return kept.counts.get(needle) + (tailText ? countIn(tailText, needle) : 0);
+    };
+    return { file, parsed, text, isWorkflow, mentions };
+  }
+
+  async #readAll(fh, file, head, size) {
+    this.fullReads++;
+    const buf = head.length === size ? head : await readRange(fh, 0, size);
+    const end = buf.lastIndexOf(NL) + 1;
+    const whole = buf.toString('utf8', 0, end);
+    const tailText = buf.toString('utf8', end);
+    const state = feedSessionLog(newLogState(), whole);
+    const isWorkflow = isWorkflowSession(state.out, whole);
     // Keep the raw text only for workflow sessions (needed to match feature folders); others can be large.
-    const value = { file, parsed, text: isWorkflow ? text : '', isWorkflow, mtimeMs: st.mtimeMs };
-    this.cache.set(file, { key, value });
-    return value;
+    const kept = { state, offset: end, head: Buffer.from(head), isWorkflow, text: isWorkflow ? whole : '', counts: new Map() };
+    const value = this.#valueOf(file, kept, tailText);
+    // Not a workflow session until its unfinished last line: kept as one would be on its next read.
+    if (value.isWorkflow && !kept.isWorkflow) { kept.isWorkflow = true; kept.text = whole; value.text = whole + tailText; }
+    return { kept, value };
+  }
+
+  // Read on from the kept offset. Null when the log must be read in full instead.
+  async #readOn(fh, file, prev, head, size) {
+    const buf = await readRange(fh, prev.offset, size);
+    const end = buf.lastIndexOf(NL) + 1;
+    const whole = buf.toString('utf8', 0, end);
+    const tailText = buf.toString('utf8', end);
+    // The kept state is never changed in place: a value handed out before still says what it said.
+    const state = end ? feedSessionLog(cloneLogState(prev.state), whole) : prev.state;
+    const nowWorkflow = prev.isWorkflow || isWorkflowSession(state.out, whole) || (Boolean(tailText) && isWorkflowSession(feedSessionLog(cloneLogState(state), tailText).out, tailText));
+    // It just became a workflow session: its earlier text wasn't kept, so read it all.
+    if (nowWorkflow && !prev.isWorkflow) return null;
+    this.partReads++;
+    const counts = new Map();
+    for (const [needle, n] of prev.counts) counts.set(needle, n + countIn(whole, needle));
+    const kept = { state, offset: prev.offset + end, head: prev.head.length < HEAD_BYTES ? Buffer.from(head) : prev.head, isWorkflow: prev.isWorkflow, text: prev.isWorkflow ? prev.text + whole : '', counts };
+    return { kept, value: this.#valueOf(file, kept, tailText) };
   }
 
   async #subagents(sessionFile) {
@@ -85,15 +179,25 @@ export class SessionIndex {
       const file = path.join(dir, ent.name);
       const log = await this.#load(file);
       if (!log) continue;
-      let meta = {};
-      try { meta = JSON.parse((await readText(file.replace(/\.jsonl$/, '.meta.json'))) ?? '{}'); } catch { /* no meta */ }
+      // A worker's .meta.json is written once, when it starts: read until it has been read once.
+      let meta = this.#metas.get(file);
+      if (!meta) {
+        const raw = await readText(file.replace(/\.jsonl$/, '.meta.json'));
+        try { meta = JSON.parse(raw ?? '{}'); } catch { meta = {}; }
+        if (raw !== null && meta && typeof meta === 'object') this.#metas.set(file, meta); else meta ??= {};
+      }
       out.push({ ...log, meta });
     }
     return out;
   }
 
-  // All top-level session logs (not subagent logs).
-  async allSessions() {
+  // All top-level session logs (not subagent logs). Callers at the same moment share one walk.
+  allSessions() {
+    this.#allLoading ??= this.#walk().finally(() => { this.#allLoading = null; });
+    return this.#allLoading;
+  }
+
+  async #walk() {
     const sessions = [];
     for (const proj of await listDir(this.projectsDir)) {
       if (!proj.isDirectory()) continue;
@@ -133,7 +237,7 @@ export class SessionIndex {
         let best = 0;
         for (const dir of featureDirs) {
           // The log is JSON lines: the folder is in it as JSON writes it (on Windows every \ is \\).
-          const n = log.text.split(JSON.stringify(dir).slice(1, -1)).length - 1;
+          const n = log.mentions(JSON.stringify(dir).slice(1, -1));
           if (n > best) { best = n; owner = dir; }
         }
       }
