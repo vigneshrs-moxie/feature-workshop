@@ -30,7 +30,7 @@ Hosting the site itself is in [docs/hosting/vercel-setup.md](../hosting/vercel-s
 - **Run anything.** No `Try it`, no terminals, no `Open the folder in a terminal`, no commits list.
 - **The laptop-only menu items** are left out of the job's `⋯` menu (Mark done, Notes and options, Change model, Permissions). It keeps `Copy decisions` and `How this page works`.
 - **Read GitHub.** PR lines show without buttons and without `Pull now`; `Pull PR comments` and `Mark done` are not in the asks.
-- **Keep a message waiting.** On the website, `Send` while the Foreman is replying keeps your words in the box; send them when it finishes, or use `Stop it and send now`.
+- **Keep a message waiting, or send into a reply.** On the website, `Send` while the Foreman is replying keeps your words in the box (the box says "Sends when it finishes"); send them when it finishes, or use `Stop it and send now`. Only the laptop puts a message into a reply in progress.
 - **Some pages** (a job's screens, most of Settings, the flow map, the table) say "Open this on your laptop for now".
 
 ## Decisions queued for your laptop

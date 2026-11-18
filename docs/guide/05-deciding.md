@@ -68,15 +68,16 @@ There is one place to write, and what the words do depends on the button you pre
 | `Send` | a message to the Foreman |
 
 - **Your draft is kept** per job, in this browser: through a reload, a step pick, a permission card or a narrower window.
-- **While the Foreman is replying**, the box says "Sends when it finishes". Press `Send` and your message waits: it shows under the box with `Cancel`, and goes as soon as the reply ends. Only one message can wait per job; a second one asks whether to `Replace it`.
-- **`Stop it and send now`** stops the reply in progress and sends your words as it ends.
+- **The line above the box** says what the Foreman is doing: `Working`, how long the reply has run, and its last action (for example `Working · 4m 12s · Running npm test`), with `Stop`. When no reply runs, it says where the job stands.
+- **While the Foreman is replying**, you can still write: `Send` puts your message into the reply in progress, and the Foreman reads it at its next step, as in the terminal. Under the box each message says where it is: sent, read by the Foreman, or being answered. If the reply ends before the Foreman answers it, its words come back to the box.
+- **`Stop it and send now`** is for when you want the Foreman to drop what it is doing: it stops the reply and sends your words as it ends. Until then they wait under the box with `Cancel`. Only one message can wait per job; a second one asks whether to `Replace it`.
 - If a send is refused (the usage limit, or Claude Code is open on this job in a terminal), your words go back in the box with the reason.
 
 ## Stop
 
-The job page has no separate Stop button. To stop a job:
+To stop a job:
 
-- **Stop the reply now:** `⌘K`, then `Every Starbase action`, then `Stop the reply`. It ends the Foreman's reply at once; anything waiting for your answer is declined, your draft is kept, and the job waits for your next message.
+- **Stop the reply now:** `Stop` on the line above the message box (or `⌘K`, then `Every Starbase action`, then `Stop the reply`). It ends the Foreman's reply at once; anything waiting for your answer is declined, your draft is kept, and the job waits for your next message.
 - **Stop and send something instead:** `Stop it and send now` beside the message box.
 - **Stop after this step:** the `Stop here` ask in `⌘K` sends "Stop after the current step and wait for me."
 
