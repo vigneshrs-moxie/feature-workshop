@@ -98,8 +98,11 @@ export function TryTab({ slug, active, startOnOpen = false }: { slug: string; ac
   useEffect(() => {
     if (!active) return undefined;
     load();
-    const id = setInterval(() => load(), working ? 1500 : 10000);
-    return () => clearInterval(id);
+    // No polling while the tab is hidden; one look as soon as it is in view again.
+    const id = setInterval(() => { if (document.visibilityState !== 'hidden') load(); }, working ? 1500 : 10000);
+    const onVisibility = () => { if (document.visibilityState === 'visible') load(); };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => { clearInterval(id); document.removeEventListener('visibilitychange', onVisibility); };
   }, [active, load, working]);
 
   // The output follows its end while you're at the bottom.

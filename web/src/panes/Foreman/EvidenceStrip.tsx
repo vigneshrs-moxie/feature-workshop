@@ -168,8 +168,12 @@ export function EvidenceStrip({ slug, tested = null, refresh = null, fold = fals
   // While it records, look again now and then until it is done (the page does this for a view it passes).
   useEffect(() => {
     if (shared || !view?.recording) return;
-    const t = setTimeout(() => setTick((n) => n + 1), POLL_MS);
-    return () => clearTimeout(t);
+    // Not while the tab is hidden: the look waits, and happens once it is in view again.
+    let due = false;
+    const t = setTimeout(() => { if (document.visibilityState === 'hidden') due = true; else setTick((n) => n + 1); }, POLL_MS);
+    const onVisibility = () => { if (due && document.visibilityState === 'visible') { due = false; setTick((n) => n + 1); } };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => { clearTimeout(t); document.removeEventListener('visibilitychange', onVisibility); };
   }, [view, shared]);
 
   if (!view) return null;

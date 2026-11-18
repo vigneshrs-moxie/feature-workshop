@@ -461,3 +461,27 @@ describe('a recording’s notes', () => {
     }
   });
 });
+
+describe('the strip while the tab is hidden', () => {
+  const visibility = (v: 'visible' | 'hidden') => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => v });
+    act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+  };
+  it('does not look again while hidden during a recording, and looks once when it is in view again', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
+    try {
+      const { get } = setup({ view: { ...VIEW, recording: true } });
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(get).toHaveBeenCalledTimes(1);
+      visibility('hidden');
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+      expect(get).toHaveBeenCalledTimes(1);
+      visibility('visible');
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(get).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+    }
+  });
+});

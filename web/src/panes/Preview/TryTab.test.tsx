@@ -1,6 +1,6 @@
 // Try it (TryTab.tsx): the classic page's "Try it on your computer" in the Preview pane. Same
 // routes; the database switch asks first, in place.
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../../api/client';
 import { createStore, WorkshopContext } from '../../state/store';
@@ -91,5 +91,30 @@ describe('Try it started from the job page (startOnOpen)', () => {
     const { post } = open({ ...ready, server: { status: 'running' } });
     expect(await screen.findByRole('link', { name: 'Open the app ↗' })).toBeInTheDocument();
     expect(post).not.toHaveBeenCalled();
+  });
+});
+
+describe('Try it while the tab is hidden', () => {
+  const visibility = (v: 'visible' | 'hidden') => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => v });
+    act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+  };
+  it('asks nothing while hidden, and looks once when it is in view again', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      const get = vi.fn(async () => VIEW);
+      render(<WorkshopContext.Provider value={{ store: createStore(), api: { get, post: vi.fn() } as unknown as ApiClient }}><TryTab slug="alpha" active /></WorkshopContext.Provider>);
+      await act(async () => {});
+      expect(get).toHaveBeenCalledTimes(1);
+      visibility('hidden');
+      await act(async () => { vi.advanceTimersByTime(30_000); });
+      expect(get).toHaveBeenCalledTimes(1);
+      visibility('visible');
+      await act(async () => {});
+      expect(get).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+    }
   });
 });
