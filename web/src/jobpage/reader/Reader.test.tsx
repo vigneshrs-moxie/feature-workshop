@@ -69,7 +69,8 @@ function open({ patch, bodies = {}, hold = [], get = vi.fn() }: { patch?: (p: Jo
     return b;
   });
   const store = createJobStore(SLUG, { api: { page: async () => ({ same: true as const, v: p.v }), item }, events: () => () => {}, viewer: () => null, initial: p });
-  const api = { get, post: vi.fn(), hosted: () => false } as unknown as ApiClient;
+  // The header's Try it reads the app's state (GET /local); it answers "not running" and never reaches `get`.
+  const api = { get: (path: string, ...rest: unknown[]) => (String(path).endsWith('/local') ? Promise.resolve({}) : (get as unknown as (...a: unknown[]) => unknown)(path, ...rest)), post: vi.fn(), hosted: () => false } as unknown as ApiClient;
   const utils = render(<WorkshopContext.Provider value={{ api, store: createStore() }}><UiProvider><JobPage2 slug={SLUG} job={null} store={store} /></UiProvider></WorkshopContext.Provider>);
   return { store, item, release: (id) => waiting.get(id)?.(), unmount: utils.unmount };
 }

@@ -1,6 +1,7 @@
 // The job page's header (plan Task 8): one row. The ticket key (a link to Orbit when the page knows
 // its address), the title, ONE state word (Needs you, Working, Waiting on GitHub, Paused, Done); at the
-// right, dim, the level, the repository and the cost (over 10 cents); then the
+// right, dim, the level, the repository and the cost (over 10 cents); then, on the laptop once the job
+// has its own branch, `Try it` (`Open app` while the app runs; HeaderTryIt below); then the
 // Auto switch with its word, What Auto decided beside it on a job Auto is on or has run on (it opens the
 // list in the reader, reader/AutoView.tsx), and the ⋯ menu with everything rare.
 //
@@ -45,8 +46,11 @@ import { formatCost, isActiveRun } from '../../panes/Foreman/thread';
 import { DecisionsTab } from '../../panes/Preview/DecisionsTab';
 import { jobBySlug } from '../../state/reducer';
 import { useWorkshop } from '../../state/store';
+import { askTryStart } from '../tryStart';
 import type { JobState, ReaderTarget } from '../types';
+import { useAppUrl } from '../useAppUrl';
 import { useJob } from '../useJob';
+import './tryit.css';
 
 export const STATE_WORDS: Record<JobState, string> = {
   'needs-you': 'Needs you', working: 'Working', 'waiting-github': 'Waiting on GitHub', paused: 'Paused', done: 'Done',
@@ -109,6 +113,7 @@ export const Header = memo(function Header({ job, onOpen }: { job: Job | null; /
       </div>
       <span className="jp2-spacer" />
       {dim && <span className="jp2-facts" title={cost ? COST_TITLE : undefined}>{dim}</span>}
+      <HeaderTryIt slug={slug} onOpen={onOpen} />
       {note && <HeadNote note={note} onClear={setNote} />}
       <NextNeedsYou slug={slug} />
       <HeaderAuto slug={slug} job={job} onOpen={onOpen} />
@@ -159,6 +164,34 @@ function HeadNote({ note, onClear }: { note: HeadNoteWords; onClear(n: null): vo
     </p>
   );
 }
+
+/** Your hand test, in the reader (the Test step's output of that name opens the same). */
+export const HAND_TEST: ReaderTarget = { kind: 'checks', id: 'hand-test' };
+
+/**
+ * `Try it` (18 Nov): laptop only, once the job has its own branch (recorded, not a guess: facts.branch
+ * is null for a guess). App not running: one click opens Your hand test in the reader and starts Try it
+ * there, as its `Start the app` does (jobpage/tryStart.ts). App running (the hand test's own read,
+ * jobpage/useAppUrl.ts): `Open app`, a link to it in a new tab. Any step, not only Test.
+ */
+const HeaderTryIt = memo(function HeaderTryIt({ slug, onOpen }: { slug: string; onOpen?(t: ReaderTarget, from?: HTMLElement | null): void }) {
+  const { api } = useWorkshop();
+  const hosted = useJob((s) => Boolean(s.payload?.hosted)) || Boolean(api.hosted?.());
+  const branch = useJob((s) => (s.payload && !s.payload.local?.guess ? s.payload.facts.branch : null));
+  const on = !hosted && Boolean(branch);
+  const url = useAppUrl(slug, on);
+  if (!on) return null;
+  if (url) {
+    return <Button kind="quiet" size="sm" icon="external" className="jp2-tryit" href={url} target="_blank" rel="noopener noreferrer" title={`Open this job’s app at ${url} in a new tab.`}>Open app</Button>;
+  }
+  return (
+    <Button
+      kind="quiet" size="sm" icon="terminal" className="jp2-tryit"
+      title="Start this job’s app on your computer and open Try it here (it sets up anything missing first)."
+      onClick={(e) => { askTryStart(slug); onOpen?.(HAND_TEST, e.currentTarget); }}
+    >Try it</Button>
+  );
+});
 
 /** What Auto decided, in the reader. */
 export const AUTO_DECIDED: ReaderTarget = { kind: 'auto', id: 'auto' };

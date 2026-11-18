@@ -14,6 +14,7 @@ From left to right:
 
 - **The ticket key** (when the job came from an Orbit ticket; it links to the ticket), **the title**, and **one state word**: `Needs you`, `Working`, `Waiting on GitHub`, `Paused` or `Done`.
 - **Dim facts:** the level (`L2`), the repository, and the cost so far (shown once it is over 10 cents).
+- **`Try it`** (laptop only), once the job has its own branch: one click opens Your hand test in the reader and starts the job's app there, at any step, not only Test. While the app runs the button reads `Open app` and opens it in a new tab.
 - **`Next: <job> · n wait ›`**: the job that has waited longest for you, other than this one. One click, or `g` then `n`, opens it. This is how you work through a queue without going back to Jobs.
 - **The Auto switch** with its word (`On` or `Off`). See [page 6](06-auto-and-permissions.md).
 - **`What Auto decided`**, right after the switch, on a job Auto is on or has run on: one click opens the list in the reader (what Auto approved or answered for you, newest first, and why). It shows on the website too.

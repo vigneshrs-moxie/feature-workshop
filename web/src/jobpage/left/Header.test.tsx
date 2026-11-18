@@ -16,7 +16,8 @@ import { longJob } from '../fixtures/longJob';
 import { createJobStore } from '../jobStore';
 import type { JobPagePayload, JobState, ReaderTarget } from '../types';
 import { JobStoreContext } from '../useJob';
-import { Header, NOTE_MS, STATE_WORDS } from './Header';
+import { clearTryStarts, onTryStart } from '../tryStart';
+import { HAND_TEST, Header, NOTE_MS, STATE_WORDS } from './Header';
 
 const SLUG = longJob.payload.slug;
 const DIR = '/made/up/jobs/orbit-905';
@@ -37,10 +38,10 @@ function SheetProbe() {
 const sheetNow = () => screen.getByTestId('sheet').textContent;
 
 interface Mounted { api: ApiClient; post: ReturnType<typeof vi.fn>; get: ReturnType<typeof vi.fn>; app: Store; unmount(): void }
-function mount({ p = payload(), row = null, hosted = false, post = vi.fn(async (): Promise<unknown> => ({})), rows, onOpen }: { p?: JobPagePayload | null; row?: Job | null; hosted?: boolean; post?: ReturnType<typeof vi.fn>; /** The app's Jobs snapshot rows. */ rows?: Job[]; /** The page's reader pick. */ onOpen?: (t: ReaderTarget) => void } = {}): Mounted {
+function mount({ p = payload(), row = null, hosted = false, post = vi.fn(async (): Promise<unknown> => ({})), rows, onOpen, local = {} }: { p?: JobPagePayload | null; /** What GET /local answers (Try it's app). */ local?: unknown; row?: Job | null; hosted?: boolean; post?: ReturnType<typeof vi.fn>; /** The app's Jobs snapshot rows. */ rows?: Job[]; /** The page's reader pick. */ onOpen?: (t: ReaderTarget) => void } = {}): Mounted {
   const app = createStore();
   app.dispatch({ type: 'snapshot', snapshot: snapshot({ meta: { token: 't', settings: { policy: 'hands-off', jobPolicy: {} } as unknown as Settings }, ...(rows ? { jobs: rows } : {}) }) });
-  const get = vi.fn(async (path: string): Promise<unknown> => (path.includes('decisions.md') ? { orbit: { text: '- Keep the old export', count: 1 } } : {}));
+  const get = vi.fn(async (path: string): Promise<unknown> => (path.includes('decisions.md') ? { orbit: { text: '- Keep the old export', count: 1 } } : path.endsWith('/local') ? local : {}));
   const api = { get, post, hosted: () => hosted } as unknown as ApiClient;
   const store = createJobStore(SLUG, { api, initial: p, events: () => () => {} });
   const { unmount } = render(
@@ -338,5 +339,69 @@ describe('What Auto decided, beside the Auto switch', () => {
   it('shows on the website too (the list is mirrored there)', () => {
     mount({ p: payload({ auto: { on: true, tag: null } as JobPagePayload['auto'], hosted: true } as Partial<JobPagePayload>), hosted: true });
     expect(whatAuto()).not.toBeNull();
+  });
+});
+
+describe('Try it, left of the Auto switch', () => {
+  const tryIt = () => within(head()).queryByRole('button', { name: 'Try it' });
+  const settle = () => act(async () => { for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0)); });
+  afterEach(() => { clearTryStarts(); });
+
+  it('is not there before the job has its own branch, with a guessed branch, or on the website', async () => {
+    const none = payload();
+    none.facts = { ...none.facts, branch: null };
+    let m = mount({ p: none });
+    await settle();
+    expect(tryIt()).toBeNull();
+    expect(m.get.mock.calls.filter((c) => String(c[0]).endsWith('/local'))).toHaveLength(0);
+    m.unmount();
+    // A guess: the payload's facts.branch is null for one, and local.guess names it.
+    const guessed = payload();
+    guessed.facts = { ...guessed.facts, branch: null };
+    guessed.local = { ...guessed.local!, guess: { branch: 'feature/crew-schedule-export', repoPath: '/made/up/repo' } };
+    m = mount({ p: guessed });
+    await settle();
+    expect(tryIt()).toBeNull();
+    m.unmount();
+    m = mount({ p: payload({ hosted: true }), hosted: true });
+    await settle();
+    expect(tryIt()).toBeNull();
+    expect(within(head()).queryByRole('link', { name: 'Open app' })).toBeNull();
+    m.unmount();
+  });
+
+  it('reads Try it with a recorded branch on the laptop, left of Auto', async () => {
+    mount();
+    await settle();
+    const b = tryIt()!;
+    expect(b).not.toBeNull();
+    expect(b.getAttribute('title')).toMatch(/Start this job’s app on your computer and open Try it here/);
+    const auto = head().querySelector('.jp2-auto')!;
+    expect(b.compareDocumentPosition(auto) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('one click opens Your hand test in the reader and asks for a start', async () => {
+    const onOpen = vi.fn();
+    mount({ onOpen });
+    await settle();
+    fireEvent.click(tryIt()!);
+    expect(onOpen).toHaveBeenCalledWith(HAND_TEST, expect.anything());
+    expect(HAND_TEST).toEqual({ kind: 'checks', id: 'hand-test' });
+    // The ask waits for the hand test: it is taken by the first listener for the job.
+    const heard = vi.fn();
+    const off = onTryStart(SLUG, heard);
+    expect(heard).toHaveBeenCalledTimes(1);
+    off();
+  });
+
+  it('with the app running it is Open app, a link to its address in a new tab', async () => {
+    mount({ local: { server: { status: 'running' }, url: 'http://127.0.0.1:4610' } });
+    await settle();
+    expect(tryIt()).toBeNull();
+    const link = within(head()).getByRole('link', { name: 'Open app' });
+    expect(link.getAttribute('href')).toBe('http://127.0.0.1:4610');
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer');
+    expect(link.getAttribute('title')).toContain('http://127.0.0.1:4610');
   });
 });

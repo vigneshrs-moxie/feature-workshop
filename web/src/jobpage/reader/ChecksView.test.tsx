@@ -13,6 +13,7 @@ import { createStore, WorkshopContext } from '../../state/store';
 import { longJob } from '../fixtures/longJob';
 import { createJobStore } from '../jobStore';
 import type { JobBody, JobPagePayload, ReaderTarget } from '../types';
+import { askTryStart, clearTryStarts } from '../tryStart';
 import { JobStoreContext } from '../useJob';
 import { ChecksView, EVIDENCE_WHILE_RECORDING_MS } from './ChecksView';
 
@@ -222,6 +223,35 @@ describe('Your hand test (R7)', () => {
     expect(text()).toMatch(/Try it runs on your laptop/);
     expect(asked(get, '/local')).toBe(0);
     expect(document.querySelectorAll('.jp2-hand ol li')).toHaveLength(14);
+  });
+
+  it('a start asked from outside before it is drawn (the header’s Try it) opens Try it started', async () => {
+    clearTryStarts();
+    askTryStart(SLUG);
+    const before = tryProps.length;
+    open({ id: 'hand-test' });
+    await settle();
+    expect(screen.getByRole('region', { name: 'Try it' })).toBeInTheDocument();
+    expect(tryProps.length).toBeGreaterThan(before);
+    expect(tryProps.at(-1)).toMatchObject({ slug: SLUG, startOnOpen: true });
+    // The ask was taken: a second hand test does not start again on its own.
+    document.body.innerHTML = '';
+    open({ id: 'hand-test' });
+    await settle();
+    expect(screen.queryByRole('region', { name: 'Try it' })).toBeNull();
+  });
+
+  it('a start asked from outside while it is drawn opens Try it started; another job’s ask does nothing', async () => {
+    clearTryStarts();
+    open({ id: 'hand-test' });
+    await settle();
+    expect(screen.queryByRole('region', { name: 'Try it' })).toBeNull();
+    act(() => askTryStart('some-other-job'));
+    expect(screen.queryByRole('region', { name: 'Try it' })).toBeNull();
+    act(() => askTryStart(SLUG));
+    expect(screen.getByRole('region', { name: 'Try it' })).toBeInTheDocument();
+    expect(tryProps.at(-1)).toMatchObject({ slug: SLUG, startOnOpen: true });
+    clearTryStarts();
   });
 
   it('while Auto decides the job it says Auto skips the hand test', async () => {
