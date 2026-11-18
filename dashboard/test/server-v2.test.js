@@ -312,7 +312,7 @@ test('a blank name on POST /api/jobs is no name: the job starts and the laptop n
     slugs.push((await res.json()).slug);
   }
   // The demo asks no model: today's short title.
-  assert.deepEqual(slugs, ['orbit-481-rating-freezes-on-save', 'orbit-481-rating-freezes-on-save-2']);
+  assert.deepEqual(slugs, ['orbit-481-rating-freezes-save', 'orbit-481-rating-freezes-save-2']);
   const audit = (await fs.readFile(path.join(root, 'state', 'audit.jsonl'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
   assert.deepEqual(audit.filter((a) => a.action === 'name' && slugs.includes(a.slug)).map((a) => a.by), ['title', 'title']);
 });

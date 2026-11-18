@@ -472,8 +472,8 @@ function guessedWorld() {
       await fs.writeFile(path.join(dir, 'workflow-status.md'), `# ${title}\n\nStacked on the parent branch \`${branch}\` for now.\n`);
       return { slug, dir, wt, s1, branch, writeStatus };
     }
-    const main = await makeJob({ slug: 'visit-audit', title: 'Visit audit', branch: 'feature/other-thing', folder: 'other-thing', stage: 'pr1', stageState: 'waiting_for_you', commit: '[S1] the form' });
-    const merged = await makeJob({ slug: 'visit-export', title: 'Visit export', branch: 'feature/export-thing', folder: 'export-thing', stage: 'pr2', stageState: 'working', commit: '[S1] the export' });
+    const main = await makeJob({ slug: 'visit-audit', title: 'Visit audit', branch: 'feature/visit-audit-thing', folder: 'other-thing', stage: 'pr1', stageState: 'waiting_for_you', commit: '[S1] the form' });
+    const merged = await makeJob({ slug: 'visit-export', title: 'Visit export', branch: 'feature/visit-export-thing', folder: 'export-thing', stage: 'pr2', stageState: 'working', commit: '[S1] the export' });
     // The Tester checked the base commit: the guessed branch has moved on since.
     await fs.writeFile(path.join(main.dir, 'test-report.md'), `# Test report\n\n- Commit under test: ${baseSha}\n\n## Results\n- AC-1 PASS\n`);
     // The review-walkthrough skill's page for that branch, run in its worktree.
@@ -508,7 +508,7 @@ function guessedWorld() {
     assert.equal(job?.page?.prs?.[0]?.state, 'open', 'the map shows PR #1 open while the branch is recorded');
     assert.deepEqual(job.page.plan.steps.map((s) => s.state), ['done', 'next'], 'its commits built [S1] while the branch is recorded');
     assert.deepEqual({ reached: job.finish?.reached, by: job.finish?.by }, { reached: true, by: 'pr1-open' }, 'the header says PR #1 is open while the branch is recorded');
-    assert.deepEqual(job.repo, { name: 'repo', branch: 'feature/other-thing' }, 'a recorded branch carries no guess flag');
+    assert.deepEqual(job.repo, { name: 'repo', branch: 'feature/visit-audit-thing' }, 'a recorded branch carries no guess flag');
     assert.equal(job.worktree, main.wt, 'a recorded branch\'s worktree is the job\'s');
     assert.equal(exp?.page?.prs?.[0]?.state, 'merged', 'the map shows the other job\'s PR #1 merged while its branch is recorded');
     assert.deepEqual(exp.page.plan.steps.map((s) => s.state), ['done', 'done'], 'PR #1 merged: every step done while the branch is recorded');
@@ -519,7 +519,7 @@ function guessedWorld() {
       job = await get(`/api/job/${main.slug}`);
       exp = await get(`/api/job/${merged.slug}`);
     }
-    assert.deepEqual({ branch: job.branch, guessed: job.locate?.branchGuessed, located: job.locate?.worktree }, { branch: 'feature/other-thing', guessed: true, located: main.wt });
+    assert.deepEqual({ branch: job.branch, guessed: job.locate?.branchGuessed, located: job.locate?.worktree }, { branch: 'feature/visit-audit-thing', guessed: true, located: main.wt });
     assert.equal(exp.locate?.branchGuessed, true);
     return { d, get, slug: main.slug, repo: gRepo, wt: main.wt, baseSha, s1: main.s1, merged };
   })();
@@ -592,9 +592,9 @@ test('the job\'s details name no worktree found only through a guessed branch, s
 
 test('the job\'s card says its branch is a guess', { timeout: 60_000 }, async () => {
   const w = await guessedWorld();
-  assert.deepEqual((await w.get(`/api/job/${w.slug}`)).repo, { name: 'repo', branch: 'feature/other-thing', branchGuessed: true });
+  assert.deepEqual((await w.get(`/api/job/${w.slug}`)).repo, { name: 'repo', branch: 'feature/visit-audit-thing', branchGuessed: true });
   const card = (await w.get('/api/snapshot')).jobs.find((j) => j.slug === w.slug);
-  assert.deepEqual(card.repo, { name: 'repo', branch: 'feature/other-thing', branchGuessed: true }, 'the board\'s card too');
+  assert.deepEqual(card.repo, { name: 'repo', branch: 'feature/visit-audit-thing', branchGuessed: true }, 'the board\'s card too');
 });
 
 // Last of the guessed world's tests: it confirms the guess.
@@ -624,7 +624,7 @@ test('This is the job\'s branch tells every open page the job changed, and the j
     assert.equal((await laneSlugs(w)).includes(w.slug), false, 'the map has no lane for the guessed job');
     assert.equal((await w.get(`/api/job/${w.slug}`)).page.prs[0].state, 'not-started');
     seen.length = 0;
-    const res = await fetch(`${w.d.base}/api/job/${w.slug}/repo`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Starbase-Token': w.d.token }, body: JSON.stringify({ repoPath: w.repo, branch: 'feature/other-thing' }) });
+    const res = await fetch(`${w.d.base}/api/job/${w.slug}/repo`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Starbase-Token': w.d.token }, body: JSON.stringify({ repoPath: w.repo, branch: 'feature/visit-audit-thing' }) });
     assert.equal(res.status, 200, await res.text());
     for (let n = 0; n < 60 && !seen.some((e) => e.type === 'change'); n++) await sleep(50);
     assert.ok(seen.some((e) => e.type === 'change'), `a change is broadcast: ${JSON.stringify(seen.map((e) => e.type))}`);
