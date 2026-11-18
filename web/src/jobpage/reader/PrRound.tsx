@@ -9,7 +9,8 @@
 //   - The rounds so far, folded under one line, with the current round from start to end.
 // Not here, because the PR view has them: the round's comments and replies (its rows), the verdict, the
 // failed checks and their fix, Fix these (the round's Fix with the Foreman) and Push the fixes (Send back,
-// whose `what will go` lists its steps). Merge, Remind and Ask for a review stay on the Desk's round card.
+// whose `what will go` lists its steps). Merge, Remind and Ask for a review stay on the job's quick look
+// (home/JobPeek's next-step bar, views/Review/ReviewBar).
 //
 // Speed: read when the view opens and again only when the PR line moves (its word, why, next action, the
 // comments' version, or GitHub's read time); never on a timer and never on another live event (plan
@@ -32,7 +33,7 @@ import { useJob } from '../useJob';
 /** How long the PR view's comments wait for the round's line at most. */
 export const ROUND_WAIT_MS = 300;
 
-/** The bar's actions the PR view already has, or that need more than one click (the Desk's round card has those). */
+/** The bar's actions the PR view already has, or that need more than one click (the quick look's next-step bar has those). */
 const ELSEWHERE = new Set(['fix', 'send', 'fix-checks', 'ask-review', 'remind', 'merge']);
 /** States whose words the PR line already says. */
 const LINE_SAYS = new Set(['merged']);
@@ -158,7 +159,7 @@ export const PrRound = memo(function PrRound({ n, round }: { n: 1 | 2 | 3; round
       )}
       {go && (
         <div className="jp2-prr-acts">
-          <Button size="sm" busy={busy} disabled={busy} title={`${go.label}: what the round’s next step does, as on the Desk.`}
+          <Button size="sm" busy={busy} disabled={busy} title={`${go.label}: the round’s next step, the same as the quick look’s.`}
             onClick={async () => { setBusy(true); try { await act(go); } finally { setBusy(false); } }}>
             {go.label}
           </Button>
