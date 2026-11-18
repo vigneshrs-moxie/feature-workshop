@@ -286,7 +286,9 @@ export class Driver extends EventEmitter {
     let lock = null;
     if (this.locks && featureDir) {
       let got = null;
-      try { got = this.locks.acquire(featureDir, { owner: 'runner', branch: this.locks.branchOf?.(cwd) ?? null }); } catch { got = null; }
+      // The job's own branch, not the cwd's: the Foreman's cwd is often the main checkout (Nov 18).
+      const branch = this.locks.jobBranchOf ? this.locks.jobBranchOf(featureDir, cwd) : this.locks.branchOf?.(cwd);
+      try { got = this.locks.acquire(featureDir, { owner: 'runner', branch: branch ?? null }); } catch { got = null; }
       if (got?.held) throw new jobLock.JobLocked(got.by);
       lock = got?.lock ?? null;
     }
