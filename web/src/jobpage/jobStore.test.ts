@@ -883,3 +883,14 @@ describe('final fix W1: the reader stays where it was on arrival', () => {
     expect(arrivalOf(p)).toEqual({ kind: 'conversation', id: 'conversation' });
   });
 });
+
+describe('job store: an answer it cannot read', () => {
+  it('a page answer with the job’s slug but no steps or thread is an error in words, not a crash, and nothing held is replaced', async () => {
+    const api = { page: async () => ({ slug: SLUG, title: 'An old job record' }), item: async () => { throw new Error('no'); } };
+    const store = createJobStore(SLUG, { api: api as never, events: stream().events });
+    await store.loadPage();
+    expect(store.getState().payload).toBeNull();
+    expect(store.getState().error).toBe('Couldn’t load this job: it came in a shape this page can’t read.');
+    expect(store.getState().pageProblem).toMatch(/shape this page can’t read/);
+  });
+});

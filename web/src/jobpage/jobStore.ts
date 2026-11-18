@@ -464,6 +464,13 @@ export function createJobStore(slug: string, { api = createApi(), events = onLiv
     }
     if (destroyed) return;
     named = id;
+    // An answer in a shape this page can't read (an older Starbase, or something else answering the
+    // address): said in words, never a crash, and nothing held is replaced.
+    if (!isSame(answer) && answer.slug === slug && (!Array.isArray(answer.steps) || !Array.isArray(answer.thread))) {
+      errorFrom = 'page';
+      set({ ...state, error: `${PAGE_ERROR}it came in a shape this page can’t read.`, pageProblem: state.payload ? null : `${BRAND.name} sent this job in a shape this page can’t read. Restart ${BRAND.name}, then try again.` });
+      return;
+    }
     if (isSame(answer) || answer.slug !== slug) {
       const arrival = fixArrival(state.payload);
       if (state.error !== null || state.pageProblem !== null || arrival !== state.arrival) set({ ...state, error: cleared('page'), arrival, pageProblem: null });
