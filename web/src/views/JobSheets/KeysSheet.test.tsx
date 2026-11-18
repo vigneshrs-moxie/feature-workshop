@@ -41,7 +41,7 @@ describe('the ? sheet', () => {
     expect(screen.getByRole('note')).toHaveTextContent('Keyboard shortcuts are off (Settings → Keys)');
   });
 
-  it('every key in the registry is listed once, under its scope: the Inbox, the open step and the alert too', () => {
+  it('every key in the registry is listed once, under its scope: the Inbox, the job page and the alert too', () => {
     render(<KeysSheet onClose={() => {}} />);
     expect([...new Set(KEY_IDS.map((id) => KEYS[id].scope))].filter((s) => !GROUP_ORDER.includes(s))).toEqual([]);
     for (const id of KEY_IDS) {
@@ -50,9 +50,10 @@ describe('the ? sheet', () => {
       expect(within(group).getAllByText(KEYS[id].label).length, id).toBeGreaterThan(0);
     }
     expect(within(screen.getByRole('region', { name: 'The Inbox' })).getByText('Start a job on the ticket').closest('.key-row')).toHaveTextContent(/^s/);
-    const stage = screen.getByRole('region', { name: 'The open step' });
-    expect(within(stage).getByText('The step before this one').closest('.key-row')).toHaveTextContent('[');
-    expect(within(stage).getByText('The step after this one').closest('.key-row')).toHaveTextContent(']');
+    const page = screen.getByRole('region', { name: 'The job page' });
+    expect(within(page).getByText('Open the step before').closest('.key-row')).toHaveTextContent('[');
+    expect(within(page).getByText('Open the step after').closest('.key-row')).toHaveTextContent(']');
+    expect(screen.queryByRole('region', { name: 'The open step' })).toBeNull();
     expect(within(screen.getByRole('region', { name: 'The permission alert' })).getByText('Allow once')).toBeInTheDocument();
     expect(within(screen.getByRole('region', { name: 'The Jobs page' })).getByText(/Open the job the next-step bar names/)).toBeInTheDocument();
   });

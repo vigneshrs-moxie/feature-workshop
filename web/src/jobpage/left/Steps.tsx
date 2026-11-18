@@ -29,7 +29,7 @@ import { memo, useRef } from 'react';
 import type { Job } from '../../api/types';
 import { Icon, type IconName } from '../../components/Icon';
 import { STOPS } from '../../components/stops/stops';
-import { spentWords, statesOf } from '../../job/page/stepWords';
+import { spentWords, statesOf } from '../stepWords';
 import { outputTarget, readerOf, sameTarget } from '../targets';
 import type { JobState, Output, ReaderTarget, StepRow, StopId } from '../types';
 import { useJob } from '../useJob';

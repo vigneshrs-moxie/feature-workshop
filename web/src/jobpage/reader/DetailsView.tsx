@@ -13,7 +13,7 @@ import { ApiError } from '../../api/client';
 import type { LiveEvent } from '../../api/types';
 import { BRAND } from '../../app/brand';
 import { Button } from '../../components/Button';
-import { spentWords } from '../../job/page/stepWords';
+import { spentWords } from '../stepWords';
 import { liveViewer, onLiveEvent } from '../../state/live';
 import { useWorkshop } from '../../state/store';
 import { sinceWords } from '../left/YourMove';

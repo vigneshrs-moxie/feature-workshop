@@ -6,7 +6,6 @@ import pages from 'virtual:starbase-guide';
 import { JOBS_GUIDE } from '../../home/JobsPage';
 import { DESK_GUIDE } from '../../home/DeskPage';
 import { JOB_PAGE_GUIDE } from '../../jobpage/left/Header';
-import { JOB_GUIDE } from '../../job/page/JobTop';
 import { REVIEW_GUIDE } from '../../views/Review/words';
 import { Guide } from '../../components/page/Page';
 import { findInGuide, GuideView } from './GuideView';
@@ -92,7 +91,7 @@ describe('How it works points at the guide', () => {
   it('each page’s cards name a guide page (and section) that is there', () => {
     render(<GuideView />);
     // Telemetry's, the Inbox's and the website's pages' cards are made inside their files: their words here.
-    const reads = [...[JOBS_GUIDE, DESK_GUIDE, JOB_PAGE_GUIDE, JOB_GUIDE, REVIEW_GUIDE].map((s) => s.read!), '08-other-pages#telemetry', '08-other-pages#inbox', '09-the-website'];
+    const reads = [...[JOBS_GUIDE, DESK_GUIDE, JOB_PAGE_GUIDE, REVIEW_GUIDE].map((s) => s.read!), '08-other-pages#telemetry', '08-other-pages#inbox', '09-the-website'];
     for (const read of reads) {
       const [page, section] = read.split('#');
       const found = pages.find((p) => p.id === page);

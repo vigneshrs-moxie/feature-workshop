@@ -17,10 +17,10 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react';
 import { readKeysSetting } from './keysSetting';
 
-export type KeyScope = 'jobpage' | 'global' | 'rows' | 'floor' | 'job' | 'stage' | 'stack' | 'alert' | 'review' | 'gate' | 'desk' | 'jobs' | 'inbox' | 'map' | 'table' | 'settings' | 'sheet';
+export type KeyScope = 'jobpage' | 'global' | 'rows' | 'floor' | 'job' | 'stack' | 'alert' | 'review' | 'gate' | 'desk' | 'jobs' | 'inbox' | 'map' | 'table' | 'settings' | 'sheet';
 
 /** Highest priority first: the scope that gets the key when several bind it. */
-export const SCOPE_PRIORITY: readonly KeyScope[] = ['desk', 'jobpage', 'alert', 'review', 'gate', 'stage', 'stack', 'job', 'floor', 'jobs', 'inbox', 'map', 'rows', 'table', 'settings', 'sheet', 'global'];
+export const SCOPE_PRIORITY: readonly KeyScope[] = ['desk', 'jobpage', 'alert', 'review', 'gate', 'stack', 'job', 'floor', 'jobs', 'inbox', 'map', 'rows', 'table', 'settings', 'sheet', 'global'];
 
 /** Each scope in the ? sheet: its title and where its keys work, in plain words. */
 export const SCOPES: Record<KeyScope, { title: string; where: string }> = {
@@ -28,7 +28,6 @@ export const SCOPES: Record<KeyScope, { title: string; where: string }> = {
   rows: { title: 'Jobs', where: 'On every page but the Desk; the order is the Jobs list’s.' },
   job: { title: 'The open job', where: 'On a job’s page.' },
   jobpage: { title: 'The job page', where: 'On a job’s page; there its keys win over the others.' },
-  stage: { title: 'The open step', where: 'On a job’s page.' },
   stack: { title: 'Stacks', where: 'On Stacks, a stack’s page and a part’s page.' },
   alert: { title: 'The permission alert', where: 'While a permission waits at the top of a job.' },
   review: { title: 'A review round', where: 'On a job’s Ship step while its pull request is in review.' },
@@ -85,7 +84,6 @@ export const KEYS = {
   'prev-job': { keys: ['k'], label: 'Open the previous job', scope: 'rows' },
   // The open job
   'notes': { keys: ['n'], label: 'Open the job’s Notes and options', scope: 'job', where: 'On a job.' },
-  'write': { keys: ['c', 'i'], label: 'Put the cursor in the message box', scope: 'job', where: 'On a job; elsewhere c is New job.' },
   'screens-focus': { keys: ['Enter'], label: 'Step into the screens (the page’s own keys then work)', scope: 'job', where: 'With the Screens tab showing and nothing else focused.' },
   'screens-leave': { keys: ['Escape'], label: 'Step out of the screens, back to the page', scope: 'job', where: 'Inside the screens.', listOnly: true },
   'send': { keys: ['Mod+Enter'], label: 'In the message box: preview and send, or steer a reply in progress', scope: 'job', always: true, listOnly: true },
@@ -110,9 +108,6 @@ export const KEYS = {
   'jp-opt-next': { keys: ['ArrowDown'], label: 'Move to the next option in Your move', scope: 'jobpage', where: 'While Your move asks questions, outside the reader.' },
   'jp-opt-prev': { keys: ['ArrowUp'], label: 'Move to the option before', scope: 'jobpage', where: 'While Your move asks questions, outside the reader.' },
   'jp-opt-pick': { keys: [' '], label: 'Pick that option', scope: 'jobpage', where: 'On the option ↑ or ↓ moved to.' },
-  // The job page's steps: [ and ] move the open step
-  'stage-prev': { keys: ['['], label: 'The step before this one', scope: 'stage' },
-  'stage-next': { keys: [']'], label: 'The step after this one', scope: 'stage' },
   // A stack (views/Stack): the next-step bar's one button and its second
   'stack-approve': { keys: ['a'], label: 'Approve the plan: the parts start building', scope: 'stack', where: 'While the plan waits for your check.' },
   'stack-change': { keys: ['r'], label: 'Change something, or Not yet: send the Foreman a note', scope: 'stack', where: 'On the plan, or on a part that is ready to merge.' },

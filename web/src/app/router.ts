@@ -3,15 +3,14 @@
 //   #/map         the flow map (home/HomeView.tsx), from the gear menu
 //   #/table       the Table: the jobs as rows, from the gear menu
 //   #/desk        the Desk: every decision waiting for you, one at a time
-//   #/job/<slug>  that job's page (job/page/JobPage.tsx): the header, the overview, the bar, the
-//                 seven steps with one open, and the conversation
-//   #/job/<slug>/conversation, #/job/<slug>/overview  the same job page, with its conversation or
-//                 its overview full screen (the narrow window and the phone)
-//   #/job/<slug>/stage/<stop>  the same job page with that step open (on the phone, the step's own
-//                 screen): who works it, what each is doing, its body and its documents
-//   #/job/<slug>/read/<kind>/<id>  the same job with that thing in the new job page's reader
-//                 (jobpage/JobPage2.tsx; the id escaped), so Back and a reload return to it; the old
-//                 page opens the job as at #/job/<slug>
+//   #/job/<slug>  that job's page (jobpage/JobPage2.tsx): the header, Your move, the steps, the
+//                 reader and the conversation
+//   #/job/<slug>/conversation, #/job/<slug>/overview  the same job page, with its conversation, or
+//                 its ticket and goal in the reader
+//   #/job/<slug>/stage/<stop>  the same job page with that step picked (on the phone, the step's own
+//                 screen)
+//   #/job/<slug>/read/<kind>/<id>  the same job with that thing in the job page's reader (the id
+//                 escaped), so Back and a reload return to it
 //   #/job/<slug>/id/<id>  the same job: the dashboard links requirement IDs (FR-001...) in
 //                 replies and briefs this way; the job stays open (the ID itself is ignored for now)
 //   #/job/<slug>/screens  that job's wireframes page full width (views/Screens), with a Back link

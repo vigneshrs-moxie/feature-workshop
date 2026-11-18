@@ -2,8 +2,8 @@
 // Waiting for you, Not yet, Skipped, Approved after your Go, In review with a pull request open;
 // how long it took, "so far" on the current one, "for" how long it has waited. Invented jobs only.
 import { describe, expect, it } from 'vitest';
-import type { Job } from '../../api/types';
-import { job } from '../../state/test-fixtures';
+import type { Job } from '../api/types';
+import { job } from '../state/test-fixtures';
 import { spentWords, stepState, stepTimeWords } from './stepWords';
 
 const NOW = new Date('2026-11-10T12:00:00Z');

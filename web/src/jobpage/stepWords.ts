@@ -2,11 +2,11 @@
 // Not yet, Skipped; Approved after your Go; In review with a pull request open; Stopped) and its time (how
 // long it took, "so far" on the current one, "for" how long it has waited for you). A time that
 // can't be read, or would come out negative, says nothing rather than something wrong.
-import type { Job, StepTime, StopId } from '../../api/types';
-import type { GateKind } from '../../lib/compose';
-import { laneOf } from '../../home/JobsPage';
-import { stopOf, stopStates, type StopState } from '../../components/stops/stops';
-import { stoppedByYou } from '../../panes/Jobs/jobStatus';
+import type { Job, StepTime, StopId } from '../api/types';
+import type { GateKind } from '../lib/compose';
+import { laneOf } from '../home/JobsPage';
+import { stopOf, stopStates, type StopState } from '../components/stops/stops';
+import { stoppedByYou } from '../panes/Jobs/jobStatus';
 
 export type StepCls = 'is-done' | 'is-now' | 'is-wait' | 'is-stop' | 'is-skipped' | '';
 
@@ -63,7 +63,7 @@ const at = (iso: string | null | undefined): number => (iso ? Date.parse(iso) : 
 
 /**
  * How long a step took, or has run, in words; null when there is nothing true to say (not reached,
- * skipped, no usable time). `time` is the step's span by its briefs; `since` (StageView.since) is
+ * skipped, no usable time). `time` is the step's span by its briefs; `since` (when the job reached the step) is
  * its start when the span has none. Waiting for you: for how long, from the job's waitingSince.
  * Approved (`sent`, as stepState reads it): how long the step took, to its end or else to when it
  * began to wait, never for how long it waited. Ship with a pull request open: "PR #1 open".

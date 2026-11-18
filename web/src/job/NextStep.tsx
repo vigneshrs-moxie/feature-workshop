@@ -472,7 +472,7 @@ function StateBar({ job, now, checks, onShip, onWatch, onWrite, hosted, after }:
   const prs = onShip
     ? <Button kind="primary" size="lg" onClick={onShip} title="The pull requests and what waits on them.">See the pull requests</Button>
     : <Button kind="primary" size="lg" href={jobHref(job.slug)} title="The job’s page: its Ship tab has the pull requests.">See the pull requests</Button>;
-  const write = <Button kind="primary" size="lg" keyId="write" keyShown onClick={onWrite ?? (() => focusMessageBox())} title="Write to the Foreman (key: c).">Reply</Button>;
+  const write = <Button kind="primary" size="lg" onClick={onWrite ?? (() => focusMessageBox())} title="Write to the Foreman.">Reply</Button>;
   const testing = text(job.testing);
   const working = workingWords(job, now);
   /** The Foreman waits for him: its question (or what the card says), and Reply. */

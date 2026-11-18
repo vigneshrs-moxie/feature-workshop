@@ -13,18 +13,18 @@
 //   paused for the usage limit   paused    "Paused until the limit resets, 4:00pm"
 //   finished                     done      "Done"
 // and two of the Foreman's own: watching the crew ("Foreman · watching the Builder") and idle.
-import type { Job, Permission, Run, StageAgent, StopId, Usage } from '../../api/types';
+import type { Job, Permission, Run, Usage } from '../../api/types';
 import { clockTime } from '../../lib/time';
 import { jobStatus, shippingWhere } from '../../panes/Jobs/jobStatus';
 import { stageLabel } from '../../panes/Jobs/stages';
 import { STAGE_CHARACTER } from '../crew';
 import { CREW_PACK, PACK_ALIASES, STOP_CREW, roleOf } from '../crewPack';
-import { STOPS, stopOf } from '../../components/stops/stops';
+import { stopOf } from '../../components/stops/stops';
 import { usagePaused } from '../crewLines';
 import { waited } from '../floorModel';
 import { MAX_HELPERS, type Seat } from './layout';
 import type { LampGroup, StopHue } from './palette';
-import { alertFor, bayKind, type BuildPhase, PHASE_WORDS, phaseFor, sectionState, SECTION_WORDS, signFor, stackWords } from './bays';
+import { alertFor, bayKind, PHASE_WORDS, phaseFor, sectionState, SECTION_WORDS, signFor, stackWords } from './bays';
 import { propFor } from './props';
 import type { Pose } from './rig';
 import type { FloorBench, FloorFigure } from './types';
@@ -243,29 +243,6 @@ const ROLE_ORDER = CREW_PACK.map((m) => m.type);
 const rank = (who: string) => { const i = ROLE_ORDER.indexOf(who); return i < 0 ? ROLE_ORDER.length : i; };
 
 interface NowLine { who?: string; doing?: string | null; since?: string | null; quietMs?: number | null; status?: AgentFacts['status'] }
-
-/** How far a bay's work has got by the time it reaches each stop. */
-const STOP_PHASE: Record<StopId, BuildPhase> = { spec: 'frame', investigate: 'frame', plan: 'frame', build: 'plates', test: 'lights', review: 'sealed', ship: 'sealed' };
-
-/**
- * The Stage strip's bench: the job at one stop, with the crew the Stage lists there (its rows, from
- * dashboard/lib/stage-view.js) instead of the job card's now lines, in that stop's hue.
- */
-export function stageBench(job: Job, stop: StopId, agents: readonly Pick<StageAgent, 'who' | 'doing' | 'since' | 'status'>[], facts: Omit<JobFacts, 'job'>): FloorBench {
-  const nowDoing = agents
-    .filter((a) => a.status !== 'done')
-    .map((a) => ({ who: a.who, doing: a.doing, since: a.since, status: a.status === 'working' || a.status === 'waiting' || a.status === 'stopped' ? a.status : null }));
-  const bench = benchFor({ ...job, nowDoing }, 0, facts);
-  const label = STOPS.find((x) => x.id === stop)?.label ?? bench.stop;
-  // The bay as it stands at this stop (the module's frame at Plan, its plates at Build…), so the
-  // picture, the words and the crew the Stage lists here agree; on the job's current stop that is
-  // where the work really is.
-  const phase = bench.phase === 'launched' ? 'launched' : STOP_PHASE[stop];
-  return {
-    ...bench, hue: stop, stop: label, phase, phaseWords: PHASE_WORDS[bench.kind][phase], sign: signFor(bench.kind, phase, bench.title),
-    figures: bench.figures.map((f) => (f.who === 'conductor' ? { ...f, hue: stop } : f)),
-  };
-}
 
 /** One job's bench: its status in words and its figures, the Foreman first, then up to three helpers. */
 export function benchFor(job: Job, index: number, facts: Omit<JobFacts, 'job'>): FloorBench {

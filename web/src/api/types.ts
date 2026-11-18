@@ -2065,88 +2065,10 @@ export type AutoStartView = AutoStartSetting & { paused: 'limit' | 'limit-readin
 
 export type InboxAnswer = OrbitStatus & { autoStart?: AutoStartView; /** Orbit shows tags to this token. */ tagsShown?: boolean; suggest?: InboxSuggestion | null; items: InboxItem[]; laptops?: InboxLaptop[]; filter?: InboxFilter; view?: string; checkedAt?: string; truncated?: boolean };
 
-// ---------- The Stage: one stop of a job (dashboard/lib/stage-view.js, GET /api/job/:slug/stage/:stop) ----------
+// ---------- The seven stops of a job (dashboard/lib/stage-view.js) ----------
 
 /** The seven stops of the Job map; each groups one or more stages. */
 export type StopId = 'spec' | 'investigate' | 'plan' | 'build' | 'test' | 'review' | 'ship';
-
-export type StageAgentStatus = 'working' | 'waiting' | 'done' | 'stopped';
-
-/** One agent who works (or worked) on a stop: the Foreman, or a crew member. */
-export interface StageAgent {
-  /** 'conductor' for the Foreman, else the crew member's agent type. */
-  who: string;
-  /** Its generic role word (Foreman, Planner, Builder…). */
-  role: string;
-  model: string | null;
-  /** What it is doing now, in one plain line. */
-  doing: string | null;
-  since: string | null;
-  lastAt: string | null;
-  status: StageAgentStatus;
-  /** How to open it in a terminal: continue the Foreman's session, or follow a crew member's log (read-only). */
-  terminal: { kind: 'continue' | 'watch'; ready: boolean; why: string | null };
-  /** Its index in the job's activity, which the terminal command names. */
-  ref: string;
-  /** Its last actions in plain words, oldest first (six at most); missing: not known. */
-  feed?: FeedLine[];
-  /** The Tester at Test only: its last command (null: none yet). The website's copy has no output (tail null). */
-  command?: StageCommand | null;
-}
-
-/** One line of an agent's live feed: what it did, and when. */
-export interface FeedLine {
-  text: string;
-  at: string | null;
-}
-
-/** A crew member's last command: cut at 200 characters, and the last 12 lines of its output (null until it answers, and on the website). */
-export interface StageCommand {
-  command: string;
-  at: string | null;
-  tail: string | null;
-}
-
-export interface StageView {
-  slug: string;
-  stop: StopId;
-  label: string;
-  state: 'done' | 'now' | 'waiting' | 'next' | 'skipped';
-  stateWords: string;
-  /** When the job reached this stop, if known. */
-  since: string | null;
-  stages: string[];
-  agents: StageAgent[];
-  finished: StageAgent[];
-  /** The terminal app Open in terminal uses (Try it's choice), and the ones this computer has. */
-  terminalApp: string | null;
-  terminalApps: string[];
-  /**
-   * The step's span by its briefs (job.page.times for this step); missing: not known. `since` stays
-   * when the job reached the stop; the time words read `time` and fall back to `since` without a start.
-   */
-  time?: StepTime;
-  /** The step's documents (job.page.docs for this step); missing: not known. */
-  docs?: JobDocEntry[];
-  /** The Tester's check counts (job.page.checks), on the Test step only; missing: not known. */
-  checks?: TestChecks | null;
-  /** The owner's hand test (job.page.handTest), on the Test step only; missing: not known. */
-  handTest?: HandTest | null;
-  /** Plan and Build: the plan's steps (job.page.plan; null: no steps); missing: not known. */
-  plan?: { version?: string | null; steps?: PlanStepRow[] } | null;
-  /** Ship: the three pull requests (job.page.prs); missing: not known. */
-  prs?: PrRow[];
-  /** Review: the findings by reviewer (job.page.review), each reviewer that ran with its rows, then Other findings; missing: not known. */
-  review?: { at?: string | null; reviewers?: StageReviewer[] };
-}
-
-/** One reviewer on the Review step: its lens (null for Other findings), name, model and findings. */
-export interface StageReviewer {
-  lens?: string | null;
-  name?: string;
-  model?: string | null;
-  rows?: ReviewRow[];
-}
 
 // ---------- Telemetry (packet P): GET /api/telemetry?window= (dashboard/lib/telemetry.js, lib/insights.js) ----------
 

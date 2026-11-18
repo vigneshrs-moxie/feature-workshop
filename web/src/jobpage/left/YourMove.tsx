@@ -645,7 +645,7 @@ function PermissionCard({ move }: { move: PermissionMove }) {
   const openSheet = () => {
     const full = app.getState().permissions.find((x) => x.id === move.id) ?? null;
     if (full?.draft?.options?.length) setSheet(full);
-    else setLine('This request’s rule isn’t on this page. Use Allow once, or save a rule from the old job page.');
+    else setLine('This request’s rule isn’t on this page. Use Allow once.');
   };
 
   if (done) return <p className="jp2-ym-sent" role="status">{done}</p>;

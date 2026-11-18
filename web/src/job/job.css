@@ -1,5 +1,5 @@
-/* Parts the job page (job/page/JobPage.tsx) and its neighbours share: the bar's gate card, a
-   commit's change, the two columns a stack's part page keeps, and the permission alert
+/* Parts the quick look on Jobs, the Desk and a stack's part page share: the bar's gate card, the
+   two columns a stack's part page keeps, and the permission alert
    (components/permissions/PermissionAlert.tsx). Every value is a token; controls are at least
    var(--control-h) tall; status is a word with an icon, never a colour alone. */
 
@@ -22,16 +22,6 @@
 .job-gate-body:empty { display: none; }
 /* While Auto decides the step that waits (C1): under the calls, his own answer still counts. */
 .job-go-auto { margin: 0; font-size: var(--text-sm); }
-
-/* ---------- A commit's change (job/page/CommitChanges.tsx) ---------- */
-.code-change { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-2) 0 var(--space-2) var(--space-4); }
-.code-file summary { min-height: var(--control-h); display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1); cursor: pointer; overflow-wrap: anywhere; }
-.code-lines { margin: 0; max-height: 420px; position: relative; overflow: auto; padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); background: var(--bg-2); font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.5; }
-.code-lines span { display: block; white-space: pre; }
-/* Added and removed lines keep their + and −, so the colour is never the only sign. */
-.code-lines .is-add { background: var(--status-ok-bg); }
-.code-lines .is-del { background: var(--status-error-bg); }
-.code-lines .is-hunk { color: var(--text-3); }
 
 /* ---------- The permission alert ---------- */
 .perm-alert-slot { display: flex; flex-direction: column; gap: var(--space-2); }
@@ -92,3 +82,7 @@
 
 /* "Copy decisions": the text exactly as it will be copied. */
 .copy-decisions-text { position: relative; margin: var(--space-2) 0; padding: var(--space-2); max-height: 50vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; border: 1px solid var(--border-2); border-radius: var(--radius-sm); }
+
+/* "3 new" across a conversation where the messages since your last look start (ThreadList's newFrom). */
+.sb-convo-new { display: flex; align-items: center; gap: var(--space-2); margin: 0; font-size: var(--text-xs); font-weight: 600; color: var(--accent-strong); }
+.sb-convo-new::before, .sb-convo-new::after { content: ""; flex: 1; height: 1px; background: var(--accent); }

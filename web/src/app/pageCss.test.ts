@@ -1,6 +1,6 @@
 // @vitest-environment node
 // Every stylesheet under web/src closes each block it opens. A lost `}` (an earlier merge dropped the
-// one after the job header's phone rules in page.css) puts every rule after it inside that block, so
+// one after the old job page's header phone rules) puts every rule after it inside that block, so
 // on a laptop the page silently loses its layout. Comments are left out; braces inside strings are
 // not counted (no stylesheet here has any).
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -8,7 +8,7 @@ import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-const SRC = fileURLToPath(new URL('../..', import.meta.url));
+const SRC = fileURLToPath(new URL('..', import.meta.url));
 
 function cssFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {

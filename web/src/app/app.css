@@ -534,7 +534,7 @@ a:hover { text-decoration: underline; }
 .prose .json-doc { white-space: pre-wrap; overflow-wrap: anywhere; }
 .prose :is(h1, h2, h3, h4, h5, h6)[tabindex="-1"]:focus { outline: none; }
 .prose :is(h1, h2, h3, h4, h5, h6)[tabindex="-1"]:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-/* A link in a rendered document that doesn't open here says why underneath (ServerHtml, DocsTab). */
+/* A link in a rendered document that doesn't open here says why underneath (ServerHtml). */
 .link-hint { margin: var(--space-1) 0 var(--space-2); font-size: var(--text-sm); }
 
 /* Short Foreman text shown clean (components/InlineText.tsx): headlines, questions, reasons. */

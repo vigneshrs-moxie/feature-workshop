@@ -4,8 +4,6 @@
 // that keep today's rule (a permission card takes the bar's place; a status card has Reply only)
 // say so where they are tested. Invented jobs and requests only; no model calls.
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../api/client';
 import type { Gate, Job, JobDetail, Permission, ThreadItem } from '../api/types';
@@ -485,8 +483,8 @@ describe('the boxes under the bar', () => {
     expect(screen.queryByRole('textbox', { name: /Your answers or a note/ })).toBeNull();
   });
 
-  // With the conversation taking the screen the bar's area is capped (page.css): while a box is
-  // open the bar says so on its own root, and the stylesheet lets the area grow for it.
+  // While a box is open the bar says so on its own root (is-box-open), for a page that sizes the
+  // bar's area by it.
   it('the bar says when one of its boxes is open', async () => {
     const root = () => document.querySelector('.job-go')!;
     for (const hosted of [false, true]) {
@@ -518,10 +516,6 @@ describe('the boxes under the bar', () => {
     fireEvent.click(within(gateCard() as HTMLElement).getByRole('button', { name: 'Send back' }));
     await waitFor(() => expect(screen.queryByRole('textbox', { name: /What should change\?/ })).toBeNull());
     await waitFor(() => expect(root()).not.toHaveClass('is-box-open'));
-    // The stylesheet: only while a box is open does the talk layouts' bar area take up to 75%.
-    const css = readFileSync(path.join(process.cwd(), 'src/job/page/page.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
-    expect(css).toMatch(/\.sb-job-page\.is-talk \.sb-job-work \{[^}]*max-height: 50%/);
-    expect(css).toMatch(/\.sb-job-page\.is-talk \.sb-job-work:has\(\.job-go\.is-box-open\) \{[^}]*max-height: 75%/);
   });
 
   it('opening a box brings its send button into view', async () => {

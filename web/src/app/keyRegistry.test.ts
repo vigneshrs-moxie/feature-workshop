@@ -50,11 +50,11 @@ describe('the key registry', () => {
 
   // Final review A1: ⌘K's Write to the Foreman does what the c key does on the page that answers it.
   it('pressKey runs the first active binding that takes it, keys on or off, and says when none did', () => {
-    expect(pressKey('write')).toBe(false);
+    expect(pressKey('jp-write')).toBe(false);
     const page = vi.fn();
-    on('job', { 'write': page });
+    on('jobpage', { 'jp-write': page });
     writeKeysSetting({ enabled: false });
-    expect(pressKey('write')).toBe(true);
+    expect(pressKey('jp-write')).toBe(true);
     expect(page).toHaveBeenCalledTimes(1);
   });
 
@@ -217,7 +217,7 @@ describe('the key registry', () => {
   it('no page key fires while you type or with a dialog open: every binding in the registry, scope by scope', () => {
     // Everything but ⌘ bindings, the always-on ones (Esc, Enter, the arrows: what any page has) and list-only ones.
     const pageKeys = KEY_IDS.filter((id) => { const d = keyDef(id); return !d.listOnly && !d.always && !d.keys.some((k) => k.startsWith('Mod+')); });
-    expect(pageKeys).toEqual(expect.arrayContaining<KeyId>(['inbox-start', 'stage-prev', 'stage-next', 'alert-allow', 'alert-deny', 'jobs-open', 'gate-approve', 'desk-approve']));
+    expect(pageKeys).toEqual(expect.arrayContaining<KeyId>(['inbox-start', 'jp-step-prev', 'jp-step-next', 'alert-allow', 'alert-deny', 'jobs-open', 'gate-approve', 'desk-approve']));
     for (const id of pageKeys) {
       const run = vi.fn();
       const reg = registerKeys(KEYS[id].scope, { current: { [id]: run } });
@@ -236,22 +236,25 @@ describe('the key registry', () => {
   });
 
   it('n is Notes and options on every job screen, and no key is listed for a screen that is gone', () => {
-    // The step page and its Finished here fold are gone: a step opens in place on the job page.
-    expect(KEY_IDS).not.toContain('stage-finished');
-    const onTheJob = KEY_IDS.filter((id) => (KEYS[id].scope === 'job' || KEYS[id].scope === 'stage') && (KEYS[id].keys as readonly string[]).includes('n'));
+    // The step page and its Finished here fold are gone: a step opens in place on the job page. So
+    // are the old job page's own keys ([ and ] for its steps, c and i for its message box): the job
+    // page's are jp-step-prev, jp-step-next and jp-write.
+    for (const gone of ['stage-finished', 'stage-prev', 'stage-next', 'write']) expect(KEY_IDS).not.toContain(gone);
+    const onTheJob = KEY_IDS.filter((id) => KEYS[id].scope === 'job' && (KEYS[id].keys as readonly string[]).includes('n'));
     expect(onTheJob).toEqual(['notes']);
     expect(KEYS.notes.label).toBe('Open the job’s Notes and options');
     expect(KEYS.notes.where).toBe('On a job.');
-    expect(KEYS.write.where).toBe('On a job; elsewhere c is New job.');
-    expect(KEYS['stage-prev'].label).toBe('The step before this one');
-    expect(KEYS['stage-next'].label).toBe('The step after this one');
+    expect(KEYS['jp-step-prev'].keys).toEqual(['[']);
+    expect(KEYS['jp-step-next'].keys).toEqual([']']);
+    expect(KEYS['jp-write'].keys).toEqual(['c', 'i']);
     for (const id of KEY_IDS) {
       const d = keyDef(id);
       expect(`${d.label} ${d.where ?? ''}`, id).not.toMatch(/\bstops?\b|finished (here|there)/i);
     }
     // Nor does a scope's heading or line in the lists name a stop's page or the Stage.
     for (const [scope, s] of Object.entries(SCOPES)) expect(`${s.title} ${s.where}`, scope).not.toMatch(/\bstops?\b|stop’s page|\bthe Stage\b/i);
-    expect(SCOPES.stage).toEqual({ title: 'The open step', where: 'On a job’s page.' });
+    expect(Object.keys(SCOPES)).not.toContain('stage');
+    expect(SCOPES.jobpage).toEqual({ title: 'The job page', where: 'On a job’s page; there its keys win over the others.' });
     expect(SCOPES.job.where).toBe('On a job’s page.');
   });
 

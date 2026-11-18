@@ -4,8 +4,8 @@
 //
 // "New" is counted here, not on the server (interfaces correction 4): the lines newer than his last
 // look at the conversation that are not his own. His last look is the browser's
-// `sb.convo.seen.<slug>` (the old page's key, job/page/ConversationPanel.tsx seenKey, so the two
-// agree); the conversation moves it on, and the count follows at once (lib/stored.ts).
+// `sb.convo.seen.<slug>` (the old job page's key, kept so a look from before still counts); the
+// conversation moves it on, and the count follows at once (lib/stored.ts).
 
 import { memo } from 'react';
 import { useStored } from '../../lib/stored';

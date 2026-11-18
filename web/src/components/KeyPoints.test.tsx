@@ -1,14 +1,13 @@
 // Key points (KeyPoints.tsx): the Foreman's short summary of a document or brief, shown above it;
 // and, where there is none, the Summarise button that asks for one through your message box. Also
-// how the brief card (In short, the whole brief folded under it) and the Docs reader use it.
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+// how the brief card (In short, the whole brief folded under it) uses it.
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../api/client';
-import type { BriefItem, DocSummary, JobDocEntry } from '../api/types';
+import type { BriefItem, DocSummary } from '../api/types';
 import { readStored } from '../lib/stored';
 import { draftKey } from '../panes/Foreman/Composer';
 import { BriefCard } from '../panes/Foreman/BriefCard';
-import { DocsTab } from '../panes/Preview/DocsTab';
 import { createStore, WorkshopContext } from '../state/store';
 import { job, snapshot } from '../state/test-fixtures';
 import { addSummaryRequest, KeyPoints } from './KeyPoints';
@@ -95,38 +94,3 @@ describe('Key points on a brief', () => {
   });
 });
 
-describe('Key points in the Docs tab', () => {
-  const NOW = new Date().toISOString();
-  const DOCS: JobDocEntry[] = [
-    { file: 'implementation-plan.md', name: 'Implementation plan', group: 'plan', version: '2', updatedAt: NOW, size: 10, type: 'md', summary: 'current' },
-    { file: 'findings.md', name: 'Findings', group: 'plan', version: '3', updatedAt: NOW, size: 10, type: 'md', summary: 'stale' },
-    { file: 'test-plan.md', name: 'Test plan', group: 'plan', version: null, updatedAt: NOW, size: 10, type: 'md', summary: null },
-    { file: 'notes.md', name: 'Notes', group: 'notes', version: null, updatedAt: NOW, size: 10, type: 'md', summary: null },
-  ];
-  const get = async (path: string) => {
-    if (path === '/api/job/alpha/docs') return { docs: DOCS };
-    const file = decodeURIComponent(/file=(.+)$/.exec(path)![1]);
-    return { file, name: file, type: 'md', html: `<p>Body of ${file}</p>`, text: '', summary: file === 'implementation-plan.md' ? SUMMARY : null };
-  };
-
-  it('the list marks documents that have key points (and older ones); a document opens with them on top', async () => {
-    withApi(get, <DocsTab slug="alpha" />);
-    const plan = await screen.findByRole('button', { name: /Implementation plan/ });
-    expect(within(plan).getByText('Key points')).toBeInTheDocument();
-    expect(within(screen.getByRole('button', { name: /Findings/ })).getByText('Key points (older)')).toBeInTheDocument();
-    expect(within(screen.getByRole('button', { name: /Test plan/ })).queryByText(/Key points/)).toBeNull();
-    fireEvent.click(plan);
-    const box = await screen.findByRole('region', { name: 'Key points' });
-    expect(box.compareDocumentPosition(screen.getByText('Body of implementation-plan.md')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  });
-
-  it('a plan without them offers Summarise; your notes never do', async () => {
-    withApi(get, <DocsTab slug="alpha" />);
-    fireEvent.click(await screen.findByRole('button', { name: /Test plan/ }));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Summarise' })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: /All documents/ }));
-    fireEvent.click(await screen.findByRole('button', { name: /Notes/ }));
-    await screen.findByText('Body of notes.md');
-    expect(screen.queryByRole('button', { name: 'Summarise' })).toBeNull();
-  });
-});

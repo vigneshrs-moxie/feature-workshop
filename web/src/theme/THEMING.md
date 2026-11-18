@@ -191,7 +191,7 @@ Stable class names and data attributes a theme may target. Their meaning is fixe
 | `.app` | the whole shell |
 | `.topbar` | the top bar; `.brand` its title, `.desk-link` the Desk button with its count, `.conn` the connection state; `.topbar-long` / `.topbar-short` a link's full and short words (the short one under 1100 px) |
 | `.usage-banner` | the usage-limit banner under the top bar (`.usage-limited` while paused, `.usage-warn` the heads-up) |
-| `.pane`, `.pane-foreman` | a full-height scrolling area (Settings and the old Foreman pane); a job is the Job page (`job/page/JobPage.tsx`, `.page-job`) |
+| `.pane`, `.pane-foreman` | a full-height scrolling area (Settings and the old Foreman pane); a job is the job page (`jobpage/JobPage2.tsx`, `.jp2`) |
 | `.pane-head`, `.pane-title` | a pane's header row and its `h2` title |
 | `.job-group`, `.job-group-title` | a group in the Jobs pane and its heading (glyph, label, count) |
 | `.job-row`, `.job-row-title`, `.job-row-meta`, `.job-status`, `.job-status-label` | one job in the list and its parts |

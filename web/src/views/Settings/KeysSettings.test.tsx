@@ -53,7 +53,6 @@ describe('Settings → Keys', () => {
     // The job page's n (Task 17) adds a note now, so it is listed.
     expect(within(all).getAllByText(KEYS['jp-note'].label).length).toBeGreaterThan(0);
     expect(within(all).getByRole('region', { name: 'The Inbox' })).toHaveTextContent('Start a job on the ticket');
-    expect(within(all).getByRole('region', { name: 'The open step' })).toHaveTextContent('The step after this one');
     expect(within(all).getByRole('region', { name: 'The job page' })).toHaveTextContent('Open the step after');
     expect(all).toHaveTextContent('never work while you type');
   });

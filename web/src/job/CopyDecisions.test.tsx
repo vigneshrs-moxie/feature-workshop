@@ -58,7 +58,7 @@ describe('CopyDecisions', () => {
       ? { file: 'decisions.md', path: '/x', text: '| table |', orbit: { text: TEXT, count: 1 } }
       : { decisions: [{ at: '2026-11-10T10:00:00Z', kind: 'approve', text: 'Approved brief 2' }] }));
     const api = { get, post: vi.fn() } as unknown as ApiClient;
-    // The new job page's header passes the full list (job/page/JobTop.tsx); the fold holds it.
+    // A header that passes the full list: the fold holds it.
     render(<WorkshopContext.Provider value={{ store: createStore(), api }}><CopyDecisions slug="orbit-472-roster" all={<DecisionsTab slug="orbit-472-roster" active copy={false} />} /></WorkshopContext.Provider>);
     fireEvent.click(screen.getByRole('button', { name: 'Copy decisions' }));
     const text = await screen.findByLabelText('The text that will be copied');
@@ -90,7 +90,7 @@ describe('CopyDecisions', () => {
     expect(readFileSync(path.join(process.cwd(), 'src/job/CopyDecisions.tsx'), 'utf8')).not.toMatch(/from '\.\.\/panes\/Preview\/DecisionsTab'/);
   });
 
-  it('the button is on the Decisions tab (the header has it too, see JobTop.test.tsx)', () => {
+  it('the button is on the Decisions tab', () => {
     setup(<DecisionsTab slug="orbit-472-roster" active />);
     expect(screen.getByRole('button', { name: 'Copy decisions' })).toBeInTheDocument();
   });

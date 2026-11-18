@@ -33,7 +33,6 @@ import './views/Settings/settings.css';
 import './theme/look.css';
 import './views/Stack/stack-page.css';
 import './views/Stack/part-page.css';
-import './job/page/page.css';
 import './jobpage/answers.css';
 import './jobpage/left/prlines.css';
 import './jobpage/asks.css';
