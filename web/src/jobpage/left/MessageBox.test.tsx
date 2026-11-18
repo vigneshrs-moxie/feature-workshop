@@ -19,8 +19,10 @@ import { longJob } from '../fixtures/longJob';
 import { browserDrafts, createJobStore, draftKey, type JobStore } from '../jobStore';
 import { JobPage2 } from '../JobPage2';
 import { forgetRecentPages } from '../recent';
+import { JobStoreContext } from '../useJob';
 import type { GateMove, JobBody, JobPagePayload, Move, PermissionMove } from '../types';
 import { gateBody } from './gateBody';
+import { MessageBox, pressStopAndSend } from './MessageBox';
 import { forgetSentGo } from './YourMove';
 
 const SLUG = longJob.payload.slug;
@@ -368,11 +370,12 @@ describe('words with Go and with Send back', () => {
 });
 
 describe('while a reply runs', () => {
-  it('the box says the Foreman reads it at its next step, with Stop it and send now beside it in the same row; Send goes into the reply (talk any time)', async () => {
+  it('the box says the Foreman reads it at its next step, the whole row is the box and Send (the one stop control is on the line above); Send goes into the reply (talk any time)', async () => {
     const o = open({ move: null, patch: { run: RUNNING }, post: steerPost() });
-    expect(box()).toHaveAttribute('placeholder', 'Write to the Foreman… it reads this at its next step');
+    expect(box()).toHaveAttribute('placeholder', 'Write to the Foreman… it reads it at its next step');
     expect(send()).toHaveAttribute('title', 'The Foreman is working: your message goes into this reply and it reads it at its next step.');
-    expect(screen.getByRole('button', { name: 'Stop it and send now' }).parentElement).toBe(box().parentElement);
+    expect(foot().queryByRole('button', { name: 'Stop it and send now' })).toBeNull();
+    expect([...box().parentElement!.children].map((el) => el.tagName)).toEqual(['TEXTAREA', 'BUTTON']);
     type('Also the header.');
     fireEvent.click(send());
     await settle();
@@ -396,9 +399,10 @@ describe('while a reply runs', () => {
     expect(waitRow()).toHaveTextContent('Stop, and use the old header.');
   });
 
-  it('Stop it and send now with an empty box puts the cursor in it and stops nothing', () => {
+  it('Stop it and send now with an empty box puts the cursor in it and stops nothing (the line above shows a plain Stop then)', () => {
     const o = open({ move: null, patch: { run: RUNNING } });
-    fireEvent.click(screen.getByRole('button', { name: 'Stop it and send now' }));
+    expect(screen.queryByRole('button', { name: 'Stop it and send now' })).toBeNull();
+    act(() => { expect(pressStopAndSend(SLUG)).toBe(true); });
     expect(document.activeElement).toBe(box());
     expect(o.post).not.toHaveBeenCalled();
   });
@@ -506,7 +510,8 @@ describe('Task 11 fix round 1', () => {
       type('Use the old header.');
       fireEvent.click(screen.getByRole('button', { name: 'Stop it and send now' }));
       await act(async () => { await vi.advanceTimersByTimeAsync(9_000); });
-      expect(screen.getByRole('button', { name: /Stop it and send now|Stopping/ })).toHaveAttribute('aria-busy', 'true');
+      // The line above the box already says Stopping…; the box says the words go once it has stopped.
+      expect(foot().getByRole('status')).toHaveTextContent('Stopping the Foreman; your words go as soon as it has stopped.');
       await act(async () => { await vi.advanceTimersByTimeAsync(1_500); });
       expect(foot().getByRole('alert')).toHaveTextContent('The Foreman hasn’t stopped yet. Your words are still here');
       expect(box()).toHaveValue('Use the old header.');
@@ -545,14 +550,14 @@ describe('Task 11 fix round 1', () => {
 });
 
 describe('Task 11 fix round 1: the phone', () => {
-  it('on the phone the row has no room for Stop it and send now: it has its own line above the box (Task 15); Send goes into the reply (talk any time)', async () => {
+  it('on the phone Stop it and send now is on the line above the box, never in the box’s row; Send goes into the reply (talk any time)', async () => {
     windowWidth(390);
     const o = open({ move: null, patch: { run: RUNNING }, post: steerPost() });
     expect(box()).toHaveAttribute('placeholder', 'Message the Foreman…');
+    type('Stop, and use the old header.');
     const stop = screen.getByRole('button', { name: 'Stop it and send now' });
-    const row = box().closest('.jp2-mb')!;
-    expect(row).not.toContainElement(stop);
-    expect(stop.closest('.jp2-mb-stopline')!.nextElementSibling).toBe(row);
+    expect(stop.closest('.jp2-now')).not.toBeNull();
+    expect(document.querySelector('.jp2-mb-stopline')).toBeNull();
     type('Also the header.');
     fireEvent.click(send());
     await settle();
@@ -984,5 +989,38 @@ describe('talk any time: Send goes into the running reply', () => {
     fireEvent.click(send());
     expect(post).toHaveBeenCalledTimes(1);
     await act(async () => { answer({ steer: { id: 'z', runId: 'run-now', slug: SLUG, text: 'Also the header.', state: 'queued' } }); });
+  });
+});
+
+describe('stopElsewhere: the line above the box has the one stop control', () => {
+  function bare(stopElsewhere: boolean, post = waitPost()) {
+    const store = createJobStore(SLUG, { api: { page: vi.fn(), item: vi.fn() } as never, events: () => () => {}, viewer: () => null, initial: { ...payload(), move: null, run: RUNNING } as JobPagePayload, drafts: browserDrafts });
+    const app = createStore();
+    const api = { get: vi.fn(), post, hosted: () => false } as unknown as ApiClient;
+    const ref = { current: null as HTMLTextAreaElement | null };
+    const utils = render(<WorkshopContext.Provider value={{ api, store: app }}><UiProvider><JobStoreContext.Provider value={store}><MessageBox boxRef={ref} stopElsewhere={stopElsewhere} /></JobStoreContext.Provider></UiProvider></WorkshopContext.Provider>);
+    return { post, utils };
+  }
+
+  it('without it the box keeps its own button and registers nothing', () => {
+    const { utils } = bare(false);
+    expect(screen.getByRole('button', { name: 'Stop it and send now' })).toBeInTheDocument();
+    expect(pressStopAndSend(SLUG)).toBe(false);
+    utils.unmount();
+  });
+
+  it('with it the button is not drawn; the registered action does what the button did, and goes on unmount', async () => {
+    const { post, utils } = bare(true);
+    expect(screen.queryByRole('button', { name: 'Stop it and send now' })).toBeNull();
+    type('Stop, and use the old header.');
+    act(() => { expect(pressStopAndSend(SLUG)).toBe(true); });
+    await settle();
+    expect(post.mock.calls.map((c) => [c[0], JSON.stringify(c[1])])).toEqual([
+      [`/api/job/${SLUG}/send`, '{"kind":"message","text":"Stop, and use the old header.","queue":true,"confirmNoTerminal":false}'],
+      ['/api/runs/run-now/stop', '{"then":"send-waiting"}'],
+    ]);
+    expect(waitRow()).toHaveTextContent('Stop, and use the old header.');
+    utils.unmount();
+    expect(pressStopAndSend(SLUG)).toBe(false);
   });
 });

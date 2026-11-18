@@ -1,7 +1,9 @@
 // The line above the message box (talk any time, 18 Nov): one line, always there, where he types. In the
 // terminal he can see whether Claude is working, on what, and for how long; this says the same here.
 //   - a reply running: a pulsing dot, `Working` (`Waiting for your permission`, `Stopping…`), the time
-//     since the reply started, what the Foreman is doing now (the run's lastAction), then Stop;
+//     since the reply started, what the Foreman is doing now (the run's lastAction), then the one stop
+//     control: `Stop it and send now` when the box has words, notes or a message waiting (the box's own
+//     action, MessageBox pressStopAndSend), else a plain Stop;
 //   - no reply: the job's state in the payload's words (`Needs you · …`; at a go-ahead or a question,
 //     `Waiting for you · since Tue 3:04 PM`).
 // The run's start and last action come from the app's live run, each read on its own so only this line
@@ -10,10 +12,11 @@
 // change, never the seconds.
 
 import { memo, useEffect, useState, useSyncExternalStore } from 'react';
+import { Button } from '../../components/Button';
 import { useWorkshop } from '../../state/store';
 import { useJob } from '../useJob';
 import { STATE_WORDS } from './Header';
-import { RUN_ACTIVE, useForemanRun } from './MessageBox';
+import { pressStopAndSend, RUN_ACTIVE, STOP_SEND_HINT, useForemanRun } from './MessageBox';
 import { StopReply } from './StopReply';
 import { sinceWords } from './YourMove';
 
@@ -79,6 +82,9 @@ export const NowLine = memo(function NowLine() {
     return p.stateLine ? `${words} · ${p.stateLine}` : words;
   });
 
+  // Words to send with a stop: the box's words, its notes, or a message already waiting (one answer).
+  const hasWords = useJob((s) => Boolean(s.ui.draft.trim() || s.ui.notes.length || s.payload?.waiting));
+  const locked = useJob((s) => Boolean(s.payload?.lock));
   const started = liveStarted ?? payloadStarted;
   const action = liveAction ?? payloadAction;
   const what = run?.status === 'waiting_permission' ? 'Waiting for your permission' : run?.status === 'stopping' ? 'Stopping…' : 'Working';
@@ -92,7 +98,11 @@ export const NowLine = memo(function NowLine() {
             {started && <Elapsed key={started} since={started} />}
             {action && <span className="jp2-now-act" title={action}>{' '}· {action}</span>}
           </span>
-          <StopReply />
+          {hasWords ? (
+            <Button kind="quiet" size="sm" className="jp2-ym-stop" disabled={locked || run?.status === 'stopping'} onClick={() => pressStopAndSend(slug)} title={STOP_SEND_HINT}>
+              Stop it and send now
+            </Button>
+          ) : <StopReply />}
         </>
       ) : (
         <span className="jp2-now-say" role="status" aria-live="polite">

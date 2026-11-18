@@ -21,7 +21,9 @@
 // sends when the reply ends, so the waiting block below shows it. The reply having ended meanwhile (404
 // finished) sends the words as a plain message; a reply that is stopping (409) makes them wait instead.
 // `Stop it and send now` is the interrupt: it sits beside the box in the same row (on the phone, with no
-// room in the row, on its own line above the box: Task 15). A message waits for the Foreman (Task 16,
+// room in the row, on its own line above the box: Task 15). On the job page the line above the box
+// (NowLine) has the one stop control instead (`stopElsewhere`): the box leaves its row to the words and
+// hands the same action to that line (pressStopAndSend). A message waits for the Foreman (Task 16,
 // R8): Stop it and send now posts it with `queue: true` and the server keeps it (one per job,
 // lib/queued.js) and sends it when the reply ends. Its words show under the box at once, with `Cancel`
 // (POST …/waiting/cancel; the words come back to the box). A second one is refused naming the first:
@@ -63,7 +65,7 @@ export const PLACEHOLDER = 'Write to the Foreman…';
 /** The prototype's short words (it sits beside Stop it and send now). */
 export const WHILE_RUNNING = 'Sends when it finishes';
 /** While a reply runs on the laptop: Send goes into it (talk any time), and its short form on the phone. */
-export const INTO_REPLY = 'Write to the Foreman… it reads this at its next step';
+export const INTO_REPLY = 'Write to the Foreman… it reads it at its next step';
 const INTO_REPLY_SHORT = 'Message the Foreman…';
 /** Where a message sent into the reply is (the app's steer states). */
 export const STEER_WORDS: Partial<Record<Steer['state'], string>> = {
@@ -163,11 +165,28 @@ function fit(el: HTMLTextAreaElement) {
   el.style.overflowY = h > most ? 'auto' : 'hidden';
 }
 
+/** The boxes that left their Stop it and send now to the line above them (NowLine), by job. */
+const stopHandlers = new Map<string, () => void>();
+/** Stop it and send now for this job's box, from the line above it: false when no box has registered one. */
+export function pressStopAndSend(slug: string): boolean {
+  const h = stopHandlers.get(slug);
+  if (!h) return false;
+  h();
+  return true;
+}
+/** The words Stop it and send now has on its button (the box's own, or the line above it). */
+export const STOP_SEND_HINT = 'End the Foreman’s reply now, then send your words as soon as it has stopped. Anything waiting for your answer is declined.';
+
 export interface MessageBoxProps {
   /** The page's handle on the box (c and i, quick replies and Send back put the cursor in it). */
   boxRef: RefObject<HTMLTextAreaElement | null>;
   /** Open something in the reader (a note's chip; a pasted picture, to pin on). */
   onOpen?(t: ReaderTarget, from?: HTMLElement | null): void;
+  /**
+   * The line above the box (NowLine) has the one stop control: the box shows no Stop it and send now of its
+   * own and hands its action to that line (pressStopAndSend).
+   */
+  stopElsewhere?: boolean;
 }
 
 /** Notes taken out to go, back in the box after a refusal (before any made since). */
@@ -195,7 +214,7 @@ export function useForemanRun(): RunFacts {
 export const RUN_ACTIVE: ReadonlySet<string> = ACTIVE;
 export { LOCKED };
 
-export const MessageBox = memo(function MessageBox({ boxRef, onOpen }: MessageBoxProps) {
+export const MessageBox = memo(function MessageBox({ boxRef, onOpen, stopElsewhere = false }: MessageBoxProps) {
   const store = useJobStore();
   const { api, store: app } = useWorkshop();
   const slug = useJob((s) => s.slug);
@@ -586,7 +605,16 @@ export const MessageBox = memo(function MessageBox({ boxRef, onOpen }: MessageBo
     : phase === 'sent' && !draft ? (narrow ? AFTER_SENT_SHORT : AFTER_SENT)
       : asked ? (narrow ? AT_ASK_SHORT : AT_ASK) : PLACEHOLDER;
   const sentShown = phase === 'sending' || (phase === 'sent' && !draft);
-  const stop = running && (
+  // The line above the box presses it: the same action as the button (always the newest one).
+  const stopAction = useRef<() => void>(() => {});
+  stopAction.current = () => void (hosted ? stopAndSend() : stopThenSend());
+  useEffect(() => {
+    if (!stopElsewhere) return undefined;
+    const h = () => stopAction.current();
+    stopHandlers.set(slug, h);
+    return () => { if (stopHandlers.get(slug) === h) stopHandlers.delete(slug); };
+  }, [slug, stopElsewhere]);
+  const stop = running && !stopElsewhere && (
     <Button
       kind="quiet"
       size={narrow ? 'md' : 'sm'}
@@ -595,7 +623,7 @@ export const MessageBox = memo(function MessageBox({ boxRef, onOpen }: MessageBo
       busyLabel="Stopping…"
       disabled={locked}
       onClick={() => void (hosted ? stopAndSend() : stopThenSend())}
-      title="End the Foreman’s reply now, then send your words as soon as it has stopped. Anything waiting for your answer is declined."
+      title={STOP_SEND_HINT}
     >
       Stop it and send now
     </Button>

@@ -1,6 +1,6 @@
 // The line above the message box (talk any time): is it working, on what, for how long; and when no
 // reply runs, the job's state in the payload's words. The time ticks only while a reply runs in view.
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../../api/client';
 import { createStore, WorkshopContext, type Store } from '../../state/store';
@@ -8,7 +8,9 @@ import { longJob } from '../fixtures/longJob';
 import { createJobStore } from '../jobStore';
 import type { JobPagePayload } from '../types';
 import { JobStoreContext } from '../useJob';
+import { MessageBox } from './MessageBox';
 import { elapsedWords, NowLine } from './NowLine';
+import { UiProvider } from '../../app/ui';
 import { sinceWords } from './YourMove';
 
 const SLUG = longJob.payload.slug;
@@ -103,5 +105,29 @@ describe('no reply running', () => {
     show(null);
     expect(line()).toBeInTheDocument();
     expect(line()).toHaveTextContent(/^$/);
+  });
+});
+
+describe('the one stop control', () => {
+  it('a plain Stop with an empty box; Stop it and send now once the box has words, and it does the box’s Stop it and send now', async () => {
+    const post = vi.fn(async (path: string, body?: unknown): Promise<unknown> => (path.endsWith('/stop') ? { ok: true } : { ok: true, waiting: { text: (body as { text: string }).text, at: START, why: null } }));
+    const store = createJobStore(SLUG, { api: { page: vi.fn(), item: vi.fn() } as never, events: () => () => {}, viewer: () => null, initial: { ...payload(), move: null, run: run('running') } as JobPagePayload });
+    const api = { get: vi.fn(), post, hosted: () => false } as unknown as ApiClient;
+    const ref = { current: null as HTMLTextAreaElement | null };
+    render(<WorkshopContext.Provider value={{ api, store: createStore() }}><UiProvider><JobStoreContext.Provider value={store}><NowLine /><MessageBox boxRef={ref} stopElsewhere /></JobStoreContext.Provider></UiProvider></WorkshopContext.Provider>);
+    expect(line().querySelectorAll('button')).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Stop it and send now' })).toBeNull();
+    act(() => { fireEvent.change(screen.getByRole('textbox', { name: 'Message to the Foreman' }), { target: { value: 'Use the old header.' } }); });
+    expect(line().querySelectorAll('button')).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull();
+    const stop = screen.getByRole('button', { name: 'Stop it and send now' });
+    expect(line()).toContainElement(stop);
+    expect(stop).toHaveAttribute('title', 'End the Foreman’s reply now, then send your words as soon as it has stopped. Anything waiting for your answer is declined.');
+    await act(async () => { fireEvent.click(stop); await new Promise((r) => setTimeout(r, 0)); });
+    expect(post.mock.calls.map((c) => [c[0], JSON.stringify(c[1])])).toEqual([
+      [`/api/job/${SLUG}/send`, '{"kind":"message","text":"Use the old header.","queue":true,"confirmNoTerminal":false}'],
+      ['/api/runs/run-now/stop', '{"then":"send-waiting"}'],
+    ]);
   });
 });

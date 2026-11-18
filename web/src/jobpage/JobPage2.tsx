@@ -444,7 +444,7 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
           {!wide && <AsksRow runner={asks} job={job} phone={phone} lead={prLead.lead} onLead={prLead.onLead} />}
           {/* The line above the box: is it working, on what, for how long (talk any time). */}
           {!wide && <NowLine />}
-          {!wide && <MessageBox boxRef={box} onOpen={pickReader} />}
+          {!wide && <MessageBox boxRef={box} onOpen={pickReader} stopElsewhere />}
         </div>
         {screenNow === 'step' && step && <PhoneStep id={step} job={job} onBack={moves.back} onOpen={pickReader} />}
         <section
@@ -485,7 +485,7 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
             </AsksContext.Provider>
             <AsksRow runner={asks} job={job} phone={false} lead={prLead.lead} onLead={prLead.onLead} />
             <NowLine />
-            <MessageBox boxRef={box} onOpen={pickReader} />
+            <MessageBox boxRef={box} onOpen={pickReader} stopElsewhere />
           </section>
         )}
       </div>
