@@ -63,7 +63,8 @@ export const longJob: LongJobFixture = {
       "dir": null,
       "worktree": null,
       "policyOverride": null,
-      "started": false
+      "started": false,
+      "guess": null
     },
     "heldReply": null,
     "usage": null,
