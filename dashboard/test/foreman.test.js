@@ -607,6 +607,34 @@ test('Nov 17 (5): locateJob takes no plain word for a branch, drops a guessed br
   } finally { await fs.rm(root, { recursive: true, force: true }); }
 });
 
+test('Nov 18: a branch the notes only mention is the job\'s only when it is named after the job; another job\'s or the checkout\'s branch is no guess', async () => {
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'workshop-locate-nov18-')));
+  let n = 0;
+  const repoWith = async (...branches) => {
+    const repo = path.join(root, `r${n++}`);
+    const run = (...a) => execFileSync('git', ['-C', repo, ...a], { stdio: 'pipe' });
+    await fs.mkdir(repo);
+    run('init', '-q', '-b', 'main'); run('config', 'user.email', 't@example.invalid'); run('config', 'user.name', 'T');
+    await fs.writeFile(path.join(repo, 'a'), 'a'); run('add', '.'); run('commit', '-qm', 'a');
+    for (const b of branches) run('branch', b);
+    return repo;
+  };
+  // ORBIT-453: the log names another job's worktree and branch, read only.
+  const job453 = { slug: 'orbit-453-edit-access-for-admins', title: 'ORBIT-453: Edit access for admins' };
+  const log453 = 'read only, in the worktree orbit-field-expert-card-errors at 8b1b7a4b (clean, branch fix/field-expert-card-errors)';
+  const other = await locateJob({ ...job453, wsText: log453, override: { repoPath: await repoWith('fix/field-expert-card-errors') } });
+  assert.deepEqual({ branch: other.branch, guessed: other.branchGuessed }, { branch: null, guessed: false });
+  // ORBIT-463: the main checkout's own branch, named in passing.
+  const job463 = { slug: 'orbit-463-it-is-really-difficult-as-a-manager-to', title: 'ORBIT-463: It is really difficult as a manager to' };
+  const log463 = 'code context read from the human\'s working copy (branch snapshot-local-db-for-mac)';
+  const checkout = await locateJob({ ...job463, wsText: log463, override: { repoPath: await repoWith('snapshot-local-db-for-mac') } });
+  assert.deepEqual({ branch: checkout.branch, guessed: checkout.branchGuessed }, { branch: null, guessed: false });
+  // A branch the job really made and wrote into its notes is still found.
+  const made = await locateJob({ ...job453, wsText: `${log453}\nCreated branch \`feature/orbit-453-edit-access-for-admins\`.`,
+    override: { repoPath: await repoWith('fix/field-expert-card-errors', 'feature/orbit-453-edit-access-for-admins') } });
+  assert.deepEqual({ branch: made.branch, guessed: made.branchGuessed }, { branch: 'feature/orbit-453-edit-access-for-admins', guessed: true });
+});
+
 test('Nov 17 (5): branchesIn reads no plain word as a branch', () => {
   assert.deepEqual(branchesIn('We will create the branch create after approval; branch new, branch tbd, branch none, branch `to`.'), []);
   assert.deepEqual(branchesIn('on branch `feature/a-b`; branch fix/c-d; branch `orbit-463-x`'), ['feature/a-b', 'fix/c-d', 'orbit-463-x']);
