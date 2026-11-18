@@ -286,13 +286,6 @@ test('starting Try it from the page marks the hand test started; the recorder st
     assert.ok(at >= before - 1000 && at <= Date.now() + 1000, job.page.handTest.startedAt);
     const sessions = JSON.parse(await fs.readFile(path.join(dirs.state, 'sessions.json'), 'utf8'));
     assert.equal(sessions[dir].tryStartedAt, job.page.handTest.startedAt);
-
-    // The Test step carries both; another step carries neither.
-    const testStep = await getOwn(`/api/job/${slug}/stage/test`);
-    assert.deepEqual(testStep.checks, job.page.checks);
-    assert.deepEqual(testStep.handTest, job.page.handTest);
-    const buildStep = await getOwn(`/api/job/${slug}/stage/build`);
-    assert.ok(!('checks' in buildStep) && !('handTest' in buildStep));
   } finally {
     await d.stop();
   }
@@ -537,16 +530,12 @@ test('the page\'s plan shows no commits from a guessed branch', { timeout: 60_00
   const w = await guessedWorld();
   const job = await w.get(`/api/job/${w.slug}`);
   assert.deepEqual(job.page.plan.steps.map((s) => s.state), ['next', 'next'], 'no step is built by the guessed branch\'s [S1]');
-  for (const stop of ['plan', 'build']) {
-    assert.deepEqual((await w.get(`/api/job/${w.slug}/stage/${stop}`)).plan.steps.map((s) => s.state), ['next', 'next'], stop);
-  }
 });
 
 test('the page\'s pull requests are empty for a guessed branch', { timeout: 60_000 }, async () => {
   const w = await guessedWorld();
   const none = [1, 2, 3].map((n) => ({ n, number: null, title: null, url: null, state: 'not-started', review: null, checks: null, openedAt: null, updatedAt: null }));
   assert.deepEqual((await w.get(`/api/job/${w.slug}`)).page.prs, none, 'not the guessed branch\'s PR #1');
-  assert.deepEqual((await w.get(`/api/job/${w.slug}/stage/ship`)).prs, none, 'the Ship step');
 });
 
 test('the Build step\'s commits are none for a guessed branch, as for a job with no branch', { timeout: 60_000 }, async () => {

@@ -10,8 +10,8 @@
 // Every change tells the person's open pages (lib/live.js) once per batch: 'change' (the board) or
 // 'thread' (one job's page).
 //
-// The routes the page reads: the dashboard's own job and Stage routes (dashboard/site/routes-jobs.js
-// and routes-stage.js), mounted here as they are, with a mirror runner:
+// The routes the page reads: the dashboard's own job routes (dashboard/site/routes-jobs.js,
+// routes-job-page.js and routes-stage.js), mounted here as they are, with a mirror runner:
 //   read     answers from the person's mirrored record (only their own laptops; anyone else's job,
 //            or one that isn't there, is a 404). What only the laptop has (Try it, the Screens page,
 //            older conversation, notes) says so in words: "Your laptop is off…" or "on your laptop".

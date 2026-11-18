@@ -58,8 +58,9 @@ test('the mirror round trip: the board, a job’s page, its documents and decisi
     assert.match(doc.text, /The plan/);
     assert.equal(doc.vscode, null);
     assert.equal((await olive.person.json('/api/job/add-export/decisions')).body.decisions[0].choice, 'CSV');
-    const stage = await olive.person.json('/api/job/add-export/stage/plan');
-    assert.equal(stage.status, 200, JSON.stringify(stage.body));
+    // The old job page's step view is gone (plan Task 26): the job page reads /page.
+    assert.equal((await olive.person.json('/api/job/add-export/page')).status, 200);
+    assert.equal((await olive.person.json('/api/job/add-export/stage/plan')).status, 404);
     // What only the laptop has says so in words.
     const tryIt = await olive.person.json('/api/job/add-export/local');
     assert.equal(tryIt.status, 409);

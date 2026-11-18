@@ -1,5 +1,6 @@
 // The Stage (packet M): one stop of a job and everyone who works or worked it (lib/stage-view.js),
-// and its two routes on a demo dashboard (site/routes-stage.js, try-it 'follow' in the runner).
+// and its terminal route on a demo dashboard (site/routes-stage.js, try-it 'follow' in the runner).
+// The step's own view route (GET …/stage/:stop) went with the old job page (plan Task 26).
 // No terminal is ever opened: the pure view is tested with platform names, and the demo dashboard
 // (STARBASE_DEMO=1) answers 'follow' without launching anything.
 
@@ -250,7 +251,7 @@ describe('refs and following', () => {
 
 // ---------- The routes, on a demo dashboard ----------
 
-describe('the Stage routes', () => {
+describe('the Stage’s terminal route', () => {
   let root;
   let dashboard;
   let base;
@@ -303,37 +304,23 @@ describe('the Stage routes', () => {
     if (root) await fs.rm(root, { recursive: true, force: true });
   });
 
-  test('GET a stop: the Foreman and the planner at work', async () => {
-    const res = await get('/api/job/stage-job/stage/plan');
-    assert.equal(res.status, 200, output.join(''));
-    const v = await res.json();
-    assert.equal(v.slug, 'stage-job');
-    assert.equal(v.stop, 'plan');
-    assert.equal(v.state, 'now');
-    assert.equal(v.stateWords, 'Working now');
-    assert.deepEqual(v.agents.map((a) => [a.role, a.status]), [['Foreman', 'working'], ['Planner', 'working']]);
-    assert.equal(v.agents[1].model, 'Opus 5.5');
-    assert.equal(v.agents[1].doing, 'Reading app.js');
-    assert.equal(v.agents[0].terminal.kind, 'continue');
-    assert.equal(v.agents[1].terminal.kind, 'watch');
-    assert.ok(Array.isArray(v.terminalApps));
-
-    const spec = await (await get('/api/job/stage-job/stage/spec')).json();
-    assert.equal(spec.state, 'done');
-    assert.deepEqual(spec.agents, []);
-    assert.equal(spec.finished[0].who, 'conductor');
+  test('the step’s own view is gone: GET …/stage/:stop answers nothing', async () => {
+    assert.equal((await get('/api/job/stage-job/stage/plan')).status, 404);
   });
 
   test('an unknown stop is a 400 in plain words; an unknown job a 404', async () => {
-    const bad = await get('/api/job/stage-job/stage/deploy');
+    const bad = await post('/api/job/stage-job/stage/deploy/terminal', { ref: 'foreman' });
     assert.equal(bad.status, 400);
     assert.match((await bad.json()).error, /There’s no stop by that name\. The stops are spec, investigate, plan, build, test, review and ship\./);
-    assert.equal((await get('/api/job/no-such-job/stage/plan')).status, 404);
+    assert.equal((await post('/api/job/no-such-job/stage/plan/terminal', { ref: 'foreman' })).status, 404);
   });
 
   test('POST …/terminal: needs the token, a known ref, and opens nothing in the demo', async () => {
-    const v = await (await get('/api/job/stage-job/stage/plan')).json();
-    const planner = v.agents.find((a) => a.who === 'feature-planner');
+    // The planner's ref, as the job page's Details has it (GET …/work: a running row's ref).
+    const work = await get('/api/job/stage-job/work');
+    assert.equal(work.status, 200, output.join(''));
+    const planner = (await work.json()).rows.find((r) => r.who === 'feature-planner');
+    assert.ok(planner?.ref, 'the planner is at work, with a ref');
     assert.equal((await post('/api/job/stage-job/stage/plan/terminal', { ref: planner.ref }, { withToken: false })).status, 403);
     const watch = await post('/api/job/stage-job/stage/plan/terminal', { ref: planner.ref });
     assert.equal(watch.status, 200, output.join(''));
