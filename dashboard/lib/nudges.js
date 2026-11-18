@@ -43,6 +43,8 @@ const num = (p) => (Number.isInteger(p?.number) && p.number > 0 ? ` (#${p.number
 function prOf(lane, prs, n) {
   const fromLane = n === 1 ? lane?.pr1 : lane?.pr2;
   if (fromLane) return fromLane;
+  // A new round on the map (lib/flow.js laneOf): status.json's PR #2 is the last round's, not this one's.
+  if (n >= 2 && lane?.newRound === true) return null;
   const s = Array.isArray(prs) ? prs[n - 1] : null;
   if (!s || !['open', 'draft', 'merged', 'closed'].includes(prState(s))) return null; // not_started: no PR
   return { number: s.number ?? null, url: s.url ?? null, state: prState(s), review: s.review ?? null, checks: s.checks ?? null };

@@ -113,3 +113,12 @@ test('a job with a review round: the four hand-offs the round covers are left ou
   const at2 = nudgesFor(card({ stage: 'pr2', prs: [{ state: 'merged' }, { number: 142, state: 'open' }] }), lane('staging', pr(141, 'merged'), pr(142, 'merged')), { finishLine: 'main', inRound: true });
   assert.deepEqual(ids(at2), ['pr2-merged']);
 });
+
+test('a new round on the map: status.json’s last-round PR #2 is not this round’s, so Open PR #2 is offered once the new PR #1 merged', () => {
+  // Nov 18, orbit-463: #259 merged into staging last round; the follow-up's PR #1 is #276.
+  const prs = [{ number: 1, url: URL1, state: 'merged' }, { number: 2, url: URL2, state: 'merged' }];
+  const round = { ...lane('org', pr(141, 'merged'), null), newRound: true };
+  assert.deepEqual(ids(nudgesFor(card({ stage: 'pr2', prs }), round, { finishLine: 'main' })), ['pr2-open']);
+  // Without the mark the record still counts (older jobs GitHub's read does not return).
+  assert.deepEqual(ids(nudgesFor(card({ stage: 'pr2', prs }), lane('org', pr(141, 'merged'), null), { finishLine: 'main' })), []);
+});

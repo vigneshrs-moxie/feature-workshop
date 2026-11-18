@@ -205,9 +205,14 @@ export function laneOf(job, jf, repoFacts) {
   const toStaging = hasStaging ? pickPr(prs.filter((p) => p.base === 'staging')) : null;
   const toMain = pickPr(prs.filter((p) => p.base === 'main'));
   let pr2 = toStaging ?? (!hasStaging ? toMain : null);
-  // A new round of work: a PR #1 opened (or merged) after the last merge into staging. That merge
-  // was an earlier round's; this round hasn't reached staging yet, so it isn't the arrow's PR now.
-  const newRound = pr1 && pr2?.state === 'merged' && pr1.number > pr2.number && pr1.state !== 'closed';
+  // A new round of work: a PR #1 opened after the last merge into staging. That merge was an earlier
+  // round's; this round hasn't reached staging yet, so it isn't the arrow's PR now. Judged by time (a
+  // sync PR #1 opened before that merge can carry a higher number, Nov 18); by number when a date is missing.
+  const openedAfter = (a, b) => {
+    const opened = Date.parse(a.createdAt ?? ''), merged = Date.parse(b.mergedAt ?? '');
+    return Number.isFinite(opened) && Number.isFinite(merged) ? opened > merged : a.number > b.number;
+  };
+  const newRound = Boolean(pr1 && pr2?.state === 'merged' && pr1.state !== 'closed' && openedAfter(pr1, pr2));
   if (newRound) pr2 = null;
   let position = 'local';
   if (jf?.fork?.exists) position = 'fork';
@@ -225,6 +230,8 @@ export function laneOf(job, jf, repoFacts) {
     unpushed: jf?.fork?.exists ? jf.fork.ahead ?? 0 : null, forkBehind: jf?.fork?.exists ? jf.fork.behind ?? 0 : null,
     dirty: jf?.dirty ?? null, pushed: Boolean(jf?.fork?.exists), orgBranch: Boolean(jf?.org?.exists),
     pr1, pr2,
+    // A new round: PR #2 and #3 are not started this round, whatever status.json recorded for the last one.
+    newRound,
   };
 }
 

@@ -132,6 +132,20 @@ test('flow: laneOf places a job from its PRs and refs', () => {
   assert.equal(laneOf({ slug: 'x' }, jf(), rounds).pr2, null);
   assert.equal(place(rf([pr(129, 'staging', 'merged', { mergeCommit: 'm' }), pr(140, 'feature/x', 'open')]), jf({ fork: { exists: true } })), 'fork', 'a new PR #1 still open');
   assert.equal(place(rf([pr(129, 'staging', 'merged', { mergeCommit: 'm' }), pr(120, 'feature/x', 'merged')]), jf()), 'staging', 'the merge into staging came after');
+  assert.equal(laneOf({ slug: 'x' }, jf(), rounds).newRound, true, 'the lane says it is a new round');
+  assert.equal(laneOf({ slug: 'x' }, jf(), rf([pr(129, 'staging', 'merged', { mergeCommit: 'm' })])).newRound, false);
+  // By time when GitHub gave the dates (Nov 18, orbit-471): sync PR #255 opened and merged before #248 merged into
+  // staging is no new round, though its number is higher.
+  const sync = rf([pr(248, 'staging', 'merged', { mergeCommit: 'm', mergedAt: '2026-11-17T16:16:00Z' }),
+    pr(255, 'feature/x', 'merged', { createdAt: '2026-11-17T00:50:00Z', mergedAt: '2026-11-17T01:03:00Z' })]);
+  assert.equal(laneOf({ slug: 'x' }, jf(), sync).pr2?.number, 248);
+  assert.equal(laneOf({ slug: 'x' }, jf(), sync).newRound, false);
+  assert.equal(place(sync, jf()), 'staging');
+  // A PR #1 opened after that merge is a new round, whatever its number.
+  const later = rf([pr(248, 'staging', 'merged', { mergeCommit: 'm', mergedAt: '2026-11-17T16:16:00Z' }),
+    pr(240, 'feature/x', 'open', { createdAt: '2026-11-18T09:00:00Z' })]);
+  assert.equal(laneOf({ slug: 'x' }, jf(), later).pr2, null);
+  assert.equal(laneOf({ slug: 'x' }, jf(), later).newRound, true);
   // A clone of the org repo only (no fork): a branch on the org is on the org branch.
   assert.equal(place({ org: { slug: 'org/app' }, fork: null, staging: { ref: 's' }, prs: [], inMain: {} }, jf({ org: { exists: true } })), 'org');
   // A repo with no org remote and no staging: fork → main.
