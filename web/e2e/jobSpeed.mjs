@@ -17,7 +17,7 @@
 //      (ruled in the Task 23 fix round).
 //   6  The page's job request (`/page`) answers under 100 ms from a warm cache, and opening the page
 //      starts no git, ps or psql and reads no agent log.
-//   7  No transition or animation over 120 ms in the new page's CSS (web/src/jobpage/**/*.css and
+//   7  No transition or animation over 120 ms in the job page's CSS (web/src/jobpage/**/*.css and
 //      every theme rule naming .jp2): read from the files, then measured in the page in every theme.
 //
 // It needs the demo with its speed hooks (dashboard/demo/speed-hooks.js: per-request counts of
@@ -152,7 +152,6 @@ const browser = await chromium.launch();
 /** In every page: React's devtools hook (commits and what rendered), layout shifts, and the timer helper. */
 function initPage() {
   try {
-    localStorage.setItem('sb.jobPage', 'new');
     localStorage.setItem('workshop.theme', window.__speedTheme ?? 'light');
     localStorage.setItem('gc.guide.seen', JSON.stringify(['jobs', 'desk', 'stage', 'job', 'job-page-2', 'inbox', 'telemetry', 'stack', 'stacks', 'review', 'review-round']));
   } catch { /* storage off */ }

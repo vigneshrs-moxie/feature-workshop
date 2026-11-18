@@ -2,16 +2,11 @@
 // A landmark's place is taken inside the scroll area it scrolls with (the job page's work column and
 // conversation scroll by themselves), so a scroll is never a move but a move inside it still is.
 //
-// On Jobs, three job pages (customer-merge, bulk-archive, and nightly-export at its Test step), the
-// Desk, Telemetry and Settings → Look it presses every fold, hide and open control on the page (a
-// "Details" or "More" row, a <summary>, any button with aria-expanded, a graph's Fold and Hide),
-// once to change it and once to put it back. Each time, everything above the control's own item and
-// everything in another column must stay exactly where it was; only the item itself and what is
-// under it in its own column may move.
-//
-// On a job page, picking a step is a toggle too: each of the seven steps is picked, then the step
-// that was open is picked again. Each time the header, the overview, the bar, the steps row and the
-// conversation column must stay exactly where they were; only the open step under the row changes.
+// On Jobs, the Desk, Telemetry and Settings → Look it presses every fold, hide and open control on
+// the page (a "Details" or "More" row, a <summary>, any button with aria-expanded, a graph's Fold and
+// Hide), once to change it and once to put it back. Each time, everything above the control's own
+// item and everything in another column must stay exactly where it was; only the item itself and
+// what is under it in its own column may move.
 //
 // Run it against a running app (the demo is best):
 //   PORT=4493 STARBASE_DEMO=1 node dashboard/demo/run-demo.js      # in one terminal
@@ -22,80 +17,64 @@
 // PLAYWRIGHT (the path to playwright's index.mjs, when it isn't installed here).
 // It reports each width, then exits 1 if anything moved at any width (listing what), or 0.
 //
-// NEW_PAGE=1 checks the new job page instead (jobpage/JobPage2.tsx: the switch sb.jobPage is set to
-// new before every screen). Its screens are Jobs and the new page at its addresses: the made-up long
-// job (orbit-905-crew-schedule-export) as it opens, at its Review step and with the conversation,
-// the ticket and goal, the decisions, the details, the plan, Changes, Checks and Findings in the
-// reader; nightly-export (working) and customer-merge. It presses the new page's folds (the ask's
-// More, the conversation's lines and "n small events", the Findings and Checks folds; never Start
-// the app, never a menu), and the same rule holds: only the item and what is under it in its own
-// column may move. From 1100 px (two panes) each step is picked and then the step that was open is
-// picked again: the header, Your move, the steps' list, every step row above the change, the
-// reader's title row and the message box must stay where they were. Under 1100 px a step or a row
-// opens the reader over the pane (or the phone's own screen), so only the folds are pressed. It
-// refuses every request that is not a GET. Telemetry's graph menus are left out.
+// The job page (jobpage/JobPage2.tsx) at its addresses: the made-up long job
+// (orbit-905-crew-schedule-export) as it opens, at its Review step and with the conversation, the
+// ticket and goal, the decisions, the details, the plan, Changes, Checks and Findings in the reader;
+// nightly-export (working) and customer-merge. It presses the page's folds (the ask's More, the
+// conversation's lines and "n small events", the Findings and Checks folds; never Start the app,
+// never a menu), and the same rule holds: only the item and what is under it in its own column may
+// move. From 1100 px (two panes) each step is picked and then the step that was open is picked
+// again: the header, Your move, the steps' list, every step row above the change, the reader's title
+// row and the message box must stay where they were. Under 1100 px a step or a row opens the reader
+// over the pane (or the phone's own screen), so only the folds are pressed. It refuses every request
+// that is not a GET.
 const { chromium } = await import(process.env.PLAYWRIGHT || 'playwright');
 
 const BASE = process.env.BASE || 'http://127.0.0.1:4493/next/';
 const WIDTHS = (process.env.WIDTH || process.env.WIDTHS || '1280,1512,1728')
   .split(',').map((w) => Number(w.trim())).filter((w) => w > 0);
 const THEME = process.env.THEME || 'light';
-const NEW_PAGE = process.env.NEW_PAGE === '1';
-/** The demo's made-up long job (the new job page's fixture job). */
+/** The demo's made-up long job (the job page's fixture job). */
 const LONG_JOB = 'orbit-905-crew-schedule-export';
-const NEW_SCREENS = [
+const SCREENS = [
   ['Jobs', '#/'],
-  ['New page: long job', `#/job/${LONG_JOB}`],
-  ['New page: long job at Review', `#/job/${LONG_JOB}/stage/review`],
-  ['New page: conversation', `#/job/${LONG_JOB}/conversation`],
-  ['New page: ticket and goal', `#/job/${LONG_JOB}/overview`],
-  ['New page: decisions', `#/job/${LONG_JOB}/read/decisions/decisions`],
-  ['New page: details', `#/job/${LONG_JOB}/read/details/details`],
-  ['New page: the plan', `#/job/${LONG_JOB}/read/doc/implementation-plan.md`],
-  ['New page: Changes', `#/job/${LONG_JOB}/read/changes/changes`],
-  ['New page: Checks', `#/job/${LONG_JOB}/read/checks/checks`],
-  ['New page: Findings', `#/job/${LONG_JOB}/read/findings/findings`],
-  ['New page: nightly-export', '#/job/nightly-export'],
-  ['New page: customer-merge', '#/job/customer-merge'],
-];
-const OLD_SCREENS = [
-  ['Jobs', '#/'],
-  ['Job', '#/job/customer-merge'],
-  ['Job bulk-archive', '#/job/bulk-archive'],
-  ['Job nightly-export at Test', '#/job/nightly-export/stage/test'],
+  ['Job: long job', `#/job/${LONG_JOB}`],
+  ['Job: long job at Review', `#/job/${LONG_JOB}/stage/review`],
+  ['Job: conversation', `#/job/${LONG_JOB}/conversation`],
+  ['Job: ticket and goal', `#/job/${LONG_JOB}/overview`],
+  ['Job: decisions', `#/job/${LONG_JOB}/read/decisions/decisions`],
+  ['Job: details', `#/job/${LONG_JOB}/read/details/details`],
+  ['Job: the plan', `#/job/${LONG_JOB}/read/doc/implementation-plan.md`],
+  ['Job: Changes', `#/job/${LONG_JOB}/read/changes/changes`],
+  ['Job: Checks', `#/job/${LONG_JOB}/read/checks/checks`],
+  ['Job: Findings', `#/job/${LONG_JOB}/read/findings/findings`],
+  ['Job: nightly-export', '#/job/nightly-export'],
+  ['Job: customer-merge', '#/job/customer-merge'],
   ['Desk', '#/desk'],
   ['Telemetry', '#/telemetry'],
   ['Settings', '#/settings/look'],
 ];
-const SCREENS = NEW_PAGE ? NEW_SCREENS : OLD_SCREENS;
-// The new page's folds only: its step rows and job rows open things (handled below or not at all),
+/** A job page's screen: its own folds, items and landmarks (below); every other page has the general ones. */
+const isJob = (hash) => hash.startsWith('#/job/');
+// The job page's folds only: its step rows and job rows open things (handled below or not at all),
 // and Start the app (aria-expanded too) would start something.
-const TOGGLES = NEW_PAGE
-  ? '.jp2-card-more, .jp2-cv-sm-h, .jp2-cv-line, .jp2-fd-fold, .jp2-fd-line, .jp2-fd-rest, main details > summary'
-  : '.more-head, details > summary, button[aria-expanded]:not([aria-haspopup]):not([role="combobox"]), [data-fold], [data-hide]';
-const ITEM = NEW_PAGE
-  ? '.jp2-card, .jp2-step, .jp2-cv-item, .jp2-cv-group, details, li, section'
-  : '.more, details, .tele-card, .hidden-slot, .fold, .job-card, .thread, li, section';
-// On the new page, landmarks whose number a fold never changes (a changed number skips the compare).
-const LANDMARKS = NEW_PAGE
-  ? '.jp2-head, .jp2-ym, .jp2-card, .jp2-st, .jp2-st-row, .jp2-jrs, .jp2-jr, .jp2-mbw, .jp2-rv-top, .jp2-reader, .jp2-cv-gh, .jp2-cv-line, .jp2-fd-line, .jp2-fd-fold'
-  : '.page-title, .next-bar, .lane-head, .job-card, .more-head, details > summary, .tele-card, .hidden-slot, .desk-console, .job-convo, .settings-rail, .look-heading, .btn, .sb-steps, .sb-job-top, .sb-convo';
+const JOB_TOGGLES = '.jp2-card-more, .jp2-cv-sm-h, .jp2-cv-line, .jp2-fd-fold, .jp2-fd-line, .jp2-fd-rest, main details > summary';
+const PAGE_TOGGLES = '.more-head, details > summary, button[aria-expanded]:not([aria-haspopup]):not([role="combobox"]), [data-fold], [data-hide]';
+const JOB_ITEM = '.jp2-card, .jp2-step, .jp2-cv-item, .jp2-cv-group, details, li, section';
+const PAGE_ITEM = '.more, details, .tele-card, .hidden-slot, .fold, .job-card, .thread, li, section';
+// On the job page, landmarks whose number a fold never changes (a changed number skips the compare).
+const JOB_LANDMARKS = '.jp2-head, .jp2-ym, .jp2-card, .jp2-st, .jp2-st-row, .jp2-jrs, .jp2-jr, .jp2-mbw, .jp2-rv-top, .jp2-reader, .jp2-cv-gh, .jp2-cv-line, .jp2-fd-line, .jp2-fd-fold';
+const PAGE_LANDMARKS = '.page-title, .next-bar, .lane-head, .job-card, .more-head, details > summary, .tele-card, .hidden-slot, .desk-console, .job-convo, .settings-rail, .look-heading, .btn';
 /** On a job page, what a step's pick must leave where it was. */
-const PICK_STAYS = NEW_PAGE ? [
+const PICK_STAYS = [
   ['the header', '.jp2-head'],
   ['Your move', '.jp2-ym'],
   ['the steps\' list', '.jp2-st'],
   ['the reader\'s title row', '.jp2-rv-top'],
   ['the message box', '.jp2-mbw'],
-] : [
-  ['the header', '.sb-job-top'],
-  ['the overview', '.sb-job-work > .sb-job-part'],
-  ['the bar', '.sb-job-bar'],
-  ['the steps row', '.sb-steps'],
-  ['the conversation column', '.sb-job-talk'],
 ];
-const STEP_TABS = NEW_PAGE ? '.jp2-st-row' : '.sb-steps [role="tab"]';
-/** The new page's two panes start here; under it a step pick opens another screen. */
+const STEP_TABS = '.jp2-st-row';
+/** The job page's two panes start here; under it a step pick opens another screen. */
 const TWO_PANES_PX = 1100;
 
 /**
@@ -118,15 +97,14 @@ async function runAt(WIDTH) {
   let pressed = 0;
   let skipped = 0;
   const page = await browser.newPage({ viewport: { width: WIDTH, height: 1000 } });
-  await page.addInitScript(([t, fresh]) => {
+  await page.addInitScript(([t]) => {
     try {
       localStorage.setItem('workshop.theme', t);
       localStorage.setItem('gc.guide.seen', JSON.stringify(['jobs', 'desk', 'stage', 'job', 'job-page-2', 'inbox', 'telemetry', 'stack', 'stacks', 'review', 'review-round']));
-      if (fresh) localStorage.setItem('sb.jobPage', 'new');
     } catch { /* storage off */ }
-  }, [THEME, NEW_PAGE]);
-  // Read only on the new page: a fold never sends, and nothing pressed here may.
-  if (NEW_PAGE) await page.route('**/*', (route) => (route.request().method() === 'GET' ? route.continue() : route.abort()));
+  }, [THEME]);
+  // Read only: a fold never sends, and nothing pressed here may.
+  await page.route('**/*', (route) => (route.request().method() === 'GET' ? route.continue() : route.abort()));
   // A landmark's place, measured so that a scroll is never a move: inside the scroll area it scrolls
   // with (the job page's work column, the conversation's list), its place in that area's content;
   // outside any, from the page's own top-left (.page-inner on the older pages, else the body).
@@ -149,9 +127,13 @@ async function runAt(WIDTH) {
   });
 
   for (const [name, hash] of SCREENS) {
-    // The new page is opened from Jobs each time: while it stays mounted, an address change under 1100 px
+    const onJob = isJob(hash);
+    const TOGGLES = onJob ? JOB_TOGGLES : PAGE_TOGGLES;
+    const ITEM = onJob ? JOB_ITEM : PAGE_ITEM;
+    const LANDMARKS = onJob ? JOB_LANDMARKS : PAGE_LANDMARKS;
+    // The job page is opened from Jobs each time: while it stays mounted, an address change under 1100 px
     // leaves the reader closed, so a screen reached by its address alone would be checked unseen.
-    if (NEW_PAGE) await page.goto(BASE + '#/', { waitUntil: 'networkidle' });
+    if (onJob) await page.goto(BASE + '#/', { waitUntil: 'networkidle' });
     await page.goto(BASE + hash, { waitUntil: 'networkidle' });
     await page.waitForTimeout(800);
     if (!(await settled(page))) problems.push(`${name}: still loading after 10 s`);
@@ -192,14 +174,14 @@ async function runAt(WIDTH) {
           }
         }
         pressed += 1;
-        // (Not on the new page: there Escape leaves the reader under 1100 px, and its folds open no menu.)
-        if (!NEW_PAGE) await page.keyboard.press('Escape').catch(() => {});
+        // (Not on the job page: there Escape leaves the reader under 1100 px, and its folds open no menu.)
+        if (!onJob) await page.keyboard.press('Escape').catch(() => {});
       }
     }
-    // A job page: pick each step, then pick back the one that was open (the new page: two panes only).
+    // A job page: pick each step, then pick back the one that was open (two panes only).
     const tabs = page.locator(STEP_TABS);
-    const steps = await tabs.count();
-    if (steps && (!NEW_PAGE || WIDTH >= TWO_PANES_PX) && await tabs.first().isVisible().catch(() => false)) {
+    const steps = onJob ? await tabs.count() : 0;
+    if (steps && WIDTH >= TWO_PANES_PX && await tabs.first().isVisible().catch(() => false)) {
       const places = () => page.evaluate((STAYS) => {
         const o = (document.querySelector('.page-inner') ?? document.body).getBoundingClientRect();
         return STAYS.map(([what, sel]) => {
@@ -211,12 +193,12 @@ async function runAt(WIDTH) {
       }, PICK_STAYS);
       /** Which step is open now: its place in the row. */
       const openAt = async () => (await tabs.evaluateAll((ts) => ts.map((t) => t.getAttribute('aria-selected') === 'true' || t.getAttribute('aria-expanded') === 'true'))).indexOf(true);
-      /** The new page: every step row's place on screen. */
+      /** Every step row's place on screen. */
       const rowsAt = () => tabs.evaluateAll((ts) => ts.map((t) => { const r = t.getBoundingClientRect(); return { x: r.left, y: r.top, name: (t.querySelector('.jp2-st-name')?.textContent ?? '').trim() }; }));
       // From the top of the work column (the loop above may have left it scrolled). The page never
       // scrolls on a pick; each tab is brought into view before its place is taken, so the click
       // itself scrolls nothing, and what is measured is what he sees on screen.
-      await page.evaluate(() => { const w = document.querySelector('.sb-job-work, .jp2-lscroll'); if (w) w.scrollTop = 0; });
+      await page.evaluate(() => { const w = document.querySelector('.jp2-lscroll'); if (w) w.scrollTop = 0; });
       for (let i = 0; i < steps; i++) {
         const was = await openAt();
         if (i === was) continue;
@@ -224,27 +206,25 @@ async function runAt(WIDTH) {
           if (at < 0) continue;
           await tabs.nth(at).scrollIntoViewIfNeeded().catch(() => {});
           const before = await places();
-          const rowsBefore = NEW_PAGE ? await rowsAt() : [];
+          const rowsBefore = await rowsAt();
           const openBefore = await openAt();
           await tabs.nth(at).click().catch(() => {});
           await page.waitForTimeout(400);
           await settled(page); // the new step's view is in: "after" is the layout he ends up with
           const after = await places();
-          if (NEW_PAGE) {
-            // Every step row down to the higher of the two that changed stays where it was.
-            const rowsAfter = await rowsAt();
-            const upTo = Math.min(at, openBefore < 0 ? at : openBefore);
-            for (let r = 0; r <= upTo && r < rowsBefore.length; r++) {
-              const b = rowsBefore[r];
-              const a = rowsAfter[r];
-              if (a && (Math.abs(a.x - b.x) > 0.5 || Math.abs(a.y - b.y) > 0.5)) problems.push(`${name}: ${round} ${rowsBefore[at]?.name ?? at} moved the step row ${b.name} from ${Math.round(b.x)},${Math.round(b.y)} to ${Math.round(a.x)},${Math.round(a.y)}`);
-            }
+          // Every step row down to the higher of the two that changed stays where it was.
+          const rowsAfter = await rowsAt();
+          const upTo = Math.min(at, openBefore < 0 ? at : openBefore);
+          for (let r = 0; r <= upTo && r < rowsBefore.length; r++) {
+            const b = rowsBefore[r];
+            const a = rowsAfter[r];
+            if (a && (Math.abs(a.x - b.x) > 0.5 || Math.abs(a.y - b.y) > 0.5)) problems.push(`${name}: ${round} ${rowsBefore[at]?.name ?? at} moved the step row ${b.name} from ${Math.round(b.x)},${Math.round(b.y)} to ${Math.round(a.x)},${Math.round(a.y)}`);
           }
           for (const b of before) {
             const a = after.find((p) => p.what === b.what);
             if (b.x === null || !a || a.x === null) continue;
             if (Math.abs(a.x - b.x) > 0.5 || Math.abs(a.y - b.y) > 0.5) {
-              const step = ((await tabs.nth(at).getAttribute('id')) ?? `step ${at}`).replace(/^sb-step-/, '');
+              const step = rowsBefore[at]?.name || `step ${at}`;
               problems.push(`${name}: ${round} ${step} moved ${b.what} from ${Math.round(b.x)},${Math.round(b.y)} to ${Math.round(a.x)},${Math.round(a.y)}`);
             }
           }
@@ -254,8 +234,7 @@ async function runAt(WIDTH) {
     }
   }
   // Telemetry's graph menus: Fold then Unfold, and Hide then Show, on each card; nothing in the other
-  // columns or above the card may move. (Not with NEW_PAGE: only the new page is checked then.)
-  if (NEW_PAGE) { await page.close(); return { problems, pressed, skipped }; }
+  // columns or above the card may move.
   await page.goto(BASE + '#/telemetry', { waitUntil: 'networkidle' });
   await page.waitForTimeout(800);
   const where = () => page.evaluate(() => {
@@ -309,7 +288,7 @@ for (const WIDTH of WIDTHS) {
     const list = [...new Set(problems)];
     console.log(`${WIDTH} px: things moved (${list.length}) in ${pressed} presses${notCompared}:\n${list.slice(0, 60).map((p) => `  ${p}`).join('\n')}`);
   } else {
-    console.log(`${WIDTH} px: nothing moved: ${pressed} presses on ${SCREENS.length} screens (${THEME}${NEW_PAGE ? ', the new job page' : ''})${notCompared}.`);
+    console.log(`${WIDTH} px: nothing moved: ${pressed} presses on ${SCREENS.length} screens (${THEME})${notCompared}.`);
   }
 }
 await browser.close();

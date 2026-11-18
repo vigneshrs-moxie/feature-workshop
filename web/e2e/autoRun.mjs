@@ -10,13 +10,13 @@
 // This script only looks. It refuses every request that is not a GET, so nothing on the page can answer
 // a step for Auto: if "Auto demo" gets to PR #1, Auto did it. It checks that
 //   1. "Auto demo" shows PR #1 open within 120 s, with no click and no request that changes anything,
-//      and its job page has the Auto switch and "What Auto decided" in its header (.sb-job-top);
-//   2. "What Auto decided" on its job page lists one entry per approval (the summary counts them), each
+//      and its job page has the Auto switch in its header (.jp2-head);
+//   2. "What Auto decided" (from its quick look on Jobs) lists one entry per approval (the summary counts them), each
 //      with the Approver's reason, and says Auto finished; and on the Jobs page's Auto tab the job is a
 //      row in Ready for you to try that says "No risky calls" (a finished Auto job is on the Auto tab,
 //      not a card under Yours);
 //   3. "Auto demo: migrate", on the Jobs page's Auto tab, is a row in Ready for you to try (within 120 s)
-//      and not in Needs you; on its job page, "What Auto decided" lists a refusal (an entry with
+//      and not in Needs you; from its quick look, "What Auto decided" lists a refusal (an entry with
 //      data-kind="refuse", chose "Refused: …") whose Why: is the database note's reason
 //      (REFUSE_REASONS.database in dashboard/lib/auto.js), and says Auto finished.
 //
@@ -72,16 +72,19 @@ try {
   else fail(`Auto demo did not show "PR #1 open" within ${WAIT_MS / 1000} s`);
   if (refused) fail(`${refused} request(s) that change something were refused: ${refusedWhat.join(', ')}`);
 
-  // 1b. The job page itself has the Auto switch and What Auto decided in its header, before we leave
-  // it. (Auto goes off by itself once PR #1 is open, so the switch is there but not ticked now.)
-  const pageSwitch = page.locator('main .sb-job-top').getByRole('checkbox', { name: /Auto: run to PR #1/ });
+  // 1b. The job page itself has the Auto switch in its header, before we leave it. (Auto goes off by
+  // itself once PR #1 is open, so the switch is there but not ticked now.)
+  const pageSwitch = page.locator('main .jp2-head').getByRole('checkbox', { name: /Auto: run to PR #1/ });
   if ((await pageSwitch.count()) !== 1) fail(`the job page has ${await pageSwitch.count()} Auto switches in its header, expected 1`);
   else ok('the job page has the Auto switch');
-  const pageWhat = page.locator('main .sb-job-top').getByRole('button', { name: 'What Auto decided' });
-  if ((await pageWhat.count()) !== 1) fail(`the job page has ${await pageWhat.count()} "What Auto decided" buttons in its header, expected 1`);
-  else ok('the job page has What Auto decided');
+  // What Auto decided is on the job's quick look on Jobs (the job page has no button for it).
+  await page.goto(`${BASE}#/?peek=auto-demo`, { waitUntil: 'networkidle' });
+  const pageWhat = page.locator('.peek').getByRole('button', { name: 'What Auto decided' });
+  await pageWhat.first().waitFor({ timeout: 10_000 }).catch(() => {});
+  if ((await pageWhat.count()) !== 1) fail(`the quick look has ${await pageWhat.count()} "What Auto decided" buttons, expected 1`);
+  else ok('the quick look has What Auto decided');
 
-  // 2. What Auto decided, on the job's own page (still open from step 1).
+  // 2. What Auto decided, from the job's quick look.
   if ((await pageWhat.count()) === 1) {
     await pageWhat.click();
     await page.locator('.auto-entry').first().waitFor({ timeout: 10_000 }).catch(() => {});
@@ -122,9 +125,10 @@ try {
   const needsRow = page.locator('section.lane-needs-you .sb-auto-row', { hasText: 'Auto demo: migrate' });
   if ((await needsRow.count()) !== 0) fail('the migrate job is also in Needs you');
   else ok('the migrate job is not in Needs you');
-  await page.goto(`${BASE}#/job/auto-demo-migrate`, { waitUntil: 'networkidle' });
-  const migrateWhat = page.locator('main .sb-job-top').getByRole('button', { name: 'What Auto decided' });
-  if ((await migrateWhat.count()) !== 1) fail(`the migrate job page has ${await migrateWhat.count()} "What Auto decided" buttons in its header, expected 1`);
+  await page.goto(`${BASE}#/?peek=auto-demo-migrate`, { waitUntil: 'networkidle' });
+  const migrateWhat = page.locator('.peek').getByRole('button', { name: 'What Auto decided' });
+  await migrateWhat.first().waitFor({ timeout: 10_000 }).catch(() => {});
+  if ((await migrateWhat.count()) !== 1) fail(`the migrate job's quick look has ${await migrateWhat.count()} "What Auto decided" buttons, expected 1`);
   else {
     await migrateWhat.click();
     await page.locator('.auto-entry').first().waitFor({ timeout: 10_000 }).catch(() => {});

@@ -1,44 +1,36 @@
 // No scroll past the end of a page (spec 1.10), checked in a real browser.
 //
 // On every screen (Jobs, Table, Map, the Desk, Inbox, Stacks, Telemetry, Settings and its
-// Workflow section, each job's page, the first job's page at each of its seven steps' addresses,
-// and nightly-export's Test step, conversation and overview addresses when the app has that job)
-// it checks the screen as it opens, then opens every fold on the page one after another and checks
-// again after each: the overview, a "Details" or "More" row, a <summary>, and on the Test step the
-// evidence fold ("Each line and its video"), Try it and Watch. On a job page it also opens the
-// level menu in the page's header (opening it sends nothing; no level is picked), checks, and
-// closes it. A check fails when:
+// Workflow section, each job's page, the first job's page at each of its seven steps' addresses and
+// its reader addresses (the conversation, the ticket and goal, the decisions, the details),
+// nightly-export's Test step, conversation and overview addresses when the app has that job, and,
+// when the app has the made-up long job (orbit-905-crew-schedule-export), its conversation, a
+// document, its Review and Ship steps, and every other reader view: the ticket and goal, the
+// decisions, the details, Changes, Checks, Findings, a reply and a brief (their ids read from the
+// job's page payload)) it checks the screen as it opens, then opens every fold on the page one after
+// another and checks again after each: a "Details" or "More" row, a <summary>, and on the job page
+// (jobpage/JobPage2.tsx) the ask's More, the conversation's "n small events" and lines, Findings'
+// and Checks' folds (never Start the app). At 760 px and under the job page is the phone's own
+// screens: the job screen, a step's screen, the reader. A check fails when:
 //   1. the document itself scrolls, down or sideways (the app's own scroll areas do the scrolling);
 //   2. a scroll area ends in empty space: it scrolls more than 48 px (plus its own bottom padding)
 //      past the last thing you can see in it;
 //   3. something is cut off sideways: main or a scroll area is wider inside than it shows, or a
 //      box with text in a card runs past its own edge without an ellipsis or a sideways scroll;
-//   4. on a job page the conversation's message list is under 160 px tall in a window 800 px tall
-//      or more (only while it is shown: under 1100 px it is behind the Conversation button, and the
-//      phone layout, 760 px and under, has its own conversation screen);
-//   5. the screen is not there: the address could not be opened, or the page has no main, or its
+//   4. the screen is not there: the address could not be opened, or the page has no main, or its
 //      main has no text (a blank page or a crashed route never passes), or it still says it is
 //      loading 10 s after it opened (each screen is checked only once it has finished loading);
-//   6. on the new job page, the message box lies over the left pane's last row (on the phone, the job
+//   5. on the job page, the message box lies over the left pane's last row (on the phone, the job
 //      screen's last row) with the pane scrolled to its end;
-//   7. on the new job page, something else lies over the shown screen's own top: the back row and the
+//   6. on the job page, something else lies over the shown screen's own top: the back row and the
 //      title of the phone's step screen or the reader (and the reader's title row at any width) must
 //      be the topmost thing where they are.
-// NEW_PAGE=1 checks the new job page (jobpage/JobPage2.tsx: the switch sb.jobPage is set to new
-// before every screen) instead of the old one, and adds its reader addresses for the first job (the
-// conversation, the ticket and goal, the decisions, the details) and, when the app has the made-up
-// long job (orbit-905-crew-schedule-export), its conversation, a document, its Review and Ship steps,
-// and every other reader view: the ticket and goal, the decisions, the details, Changes, Checks,
-// Findings, a reply and a brief (their ids read from the job's page payload). At 760 px and under
-// those are the phone's own screens: the job screen, a step's screen, the reader. Its folds are
-// opened too: the ask's More, the conversation's "n small events" and lines, Findings' and Checks'
-// folds (never Start the app).
 // The check only reads: it refuses every request that is not a GET.
 //
 // Run it against a running app (the demo is best):
 //   PORT=4493 STARBASE_DEMO=1 node dashboard/demo/run-demo.js      # in one terminal
 //   npm run web:build && node web/e2e/noEmptyScroll.mjs            # in another
-// Environment: NEW_PAGE (1: the new job page, above), BASE (default http://127.0.0.1:4493/next/), WIDTHS (comma list, default
+// Environment: BASE (default http://127.0.0.1:4493/next/), WIDTHS (comma list, default
 // 1280,1512,1920), WIDTH (one width only; overrides WIDTHS), THEME (light; a theme's id, such as
 // default, glass or starbase; dark means default, the dark theme; a theme the app does not put on
 // fails the run), JOBS (a comma list of
@@ -53,7 +45,6 @@ import { extname, join, resolve } from 'node:path';
 const { chromium } = await import(process.env.PLAYWRIGHT || 'playwright');
 
 const BASE = process.env.BASE || 'http://127.0.0.1:4493/next/';
-const NEW_PAGE = process.env.NEW_PAGE === '1';
 const DIST = process.env.DIST ? resolve(process.env.DIST) : null;
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2', '.json': 'application/json', '.ico': 'image/x-icon' };
 const WIDTHS = (process.env.WIDTH || process.env.WIDTHS || '1280,1512,1920')
@@ -61,18 +52,12 @@ const WIDTHS = (process.env.WIDTH || process.env.WIDTHS || '1280,1512,1920')
 const HEIGHT = 820;
 // "dark" is the dark theme's own id, default (web/src/theme/theme.ts THEME_PAIRS).
 const THEME = ({ dark: 'default' })[process.env.THEME || 'light'] ?? (process.env.THEME || 'light');
-// Every fold: a "Details" or "More" row, a <summary> (the job page's overview is one), and on the
-// Test step the evidence fold, Try it and Watch (each opens something in the page).
-// (Only Try it, which has aria-expanded, and Watch / Stop watching in the Test step's actions: never
-// Record again, which would start a recording.)
-const FOLDS = 'main .more-head, main details > summary, main .sb-test-link[aria-expanded], main .sb-test-action > button[aria-expanded], main .sb-test-action > button:has-text("Watch")';
-/** A fold is open: a <summary>'s details is, an aria-expanded control says so, Watch reads Stop watching. */
-const isOpen = (el) => (el.tagName === 'SUMMARY' ? el.parentElement.open
-  : el.hasAttribute('aria-expanded') ? el.getAttribute('aria-expanded') === 'true'
-    : /Stop watching/.test(el.textContent || ''));
+// Every fold: a "Details" or "More" row, a <summary>, and the job page's folds (each has
+// aria-expanded; never Start the app).
+const FOLDS = 'main .more-head, main details > summary, main .jp2-card-more, main .jp2-cv-sm-h, main .jp2-cv-line, main .jp2-fd-fold, main .jp2-fd-line, main .jp2-fd-rest';
+/** A fold is open: a <summary>'s details is, an aria-expanded control says so. */
+const isOpen = (el) => (el.tagName === 'SUMMARY' ? el.parentElement.open : el.getAttribute('aria-expanded') === 'true');
 const MAX_FOLDS = 60;
-// The new job page's folds (each has aria-expanded).
-const NEW_FOLDS = 'main .jp2-card-more, main .jp2-cv-sm-h, main .jp2-cv-line, main .jp2-fd-fold, main .jp2-fd-line, main .jp2-fd-rest';
 
 /** The jobs to visit, from the app's own snapshot. */
 async function jobSlugs() {
@@ -87,11 +72,11 @@ const slugs = await jobSlugs();
 const STEPS = ['spec', 'investigate', 'plan', 'build', 'test', 'review', 'ship'];
 /** The demo's job with a recording under way: its Test step, its conversation and its overview. */
 const RECORDING_JOB = 'nightly-export';
-/** The demo's made-up long job (the new job page's fixture job). */
+/** The demo's made-up long job (the job page's fixture job). */
 const LONG_JOB = 'orbit-905-crew-schedule-export';
 /** The long job's first reply and first brief, for the reader's message view. */
 async function longJobLines() {
-  if (!NEW_PAGE || !slugs.includes(LONG_JOB)) return [];
+  if (!slugs.includes(LONG_JOB)) return [];
   const res = await fetch(new URL(`/api/job/${LONG_JOB}/page`, BASE)).catch(() => null);
   const page = res && res.ok ? await res.json() : null;
   const first = (kind) => (page?.thread ?? []).find((l) => l.kind === kind)?.id;
@@ -115,14 +100,14 @@ const SCREENS = [
     [`Job ${RECORDING_JOB}: conversation`, `#/job/${RECORDING_JOB}/conversation`],
     [`Job ${RECORDING_JOB}: overview`, `#/job/${RECORDING_JOB}/overview`],
   ] : []),
-  // The new job page's reader (on the phone, the reader screen) and the long job's screens.
-  ...(NEW_PAGE && slugs.length ? [
+  // The job page's reader (on the phone, the reader screen) and the long job's screens.
+  ...(slugs.length ? [
     [`Job ${slugs[0]}: conversation`, `#/job/${slugs[0]}/conversation`],
     [`Job ${slugs[0]}: ticket and goal`, `#/job/${slugs[0]}/overview`],
     [`Job ${slugs[0]}: decisions`, `#/job/${slugs[0]}/read/decisions/decisions`],
     [`Job ${slugs[0]}: details`, `#/job/${slugs[0]}/read/details/details`],
   ] : []),
-  ...(NEW_PAGE && slugs.includes(LONG_JOB) ? [
+  ...(slugs.includes(LONG_JOB) ? [
     [`Job ${LONG_JOB}: conversation`, `#/job/${LONG_JOB}/conversation`],
     [`Job ${LONG_JOB}: the plan`, `#/job/${LONG_JOB}/read/doc/implementation-plan.md`],
     [`Job ${LONG_JOB} at review`, `#/job/${LONG_JOB}/stage/review`],
@@ -236,7 +221,7 @@ function check() {
   // Only text counts: a key hint, a tooltip or a menu placed on a box's corner on purpose is
   // positioned absolutely, so text inside such a piece is left out; so is anything inside a box
   // that scrolls sideways or ends in an ellipsis.
-  const CARD = '[class*="card"], .more, .job-side-card, .job-convo, .job-details, .desk-console, .sb-job-top, .sb-job-page .fold, .sb-phone .fold, .sb-panel, .sb-convo';
+  const CARD = '[class*="card"], .more, .job-side-card, .job-convo, .job-details, .desk-console';
   const placed = (t, box) => {
     for (let p = t.parentElement; p && p !== box; p = p.parentElement) {
       const s = getComputedStyle(p);
@@ -268,11 +253,7 @@ function check() {
     out.push(`${name(e)} in ${name(e.parentElement.closest(CARD))} runs out sideways: ${e.scrollWidth} wide in ${e.clientWidth} ("${e.textContent.trim().slice(0, 40)}")`);
   }
 
-  // 4. A squeezed conversation on a job page: its message list, while it is shown.
-  const thread = document.querySelector('.sb-convo-list');
-  if (thread && shown(thread) && innerHeight >= 800 && thread.clientHeight < 160) out.push(`the conversation's message list is ${thread.clientHeight} px tall in a ${innerHeight} px window`);
-
-  // 6. The new job page's message box over the left pane's last row, with the pane scrolled to its
+  // 5. The job page's message box over the left pane's last row, with the pane scrolled to its
   // end (only while the pane is in use: not under the reader or a phone's other screen).
   const left = document.querySelector('.jp2-lscroll');
   const mbw = document.querySelector('.jp2-mbw');
@@ -287,7 +268,7 @@ function check() {
     left.scrollTop = was;
   }
 
-  // 7. The new job page: the shown screen's back row and title are not under the job's header (on
+  // 6. The job page: the shown screen's back row and title are not under the job's header (on
   // the phone the header once lay over the step and reader screens). Hit testing cannot see it (the
   // job screen is inert under the others, so a point passes through it), so this compares boxes: a
   // shown piece of the header with text that overlaps the screen's top.
@@ -326,12 +307,11 @@ async function runAt(WIDTH) {
   const problems = [];
   let checks = 0;
   const page = await browser.newPage({ viewport: { width: WIDTH, height: HEIGHT } });
-  await page.addInitScript(([t, fresh]) => {
+  await page.addInitScript(([t]) => {
     try {
       localStorage.setItem('workshop.theme', t);
-      if (fresh) localStorage.setItem('sb.jobPage', 'new');
     } catch { /* storage off */ }
-  }, [THEME, NEW_PAGE]);
+  }, [THEME]);
   // Read only: nothing the check does may send, approve, start, stop or mark anything.
   const base = new URL(BASE);
   await page.route('**/*', async (route) => {
@@ -353,14 +333,14 @@ async function runAt(WIDTH) {
 
   let themeChecked = false;
   for (const [screen, hash] of SCREENS) {
-    // The new page is opened from Jobs each time: while it stays mounted, an address change under 1100 px
+    // The job page is opened from Jobs each time: while it stays mounted, an address change under 1100 px
     // leaves the reader closed, so a screen reached by its address alone would be checked unseen.
-    if (NEW_PAGE) await page.goto(BASE + '#/', { waitUntil: 'networkidle' }).catch(() => {});
+    if (hash.startsWith('#/job/')) await page.goto(BASE + '#/', { waitUntil: 'networkidle' }).catch(() => {});
     const opened = await page.goto(BASE + hash, { waitUntil: 'networkidle' }).then((r) => (r && !r.ok() ? `the address answered ${r.status()}` : null), (err) => `the address could not be opened (${String(err.message).split('\n')[0]})`);
     if (opened) { checks += 1; problems.push(`${screen}: ${opened}`); continue; }
     await page.waitForTimeout(700);
     if (!(await settled(page))) { checks += 1; problems.push(`${screen}: still loading after 10 s`); }
-    // 5. The screen must be there: a main with text in it.
+    // 4. The screen must be there: a main with text in it.
     const main = await page.evaluate(() => { const m = document.querySelector('main'); return m ? (m.innerText || '').trim().length : -1; });
     if (main <= 0) { checks += 1; problems.push(`${screen}: ${main < 0 ? 'the page has no main' : 'the page\'s main has no text'}`); continue; }
     // The theme asked for is the one on the page (the app skips an id it does not know).
@@ -375,7 +355,7 @@ async function runAt(WIDTH) {
     await record(screen, 'as opened');
     // Every fold, one after another; a fold opened can show more folds, so count them each time.
     for (let i = 0; i < MAX_FOLDS; i++) {
-      const folds = page.locator(NEW_PAGE ? `${FOLDS}, ${NEW_FOLDS}` : FOLDS);
+      const folds = page.locator(FOLDS);
       if (i >= (await folds.count())) break;
       const fold = folds.nth(i);
       if (!(await fold.isVisible().catch(() => false))) continue;
@@ -385,15 +365,6 @@ async function runAt(WIDTH) {
       await fold.click({ timeout: 2000 }).catch(() => {});
       await page.waitForTimeout(250);
       await record(screen, `with "${label}" open`);
-    }
-    // The level menu in the job page's header: open, check, close. Opening sends nothing.
-    const chip = page.locator('main .sb-job-top .level-chip:enabled');
-    if (await chip.count() && await chip.first().isVisible().catch(() => false)) {
-      await chip.first().click({ timeout: 2000 }).catch(() => {});
-      await page.waitForTimeout(250);
-      await record(screen, 'with the level menu open');
-      await page.keyboard.press('Escape').catch(() => {});
-      await page.waitForTimeout(150);
     }
   }
   await page.close();
@@ -410,7 +381,7 @@ for (const WIDTH of WIDTHS) {
     const list = [...new Set(problems)];
     console.log(`${WIDTH} px: ${list.length} failures:\n${list.map((p) => `  ${p}`).join('\n')}`);
   } else {
-    console.log(`${WIDTH} px: no empty scroll: ${checks} checks on ${SCREENS.length} screens (${THEME}${NEW_PAGE ? ', the new job page' : ''}).`);
+    console.log(`${WIDTH} px: no empty scroll: ${checks} checks on ${SCREENS.length} screens (${THEME}).`);
   }
 }
 await browser.close();

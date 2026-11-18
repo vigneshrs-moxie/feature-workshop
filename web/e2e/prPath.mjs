@@ -143,7 +143,6 @@ console.log(`Demo on ${BASE} (pid ${demo.pid}); out ${OUT}`);
 const browser = await chromium.launch();
 async function open(width, hash) {
   const ctx = await browser.newContext({ viewport: { width, height: width < 600 ? 844 : 945 }, permissions: ['clipboard-read', 'clipboard-write'] });
-  await ctx.addInitScript(() => { try { localStorage.setItem('sb.jobPage', 'new'); } catch { /* none */ } });
   const page = await ctx.newPage();
   page.errors = [];
   page.posts = [];

@@ -1,6 +1,6 @@
 // Every word and every mark has enough contrast (packet R), checked in a real browser.
 //
-// On Jobs, a Job, the Desk, a Stage, Telemetry, the Inbox and Settings → Look, in the Light
+// On Jobs, the Desk, Telemetry, the Inbox, Settings → Look and the job page, in the Light
 // and Default themes at 1512×945, it measures:
 //   Text: each visible element with its own words (a non-empty direct text node) against what is
 //     really behind it: its colour, faded by its own and its ancestors' opacity, over the ancestors'
@@ -31,8 +31,8 @@
 // index.mjs, when it isn't installed here).
 // It prints a table of failures and a summary line per screen and theme, and exits 1 if any fail.
 //
-// NEW_PAGE=1 checks the new job page instead (jobpage/JobPage2.tsx: the switch sb.jobPage is set to
-// new): the made-up long job (orbit-905-crew-schedule-export) as it opens, with the ask's More open,
+// The job page (jobpage/JobPage2.tsx) is checked on the made-up long job (orbit-905-crew-schedule-export)
+// as it opens, with the ask's More open,
 // at its Review step, and with the conversation (a line of his and the small events opened), the
 // ticket and goal, the decisions, the details, the plan, Changes, Checks and Findings in the reader;
 // nightly-export (working) and tag-colours (a permission card). It also lists, per theme, the worst
@@ -41,7 +41,7 @@
 // PR_JOB=<slug> adds the PR lines, the lines opened, the PR view (its rows, its bar's Push the fixes opened) and
 // PR #2's round on that job (web/e2e/prPath.mjs KEEP=1 leaves bulk-archive so); SCREENS="PR lines,PR view" alone.
 // WIDTHS (comma list, default 1512) sets the window's widths (945 px tall; 844 under 600 px wide):
-// at 760 px and under the new page is the phone's screens.
+// at 760 px and under the job page is the phone's screens.
 import { readFileSync, writeFileSync } from 'node:fs';
 
 const { chromium } = await import(process.env.PLAYWRIGHT || 'playwright');
@@ -51,24 +51,19 @@ const ALL_THEMES = [...readFileSync(new URL('../src/theme/theme.ts', import.meta
 const THEMES = (process.env.THEMES || 'light,default').trim() === 'all'
   ? ALL_THEMES
   : (process.env.THEMES || 'light,default').split(',').map((t) => t.trim()).filter(Boolean);
+const LONG_JOB = 'orbit-905-crew-schedule-export';
+// [name, address, what to click first (optional, every match in turn)].
 const ALL_SCREENS = [
   ['Jobs', '#/'],
-  ['Job', '#/job/customer-merge'],
   ['Desk', '#/desk'],
-  ['Stage', '#/job/customer-merge/stage/build'],
   ['Telemetry', '#/telemetry'],
   ['Inbox', '#/inbox'],
   ['Settings', '#/settings/look'],
   // Stacks is packet V's to redo (its step dots are V's); add it with SCREENS=Stacks.
-];
-const EXTRA_SCREENS = [['Stacks', '#/stacks']];
-const NEW_PAGE = process.env.NEW_PAGE === '1';
-const LONG_JOB = 'orbit-905-crew-schedule-export';
-// [name, address, what to click first (optional, every match in turn)].
-const NEW_SCREENS = [
-  ['New job', `#/job/${LONG_JOB}`],
-  ['New job, More', `#/job/${LONG_JOB}`, '.jp2-card-more'],
-  ['New job, Review', `#/job/${LONG_JOB}/stage/review`],
+  // The job page.
+  ['Job', `#/job/${LONG_JOB}`],
+  ['Job, More', `#/job/${LONG_JOB}`, '.jp2-card-more'],
+  ['Job, Review', `#/job/${LONG_JOB}/stage/review`],
   ['Conversation', `#/job/${LONG_JOB}/conversation`, '.jp2-cv-item.is-you > .jp2-cv-line[aria-expanded="false"], .jp2-cv-sm-h[aria-expanded="false"]'],
   ['Ticket', `#/job/${LONG_JOB}/overview`],
   ['Decisions', `#/job/${LONG_JOB}/read/decisions/decisions`],
@@ -88,7 +83,8 @@ const NEW_SCREENS = [
     ['PR view round', `#/job/${process.env.PR_JOB}/read/pr/2`],
   ] : []),
 ];
-/** The words asked about by name on the new page: [label, the closest ancestor (or itself) to match]. */
+const EXTRA_SCREENS = [['Stacks', '#/stacks']];
+/** The words asked about by name on the job page: [label, the closest ancestor (or itself) to match]. */
 const NAMED = [
   ['the ask\'s More', '.jp2-card-more'],
   ['the ask\'s Look', '.jp2-ym-look'],
@@ -103,8 +99,7 @@ const NAMED = [
 ];
 const WIDTHS = (process.env.WIDTHS || '1512').split(',').map((w) => Number(w.trim())).filter((w) => w > 0);
 const only = process.env.SCREENS ? process.env.SCREENS.split(',').map((s) => s.trim().toLowerCase()) : null;
-const BASE_SCREENS = NEW_PAGE ? NEW_SCREENS : ALL_SCREENS;
-const SCREENS = only ? [...BASE_SCREENS, ...EXTRA_SCREENS].filter(([n]) => only.includes(n.toLowerCase())) : BASE_SCREENS;
+const SCREENS = only ? [...ALL_SCREENS, ...EXTRA_SCREENS].filter(([n]) => only.includes(n.toLowerCase())) : ALL_SCREENS;
 const GUIDES = ['jobs', 'desk', 'stage', 'job', 'inbox', 'telemetry', 'stack', 'stacks', 'review', 'review-round'];
 
 // What counts as a mark, and how its colour is read (see measure() below).
@@ -361,16 +356,15 @@ const summary = [];
 const namedSeen = [];
 for (const width of WIDTHS) for (const theme of THEMES) {
   const ctx = await browser.newContext({ viewport: { width, height: width < 600 ? 844 : 945 } });
-  await ctx.addInitScript(([t, g, fresh]) => {
+  await ctx.addInitScript(([t, g]) => {
     try {
       localStorage.setItem('workshop.theme', t);
       localStorage.setItem('workshop.themeFollow', 'off');
       localStorage.setItem('gc.guide.seen', JSON.stringify(g));
-      if (fresh) localStorage.setItem('sb.jobPage', 'new');
     } catch { /* storage off */ }
-  }, [theme, GUIDES, NEW_PAGE]);
-  // Read only on the new page: what is clicked there only opens or folds.
-  if (NEW_PAGE) await ctx.route('**/*', (route) => (route.request().method() === 'GET' ? route.fallback() : route.abort()));
+  }, [theme, GUIDES]);
+  // Read only: what is clicked only opens or folds.
+  await ctx.route('**/*', (route) => (route.request().method() === 'GET' ? route.fallback() : route.abort()));
   // CRT Terminal and Gold need their unlocks: only this page is told they are there.
   await ctx.route(/\/api\/play(\?.*)?$/, async (route) => {
     if (route.request().method() !== 'GET') return route.fallback();
@@ -383,9 +377,9 @@ for (const width of WIDTHS) for (const theme of THEMES) {
   const where = WIDTHS.length > 1 ? ` ${width}` : '';
   for (const [screen, hash, act] of SCREENS) {
     const name = `${screen}${where}`;
-    // The new page is opened from Jobs each time: while it stays mounted, an address change under 1100 px
+    // The job page is opened from Jobs each time: while it stays mounted, an address change under 1100 px
     // leaves the reader closed, so a screen reached by its address alone would be checked unseen.
-    if (NEW_PAGE) await page.goto(BASE + '#/', { waitUntil: 'networkidle' });
+    if (hash.startsWith('#/job/')) await page.goto(BASE + '#/', { waitUntil: 'networkidle' });
     await page.goto(BASE + hash, { waitUntil: 'networkidle' });
     await page.waitForTimeout(1200);
     if (act) {
@@ -393,7 +387,7 @@ for (const width of WIDTHS) for (const theme of THEMES) {
       for (let i = 0; i < Math.min(n, 6); i++) await page.locator(act).first().click({ timeout: 2000 }).catch(() => {});
       await page.waitForTimeout(300);
     }
-    const res = await page.evaluate(measure, NEW_PAGE ? { ...MARKS, named: NAMED } : MARKS);
+    const res = await page.evaluate(measure, { ...MARKS, named: NAMED });
     for (const n of res.named ?? []) namedSeen.push({ screen: name, theme, ...n });
     // One row per distinct problem: the same path, colours and ratio on many rows count once.
     const groups = new Map();
@@ -422,7 +416,7 @@ if (all.length) {
 }
 console.log(summary.join('\n'));
 if (edges.length) console.log(`Field edges (borders, not failing): ${edges.map((e) => `${e.theme} ${e.fg} on ${e.bg} ${e.ratio}:1`).join('; ')}`);
-if (NEW_PAGE) {
+{
   // The words asked about by name: the worst ratio of each, per theme (and how many were measured).
   console.log('\nAsked about by name (worst ratio per theme; "none" means none on the screens):');
   for (const [label] of NAMED) {

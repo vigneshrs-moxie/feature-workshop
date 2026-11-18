@@ -8,8 +8,8 @@
 // #/gallery, which has every control in every state: hover, pressed, focus, disabled, busy, empty,
 // error), and opens every kind of overlay (a Peek, a dialog, a Select menu, a menu, a tooltip, the
 // command search, the keys sheet, a toast, the level sheet, Merge's confirm, a permission card and
-// the next-step bar, which are on the Job pages), and the new job page (jobpage/JobPage2.tsx; the
-// switch sb.jobPage is set to new for its visits only, named "New page, …"): the made-up long job
+// the next-step bar, which are on the Job pages), and the job page (jobpage/JobPage2.tsx, its visits
+// named "Job page, …"): the made-up long job
 // (orbit-905-crew-schedule-export) as it opens, with the ask's More open, at its Review step, and
 // with every reader view (the conversation with a line of his and the small events opened, the
 // ticket and goal, the decisions, the details, the plan, Changes, Checks, Findings); nightly-export
@@ -94,8 +94,7 @@ const WIDTHS = (process.env.WIDTHS || '1512,390').split(',').map(Number).filter(
 const PLAYS = (process.env.PLAY || 'full,off').split(',').map((s) => s.trim()).filter(Boolean);
 const ONLY = process.env.SCREENS ? process.env.SCREENS.split(',').map((s) => s.trim().toLowerCase()) : null;
 const GUIDES = ['jobs', 'desk', 'stage', 'job', 'inbox', 'telemetry', 'stack', 'stacks', 'review', 'review-round'];
-/** The new job page's switch, and the demo's made-up long job (its fixture job). */
-const NEW = { 'sb.jobPage': 'new' };
+/** The demo's made-up long job (the job page's fixture job). */
 const LONG_JOB = 'orbit-905-crew-schedule-export';
 /** A job with PR lines and comment rows (web/e2e/prPath.mjs KEEP=1 leaves bulk-archive so): adds the PR visits. */
 const PR_JOB = process.env.PR_JOB || null;
@@ -136,27 +135,25 @@ const SCREEN_VISITS = [
   { name: 'Classic page', url: '/', wait: 1500 },
   // The gallery has no Play layer: it is swept with Play full only.
   { name: 'Gallery', hash: '#/gallery', scrolls: 12, focus: true, play: 'full' },
-  // The new job page.
-  { name: 'New page, needs you', hash: `#/job/${LONG_JOB}`, store: NEW, focus: true },
-  { name: 'New page, More open', hash: `#/job/${LONG_JOB}`, store: NEW, act: click('.jp2-card-more') },
-  { name: 'New page, Review step', hash: `#/job/${LONG_JOB}/stage/review`, store: NEW },
-  { name: 'New page, conversation', hash: `#/job/${LONG_JOB}/conversation`, store: NEW, act: async (p) => { for (const sel of ['.jp2-cv-item.is-you > .jp2-cv-line[aria-expanded="false"]', '.jp2-cv-sm-h[aria-expanded="false"]']) await p.locator(sel).filter({ visible: true }).first().click().catch(() => {}); } },
-  { name: 'New page, ticket and goal', hash: `#/job/${LONG_JOB}/overview`, store: NEW },
-  { name: 'New page, decisions', hash: `#/job/${LONG_JOB}/read/decisions/decisions`, store: NEW },
-  { name: 'New page, details', hash: `#/job/${LONG_JOB}/read/details/details`, store: NEW },
-  { name: 'New page, plan', hash: `#/job/${LONG_JOB}/read/doc/implementation-plan.md`, store: NEW },
-  { name: 'New page, Changes', hash: `#/job/${LONG_JOB}/read/changes/changes`, store: NEW, wait: 1200 },
-  { name: 'New page, Checks', hash: `#/job/${LONG_JOB}/read/checks/checks`, store: NEW },
-  { name: 'New page, Findings', hash: `#/job/${LONG_JOB}/read/findings/findings`, store: NEW },
-  { name: 'New page, working', hash: '#/job/nightly-export', store: NEW, focus: true },
-  { name: 'New page, permission card', hash: '#/job/tag-colours', store: NEW },
+  // The job page on the made-up long job.
+  { name: 'Job page, needs you', hash: `#/job/${LONG_JOB}`, focus: true },
+  { name: 'Job page, More open', hash: `#/job/${LONG_JOB}`, act: click('.jp2-card-more') },
+  { name: 'Job page, Review step', hash: `#/job/${LONG_JOB}/stage/review` },
+  { name: 'Job page, conversation', hash: `#/job/${LONG_JOB}/conversation`, act: async (p) => { for (const sel of ['.jp2-cv-item.is-you > .jp2-cv-line[aria-expanded="false"]', '.jp2-cv-sm-h[aria-expanded="false"]']) await p.locator(sel).filter({ visible: true }).first().click().catch(() => {}); } },
+  { name: 'Job page, ticket and goal', hash: `#/job/${LONG_JOB}/overview` },
+  { name: 'Job page, decisions', hash: `#/job/${LONG_JOB}/read/decisions/decisions` },
+  { name: 'Job page, details', hash: `#/job/${LONG_JOB}/read/details/details` },
+  { name: 'Job page, plan', hash: `#/job/${LONG_JOB}/read/doc/implementation-plan.md` },
+  { name: 'Job page, Changes', hash: `#/job/${LONG_JOB}/read/changes/changes`, wait: 1200 },
+  { name: 'Job page, Checks', hash: `#/job/${LONG_JOB}/read/checks/checks` },
+  { name: 'Job page, Findings', hash: `#/job/${LONG_JOB}/read/findings/findings` },
   // The PR parts, on the job web/e2e/prPath.mjs leaves at PR #1 with its comment rows (KEEP=1): PR_JOB names it.
   ...(PR_JOB ? [
-    { name: 'New page, PR lines', hash: `#/job/${PR_JOB}`, store: NEW, focus: true },
-    { name: 'New page, PR lines open', hash: `#/job/${PR_JOB}/read/ship/ship`, store: NEW, act: click('.jp2-prl-b') },
-    { name: 'New page, PR view', hash: `#/job/${PR_JOB}/read/pr/1`, store: NEW, wait: 1200, scrolls: 2, focus: true },
-    { name: 'New page, PR view push open', hash: `#/job/${PR_JOB}/read/pr/1`, store: NEW, wait: 1200, act: click('.jp2-prc-bar .jp2-prl-b') },
-    { name: 'New page, PR view round', hash: `#/job/${PR_JOB}/read/pr/2`, store: NEW, wait: 1200, scrolls: 1 },
+    { name: 'Job page, PR lines', hash: `#/job/${PR_JOB}`, focus: true },
+    { name: 'Job page, PR lines open', hash: `#/job/${PR_JOB}/read/ship/ship`, act: click('.jp2-prl-b') },
+    { name: 'Job page, PR view', hash: `#/job/${PR_JOB}/read/pr/1`, wait: 1200, scrolls: 2, focus: true },
+    { name: 'Job page, PR view push open', hash: `#/job/${PR_JOB}/read/pr/1`, wait: 1200, act: click('.jp2-prc-bar .jp2-prl-b') },
+    { name: 'Job page, PR view round', hash: `#/job/${PR_JOB}/read/pr/2`, wait: 1200, scrolls: 1 },
   ] : []),
 ];
 
@@ -167,22 +164,22 @@ const failWrites = async (page) => {
 const OVERLAY_VISITS = [
   { name: 'Peek', hash: '#/?peek=customer-notes-tab', scope: '.peek' },
   { name: 'Dialog (New job)', hash: '#/', act: async (p) => { await p.keyboard.press('c'); }, scope: '.sheet' },
-  { name: 'Select menu', hash: '#/job/customer-merge', act: click('.composer .select, button.select'), scope: '.select-menu' },
+  { name: 'Select menu', hash: '#/settings/look', act: click('button.select'), scope: '.select-menu' },
   { name: 'Menu', hash: '#/', act: role('button', /^(Settings and more|Menu)$/), scope: '[role="menu"]' },
   { name: 'Menu, hover', hash: '#/', act: async (p) => { await role('button', /^(Settings and more|Menu)$/)(p); await p.locator('[role="menu"] [role="menuitem"]').nth(1).hover(); }, scope: '[role="menu"]', noTips: true },
-  { name: 'Job menu', hash: '#/job/nightly-export', act: role('button', 'Job menu'), scope: '.job-menu-list' },
   { name: 'Tooltip', hash: '#/', act: async (p) => { await p.locator('[title]').filter({ visible: true }).first().hover(); await p.waitForTimeout(700); }, scope: '[role="tooltip"]' },
   { name: 'Command search', hash: '#/', act: async (p) => { await p.keyboard.press('ControlOrMeta+k'); }, scope: '.palette' },
   { name: 'Keys sheet', hash: '#/', act: async (p) => { await p.keyboard.press('Shift+?'); }, scope: '.sheet' },
-  { name: 'Toast', hash: '#/job/nightly-export', act: async (p) => { await failWrites(p); await p.keyboard.press('ControlOrMeta+k'); await p.locator('.palette-input').fill('Ask about everything'); await p.waitForTimeout(150); await p.keyboard.press('Enter'); await p.locator('.toast').waitFor({ timeout: 8000 }).catch(() => {}); }, scope: '.toast', expectErrors: /status of 500/, after: async (p) => { await p.unroute(/\/api\//); } },
+  // On a job ⌘K is the job page's own box: the gear's Every action is the app's, whose failed write shows the toast.
+  { name: 'Toast', hash: '#/job/nightly-export', act: async (p) => { await failWrites(p); await role('button', /^(Settings and more|Menu)$/)(p); await role('menuitem', /^Every action/)(p); await p.locator('.palette-input').fill('Ask about everything'); await p.waitForTimeout(150); await p.keyboard.press('Enter'); await p.locator('.toast').waitFor({ timeout: 8000 }).catch(() => {}); }, scope: '.toast', expectErrors: /status of 500/, after: async (p) => { await p.unroute(/\/api\//); } },
   { name: 'Level sheet', hash: '#/stack/invoice-export/part/7', act: click('.part-level-choose'), scope: '.sheet' },
   // No part is next to merge in the demo, so this page is told part 5 is (only this page sees it), and
   // every write fails: the confirm opens and is looked at, nothing is merged.
   { name: 'Confirm (Merge)', hash: '#/stack/invoice-export/part/5', before: async (p) => { await failWrites(p); await p.route(/\/api\/stacks\/invoice-export(\/part\/5)?(\?.*)?$/, async (route) => { if (route.request().method() !== 'GET') return route.fallback(); try { const res = await route.fetch(); const json = await res.json(); const v = json.stack ?? json; Object.assign(v, { nextToMerge: 'csv-export', autoIntegrate: false, busy: null }); await route.fulfill({ response: res, json }); } catch { /* the page moved on */ } }); }, act: async (p) => { await p.getByRole('button', { name: /^Merge part 5/ }).filter({ visible: true }).first().click(); }, scope: '.sheet', expectErrors: /status of 500/, after: async (p) => { await p.unroute(/\/api\//); await p.unroute(/\/api\/stacks\/invoice-export(\/part\/5)?(\?.*)?$/); } },
   { name: 'Hover, job card', hash: '#/', act: async (p) => { await p.locator('.job-card, .job-row').filter({ visible: true }).first().hover(); }, scope: '.job-card:hover, .job-row:hover', noTips: true },
   { name: 'Hover, settings row', hash: '#/settings/look', act: async (p) => { await p.locator('.settings-rail-row').filter({ visible: true }).nth(1).hover(); }, scope: '.settings-rail-row:hover', noTips: true },
-  { name: 'New page, Older menu', hash: `#/job/${LONG_JOB}`, store: NEW, act: click('.jp2-rv-older > button'), scope: '.jp2-rv-older [role="menu"], .jp2-rv-older .menu-list' },
-  { name: 'New page, job menu', hash: `#/job/${LONG_JOB}`, store: NEW, act: click('.jp2-menu > button'), scope: '.jp2-menu [role="menu"], .jp2-menu .menu-list' },
+  { name: 'Job page, Older menu', hash: `#/job/${LONG_JOB}`, act: click('.jp2-rv-older > button'), scope: '.jp2-rv-older [role="menu"], .jp2-rv-older .menu-list' },
+  { name: 'Job page, job menu', hash: `#/job/${LONG_JOB}`, act: click('.jp2-menu > button'), scope: '.jp2-menu [role="menu"], .jp2-menu .menu-list' },
 ];
 
 const VISITS = [...SCREEN_VISITS, ...OVERLAY_VISITS.map((v) => ({ ...v, overlay: true }))]
@@ -257,7 +254,7 @@ async function runTheme(browser, theme, width, play) {
     const screen = v.name;
     const t0 = Date.now();
     try {
-      const store = { 'gc.jobs.layout': null, 'sb.jobPage': null, ...(v.store ?? {}) };
+      const store = { 'gc.jobs.layout': null, ...(v.store ?? {}) };
       if (!page.url().startsWith(ORIGIN)) await page.goto(BASE, { waitUntil: 'domcontentloaded' }).catch(() => {});
       await page.evaluate((s) => { for (const [k, val] of Object.entries(s)) { if (val === null) localStorage.removeItem(k); else localStorage.setItem(k, val); } }, store);
       if (v.before) await v.before(page);
