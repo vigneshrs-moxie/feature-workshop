@@ -32,6 +32,8 @@ import type { JobStore } from '../jobStore';
 import { AsksInPlace } from '../left/AsksRow';
 import { sinceWords } from '../left/YourMove';
 import type { ReaderTarget } from '../types';
+import { onTryStart } from '../tryStart';
+import { useAppUrl } from '../useAppUrl';
 import { useJob, useJobStore } from '../useJob';
 import { loadCommits, useBranch, type BranchCommit } from './branch';
 import { NotLoaded, ReaderBody, useBody } from './ReaderBody';
@@ -322,27 +324,15 @@ function Player({ slug, c, hosted, onSite }: { slug: string; c: EvidenceCriterio
 const HAND_ASKS = [askById('works')!, askById('wrong')!];
 
 function HandTest({ slug, hosted, check, commits, events }: { slug: string; hosted: boolean; check: Check; commits: BranchCommit[] | null; events: NonNullable<ChecksViewProps['events']> }) {
-  const { api } = useWorkshop();
-  const auto = useJob((s) => s.payload?.auto ?? null);
+  const auto =useJob((s) => s.payload?.auto ?? null);
   const autoDecides = auto?.on === true && !auto.stopped && auto.yours !== true;
   const [tryOpen, setTryOpen] = useState(false);
   // Each press of Start the app is a fresh Try it that presses its own start (it asks first, in place, when it must).
   const [starts, setStarts] = useState(0);
-  const [url, setUrl] = useState<string | null>(null);
   // Try it's app: its address once it runs (laptop only); read on open and when Try it changes.
-  useEffect(() => {
-    if (hosted) return undefined;
-    let off = false;
-    const read = () => {
-      api.get<{ server?: { status?: string } | null; url?: string | null }>(`/api/job/${encodeURIComponent(slug)}/local`).then(
-        (v) => { if (!off) setUrl(v?.server?.status === 'running' && typeof v.url === 'string' && v.url ? v.url : null); },
-        () => { /* Open it stays off */ },
-      );
-    };
-    read();
-    const stop = events((e) => { if (e?.type === 'local-state' && e.job === slug) read(); });
-    return () => { off = true; stop(); };
-  }, [api, slug, hosted, events]);
+  const url = useAppUrl(slug, !hosted, events);
+  // The header's `Try it` asks from outside (jobpage/tryStart.ts): the same as pressing Start the app.
+  useEffect(() => (hosted ? undefined : onTryStart(slug, () => { setTryOpen(true); setStarts((n) => n + 1); })), [slug, hosted]);
   const final = commits?.[0] ?? null;
   return (
     <div className="jp2-prose jp2-hand">

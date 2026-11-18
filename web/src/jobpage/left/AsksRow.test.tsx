@@ -754,7 +754,10 @@ describe('fix round 2', () => {
 
   it('3 · Go faster sends a held ask at once, and its Sent · Undo goes with it (no Undo that does nothing)', async () => {
     const srv = server();
-    srv.get.mockImplementationOnce(() => new Promise(() => {}));
+    // The job's options never answer (the header's Try it read of /local answers as usual).
+    const first = srv.get.getMockImplementation()!;
+    let held = false;
+    srv.get.mockImplementation((path: string) => (path === `/api/job/${SLUG}` && !held ? ((held = true), new Promise(() => {})) : first(path)));
     const o = open({ srv });
     await settle();
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });

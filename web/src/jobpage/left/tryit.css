@@ -1,0 +1,3 @@
+/* The header's Try it / Open app (left/Header.tsx HeaderTryIt): one quiet button left of Auto, never squeezed. */
+.jp2-tryit { flex: none; color: var(--text-2); }
+.jp2-tryit:hover { background: var(--hover-bg); }
