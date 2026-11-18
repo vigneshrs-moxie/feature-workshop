@@ -74,6 +74,8 @@ const ALL_SCREENS = [
   ['Findings', `#/job/${LONG_JOB}/read/findings/findings`],
   ['Working', '#/job/nightly-export'],
   ['Permission', '#/job/tag-colours'],
+  // What Auto decided in the reader (the header's button beside the Auto switch), on the demo's Auto job.
+  ['What Auto decided', '#/job/auto-demo/read/auto/auto'],
   // The PR parts (PR_JOB: a job web/e2e/prPath.mjs KEEP=1 leaves at PR #1 with its comment rows).
   ...(process.env.PR_JOB ? [
     ['PR lines', `#/job/${process.env.PR_JOB}`],
