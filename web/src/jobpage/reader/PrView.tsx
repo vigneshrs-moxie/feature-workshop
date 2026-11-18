@@ -14,7 +14,8 @@
 //   does not: the button is in two places only, here and the PR's line in the Ship step.
 // - A failed check shows its failing lines (`Show the failure`) and `Fix it`.
 // The rows are asked for when the view opens and again only when the PR line's version moves; nothing on a
-// timer, nothing on the website.
+// timer, nothing on the website. Under the line, the review round's own words (reader/PrRound.tsx: which
+// round, who it waits on and since when, Send back's steps, who merges, the rounds so far).
 
 import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError } from '../../api/client';
@@ -28,6 +29,7 @@ import type { PrCheck, PrRow, ReaderTarget } from '../types';
 import { useJob, useJobStore } from '../useJob';
 import { findCommit, knownNotOnBranch, loadCommits, recheck, setPick, useBranch } from './branch';
 import { loadPr, setDraft, setPending, setTick, usePrHeld } from './prComments';
+import { PrRound, useRound } from './PrRound';
 import { ReaderBody } from './ReaderBody';
 import './prview.css';
 
@@ -96,6 +98,9 @@ export const PrView = memo(function PrView({ n, onOpen }: PrViewProps) {
     }
   }, [api, slug, n, store, tickedRows]);
 
+  // The review round (reader/PrRound.tsx): what the old page's round panel said that this view does not.
+  const round = useRound(n, !hosted && Boolean(api));
+
   if (hosted) return <ReaderBody view="pr" place={`pr:${n}`}><PrLines only={n} /><p className="jp2-notyet">The comments show on your laptop.</p></ReaderBody>;
   const error = held.errors.get(n) ?? null;
   const githubDown = Boolean(view?.github?.problem) || Boolean(payloadDown);
@@ -103,6 +108,9 @@ export const PrView = memo(function PrView({ n, onOpen }: PrViewProps) {
   return (
     <ReaderBody view="pr" place={`pr:${n}`} className="jp2-prv">
       <PrLines only={n} skip="push-fixes" />
+      <PrRound n={n} round={round} />
+      {/* The rest waits for the round's line (a moment at most), so it never pushes them down when it lands. */}
+      {round.settled && <>
       {view?.verdict && <p className="jp2-prv-verdict">{view.verdict.by ?? 'The reviewer'} {VERDICT[view.verdict.state] ?? view.verdict.state}{view.verdict.at ? ` · ${clockWords(view.verdict.at)}` : ''}</p>}
       {/* The comments couldn't be read while the PR line's read worked (else the line above says it already). */}
       {view?.problem && !githubDown && <p className="jp2-prv-problem" role="alert">{view.problem}</p>}
@@ -128,6 +136,7 @@ export const PrView = memo(function PrView({ n, onOpen }: PrViewProps) {
         <PrLines only={n} action="push-fixes" />
       </div>
       {problem && <p className="jp2-prv-problem" role="alert">{problem}</p>}
+      </>}
     </ReaderBody>
   );
 });

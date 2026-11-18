@@ -21,6 +21,8 @@ import { forgetRecentPages } from '../recent';
 import type { GithubRead, JobBody, JobPagePayload, PrLine, PrRow, PrView } from '../types';
 import { clockWords } from '../left/PrLines';
 import { branchOf } from './branch';
+import { view as reviewView } from '../../views/Review/test-fixtures';
+import type { ReviewState, ReviewView } from '../../api/types';
 
 const SLUG = longJob.payload.slug;
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
@@ -52,7 +54,7 @@ const view = (rows: PrRow[], l1: PrLine = line1()): PrView => ({ n: 1, line: l1,
 
 type Fn = ReturnType<typeof vi.fn>;
 interface Opened { store: JobStore; post: Fn; get: Fn; serve(p: JobPagePayload): Promise<void>; answer: { pr: PrView; commits: unknown } }
-function open(p: JobPagePayload, pr: PrView, { post = vi.fn(async () => ({ ok: true, sent: true })), hosted = false }: { post?: Fn; hosted?: boolean } = {}): Opened {
+function open(p: JobPagePayload, pr: PrView, { post = vi.fn(async () => ({ ok: true, sent: true })), hosted = false, review }: { post?: Fn; hosted?: boolean; /** GET /api/review/:slug's answer (the review round); none: nothing to show. */ review?: () => unknown } = {}): Opened {
   let current = p;
   window.history.replaceState(null, '', `/#/job/${SLUG}`);
   const store = createJobStore(SLUG, {
@@ -70,6 +72,7 @@ function open(p: JobPagePayload, pr: PrView, { post = vi.fn(async () => ({ ok: t
     if (url === `/api/job/${SLUG}/pr/1`) return clone(answer.pr);
     if (url === `/api/job/${SLUG}/commits`) return answer.commits;
     if (url.startsWith(`/api/job/${SLUG}/commit/`)) return { sha: SHA, truncated: false, files: [], patchFiles: [] };
+    if (url === `/api/review/${SLUG}` && review) return review();
     return {};
   });
   const api = { get, post, hosted: () => hosted } as unknown as ApiClient;
@@ -371,5 +374,139 @@ describe('final W9: a re-read that fails leaves the sha unknown', () => {
     expect(get).toHaveBeenCalledTimes(3);
     expect(branchOf(store).checked.has('f00dbee')).toBe(true);
     expect(knownNotOnBranch(branchOf(store), 'f00dbee')).toBe(true);
+  });
+});
+
+// 18 Nov: what the old page's review-round panel showed that the PR view did not: where the round is
+// (which round, who or what it waits on, since when), Send back's steps while they run or after they
+// stopped (with Try again from here), who merges, and the rounds so far. The comments, the replies,
+// the verdict, the failed checks and Push the fixes stay the PR view's own (above), never twice.
+describe('the review round in the PR view', () => {
+  /** The made-up round (views/Review/test-fixtures: reviewer Raj), on PR #1 of this job. */
+  const round1 = (state: ReviewState, over: Partial<ReviewView> = {}): ReviewView => {
+    const v = reviewView(state, over);
+    return { ...v, pr: { ...v.pr, label: 'PR #1', routeNumber: 1 }, rounds: v.rounds.map((x) => ({ ...x, pr: 1, prLabel: 'PR #1' })) };
+  };
+  const box = () => document.querySelector<HTMLElement>('.jp2-prr');
+  const reviewGets = (o: Opened) => o.get.mock.calls.filter((c) => c[0] === `/api/review/${SLUG}`).length;
+
+  it('says which round and who it waits on, and since when, above the comments; the round’s items are not listed again', async () => {
+    const o = open(payload(), view(FIXED_ROWS), { review: () => round1('waiting') });
+    await openPr(o);
+    expect(box()).toHaveTextContent('Round 1');
+    expect(box()).toHaveTextContent('Waiting on Raj to review PR #2 again');
+    expect(box()).toHaveTextContent('Round 1 went back at 14:02. Nothing for you to do.');
+    // Above the comments: it lands before them, so nothing he reads moves.
+    expect(box()!.compareDocumentPosition(cards()[0]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The PR view's rows are the comments: none of the old panel's item rows, Send back or the note box.
+    expect(document.querySelector('.review-item, .review-panel, .review-note')).toBeNull();
+    expect(reader().queryByRole('button', { name: /Send back/ })).toBeNull();
+    expect(reviewGets(o)).toBe(1);
+  });
+
+  it('the rounds so far fold under one line, with the current round from start to end', async () => {
+    const o = open(payload(), view(FIXED_ROWS), { review: () => round1('waiting') });
+    await openPr(o);
+    const fold = box()!.querySelector('details')!;
+    expect(fold.open).toBe(false);
+    expect(fold.querySelector('summary')).toHaveTextContent('Rounds on PR #1 · 1');
+    expect(fold).toHaveTextContent(/Round 1 · 4 items · opened .+ · sent back/);
+    expect(fold).toHaveTextContent('Round 1, start to end');
+    expect(fold).toHaveTextContent('Raj asked for changes on PR #2 · 4 comments · round 1');
+  });
+
+  it('while Send back runs, and after it stopped, each step with its state; Try again from here posts and shows the answer', async () => {
+    const post = vi.fn(async (url: string) => (url.endsWith('/retry') ? round1('sending') : { ok: true }));
+    const o = open(payload(), view(FIXED_ROWS), { post, review: () => round1('stopped') });
+    await openPr(o);
+    const steps = () => [...box()!.querySelectorAll('.jp2-prr-step')].map((li) => li.textContent);
+    expect(steps()[0]).toMatch(/Push 4 commits to your fork.*Done/);
+    expect(steps()[2]).toMatch(/Reply on GitHub to each of Raj’s 3 comments.*Stopped here/);
+    expect(box()).toHaveTextContent('reply 2 of 3 didn’t post');
+    expect(box()).toHaveTextContent('GitHub said: “502 Bad Gateway”');
+    await act(async () => { fireEvent.click(within(box()!).getByRole('button', { name: 'Try again from here' })); });
+    await settle();
+    expect(post).toHaveBeenCalledWith(`/api/review/${SLUG}/retry`, { go: true });
+    expect(box()).toHaveTextContent('Sending round 1 back: step 3 of 5');
+    expect(steps()[2]).toMatch(/Working/);
+  });
+
+  it('ready to send back: the headline only; Push the fixes in the bar lists the steps, so they are not listed twice', async () => {
+    const o = open(payload(line1({ next: { ...NEXT_FIX, round: true } })), view(FIXED_ROWS), { review: () => round1('ready') });
+    await openPr(o);
+    expect(box()).toHaveTextContent('Round 1 is ready to send back');
+    expect(box()!.querySelectorAll('.jp2-prr-step')).toHaveLength(0);
+    expect(within(box()!).queryAllByRole('button')).toHaveLength(0);
+    expect(within(bar()).getByRole('button', { name: 'Push the fixes (2 commits)' })).toBeInTheDocument();
+  });
+
+  it('approved: who merges it, into what and how', async () => {
+    const o = open(payload(), view([]), { review: () => round1('approved-they-merge') });
+    await openPr(o);
+    expect(box()).toHaveTextContent('Waiting for Raj to merge PR #2');
+    expect(box()).toHaveTextContent('Raj merges PR #1 into staging · a merge commit');
+  });
+
+  it('a refused action says why in place and reads the round again', async () => {
+    const post = vi.fn(async () => { throw new Error('GitHub isn’t answering.'); });
+    const o = open(payload(), view(FIXED_ROWS), { post, review: () => round1('conflicts') });
+    await openPr(o);
+    await act(async () => { fireEvent.click(within(box()!).getByRole('button', { name: 'Bring in staging with the Foreman' })); });
+    await settle();
+    expect(post).toHaveBeenCalledWith(`/api/review/${SLUG}/sync`, { go: true });
+    expect(within(box()!).getByRole('alert')).toHaveTextContent('GitHub isn’t answering.');
+    expect(reviewGets(o)).toBe(2);
+  });
+
+  it('the actions the PR view already has (Fix with the Foreman, Send back, a check’s fix) are not offered again', async () => {
+    for (const state of ['asked', 'check-failed', 'fixing'] as ReviewState[]) {
+      const o = open(payload(), view(NEW_ROWS), { review: () => round1(state) });
+      await openPr(o);
+      expect(within(box()!).queryAllByRole('button'), state).toHaveLength(0);
+      document.body.innerHTML = '';
+    }
+  });
+
+  it('nothing when there is no round, when it is another PR’s, or once merged (the line says it); nothing and no read on the website', async () => {
+    const cases: (() => unknown)[] = [() => ({ slug: SLUG, state: null }), () => reviewView('waiting'), () => round1('merged')];
+    for (const review of cases) {
+      const o = open(payload(), view(FIXED_ROWS), { review });
+      await openPr(o);
+      expect(box()).toBeNull();
+      expect(cards().length).toBeGreaterThan(0);
+      document.body.innerHTML = '';
+    }
+    const o = open({ ...payload(), hosted: true }, view(FIXED_ROWS), { hosted: true, review: () => round1('waiting') });
+    await openPr(o);
+    expect(box()).toBeNull();
+    expect(reviewGets(o)).toBe(0);
+  });
+
+  it('read when the view opens and again only when the PR line moves: never on a timer or another event', async () => {
+    const o = open(payload(), view(FIXED_ROWS), { review: () => round1('waiting') });
+    await openPr(o);
+    expect(reviewGets(o)).toBe(1);
+    await o.serve(payload(line1(), { v: 999 } as Partial<JobPagePayload>));
+    await settle();
+    expect(reviewGets(o)).toBe(1);
+    await o.serve(payload(line1({ word: 'open · approved' })));
+    await settle();
+    expect(reviewGets(o)).toBe(2);
+  });
+
+  it('the comments wait for the round’s line (a moment at most), so it never pushes them down when it lands', async () => {
+    let answer: (v: unknown) => void = () => {};
+    const o = open(payload(), view(FIXED_ROWS), { review: () => new Promise((r) => { answer = r; }) });
+    await openPr(o);
+    expect(cards()).toHaveLength(0);
+    await act(async () => { answer(round1('waiting')); });
+    await settle();
+    expect(box()).not.toBeNull();
+    expect(cards().length).toBeGreaterThan(0);
+    // A read that never answers holds them back no longer than a moment.
+    const o2 = open(payload(), view(FIXED_ROWS), { review: () => new Promise(() => {}) });
+    await openPr(o2);
+    await act(async () => { await new Promise((r) => setTimeout(r, 400)); });
+    expect(cards().length).toBeGreaterThan(0);
   });
 });

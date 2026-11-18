@@ -31,3 +31,24 @@
 .jp2-prc-n { margin-right: auto; font-size: 13px; color: var(--text-2); }
 .jp2-prc-bar .jp2-prl-bar { padding: 0; }
 .jp2-prc-bar .jp2-prl-line { padding: 0; border-bottom: 0; }
+/* The review round under the PR line (reader/PrRound.tsx): which round, who it waits on and since when,
+   Send back's steps while they run or after they stopped, who merges, and the rounds so far (folded). */
+.jp2-prr { max-width: 820px; margin: 6px 0 10px; padding: 6px 12px; border-left: 3px solid var(--border-2); font-size: 13px; line-height: 19px; color: var(--text-2); }
+.jp2-prr p { margin: 0; }
+.jp2-prr-h { color: var(--text-1); overflow-wrap: anywhere; }
+.jp2-prr-h b { font-weight: 600; }
+.jp2-prr-d { margin-top: 2px; overflow-wrap: anywhere; }
+.jp2-prr-steps { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 2px; }
+.jp2-prr-step { display: flex; flex-wrap: wrap; gap: 0 8px; }
+.jp2-prr-sw { flex: 1 1 0; min-width: 0; overflow-wrap: anywhere; color: var(--text-1); }
+.jp2-prr-ss { flex: none; font-weight: 600; }
+.jp2-prr-step[data-st="done"] .jp2-prr-ss { color: var(--status-ok); }
+.jp2-prr-step[data-st="stopped"] .jp2-prr-ss, .jp2-prr-fail { color: var(--status-error); }
+.jp2-prr-fail, .jp2-prr-sd { flex-basis: 100%; overflow-wrap: anywhere; }
+.jp2-prr-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.jp2-prr-more { margin-top: 4px; }
+.jp2-prr-more > summary { width: fit-content; cursor: pointer; color: var(--text-2); }
+.jp2-prr-more > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; border-radius: 4px; }
+.jp2-prr-rounds, .jp2-prr-tl { margin: 4px 0 0; padding-left: 18px; }
+.jp2-prr-th { margin-top: 6px; font-weight: 600; color: var(--text-1); }
+.jp2-prr-tl time { font-variant-numeric: tabular-nums; color: var(--text-3); }
