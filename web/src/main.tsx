@@ -38,6 +38,7 @@ import './jobpage/left/prlines.css';
 import './jobpage/asks.css';
 import './jobpage/reader/prview.css';
 import './jobpage/jobpage.css';
+import './jobpage/left/tryit.css';
 import './views/Telemetry.css';
 import './views/Telemetry/hostedTelemetry.css';
 import './views/Lounge/lounge.css';
