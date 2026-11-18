@@ -1,7 +1,8 @@
 // What Auto decided: a button where Auto has run on the job, and the panel it opens: the three
 // summary lines and every decision, newest first. The panel's data is GET /api/job/:slug/auto;
-// a 404 or an error shows the empty line. Self-contained: props in, its own sheet (on the new job
-// page a drawer at the right, `drawer`, which auto.css places on a laptop).
+// a 404 or an error shows the empty line. Self-contained: props in, its own sheet (`drawer`: a drawer
+// at the right, which auto.css places on a laptop). The list alone (AutoDecidedList) is what the job
+// page's reader shows, opened from the button beside its Auto switch (jobpage/reader/AutoView.tsx).
 // Each entry: when, the step as a chip, Asked:, Chose: as a chip (the stop look for Auto stopping,
 // the done look otherwise), Why:. A stop is not a decision: its chip says Stopped and Why: carries
 // the reason, once. A record from an older laptop has no kind and no step: no step chip, the done
@@ -74,33 +75,61 @@ function Entry({ e }: { e: AutoDecision }) {
   );
 }
 
-function Panel({ slug, onClose, drawer }: { slug: string; onClose(): void; drawer: boolean }) {
+/** What was last read for each job, per app: a second look paints at once while it is read again. */
+const kept = new WeakMap<object, Map<string, AutoDecided | null>>();
+
+/** GET /api/job/:slug/auto. undefined: loading (nothing read before); null: nothing to show (not built yet, or it failed). */
+function useAutoLog(slug: string): AutoDecided | null | undefined {
   const { api } = useWorkshop();
-  // undefined: loading; null: nothing to show (not built yet, or it failed).
-  const [data, setData] = useState<AutoDecided | null | undefined>(undefined);
+  let bySlug = kept.get(api);
+  if (!bySlug) { bySlug = new Map(); kept.set(api, bySlug); }
+  const held = bySlug;
+  const [data, setData] = useState<AutoDecided | null | undefined>(() => held.get(slug));
   useEffect(() => {
     let cancelled = false;
+    // The same answer as the one shown keeps it: nothing draws again.
+    const take = (d: AutoDecided | null) => {
+      if (cancelled) return;
+      held.set(slug, d);
+      setData((was) => (was !== undefined && JSON.stringify(was) === JSON.stringify(d) ? was : d));
+    };
     api.get<AutoDecided>(`/api/job/${encodeURIComponent(slug)}/auto`).then(
-      (d) => { if (!cancelled) setData(d && Array.isArray(d.entries) ? d : null); },
-      () => { if (!cancelled) setData(null); },
+      (d) => take(d && Array.isArray(d.entries) ? d : null),
+      () => take(null),
     );
     return () => { cancelled = true; };
-  }, [api, slug]);
+  }, [api, slug, held]);
+  return data;
+}
+
+/**
+ * The list itself: the summary lines, every decision newest first, and the foot. The sheet shows it
+ * under its title; the job page's reader shows it as the page (reader/AutoView.tsx), where `quiet`
+ * leaves the body empty while it is read, so nothing moves when it lands.
+ */
+export function AutoDecidedList({ slug, quiet = false }: { slug: string; quiet?: boolean }) {
+  const data = useAutoLog(slug);
   // Newest first. The laptop sends them that way; they are only put in order again when every time is readable, otherwise they stay as given.
   const entries = data ? [...data.entries] : [];
   if (entries.every((e) => Number.isFinite(Date.parse(e.at)))) entries.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+  if (data === undefined) return quiet ? null : <p className="muted" role="status">Loading…</p>;
+  if (!data || (entries.length === 0 && !data.summary.some((l) => l.trim()))) return <p>{AUTO_EMPTY}</p>;
+  return (
+    <>
+      <ul className="auto-summary">{data.summary.map((l, i) => <li key={i}>{l}</li>)}</ul>
+      <ul className="auto-entries">
+        {entries.map((e, i) => <Entry key={`${e.at}-${i}`} e={e} />)}
+      </ul>
+      <p className="sb-auto-foot">{footOf(data)}</p>
+    </>
+  );
+}
+
+function Panel({ slug, onClose, drawer }: { slug: string; onClose(): void; drawer: boolean }) {
   return (
     <Sheet title="What Auto decided" onClose={onClose} className={drawer ? 'sb-drawer' : ''}>
       <div className="auto-decided">
-        {data === undefined ? <p className="muted" role="status">Loading…</p> : !data || (entries.length === 0 && !data.summary.some((l) => l.trim())) ? <p>{AUTO_EMPTY}</p> : (
-          <>
-            <ul className="auto-summary">{data.summary.map((l, i) => <li key={i}>{l}</li>)}</ul>
-            <ul className="auto-entries">
-              {entries.map((e, i) => <Entry key={`${e.at}-${i}`} e={e} />)}
-            </ul>
-            <p className="sb-auto-foot">{footOf(data)}</p>
-          </>
-        )}
+        <AutoDecidedList slug={slug} />
         <div className="sheet-actions"><Button onClick={onClose}>Close</Button></div>
       </div>
     </Sheet>

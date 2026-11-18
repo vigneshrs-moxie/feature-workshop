@@ -21,7 +21,10 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2-head { position: relative; z-index: 3; }
 /* Auto, the switch, its word (prototype .sj-auto): the shared AutoSwitch, drawn small. The off track
    is --text-3 and the knob the solid float, so the switch shows against the header in every theme. */
-.jp2-auto { flex: 0 1 auto; min-width: 0; }
+.jp2-auto { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: 2px; }
+.jp2-auto > .auto-switch { flex: 0 1 auto; min-width: 0; }
+/* What Auto decided, beside the switch (18 Nov): a quiet button; the list opens in the reader. */
+.jp2-auto-decided { flex: none; }
 .jp2-auto .auto-switch.is-inline { display: flex; flex-wrap: nowrap; align-items: center; gap: 6px; min-width: 0; }
 .jp2-auto .auto-switch-row { flex: none; width: auto; display: inline-flex; align-items: center; gap: 6px; height: 28px; min-height: 0; padding: 0 6px; border-radius: 6px; font-size: 13px; color: var(--text-2); cursor: pointer; }
 .jp2-auto .auto-switch-row, .jp2-auto .auto-switch-row:has(.choice:checked) { border: 0; background: none; }
@@ -211,6 +214,10 @@ a.jp2-key:hover { color: var(--accent-strong); text-decoration: underline; text-
 .jp2-dec { margin: 0; padding: 10px 0; border-bottom: 1px solid var(--border-1); }
 .jp2-dec:first-child { padding-top: 0; }
 .jp2-dec p { margin: 0; }
+/* What Auto decided in the reader (reader/AutoView.tsx): the shared list at reading width; the reader scrolls it. */
+.jp2-autov .auto-decided { max-width: 610px; font-size: 14px; line-height: 22px; color: var(--text-1); }
+.jp2-autov .auto-entries { max-height: none; overflow: visible; }
+.jp2[data-layout="phone"] .jp2-autov .auto-decided { max-width: none; }
 .jp2-dec-q { font-size: 13px; line-height: 20px; color: var(--text-2); }
 .jp2-dec-what { font-weight: 600; }
 .jp2-dec-why { color: var(--text-2); }

@@ -1,7 +1,8 @@
 // The job page's header (plan Task 8): one row. The ticket key (a link to Orbit when the page knows
 // its address), the title, ONE state word (Needs you, Working, Waiting on GitHub, Paused, Done); at the
 // right, dim, the level, the repository and the cost (over 10 cents); then the
-// Auto switch with its word, and the ⋯ menu with everything rare.
+// Auto switch with its word, What Auto decided beside it on a job Auto is on or has run on (it opens the
+// list in the reader, reader/AutoView.tsx), and the ⋯ menu with everything rare.
 //
 // The Auto switch is the shared one (job/AutoSwitch.tsx), optimistic: it flips at once and flips back
 // with one plain line if the server refuses (the website still queues it for the laptop, as today).
@@ -44,7 +45,7 @@ import { formatCost, isActiveRun } from '../../panes/Foreman/thread';
 import { DecisionsTab } from '../../panes/Preview/DecisionsTab';
 import { jobBySlug } from '../../state/reducer';
 import { useWorkshop } from '../../state/store';
-import type { JobState } from '../types';
+import type { JobState, ReaderTarget } from '../types';
 import { useJob } from '../useJob';
 
 export const STATE_WORDS: Record<JobState, string> = {
@@ -83,7 +84,7 @@ export const JOB_PAGE_GUIDE: GuideSpec = {
 
 const COST_TITLE = 'Level, repository, and what this job has cost so far.';
 
-export const Header = memo(function Header({ job }: { job: Job | null }) {
+export const Header = memo(function Header({ job, onOpen }: { job: Job | null; /** The page's reader pick (What Auto decided opens there). */ onOpen?(t: ReaderTarget, from?: HTMLElement | null): void }) {
   const slug = useJob((s) => s.slug);
   const title = useJob((s) => s.payload?.title) ?? (job?.title || job?.slug || '');
   const key = useJob((s) => s.payload?.key) ?? (job ? slugKey(job.slug) : null);
@@ -110,7 +111,7 @@ export const Header = memo(function Header({ job }: { job: Job | null }) {
       {dim && <span className="jp2-facts" title={cost ? COST_TITLE : undefined}>{dim}</span>}
       {note && <HeadNote note={note} onClear={setNote} />}
       <NextNeedsYou slug={slug} />
-      <HeaderAuto slug={slug} job={job} />
+      <HeaderAuto slug={slug} job={job} onOpen={onOpen} />
       <MoreMenu slug={slug} job={job} onNote={setNote} />
     </header>
   );
@@ -159,8 +160,15 @@ function HeadNote({ note, onClear }: { note: HeadNoteWords; onClear(n: null): vo
   );
 }
 
-/** The shared Auto switch, optimistic, with its word; on the website with the job's queued change. */
-const HeaderAuto = memo(function HeaderAuto({ slug, job }: { slug: string; job: Job | null }) {
+/** What Auto decided, in the reader. */
+export const AUTO_DECIDED: ReaderTarget = { kind: 'auto', id: 'auto' };
+
+/**
+ * The shared Auto switch, optimistic, with its word; on the website with the job's queued change. Beside
+ * it, on a job Auto is on or has run on, What Auto decided: one click opens the list in the reader (the
+ * website has its copy of the list, so it shows there too).
+ */
+const HeaderAuto = memo(function HeaderAuto({ slug, job, onOpen }: { slug: string; job: Job | null; onOpen?(t: ReaderTarget, from?: HTMLElement | null): void }) {
   const { store } = useWorkshop();
   const fromPayload = useJob((s) => (s.payload ? s.payload.auto : undefined));
   const auto = fromPayload === undefined ? job?.auto ?? null : fromPayload;
@@ -168,9 +176,11 @@ const HeaderAuto = memo(function HeaderAuto({ slug, job }: { slug: string; job: 
   // read live, as a string, so only a change to it redraws the switch. Never set on the laptop.
   const queuedJson = useSyncExternalStore(store.subscribe, () => JSON.stringify((jobBySlug(store.getState(), slug) as { autoQueued?: unknown } | null)?.autoQueued ?? null));
   const switchJob = useMemo(() => ({ slug, auto: auto ?? undefined, autoQueued: JSON.parse(queuedJson) as unknown }) as Pick<Job, 'slug' | 'auto'>, [slug, auto, queuedJson]);
+  const ran = auto?.on === true || auto?.ran === true;
   return (
     <div className="jp2-auto">
       <AutoSwitch job={switchJob} word tagLine={false} optimistic short />
+      {ran && <Button kind="quiet" size="sm" className="jp2-auto-decided" onClick={(e) => onOpen?.(AUTO_DECIDED, e.currentTarget)} title="Every step Auto approved or answered for you on this job, and why. Opens on the right.">What Auto decided</Button>}
     </div>
   );
 });

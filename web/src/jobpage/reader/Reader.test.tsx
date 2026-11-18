@@ -12,6 +12,7 @@ import { longJob } from '../fixtures/longJob';
 import { createJobStore, type JobStore } from '../jobStore';
 import { JobPage2 } from '../JobPage2';
 import { sinceWords } from '../left/YourMove';
+import { AUTO_EMPTY } from '../../job/WhatAutoDecided';
 import { forgetRecentPages } from '../recent';
 import { readerBesideConvo, readerOf } from '../targets';
 import type { JobBody, JobPagePayload, ReaderTarget } from '../types';
@@ -56,7 +57,7 @@ const bodyOf = (id: string): JobBody | undefined => {
 interface Opened { store: JobStore; item: ReturnType<typeof vi.fn>; release(id: string): void; unmount(): void }
 
 /** The page with a store already holding the payload; bodies answer at once unless held. */
-function open({ patch, bodies = {}, hold = [] }: { patch?: (p: JobPagePayload) => void; bodies?: Record<string, JobBody>; hold?: string[] } = {}): Opened {
+function open({ patch, bodies = {}, hold = [], get = vi.fn() }: { patch?: (p: JobPagePayload) => void; bodies?: Record<string, JobBody>; hold?: string[]; /** The app's api.get (What Auto decided reads through it). */ get?: ReturnType<typeof vi.fn> } = {}): Opened {
   const p = payload();
   patch?.(p);
   window.history.replaceState(null, '', `/#/job/${SLUG}`);
@@ -68,7 +69,7 @@ function open({ patch, bodies = {}, hold = [] }: { patch?: (p: JobPagePayload) =
     return b;
   });
   const store = createJobStore(SLUG, { api: { page: async () => ({ same: true as const, v: p.v }), item }, events: () => () => {}, viewer: () => null, initial: p });
-  const api = { get: vi.fn(), post: vi.fn(), hosted: () => false } as unknown as ApiClient;
+  const api = { get, post: vi.fn(), hosted: () => false } as unknown as ApiClient;
   const utils = render(<WorkshopContext.Provider value={{ api, store: createStore() }}><UiProvider><JobPage2 slug={SLUG} job={null} store={store} /></UiProvider></WorkshopContext.Provider>);
   return { store, item, release: (id) => waiting.get(id)?.(), unmount: utils.unmount };
 }
@@ -554,5 +555,67 @@ describe('the reader changes what it shows with a quick fade (perf pass)', () =>
     expect(frames).toMatch(/opacity/);
     expect(frames).not.toMatch(/transform|translate|scale|top|margin/);
     expect(CSS).toMatch(/@media \(prefers-reduced-motion: reduce\) \{[^@]*\.jp2-rv-body \{ animation: none; \}/);
+  });
+});
+
+// 18 Nov: What Auto decided, opened from the header beside the Auto switch, reads in the reader.
+describe('What Auto decided in the reader', () => {
+  const LOG = {
+    on: true, stopped: null, tag: null,
+    summary: ['Auto made 2 decisions on this job.', 'Auto is on.'],
+    entries: [
+      { at: '2026-11-03T15:00:00.000Z', stage: 'Plan', stop: 'plan', kind: 'go', asked: 'Start building?', chose: 'Go', why: 'The plan covers the ticket.' },
+      { at: '2026-11-03T16:00:00.000Z', stage: 'Build', stop: 'build', kind: 'answer', asked: 'Which column order?', chose: 'Screen order', why: 'The printout uses it.' },
+    ],
+  };
+  const autoGet = () => vi.fn(async (path: string) => (path === `/api/job/${SLUG}/auto` ? LOG : {}));
+
+  it('the header’s button opens the list under the title row: the summary, then each decision newest first', async () => {
+    const get = autoGet();
+    const o = open({ get, patch: (p) => { p.auto = { on: true, tag: null } as JobPagePayload['auto']; } });
+    await settle();
+    fireEvent.click(within(document.querySelector<HTMLElement>('.jp2-head')!).getByRole('button', { name: 'What Auto decided' }));
+    await settle();
+    expect(view()).toHaveAttribute('data-view', 'auto');
+    expect(title()).toBe('What Auto decided');
+    expect(get).toHaveBeenCalledWith(`/api/job/${SLUG}/auto`);
+    expect(view()).toHaveTextContent('Auto made 2 decisions on this job.');
+    const entries = [...view().querySelectorAll('.auto-entry')].map((e) => e.querySelector('.sb-auto-entry-asked')?.textContent);
+    expect(entries).toEqual(['Asked: Which column order?', 'Asked: Start building?']);
+    // In the reader the list is the page: no Close button and no sheet of its own.
+    expect(view().querySelector('.sheet')).toBeNull();
+    expect(within(view()).queryByRole('button', { name: 'Close' })).toBeNull();
+    // The address follows, like every other thing read.
+    expect(window.location.hash).toMatch(/\/auto\/auto$/);
+    o.unmount();
+  });
+
+  it('while the list is on its way the body is empty (nothing to move when it lands); a failed read says nothing was decided yet', async () => {
+    let answer: (v: unknown) => void = () => {};
+    const get = vi.fn(() => new Promise((r) => { answer = r; }));
+    const o = open({ get });
+    await show(o, { kind: 'auto', id: 'auto' });
+    expect(title()).toBe('What Auto decided');
+    expect(view().textContent).toBe('');
+    await act(async () => { answer(LOG); });
+    expect(view()).toHaveTextContent('Auto made 2 decisions on this job.');
+    o.unmount();
+    const o2 = open({ get: vi.fn(async () => { throw new Error('404'); }) });
+    await show(o2, { kind: 'auto', id: 'auto' });
+    expect(view()).toHaveTextContent(AUTO_EMPTY);
+    o2.unmount();
+  });
+
+  it('a second visit paints the list at once from what was read before', async () => {
+    let calls = 0;
+    let answer: (v: unknown) => void = () => {};
+    const get = vi.fn(() => { calls += 1; return calls === 1 ? Promise.resolve(LOG) : new Promise((r) => { answer = r; }); });
+    const o = open({ get });
+    await show(o, { kind: 'auto', id: 'auto' });
+    await show(o, { kind: 'decisions', id: 'decisions' });
+    act(() => { o.store.setReader({ kind: 'auto', id: 'auto' }); });
+    expect(view()).toHaveTextContent('Auto made 2 decisions on this job.');
+    await act(async () => { answer(LOG); });
+    o.unmount();
   });
 });

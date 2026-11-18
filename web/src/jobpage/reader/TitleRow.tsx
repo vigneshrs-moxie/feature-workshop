@@ -42,7 +42,7 @@ export type OlderList = OlderGroup[];
 const TITLES: Partial<Record<ReaderKind, string>> = {
   conversation: 'Conversation', ticket: 'Ticket and goal', decisions: 'Decisions', details: 'Details', changes: 'Changes',
   checks: 'Checks and recording', findings: 'Findings', walkthrough: 'Walkthrough', screens: 'Screens', ship: 'Ship', permission: 'Permission', 'not-yet': 'Not yet',
-  picture: 'Pasted picture',
+  picture: 'Pasted picture', auto: 'What Auto decided',
 };
 
 const join = (parts: (string | null | undefined)[]) => parts.filter(Boolean).join(' · ') || null;

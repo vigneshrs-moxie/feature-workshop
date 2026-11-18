@@ -14,7 +14,7 @@ import { createStore, WorkshopContext, type Store } from '../../state/store';
 import { job as jobRow, snapshot } from '../../state/test-fixtures';
 import { longJob } from '../fixtures/longJob';
 import { createJobStore } from '../jobStore';
-import type { JobPagePayload, JobState } from '../types';
+import type { JobPagePayload, JobState, ReaderTarget } from '../types';
 import { JobStoreContext } from '../useJob';
 import { Header, NOTE_MS, STATE_WORDS } from './Header';
 
@@ -37,7 +37,7 @@ function SheetProbe() {
 const sheetNow = () => screen.getByTestId('sheet').textContent;
 
 interface Mounted { api: ApiClient; post: ReturnType<typeof vi.fn>; get: ReturnType<typeof vi.fn>; app: Store; unmount(): void }
-function mount({ p = payload(), row = null, hosted = false, post = vi.fn(async (): Promise<unknown> => ({})), rows }: { p?: JobPagePayload | null; row?: Job | null; hosted?: boolean; post?: ReturnType<typeof vi.fn>; /** The app's Jobs snapshot rows. */ rows?: Job[] } = {}): Mounted {
+function mount({ p = payload(), row = null, hosted = false, post = vi.fn(async (): Promise<unknown> => ({})), rows, onOpen }: { p?: JobPagePayload | null; row?: Job | null; hosted?: boolean; post?: ReturnType<typeof vi.fn>; /** The app's Jobs snapshot rows. */ rows?: Job[]; /** The page's reader pick. */ onOpen?: (t: ReaderTarget) => void } = {}): Mounted {
   const app = createStore();
   app.dispatch({ type: 'snapshot', snapshot: snapshot({ meta: { token: 't', settings: { policy: 'hands-off', jobPolicy: {} } as unknown as Settings }, ...(rows ? { jobs: rows } : {}) }) });
   const get = vi.fn(async (path: string): Promise<unknown> => (path.includes('decisions.md') ? { orbit: { text: '- Keep the old export', count: 1 } } : {}));
@@ -47,7 +47,7 @@ function mount({ p = payload(), row = null, hosted = false, post = vi.fn(async (
     <WorkshopContext.Provider value={{ store: app, api }}>
       <UiProvider>
         <JobStoreContext.Provider value={store}>
-          <Header job={row} />
+          <Header job={row} onOpen={onOpen} />
           <SheetProbe />
         </JobStoreContext.Provider>
       </UiProvider>
@@ -300,5 +300,43 @@ describe('Next: the job that needs you next', () => {
     m.unmount();
     mount({ rows: [rows[0], rows[3]] });
     expect(within(head()).queryByRole('link', { name: /^Next:/ })).toBeNull();
+  });
+});
+
+// 18 Nov: What Auto decided is back on the job page, beside the Auto switch, and opens in the reader.
+describe('What Auto decided, beside the Auto switch', () => {
+  const whatAuto = () => within(head()).queryByRole('button', { name: 'What Auto decided' });
+  it('shows on a job Auto is on or has run on, never on one it never ran on; the Jobs row says so before the payload', () => {
+    const cases: [JobPagePayload['auto'], boolean][] = [
+      [{ on: false, tag: null } as JobPagePayload['auto'], false],
+      [null, false],
+      [{ on: true, tag: null } as JobPagePayload['auto'], true],
+      [{ on: false, ran: true, tag: null } as JobPagePayload['auto'], true],
+    ];
+    for (const [auto, shown] of cases) {
+      const m = mount({ p: payload({ auto }) });
+      expect(Boolean(whatAuto()), JSON.stringify(auto)).toBe(shown);
+      m.unmount();
+    }
+    const m = mount({ p: null, row: jobRow(SLUG, 'running', { lane: 'working', auto: { on: false, ran: true } }) });
+    expect(whatAuto()).not.toBeNull();
+    m.unmount();
+  });
+
+  it('sits right after the switch, before the ⋯ menu, and one click opens the list in the reader', () => {
+    const onOpen = vi.fn();
+    mount({ p: payload({ auto: { on: false, ran: true, tag: null } as JobPagePayload['auto'] }), onOpen });
+    const button = whatAuto()!;
+    const order = [...head().querySelectorAll('.auto-switch, button, a')];
+    expect(order.indexOf(button)).toBeGreaterThan(order.indexOf(head().querySelector('.auto-switch')!));
+    expect(order.indexOf(button)).toBeLessThan(order.indexOf(within(head()).getByRole('button', { name: 'More for this job' })));
+    fireEvent.click(button);
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(onOpen.mock.calls[0][0]).toEqual({ kind: 'auto', id: 'auto' });
+  });
+
+  it('shows on the website too (the list is mirrored there)', () => {
+    mount({ p: payload({ auto: { on: true, tag: null } as JobPagePayload['auto'], hosted: true } as Partial<JobPagePayload>), hosted: true });
+    expect(whatAuto()).not.toBeNull();
   });
 });

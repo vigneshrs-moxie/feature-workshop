@@ -14,7 +14,7 @@ export type JobState = 'needs-you' | 'working' | 'waiting-github' | 'paused' | '
 
 /** What the reader can show; also the <kind> of the page's reader address (app/router.ts). */
 export const READER_KINDS = ['message', 'brief', 'permission', 'doc', 'changes', 'checks', 'findings',
-  'walkthrough', 'screens', 'ship', 'pr', 'ticket', 'conversation', 'decisions', 'details', 'not-yet', 'picture'] as const;
+  'walkthrough', 'screens', 'ship', 'pr', 'ticket', 'conversation', 'decisions', 'details', 'not-yet', 'picture', 'auto'] as const;
 export type ReaderKind = (typeof READER_KINDS)[number];
 export const isReaderKind = (v: unknown): v is ReaderKind => (READER_KINDS as readonly unknown[]).includes(v);
 

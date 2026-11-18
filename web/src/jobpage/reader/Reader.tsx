@@ -3,7 +3,7 @@
 // shows is targets.ts readerOf: his pick, else the opened step's main output, else the payload's `open`.
 //
 // Views: a message or a brief (MessageView), a document (DocView), Ticket and goal (TicketView),
-// Decisions (DecisionsView), a step with nothing written yet (NotYet), the conversation
+// Decisions (DecisionsView), What Auto decided (AutoView), a step with nothing written yet (NotYet), the conversation
 // (ConversationView: one line per item, folded), Changes (ChangesView: commits, files, the diff),
 // Findings, Checks and recording with Your hand test, and Details (Task 14). Ship (its PR lines) and a
 // PR (its line) are Task 20's (left/PrLines.tsx), and a PR's comments Task 21's (PrView). The Spec step's
@@ -21,6 +21,7 @@ import { useJob } from '../useJob';
 import { ChangesView } from './ChangesView';
 import { ChecksView } from './ChecksView';
 import { ConversationView } from './ConversationView';
+import { AutoView } from './AutoView';
 import { DecisionsView } from './DecisionsView';
 import { DetailsView } from './DetailsView';
 import { DocView } from './DocView';
@@ -65,6 +66,9 @@ function View({ target, searchRef, onOpen }: { target: ReaderTarget } & Pick<Rea
       return <TicketView onOpen={onOpen} />;
     case 'decisions':
       return <DecisionsView />;
+    // What Auto decided (18 Nov): opened from the button beside the header's Auto switch.
+    case 'auto':
+      return <AutoView />;
     case 'conversation':
       return <ConversationView searchRef={searchRef} onOpen={onOpen} />;
     case 'changes':

@@ -423,13 +423,13 @@ function Frame({ slug, job: row, step, view, read }: Omit<JobPage2Props, 'store'
 
   return (
     <main ref={page} className="jp2" aria-label="Job" data-layout={layout} data-deciding={deciding ? '' : undefined} data-convo={wide && !convoShown ? 'hidden' : undefined} data-screen={screenNow ?? undefined} data-covered={(phone ? screenNow === 'reader' : covered) ? '' : undefined}>
-      {!phone && <Header job={job} />}
+      {!phone && <Header job={job} onOpen={pickReader} />}
       {!phone && <BranchGuess />}
       <div className="jp2-panes">
         <div className="jp2-left" aria-hidden={leftHidden || undefined} inert={leftHidden || undefined}>
           <div className="jp2-lscroll">
             {/* On the phone the header is the top of the job screen and scrolls with it. */}
-            {phone && <Header job={job} />}
+            {phone && <Header job={job} onOpen={pickReader} />}
             {phone && <BranchGuess />}
             <div className="jp2-movewrap">
               <PageProblem />
