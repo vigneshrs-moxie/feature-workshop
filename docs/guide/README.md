@@ -22,7 +22,7 @@ Read page 1, try the demo (`npm run demo`), then dip into the rest as you need i
 
 ## About this guide
 
-- It was written on 16 Nov 2026 from the code on the `feature/job-page-redesign` branch. The new job page it describes is still behind a switch (`Try the new job page`) and may change.
+- It was written on 16 Nov 2026 from the code on the `feature/job-page-redesign` branch, and brought up to date on 17 Nov 2026 when the new job page became the only job page.
 - The pictures are from the demo's made-up jobs (Widget Export, Crew schedule export, Nightly Export and others), at 1440 × 900 in the Light theme.
 - Buttons are named exactly as the app shows them, in `backticks`.
 - The key tables on page 10 are made by `docs/guide/keys-table.mjs` from `web/src/app/keyRegistry.ts`. Run it again when the keys change.

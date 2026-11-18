@@ -36,7 +36,7 @@ describe('the Guide page', () => {
     expect(screen.getByRole('heading', { level: 2, name: '4. A job' })).toBeInTheDocument();
     expect(list().getByRole('link', { name: '4. A job' })).toHaveAttribute('aria-current', 'page');
     expect(list().getAllByRole('link').filter((a) => a.getAttribute('aria-current'))).toHaveLength(1);
-    const pic = screen.getByRole('img', { name: 'The new job page while a decision waits' });
+    const pic = screen.getByRole('img', { name: 'The job page while a decision waits' });
     expect(pic.getAttribute('src')).toMatch(/\/guide\/img\/job-deciding\.png$/);
     const foot = within(screen.getByRole('navigation', { name: 'Previous and next page' }));
     expect(foot.getByRole('link', { name: /3\. The Jobs page/ })).toHaveAttribute('href', '#/guide/03-jobs');

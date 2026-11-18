@@ -1,6 +1,6 @@
 # 5. Answering a decision fast
 
-Most of your time in Starbase is spent saying yes, no, or "change this". This page shows the quickest way to do each, on the new job page and on the Desk.
+Most of your time in Starbase is spent saying yes, no, or "change this". This page shows the quickest way to do each, on the job page and on the Desk.
 
 **The one thing to remember:** the Foreman's recommended answers are already picked. If you agree, one press of `⌘↵` (Ctrl+Enter) or `a` is Go. If you don't, write what to change in the message box and press `r` for Send back.
 
@@ -74,13 +74,11 @@ There is one place to write, and what the words do depends on the button you pre
 
 ## Stop
 
-The new page has no separate Stop button. To stop a job:
+The job page has no separate Stop button. To stop a job:
 
 - **Stop the reply now:** `⌘K`, then `Every Starbase action`, then `Stop the reply`. It ends the Foreman's reply at once; anything waiting for your answer is declined, your draft is kept, and the job waits for your next message.
 - **Stop and send something instead:** `Stop it and send now` beside the message box.
 - **Stop after this step:** the `Stop here` ask in `⌘K` sends "Stop after the current step and wait for me."
-
-On the old job page the message box's button turns into `Stop` while the Foreman replies.
 
 ## The Desk: every decision, one at a time
 

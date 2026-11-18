@@ -11,7 +11,7 @@ This page has the rules every key follows, what `⌘K` holds, and every key in t
 - `g` then a letter, within 1.5 seconds, is a jump: `g j` Jobs, `g d` Desk, `g n` the next job that needs you, and so on.
 - `Enter` and `Space` on a button, link or tab belong to that control.
 - A held key never repeats (except the arrows in the Table).
-- When the same key means different things, the most specific place wins: on the Desk its `j` and `k` win; on the new job page its keys win (so there `g t` is the ticket and goal, not the Table, and `n` adds a note, not Notes and options).
+- When the same key means different things, the most specific place wins: on the Desk its `j` and `k` win; on the job page its keys win (so there `g t` is the ticket and goal, not the Table, and `n` adds a note, not Notes and options).
 - **Settings → Keys** turns the shortcuts off. Then only what any web page has still works (`⌘K`, `⌘↵`, `Esc`, `Enter`, the arrows in a list).
 
 ## ⌘K: search or run a command
@@ -24,7 +24,7 @@ It lists, depending on where you are:
 - **Jobs:** `New job…`, and `Open <job>` for every job, the ones that need you first.
 - **Go to:** `Settings`, `Crew-dex` and `Achievements` (with Play on), `Keyboard shortcuts`.
 
-**On the new job page** (on a laptop), `⌘K` opens the page's own box instead: the asks for this step and any step, the asks you kept, the page's places, and a last row, `Every Starbase action`, which opens the box above. See [page 4](04-a-job.md#the-asks-row-and-k-everyday-requests-in-one-click).
+**On the job page** (on a laptop), `⌘K` opens the page's own box instead: the asks for this step and any step, the asks you kept, the page's places, and a last row, `Every Starbase action`, which opens the box above. See [page 4](04-a-job.md#the-asks-row-and-k-everyday-requests-in-one-click).
 
 ## Every key
 
@@ -73,9 +73,9 @@ On Jobs, the four lanes.
 | `o` | Open the job the next-step bar names | When a job needs you. |
 | `/` | Find a job | Then ↓ ↑ to pick, Enter to open, Escape to clear. |
 
-### The new job page
+### The job page
 
-On a job’s page while the new page is switched on; there its keys win over the others.
+On a job’s page; there its keys win over the others.
 
 | Key | What it does | Where |
 |---|---|---|
@@ -105,19 +105,9 @@ On a job’s page.
 | Key | What it does | Where |
 |---|---|---|
 | `n` | Open the job’s Notes and options | On a job. |
-| `c` or `i` | Put the cursor in the message box | On a job; elsewhere c is New job. |
 | `Enter` | Step into the screens (the page’s own keys then work) | With the Screens tab showing and nothing else focused. |
 | `Esc` | Step out of the screens, back to the page | Inside the screens. |
 | `⌘↵ (Ctrl+Enter)` | In the message box: preview and send, or steer a reply in progress |  |
-
-### The open step
-
-On a job’s page.
-
-| Key | What it does | Where |
-|---|---|---|
-| `[` | The step before this one |  |
-| `]` | The step after this one |  |
 
 ### The gate card
 

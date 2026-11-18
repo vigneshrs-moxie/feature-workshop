@@ -13,7 +13,7 @@ What to do when Starbase says no, or says nothing. The quoted lines are Starbase
 | The demo won't start because the port is taken | `PORT=4479 npm run demo`. |
 | The top bar says `Reconnecting…` | "The connection to Starbase dropped. This page catches up by itself when it's back." If it stays, check `starbase status`. |
 | "Couldn't reach Starbase. Try again." / "Not sent: Starbase didn't answer. Try again." | Starbase is stopped or restarting. Start it, then press the button again. |
-| The new job page says why it can't load the job, with `Try again` | Press `Try again`. If it keeps failing, `⋯` → `Back to the old job page` and tell the team. |
+| The job page says why it can't load the job, with `Try again` | Press `Try again`. If it keeps failing, tell the team. |
 | You want to know what happened | Starbase's log is `logs/starbase.log` in the `.starbase` folder in your home folder; `audit.jsonl` there has every message sent and every permission decided, word for word. |
 
 ## Sending and deciding

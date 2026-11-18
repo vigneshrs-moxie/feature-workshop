@@ -7,7 +7,7 @@ Every word Starbase uses that a newcomer might not know, in alphabetical order.
 | Word | Meaning |
 |---|---|
 | **Approver** | The read-only agent (on Fable) that answers for you on a job with Auto on. In the conversation its messages say `Auto`. |
-| **Asks** | One-click requests to the Foreman, fitted to the open step, in the row above the message box and in `⌘K` on the new job page. Hovering one shows the exact words it sends. |
+| **Asks** | One-click requests to the Foreman, fitted to the open step, in the row above the message box and in `⌘K` on the job page. Hovering one shows the exact words it sends. |
 | **Auto** | A switch on a job: "Auto: run to PR #1 without asking me." The Approver answers each step and takes the recommended answers up to PR #1. It never merges. [Page 6](06-auto-and-permissions.md#auto-run-to-pr-1-without-asking). |
 | **Auto mode** | One of the three permission settings: Claude Code's safety model judges each step. [Page 6](06-auto-and-permissions.md#the-permission-setting). |
 | **Auto start** | Settings → Workflow: tickets with your chosen Orbit tag start by themselves as Auto jobs, up to a number at a time. |
@@ -36,7 +36,7 @@ Every word Starbase uses that a newcomer might not know, in alphabetical order.
 | **PR #1, PR #2, PR #3** | Your fork → the same-named org branch; the org branch → staging; staging → main. [Page 7](07-shipping.md). |
 | **PR lines** | The Ship step's three lines, one per pull request, each with at most one button. |
 | **Quick look** | The panel on Jobs that shows a job without leaving the page (`Space` or a click on a card). |
-| **Reader** | The part of the new job page that shows one thing at a time: a brief, a document, the changes, the checks, the PR lines. |
+| **Reader** | The part of the job page that shows one thing at a time: a brief, a document, the changes, the checks, the PR lines. |
 | **Risky call** | A step where Auto took the safer option because it was unsure. Listed under `What Auto decided` and in PR #1's description. |
 | **Rules** | `Always allow` rules you saved from permission cards (Settings → Rules). |
 | **Send back** | No go: the words in the message box are the change you want. |

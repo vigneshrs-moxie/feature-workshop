@@ -1,17 +1,10 @@
 # 4. A job
 
 A job's page answers three questions: does it need me, where is it, and what did it do.
-Starbase has two job pages. The **old page** is still the default. The **new page** is switched on per browser and is the one this guide describes in full; it is still being built and checked, so some details may change.
 
 **The one thing to remember:** when the job waits for you, your decision is on the left and the Foreman's brief is beside it. Everything else (the steps, the conversation, the details) is one click away and never moves under you.
 
-![The new job page while a decision waits](img/job-deciding.png)
-
-## Switch to the new page (and back)
-
-- On the old job page, open the gear menu beside `How it works` and pick `Try the new job page`.
-- On the new page, the `⋯` menu (top right) ends with `Back to the old job page`.
-- The choice is kept in this browser only (`sb.jobPage`), and it changes every open tab at once, at the same address.
+![The job page while a decision waits](img/job-deciding.png)
 
 ## The page from top to bottom (laptop, 1100 px and wider)
 
@@ -35,7 +28,6 @@ From left to right:
 | `Copy decisions` | Copies the product decisions as a plain list, to paste into the ticket. |
 | `How this page works` | The page's three guide cards. |
 | `Open the folder in a terminal` | Opens a terminal in the job's worktree. |
-| `Back to the old job page` | The page switch. |
 
 ![The ⋯ menu](img/job-menu.png)
 
@@ -93,7 +85,7 @@ Two columns can be resized by dragging the thin handle at their edge: the decisi
 
 ## The ids in a decision explain themselves
 
-Decisions often name requirement ids such as `R-2`, `FR-003` or `AC-002`. On the new page:
+Decisions often name requirement ids such as `R-2`, `FR-003` or `AC-002`. On the job page:
 
 - every id the page knows is followed by its meaning in brackets, for example `R-2 (the file name's date)`;
 - in a question, the id is a button: it opens the id's words under the question, with `Open in Findings` (or wherever it lives); a second click, or `Close`, folds it. The decision stays where it is.
@@ -105,7 +97,7 @@ The asks are the requests people type again and again. Hover over one to see the
 - An ask with nothing to fill in sends at once and shows `Sent · Undo` for four seconds. `Undo` takes it back before it leaves.
 - An ask that ends with "…" (for example `Drop something…`) puts its words in the message box with the cursor in the gap. Nothing is sent until you press `Send`.
 - `Go faster` is not a message: it switches the job to one reviewer a round and no second looks, from the next step, and says what it changed (with `Undo`).
-- `⌘K` on the new page lists every ask, grouped `For this step`, `Any step`, `Yours` (messages you kept with `Keep as an ask`), places on the page (`Go to: Plan`…) and other steps. Its last row, `Every Starbase action`, opens the app's full command box.
+- `⌘K` on the job page lists every ask, grouped `For this step`, `Any step`, `Yours` (messages you kept with `Keep as an ask`), places on the page (`Go to: Plan`…) and other steps. Its last row, `Every Starbase action`, opens the app's full command box.
 
 ![⌘K on the job page: the asks for the Test step](img/job-palette.png)
 
@@ -140,12 +132,6 @@ Chips survive a reload. Click a chip to jump to its place; `×` removes it.
 - Click on a frame of a recording (in the Test step's checks) to drop a numbered pin there with a box; write what is wrong and press `Add the note`.
 - Paste a screenshot into the message box (⌘V). Starbase keeps it in the job's own folder on the laptop and opens it in the reader so you can pin on it.
 
-## The old page, briefly
-
-![The old job page](img/job-old.png)
-
-The old page (the default) has the job's facts in its header, an `Overview` fold, the decision as a bar with `No go: send back`, `Reply` and `Go: …`, the brief's questions below it, and the conversation on the right with its own message box. Its seven steps open in place. Its gear menu has `Notes and options…`, `Try it on your computer` and `Try the new job page`.
-
 ## Narrow windows and phones
 
 - **760 to 1100 px:** the job's column takes the width. Opening something slides the reader over it with `Back to the job`.
@@ -160,7 +146,8 @@ Every view has an address, so Back and a reload return to it:
 | `#/job/<job>` | The job |
 | `#/job/<job>/stage/<step>` | The job with that step picked (`spec`, `investigate`, `plan`, `build`, `test`, `review`, `ship`) |
 | `#/job/<job>/conversation`, `#/job/<job>/overview` | The conversation, or the ticket and goal |
-| `#/job/<job>/read/<kind>/<id>` | One thing in the reader (new page only) |
+| `#/job/<job>/id/<id>` | The job (a requirement id linked from a reply or a brief) |
+| `#/job/<job>/read/<kind>/<id>` | One thing in the reader |
 | `#/job/<job>/screens` | The job's wireframes, full width |
 
 ## Next

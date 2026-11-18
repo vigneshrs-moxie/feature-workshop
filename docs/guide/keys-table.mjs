@@ -20,7 +20,7 @@ const label = (k) => (k === ' ' ? 'Space' : k.startsWith('Mod+') ? `⌘${k.slice
 const cell = (s) => String(s).replace(/\|/g, '\\|');
 
 // The order a new person meets them in.
-const ORDER = ['global', 'rows', 'jobs', 'jobpage', 'job', 'stage', 'gate', 'alert', 'desk', 'review', 'stack', 'inbox', 'map', 'table', 'floor', 'settings', 'sheet'];
+const ORDER = ['global', 'rows', 'jobs', 'jobpage', 'job', 'gate', 'alert', 'desk', 'review', 'stack', 'inbox', 'map', 'table', 'floor', 'settings', 'sheet'];
 const out = [];
 for (const scope of ORDER) {
   const rows = Object.values(KEYS).filter((d) => d.scope === scope && !d.hidden);
