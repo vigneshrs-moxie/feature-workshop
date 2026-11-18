@@ -295,11 +295,11 @@ test('ticket slugs and branches fill the profile’s patterns; the flow map take
   const { gatherRepo } = await import('../lib/flow.js');
   const orbit = (await loadProfile(path.join(BUNDLED_DIR, 'orbit.md'))).profile;
   const t = { key: 'ORBIT-479', title: 'Feedback API and MCP' };
-  assert.equal(ticketSlug(t, orbit), 'orbit-479-feedback-api-and-mcp');
+  assert.equal(ticketSlug(t, orbit), 'orbit-479-feedback-api-mcp');
   assert.equal(ticketSlug(t, orbit), ticketSlug(t), 'Orbit’s profile and the general case agree');
   assert.equal(ticketBranch('bug', 'orbit-479-x', { profile: orbit }), 'fix/orbit-479-x');
   const other = { slug: 'w{n}-{title}', branch: 'work/{kind}/{n}', kinds: { feature: 'feat', bug: 'bugfix' } };
-  assert.equal(ticketSlug(t, other), 'w479-feedback-api-and-mcp');
+  assert.equal(ticketSlug(t, other), 'w479-feedback-api-mcp');
   assert.equal(ticketBranch('feature', 'w479', { profile: other, ticket: t }), 'work/feat/479');
 
   const calls = [];

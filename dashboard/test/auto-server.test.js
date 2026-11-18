@@ -5223,7 +5223,7 @@ test('a card raised on a stopped Auto job is told as on any job', { timeout: 30_
 // ---------- Auto queue Task 20: a ticket's job gets a short branch name, checked by code ----------
 
 const T471 = { key: 'ORBIT-471', title: 'Can we have a filter here for active / inactive employees', url: null };
-const SHORT_471 = 'can-we-have-a-filter-here-for-active';
+const SHORT_471 = 'filter-active-inactive-employees';
 const NAME_PROBLEM_WORDS = 'Use short words joined by hyphens, like employee-status-filter (up to five words, 40 characters).';
 /** A fake namer: answer(input, n) or a fixed answer; every ask is kept in .calls. */
 function namerOf(answer) {

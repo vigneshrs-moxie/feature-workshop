@@ -492,9 +492,20 @@ export function normalizeTicket(raw) {
   return { key, title, url };
 }
 
-/** "Feedback API and MCP" -> "feedback-api-and-mcp": whole words, at most 40 characters. */
+// Words a name does without (Nov 18: "Can we have a filter here for active / inactive employees" was
+// orbit-471-can-we-have-a-filter-here-for-active).
+const FILLER = new Set(['can', 'could', 'we', 'have', 'has', 'a', 'an', 'the', 'here', 'there', 'it', 'is', 'are', 'be', 'to',
+  'for', 'of', 'on', 'in', 'at', 'as', 'this', 'that', 'please', 'would', 'should', 'do', 'does', 'really', 'i', 'you', 'our',
+  'my', 'and', 'or', 'with', 'from', 'by', 'so', 'when', 'if', 'then']);
+
+/**
+ * "Can we have a filter here for active / inactive employees" -> "filter-active-inactive-employees":
+ * whole words without the filler, at most 40 characters; all the words when fewer than two are left.
+ */
 export function shortTitle(title) {
-  const words = String(title ?? '').toLowerCase().normalize('NFKD').replace(/[^\w\s-]/g, '').replace(/[_-]+/g, ' ').trim().split(/\s+/).filter(Boolean);
+  const all = String(title ?? '').toLowerCase().normalize('NFKD').replace(/[^\w\s-]/g, '').replace(/[_-]+/g, ' ').trim().split(/\s+/).filter(Boolean);
+  const meaning = all.filter((w) => !FILLER.has(w));
+  const words = meaning.length >= 2 ? meaning : all;
   let out = '';
   for (const w of words) {
     const next = out ? `${out}-${w}` : w;
