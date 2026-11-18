@@ -70,6 +70,14 @@ function outputTail(content) {
 
 // Parse one JSONL log's text.
 export function parseSessionLog(text) {
+  const state = newLogState();
+  feedSessionLog(state, text);
+  return state.out;
+}
+
+// The parser's state, so a log that grows can be read on from where it was (lib/features.js SessionIndex):
+// out is the result so far; prevAt and commandId are what one line carries to the next.
+export function newLogState() {
   const out = {
     sessionId: null,
     agentId: null,
@@ -103,11 +111,34 @@ export function parseSessionLog(text) {
     lastModel: null,
     badLines: 0,
   };
-  // The timestamp of the nearest line before this one that had one: a pr-link line without its own
-  // timestamp is dated by it (when the PR was created, as near as the log says).
-  let prevAt = null;
-  // The tool call behind lastCommand, until its result comes back.
-  let commandId = null;
+  // prevAt: the timestamp of the nearest line before this one that had one: a pr-link line without its
+  // own timestamp is dated by it (when the PR was created, as near as the log says).
+  // commandId: the tool call behind lastCommand, until its result comes back.
+  return { out, prevAt: null, commandId: null };
+}
+
+// A copy of a parser state that feeding never changes the original of (what it shares is never changed in place).
+export function cloneLogState(state) {
+  const o = state.out;
+  return {
+    out: {
+      ...o,
+      messages: new Map(o.messages),
+      dispatches: [...o.dispatches],
+      prLinks: [...o.prLinks],
+      recent: [...o.recent],
+      lastCommand: o.lastCommand ? { ...o.lastCommand } : null,
+      answeredToolUses: new Map(o.answeredToolUses),
+    },
+    prevAt: state.prevAt,
+    commandId: state.commandId,
+  };
+}
+
+// Read more of a log into a parser state: the text is whole lines (a cut line would read as a bad line).
+export function feedSessionLog(state, text) {
+  const { out } = state;
+  let { prevAt, commandId } = state;
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;
     let d;
@@ -196,7 +227,9 @@ export function parseSessionLog(text) {
       if (m.stop_reason) out.lastStopReason = m.stop_reason;
     }
   }
-  return out;
+  state.prevAt = prevAt;
+  state.commandId = commandId;
+  return state;
 }
 
 // Token totals and estimated cost per model for one parsed log.

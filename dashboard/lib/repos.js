@@ -37,6 +37,26 @@ export const REPOS_FILE = 'repos.json';
 export const BUNDLED_DIR = fileURLToPath(new URL('../profiles/', import.meta.url));
 const LOOKUP_MS = 60_000; // how long a folder's checkout and remotes are remembered
 
+/**
+ * An answer kept for `ms` (GET /api/repos: recentRepos runs git once per folder the logs name). Callers
+ * while it loads share the one load; a load that fails is not kept. drop() forgets it (a repository
+ * was added or forgotten, or a job's repository set).
+ */
+export function keptAnswer(ms, load, now = Date.now) {
+  let kept = null; // { at, promise }
+  const get = () => {
+    if (!kept || now() - kept.at >= ms) {
+      const promise = Promise.resolve().then(load);
+      const entry = { at: now(), promise };
+      kept = entry;
+      promise.catch(() => { if (kept === entry) kept = null; });
+    }
+    return kept.promise;
+  };
+  get.drop = () => { kept = null; };
+  return get;
+}
+
 export async function recentRepos(sessionIndex, extra = [], { registry = currentRegistry() } = {}) {
   const seen = new Map();
   for (const s of await sessionIndex.allSessions()) {

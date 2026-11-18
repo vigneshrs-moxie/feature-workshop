@@ -38,7 +38,7 @@ import { OLD_STATE_FOLDER, State, WORKFLOW_CHOICES, restartTimes } from '../lib/
 import { Driver, Busy } from '../lib/driver.js';
 import { renderMarkdown, indexIds } from '../lib/markdown.js';
 import * as git from '../lib/git.js';
-import { recentRepos, checkRepo, reposDoor, ticketRepo, repoByName } from '../lib/repos.js';
+import { recentRepos, checkRepo, reposDoor, ticketRepo, repoByName, keptAnswer } from '../lib/repos.js';
 import { HttpError } from '../lib/http-guard.js';
 import { RestartFailed, restartJob } from '../lib/restart.js';
 import { liveTerminals } from '../lib/live.js';
@@ -2438,7 +2438,10 @@ export async function createRunner(config) {
   function settingsChanged() {
     allSettings().then((s) => events.emit('settings', null, s)).catch(() => {});
   }
-  const afterRepoChange = (r) => { if (r?.ok) settingsChanged(); return r; }; // a repository added or forgotten (local_.repos)
+  // GET /api/repos: git once per folder the session logs name, so the answer is kept a minute, and dropped
+  // when a repository is added or forgotten here or a job's repository is set (POST /api/job/:slug/repo).
+  const recentReposAnswer = keptAnswer(60_000, async () => ({ repos: await recentRepos(sessionIndex, [...(env.STARBASE_EXTRA_REPOS ?? '').split(path.delimiter).filter(Boolean), ...(await features()).map((f) => f.repoPath)]) }));
+  const afterRepoChange = (r) => { if (r?.ok) { recentReposAnswer.drop(); settingsChanged(); } return r; }; // a repository added or forgotten (local_.repos)
   /** The settings, with Settings → Workflow's "Count my Claude Code use outside the app" (kept by lib/claude-code-usage.js). */
   async function allSettings() {
     const s = await state.getSettings();
@@ -2860,6 +2863,18 @@ export async function createRunner(config) {
   /** What a watched folder's change does; `ignore` names the changes that do nothing. */
   function watchHandler(onFile = null, ignore = null) {
     return (type, filename) => { if (ignore?.(filename)) return; notifyChange(); onFile?.(type, filename); };
+  }
+  // Claude Code writes its logs many times a second while agents work. Their changes reach notifyChange
+  // at most once every `everyMs` (the first at once), instead of once per write: a steady writer neither
+  // rebuilds the job list after every short pause nor holds every other change back.
+  function throttledChange(everyMs) {
+    let last = 0;
+    let timer = null;
+    return () => {
+      if (timer) return;
+      timer = setTimeout(() => { timer = null; last = Date.now(); notifyChange(); }, Math.max(0, last + everyMs - Date.now()));
+      timer.unref?.();
+    };
   }
   function watch(dir, handler = watchHandler()) {
     try {
@@ -4083,6 +4098,7 @@ export async function createRunner(config) {
       const branch = body.branch || null;
       if (branch && !/^(?!-)[\w./-]{1,200}$/.test(branch)) throw new HttpError(400, 'That doesn’t look like a branch name.');
       await state.setSession(f.dir, { repoPath: repo.path, branch });
+      recentReposAnswer.drop();
       await state.audit({ action: 'repo-set', featureDir: f.dir, slug: f.slug, repo: repo.path, branch });
       // Every open page reads the job again, and the flow map recounts now (not at its next timer), so a
       // branch confirmed from a guess (This is the job's branch) gets its lane back at once.
@@ -4203,7 +4219,7 @@ export async function createRunner(config) {
       const jobOverrides = Object.values(s.jobPolicy ?? {}).filter((p) => (p !== 'ask-all') !== active).length;
       return { rules: await rules.list(), active, jobOverrides, unreadable: rules.broken ? rules.file : null };
     },
-    repos: async () => ({ repos: await recentRepos(sessionIndex, [...(env.STARBASE_EXTRA_REPOS ?? '').split(path.delimiter).filter(Boolean), ...(await features()).map((f) => f.repoPath)]) }),
+    repos: () => recentReposAnswer(),
     async costs() {
       const list = await features();
       return {
@@ -4597,7 +4613,7 @@ export async function createRunner(config) {
     // Before the routes open: what the last stop (or crash) left (runner/replay.js).
     await replayRestart();
     watch(FEATURES_DIR, featuresWatch);
-    watch(PROJECTS_DIR);
+    watch(PROJECTS_DIR, throttledChange(2000));
     await listen();
     // How `starbase resume` finds this service (runner/service-file.js): pid, port, token.
     if (TOKEN && PORT) { try { writeServiceFile(state.dir, { pid: process.pid, host: HOST, port: PORT, token: TOKEN }); } catch (err) { console.error('service.json:', err.message); } }
