@@ -9,7 +9,8 @@
 //   { kind: 'job', level, suggestedLevel, stageState, statusCard, step, failures, problem }
 // ctx = { worktrees, featureDir, specDirs, cwd, forkRemote, remoteUrl(name, dir), branches?, stateDir?, mainCheckout?, readRoots? }
 //   mainCheckout is the repository's own checkout and readRoots the session's read folders (skills, agents):
-//   places the job may read but not change.
+//   places the job may read but not change. lookRoots (the session's own saved outputs, the wireframes folder) are read too;
+//   askRoots (the other jobs' folders) are read as a question. Neither is ever run from or changed.
 //   remoteUrl(name, dir) is the push address of that remote in that folder ('' means the branch's own
 //   push remote, as orgPushCheck looks it up), or null when git can't say. branches is the job's own
 //   branch and its stack's parts, when known.
@@ -72,6 +73,8 @@ export const OUTSIDE_REASONS = Object.freeze({
   unread: 'Auto could not read this command as it is written (a comment, a line break after cd, brackets, a backtick or a trailing &).',
   // The workflow's org-branch call (gh api … git/refs) from a commit git does not place on the org remote's main (Nov 17).
   orgMain: "this makes the job's branch on the org repository from a commit Starbase can't find on the org's main yet: fetch the org's main first, then run it again.",
+  // A git worktree add that is not the job's set-up form (setupForm), with nothing else on the line refused (Nov 23).
+  worktree: "this makes a worktree in a way that is not the job's set-up (its place, its branch, what it starts from, or what else is on the line).",
 });
 /** The tool rule's sentence for a Bash call that starts a program where no reader can see it: git bisect run, a git setting or a variable that names a program. */
 export const HIDDEN_PROGRAM_REASON = 'this starts a program through a git setting, a git command or an environment variable, where Auto cannot check what runs, so it needs you.';
@@ -267,7 +270,7 @@ function claudeSecret(q, home, ctx) {
   const dir = fold(path.join(home, '.claude'));
   if (!isInside(q, dir)) return false;
   if (q === fold(path.join(home, '.claude', '.credentials.json')) || /^settings[^/]*\.json$/.test(path.basename(q))) return true;
-  const open = [ctx.featureDir, ...(ctx.readRoots ?? [])].filter((r) => typeof r === 'string' && path.isAbsolute(r));
+  const open = [ctx.featureDir, ...(ctx.readRoots ?? []), ...(ctx.lookRoots ?? []), ...(ctx.askRoots ?? [])].filter((r) => typeof r === 'string' && path.isAbsolute(r));
   return !open.some((r) => [path.resolve(r), physicalPath(r, null)].filter(Boolean).some((x) => fold(x) !== dir && isInside(q, fold(x))));
 }
 
@@ -378,6 +381,7 @@ function readRoots(ctx) {
     for (const x of forms) out.add(x);
   }
   for (const x of readFolders(ctx)) out.add(x); // the read folders, and where their linked entries land (N9)
+  for (const r of ctx.lookRoots ?? []) if (typeof r === 'string' && path.isAbsolute(r)) for (const x of [path.resolve(r), physicalPath(r, null)]) if (x && !tooWideRoot(x, ctx)) out.add(x); // read, never run from (Nov 23)
   return [...out];
 }
 /** Is this resolved path a read that asks: under the home folder or /Volumes and outside the read roots? (null: not known, it asks.) */
@@ -421,11 +425,28 @@ function bashVerdict(whole, hard, ctx, first = true) {
   if (rule) {
     // Only the words change for a command refused for how it is written: it is still a stop under outside.
     const unread = first && rule === 'outside' && st.hits.size === 1 && !st.deploy && !st.secret && !st.orgSha && unreadOnly(read, hard, ctx);
-    const why = rule === 'tool' ? HIDDEN_PROGRAM_REASON : rule !== 'outside' ? null : st.deploy ? OUTSIDE_REASONS.deploy : st.secret ? OUTSIDE_REASONS.secret : st.orgSha ? OUTSIDE_REASONS.orgMain : unread ? OUTSIDE_REASONS.unread : st.unknown ? OUTSIDE_REASONS.unknown : !st.nonRead ? OUTSIDE_REASONS.read : null;
+    const why = rule === 'tool' ? HIDDEN_PROGRAM_REASON : rule !== 'outside' ? null : st.deploy ? OUTSIDE_REASONS.deploy : st.secret ? OUTSIDE_REASONS.secret : st.orgSha ? OUTSIDE_REASONS.orgMain : unread ? OUTSIDE_REASONS.unread : st.unknown ? OUTSIDE_REASONS.unknown : onlyWorktreeAdd(read, ctx) ? OUTSIDE_REASONS.worktree : !st.nonRead ? OUTSIDE_REASONS.read : null;
     return { stop: stop(rule, { ...(rule === 'outside' && st.unknown ? { unknownProgram: true } : {}), ...(why ? { reason: why } : {}) }) };
   }
   const why = st.asks[0] ?? plainWhy(command, plainEnv(st, ctx.cwd ?? null));
   return why ? { ask: why } : null;
+}
+
+// Is the line a git worktree add from the main checkout with at most other set-up forms around it, so that how it is made is
+// all that is refused? The words only: the verdict is a stop either way (Nov 23).
+function onlyWorktreeAdd(command, ctx) {
+  const all = commandParts(command, ctx.cwd ?? null);
+  const main = typeof ctx.mainCheckout === 'string' ? physicalPath(ctx.mainCheckout, null) : null;
+  if (!all || !main || all.some((p) => p.sub)) return false;
+  let adds = 0;
+  for (const p of all) {
+    const w = p.words.map((x) => x.t);
+    if (w[0] === 'cd' || cutsOutput(p)) continue;
+    const g = w[0] === 'git' && w[1] === '-C' ? ['git', ...w.slice(3)] : w;
+    if (g[0] === 'git' && g[1] === 'worktree' && g[2] === 'add') adds++;
+    else if (!(g[0] === 'git' && (g[1] === 'fetch' || g[1] === 'ls-remote'))) return false;
+  }
+  return adds === 1;
 }
 
 /**
@@ -433,20 +454,46 @@ function bashVerdict(whole, hard, ctx, first = true) {
  * job's), as one command with nothing else (N7). true (plain) for:
  *   git fetch <fork|org remote> [--prune]
  *   git ls-remote --heads <fork|org remote> <a branch name>
- *   git worktree add -b <branch> <the profile's place for this job or a stack part> <org remote>/main (or its default)
+ *   git worktree add [--no-track] [--quiet] -b <branch> <the profile's place for this job or a stack part, or the folder
+ *     next to the repository named by the job's slug> <org remote>/main (or its default, or a full commit on it)
  *     where the branch is never main, master, staging, develop or the org default, and no worktree git lists has it;
  * the Approver's reason for the exact org-branch call (an ask, as from the worktree); null for anything else.
+ * Up to four git forms may be joined by &&, after a cd to the main checkout (from any folder, like its -C), each with its
+ * messages joined to its output (2>&1) and cut by tail or head (Nov 23).
  */
 function setupStep(command, ctx) {
   const at = typeof ctx.cwd === 'string' && ctx.cwd ? physicalPath(ctx.cwd, null) : null;
   const main = typeof ctx.mainCheckout === 'string' ? physicalPath(ctx.mainCheckout, null) : null;
   if (!at || !main) return null; // the gate opens from the main checkout only (R11); a -C must name it too
-  const parts = commandParts(command, ctx.cwd);
-  // One form, or two of the git forms joined by && (R4): each half is judged by its own form, and one wrong half is the whole line's.
-  if (!parts || !(parts.length === 1 || (parts.length === 2 && parts[0].sep === '&&')) || parts.some((p) => p.sub || (p.redirects ?? []).length || p.words.some((w) => w.dyn))) return null;
-  const answers = parts.map((p) => setupForm(p.words.map((x) => x.t), at, main, ctx));
-  if (parts.length === 1) return answers[0];
+  const all = commandParts(command, ctx.cwd);
+  const joins = (r) => r.op === '>&' && r.target === '1';
+  if (!all || all.some((p) => p.sub || !(p.redirects ?? []).every(joins) || p.words.some((w) => w.dyn))) return null;
+  // Each command of the line, without the tail or head that cuts what it prints.
+  const forms = [];
+  for (let k = 0; k < all.length; k++) {
+    let sep = all[k].sep;
+    if (sep === '|') {
+      if (!cutsOutput(all[k + 1])) return null;
+      sep = all[++k].sep;
+      forms.push({ words: all[k - 1].words.map((x) => x.t), sep });
+    } else forms.push({ words: all[k].words.map((x) => x.t), sep });
+  }
+  let from = at;
+  if (forms.length > 1 && forms[0].words[0] === 'cd' && forms[0].words.length === 2 && forms[0].sep === '&&') {
+    from = physicalPath(forms.shift().words[1], at);
+    if (from !== main) return null;
+  }
+  // One form, or up to four of the git forms joined by && (R4): each is judged by its own form, and one wrong one is the whole line's.
+  if (!forms.length || forms.length > 4 || forms.some((f, k) => (k < forms.length - 1 ? f.sep !== '&&' : Boolean(f.sep)))) return null;
+  const answers = forms.map((f) => setupForm(f.words, from, main, ctx));
+  if (forms.length === 1) return answers[0];
   return answers.every((x) => x === true) ? true : null;
+}
+
+// tail or head with nothing but how much to show: what a command prints, cut.
+function cutsOutput(part) {
+  const w = part?.words?.map((x) => x.t) ?? [];
+  return ['tail', 'head'].includes(w[0]) && (w.length === 1 || (w.length === 2 && /^-(n?\d+)$/.test(w[1])) || (w.length === 3 && w[1] === '-n' && /^\d+$/.test(w[2])));
 }
 
 // One set-up form. A leading -C names the main checkout and nothing else (R4).
@@ -467,13 +514,17 @@ function setupForm(words, at, main, ctx) {
   const newBranch = (b) => branchName(b) && !(b.includes('/') && remoteNamed(b));
   if (w[0] === 'git' && w[1] === 'fetch' && (w.length === 3 || (w.length === 4 && w[3] === '--prune')) && remotes.includes(w[2])) return true;
   if (w[0] === 'git' && w[1] === 'ls-remote' && w.length === 5 && w[2] === '--heads' && remotes.includes(w[3]) && branchName(w[4])) return true;
-  if (w[0] === 'git' && w[1] === 'worktree' && w[2] === 'add' && w[3] === '-b' && w.length === 7) {
+  if (w[0] === 'git' && w[1] === 'worktree' && w[2] === 'add') {
     const s = ctx.setup ?? {};
-    const [branch, place, start] = w.slice(4);
+    // -b <branch> once, --no-track and --quiet anywhere before or after it, then the place and the start: nothing else.
+    const rest = w.slice(3).filter((x) => !['--no-track', '--quiet', '-q'].includes(x));
+    if (rest[0] !== '-b' || rest.length !== 4) return null;
+    const [, branch, place, start] = rest;
+    const startsFrom = (x) => (s.starts ?? []).includes(x) || (/^[0-9a-f]{40}$/.test(x) && ctx.orgShas?.[x] === true); // a commit git places on the org's main (Nov 23)
     const where = physicalPath(place, here);
     const places = (s.worktrees ?? []).map((x) => physicalPath(x, null)).filter(Boolean);
     const never = PROTECTED.test(branch) || /^(main|master|staging|develop)$/i.test(branch) || (s.never ?? []).includes(branch);
-    if (where && places.includes(where) && (s.starts ?? []).includes(start) && newBranch(branch) && !never && !(s.taken ?? []).includes(branch)) return true;
+    if (where && places.includes(where) && startsFrom(start) && newBranch(branch) && !never && !(s.taken ?? []).includes(branch)) return true;
     return null;
   }
   if (words === w && w[0] === 'gh' && w[1] === 'api') { const why = orgBranchCall(w.slice(2), ctx); if (why) return why; }
@@ -1920,6 +1971,8 @@ function orgBranchForm(rest, ctx) {
     let m;
     if (x === '-X' || x === '--method') { method = String(rest[++k] ?? '').toUpperCase(); continue; }
     if ((m = /^(?:-X|--method=)(.+)$/.exec(x))) { method = m[1].toUpperCase(); continue; }
+    if (x === '--silent') continue; // what it prints, and nothing else (Nov 23)
+    if (x === '--jq' || x === '-q') { if (rest[++k] === undefined) return null; continue; }
     if (['-f', '-F', '--field', '--raw-field'].includes(x)) { fields.push(String(rest[++k] ?? '')); continue; }
     if ((m = /^(?:-[fF]|--(?:raw-)?field=)(.+)$/.exec(x))) { fields.push(m[1]); continue; }
     if (x.startsWith('-') || endpoint !== null) return null;
@@ -1931,9 +1984,17 @@ function orgBranchForm(rest, ctx) {
   if (pairs.length !== 2 || pairs.map(([k]) => k).sort().join() !== 'ref,sha') return null;
   const f = Object.fromEntries(pairs);
   const branch = /^refs\/heads\/([\w./-]+)$/.exec(f.ref)?.[1];
-  if (!branch || branch.includes('..') || PROTECTED.test(branch) || !(ctx.branches ?? []).includes(branch)) return null;
+  if (!branch || branch.includes('..') || PROTECTED.test(branch) || !((ctx.branches ?? []).includes(branch) || plannedBranch(branch, ctx))) return null;
   if (!/^[0-9a-f]{40}$/.test(f.sha)) return null;
   return { branch, sha: f.sha };
+}
+
+// Before the job's worktree is made git shows no branch of the job's: then the branch named by the job's slug, under one of
+// the workflow's kinds, is the one it will make (Nov 23). Once git shows one, that is the job's and no other.
+function plannedBranch(branch, ctx) {
+  const slug = typeof ctx.featureDir === 'string' && ctx.featureDir ? path.basename(ctx.featureDir) : '';
+  if (!slug || (ctx.branches ?? []).length) return false;
+  return ['feature', 'fix', 'chore', 'docs', 'refactor', 'perf', 'test', 'ci'].some((kind) => branch === `${kind}/${slug}`);
 }
 
 // ---------- git ----------

@@ -887,7 +887,8 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
     const orgStep = typeof why === 'string' && why.startsWith('the workflow\'s org branch step');
     const note = plainPush
       ? `This is a push of the job's own branch to its fork: Starbase checked that the remote is the fork ${name}, not the org repository, and that the branch is the job's own.`
-      : orgStep ? `This is the workflow's org branch step: it creates the job's branch on ${ctx.orgRepo}, the job's org repository; Starbase checked the repository, that the branch is the job's own, and that the commit is on ${ctx.orgRemote ?? 'the org remote'}/main.` : null;
+      : orgStep ? `This is the workflow's org branch step: it creates the job's branch on ${ctx.orgRepo}, the job's org repository; Starbase checked the repository, that the branch is the job's own, and that the commit is on ${ctx.orgRemote ?? 'the org remote'}/main.`
+        : typeof why === 'string' && why.startsWith('a script of the installed workflow') ? 'This runs a script of the workflow skills the person installed on this computer, from a folder no job can change. The workflow tells the crew to run it, so running it is part of the job; judge the paths the command names. You cannot read the script from the job\'s folders, and that alone is no reason to say no.' : null;
     return {
       folders: [...(ctx.worktrees ?? []), ctx.featureDir, ...(ctx.specDirs ?? [])].filter(Boolean), cwd: ctx.cwd ?? null,
       branches: ctx.branches ?? [], fork: { name, url }, why: why ?? (plainPush ? 'a push is a hard line, so it is asked about before it runs' : null), note,

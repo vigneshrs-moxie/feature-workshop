@@ -67,6 +67,7 @@ export const REFUSE_REASONS = Object.freeze({
   'outside-read': 'this reads in a way Auto cannot judge (another folder, a setting or a place it cannot work out).',
   'outside-unread': 'Auto could not read this command as it is written (a comment, a line break after cd, brackets, a backtick or a trailing &).',
   'outside-orgMain': "the commit is not on the org's main as this computer knows it: fetch the org's main first (git fetch with the org remote), then run the same call again.",
+  'outside-worktree': "this is not how the job's worktree is made here. Run it as one plain command with nothing else on the line: git -C <main checkout> worktree add -b <branch> ../<job's slug> <org remote>/main (fetch the org remote first).",
   tool: 'this tool is not one Auto can judge.',
   'tool-hidden': 'this starts a program through a git setting, a git command or an environment variable, where Auto cannot check what runs.',
   'gh-pr-create': 'gh pr create is a hard line, and Auto does not allow it here.',
@@ -76,7 +77,7 @@ export const REFUSE_REASONS = Object.freeze({
   'hard-line': 'this is a hard line, and Auto does not allow it.',
 });
 const HARD_LINE_ROWS = new Set(['gh-pr-create', 'git-push', 'rm-rf', 'too-long']);
-const OUTSIDE_ROWS = new Set(['secret', 'unknown', 'deploy', 'read', 'unread', 'orgMain']);
+const OUTSIDE_ROWS = new Set(['secret', 'unknown', 'deploy', 'read', 'unread', 'orgMain', 'worktree']);
 
 /**
  * The crew's reason for one refusal, looked up in REFUSE_REASONS, never built from the owner's sentence: hardLine (the id)
@@ -100,6 +101,7 @@ export function refuseReason({ rule, outside = null, hardLine = null, hidden = f
 export function refuseNote(rule, reason) {
   if (reason === REFUSE_REASONS['outside-unread']) return `Auto refused this: ${reason} Write it plainly on one line, as cd <folder> && <command>, with no comment, and run it again.`;
   if (rule === 'database') return `Auto refused this: ${REFUSE_REASONS.database} Don't run database commands. Carry on without it.`;
+  if (reason === REFUSE_REASONS['outside-worktree']) return `Auto refused this: ${reason}`; // the same step in the form that is allowed (Nov 23)
   if (reason === REFUSE_REASONS['outside-orgMain']) return `Auto refused this: ${reason}`; // the org branch call: fetch, then the same call again (Nov 17)
   return ['Auto refused this:', String(reason ?? '').trim(), "Don't try the same thing another way. Carry on without it inside the job's folders, or leave it for after PR #1."].filter(Boolean).join(' ');
 }

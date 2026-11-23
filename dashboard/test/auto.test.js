@@ -211,6 +211,7 @@ const CREW = {
   'outside-read': 'this reads in a way Auto cannot judge (another folder, a setting or a place it cannot work out).',
   'outside-unread': 'Auto could not read this command as it is written (a comment, a line break after cd, brackets, a backtick or a trailing &).',
   'outside-orgMain': 'the commit is not on the org\'s main as this computer knows it: fetch the org\'s main first (git fetch with the org remote), then run the same call again.',
+  'outside-worktree': "this is not how the job's worktree is made here. Run it as one plain command with nothing else on the line: git -C <main checkout> worktree add -b <branch> ../<job's slug> <org remote>/main (fetch the org remote first).",
   tool: 'this tool is not one Auto can judge.',
   'tool-hidden': 'this starts a program through a git setting, a git command or an environment variable, where Auto cannot check what runs.',
   'gh-pr-create': 'gh pr create is a hard line, and Auto does not allow it here.',
@@ -233,7 +234,7 @@ test('every refusal reason is one of the frozen sentences', async () => {
   assert.equal(refuseReason({ rule: 'outside' }), CREW.outside);
   assert.ok(Object.keys(AUTO_STOP_REASONS).every((r) => !Object.values(CREW).includes(AUTO_STOP_REASONS[r]) || ['outside', 'tool'].includes(r)), 'no owner sentence is reused but the two kept rows');
   // Every one of the outside rule's sentences has its own row (the runner names which hit by its key).
-  assert.deepEqual(Object.keys(OUTSIDE_REASONS).sort(), ['deploy', 'orgMain', 'read', 'secret', 'unknown', 'unread']);
+  assert.deepEqual(Object.keys(OUTSIDE_REASONS).sort(), ['deploy', 'orgMain', 'read', 'secret', 'unknown', 'unread', 'worktree']);
   for (const k of Object.keys(OUTSIDE_REASONS)) assert.equal(refuseReason({ rule: 'outside', outside: k }), CREW[`outside-${k}`], k);
   assert.equal(refuseReason({ rule: 'outside', outside: 'something-new' }), CREW.outside);
   for (const line of ['gh-pr-create', 'git-push', 'rm-rf', 'too-long']) assert.equal(refuseReason({ rule: 'blocked', hardLine: line }), CREW[line], line);

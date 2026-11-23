@@ -6602,7 +6602,8 @@ test('Nov 17 (3): the org-branch call from a commit of the org\'s main not fetch
 
 // ---------- Nov 17 (b): an L1 job in Auto from its set-up to PR #1 open, the way today's real job ran ----------
 
-test('Nov 17: an L1 Auto job runs from its set-up to PR #1 open with today\'s calls and a plan gate with no questions, and Auto never stops or refuses', { timeout: 120_000 }, async () => {
+// made: the worktree's folder, and the calls that make it and the org branch (c: the run's ctx).
+const l1Run = (title, made) => test(title, { timeout: 120_000 }, async () => {
   const BR = 'feature/visit-audit';
   const outcomes = [];
   let reply = 0;
@@ -6629,8 +6630,7 @@ test('Nov 17: an L1 Auto job runs from its set-up to PR #1 open with today\'s ca
       sh('git ls-remote moxie refs/heads/main'),
       sh(`git ls-remote --heads origin ${BR}`),
       sh('git fetch moxie --prune && git ls-remote moxie refs/heads/main'),
-      sh(`git worktree add -b ${BR} ../orbit-visit-audit moxie/main`, () => w.git('worktree', 'add', '-q', '-b', BR, ctx.wt, 'refs/remotes/moxie/main'), 400),
-      sh(`gh api -X POST repos/moxie-org/visit-app/git/refs -f ref=refs/heads/${BR} -f sha=${ctx.orgSha}`),
+      ...made.calls({ ...ctx, branch: BR, repo: w.dirs.repo }).map((c) => (c.includes('worktree add') ? sh(c, () => w.git('worktree', 'add', '-q', '-b', BR, ctx.wt, 'refs/remotes/moxie/main'), 400) : sh(c))),
       sh(`sed -i '' 's/Status: open/Status: planned/' ${ctx.job}/decisions.md && grep -c 'Status: planned' ${ctx.job}/decisions.md`),
       { tool: 'Read', input: { file_path: `${ctx.job}/status.json` } },
       { tool: 'Read', input: { file_path: `${ctx.wt}/README.md` } },
@@ -6708,7 +6708,7 @@ test('Nov 17: an L1 Auto job runs from its set-up to PR #1 open with today\'s ca
     execFileSync('git', ['clone', '-q', org, work], { stdio: 'pipe' });
     execFileSync('git', ['-C', work, '-c', 'user.name=T', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false', 'commit', '-q', '--allow-empty', '-m', 'org work'], { stdio: 'pipe' });
     execFileSync('git', ['-C', work, 'push', '-q', 'origin', 'main'], { stdio: 'pipe' });
-    ctx = { org, wt: path.join(w.root, 'orbit-visit-audit'), job: w.dir, orgSha: execFileSync('git', ['-C', work, 'rev-parse', 'HEAD']).toString().trim() };
+    ctx = { org, wt: path.join(w.root, made.folder), job: w.dir, orgSha: execFileSync('git', ['-C', work, 'rev-parse', 'HEAD']).toString().trim() };
     await fs.writeFile(path.join(w.dir, 'decisions.md'), '# Decisions\n\nStatus: open\n');
 
     // Reply 1, as Auto's start would send it; then each pass answers the gate that waits.
@@ -6743,4 +6743,19 @@ test('Nov 17: an L1 Auto job runs from its set-up to PR #1 open with today\'s ca
     const notes = await w.told(1);
     assert.deepEqual(notes.map((n) => n.body), ['PR #1 is open.']);
   } finally { await w.stop(); }
+});
+
+l1Run('Nov 17: an L1 Auto job runs from its set-up to PR #1 open with today\'s calls and a plan gate with no questions, and Auto never stops or refuses', {
+  folder: 'orbit-visit-audit',
+  calls: (c) => [`git worktree add -b ${c.branch} ../orbit-visit-audit moxie/main`, `gh api -X POST repos/moxie-org/visit-app/git/refs -f ref=refs/heads/${c.branch} -f sha=${c.orgSha}`],
+});
+
+// ORBIT-526 and ORBIT-518 (Nov 23): the worktree named by the slug, from the commit itself, and the org branch first, printing what it made.
+l1Run('Nov 23: the same job with its worktree in the folder its slug names, made from the org\'s commit, and the org branch made first: to PR #1 open, nothing refused', {
+  folder: 'visit-audit',
+  calls: (c) => [
+    `git -C ${c.repo} branch -a --list "*visit*" "*audit*"`,
+    `gh api -X POST repos/moxie-org/visit-app/git/refs -f ref=refs/heads/${c.branch} -f sha=${c.orgSha} --jq '.ref + " " + .object.sha'`,
+    `git -C ${c.repo} worktree add --no-track -b ${c.branch} ${c.wt} ${c.orgSha}`,
+  ],
 });

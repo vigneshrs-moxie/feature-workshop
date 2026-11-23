@@ -9,6 +9,7 @@
 //     (real paths compared) and it is this job's: the profile's folder for this job or one of its stack
 //     parts, or its folder name is the job's slug or ends with -<slug>; and never the profile's folder
 //     for another job Starbase knows, nor a worktree found only through a guessed branch (lib/locate.js).
+//     The folder next to the repository named by the slug counts like the profile's once git lists it (slugWorktreeOf).
 //     The profile's own worktree counts before it exists (the Foreman makes it there) and, once it exists,
 //     under the same test. The main checkout is never one of the job's
 //     worktrees, nor is a worktree with a branch that is never the job's own checked out;
@@ -43,6 +44,7 @@ export const NEVER_JOB_BRANCH = /^(main|master|staging|develop)$/i;
  *   knownRepos      the registry's repositories
  *   slug            the job's slug (its folder's name, Starbase's own)
  *   profileWorktree where the repository's profile puts the job's worktree, or null
+ *   slugWorktree    the folder next to the repository named by the slug (slugWorktreeOf), or null
  *   stackWorktrees  where the profile puts this job's stack parts' worktrees
  *   otherWorktrees  where the profile puts every other job's worktree
  *   stack           stack.json, or null
@@ -57,7 +59,18 @@ export function jobRepo({ recordedRepo = null, f = null, knownRepos = [] }) {
   return null;
 }
 
-export async function verifiedJobContext({ featureDir, slug = null, f = null, recordedRepo = null, knownRepos = [], profileWorktree = null, stackWorktrees = [], otherWorktrees = [], stack = null, git }) {
+/**
+ * The folder next to the repository named by the job's slug, where a Foreman also makes the job's worktree: a ticket's slug
+ * starts with the ticket's own project (orbit-526-…), so the profile's ../orbit-{slug} would say it twice. null when that is
+ * the profile's own place, the repository itself or another job's place.
+ */
+export function slugWorktreeOf({ repo = null, slug = null, profileWorktree = null, otherWorktrees = [] }) {
+  if (!usable(repo) || typeof slug !== 'string' || !/^[A-Za-z0-9][\w.-]*$/.test(slug)) return null;
+  const at = path.join(path.dirname(path.resolve(repo)), slug);
+  return [repo, profileWorktree, ...(otherWorktrees ?? [])].some((x) => usable(x) && same(x, at)) ? null : at;
+}
+
+export async function verifiedJobContext({ featureDir, slug = null, f = null, recordedRepo = null, knownRepos = [], profileWorktree = null, slugWorktree = null, stackWorktrees = [], otherWorktrees = [], stack = null, git }) {
   const none = { repo: null, mainCheckout: null, worktrees: [], specDirs: [], branches: [] };
   const repo = jobRepo({ recordedRepo, f, knownRepos });
   if (!repo) return none;
@@ -69,7 +82,8 @@ export async function verifiedJobContext({ featureDir, slug = null, f = null, re
   let list = null;
   try { list = await git.worktrees(repo); } catch { list = null; }
   // A folder made since git was last asked: ask again.
-  if (list && [...named, profile].filter(Boolean).some((w) => exists(w) && !list.some((x) => same(x.path, w)))) {
+  const bySlug = usable(slugWorktree) ? path.resolve(slugWorktree) : null;
+  if (list && [...named, profile, bySlug].filter(Boolean).some((w) => exists(w) && !list.some((x) => same(x.path, w)))) {
     try { list = (await git.worktrees(repo, { fresh: true })) ?? list; } catch { /* keep the last answer */ }
   }
   let never = [];
@@ -98,9 +112,13 @@ export async function verifiedJobContext({ featureDir, slug = null, f = null, re
     const hit = others.find((x) => same(x.path, w));
     if (hit && ours(hit) && !(hit.branch && notOwn(hit.branch))) keep(hit.path, hit.branch);
   }
+  if (bySlug) {
+    const hit = others.find((x) => same(x.path, bySlug));
+    if (hit && ours(hit) && !(hit.branch && notOwn(hit.branch))) keep(hit.path, hit.branch);
+  }
   if (profile && !same(profile, repo)) {
     const hit = others.find((x) => same(x.path, profile));
-    if (hit) { if (!(hit.branch && notOwn(hit.branch))) keep(hit.path, hit.branch); } else if (!exists(profile)) keep(profile, null);
+    if (hit) { if (!(hit.branch && notOwn(hit.branch))) keep(hit.path, hit.branch); } else if (!exists(profile) && !(bySlug && worktrees.some((w) => same(w, bySlug)))) keep(profile, null);
   }
   // The stack's part branches: only those git shows checked out in a worktree of the repository.
   for (const part of Array.isArray(stack?.sections) ? stack.sections : []) {

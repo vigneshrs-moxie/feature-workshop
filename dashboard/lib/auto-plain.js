@@ -529,6 +529,7 @@ function gitCheck(args, ctx) {
   const sp = GIT[sub];
   if (!sp) ask(`the git subcommand ${sub.startsWith('-') ? 'option ' : ''}${sub}`);
   const rest = args.slice(i + 1);
+  if (sub === 'branch' && rest.some((x) => x.t === '--list') && gitReadForm('branch', rest)) return; // a list by several patterns (Nov 23)
   if (sub === 'commit') {
     const { vals } = parse(sp, rest.map((x) => (x.t === HEREDOC ? { ...x, t: 'message' } : x)), 'git commit');
     for (const [f, x] of vals) if (f === '-F' || f === '--file') { if (x.t === '-') ask('a commit message from standard input'); mustBeInside(x, ctx); }
@@ -871,7 +872,7 @@ function cdTargets(cmd, cands, roots) {
 
 /**
  * git forms that only read, beyond the read words (R4): remote, remote -v, remote get-url <name>; branch --show-current;
- * branch --list …; branch with only -a, -r, -v, -vv; worktree list [--porcelain]; stash list; tag, tag --list, tag -l;
+ * branch --list … (with -a, -r, -v, -vv, in any order); branch with only -a, -r, -v, -vv; worktree list [--porcelain]; stash list; tag, tag --list, tag -l;
  * config --get <one key>. sub: the subcommand; rest: the words after it (strings, or words with .t).
  */
 export function gitReadForm(sub, rest) {
@@ -880,7 +881,7 @@ export function gitReadForm(sub, rest) {
   const listFlag = (t) => /^(-a|-r|-v|-vv)$/.test(t);
   switch (sub) {
     case 'remote': return !w.length || (w.length === 1 && /^(-v|--verbose)$/.test(w[0])) || (w.length === 2 && w[0] === 'get-url' && /^[\w.-]+$/.test(w[1]));
-    case 'branch': return (w.length === 1 && w[0] === '--show-current') || (w[0] === '--list' && w.slice(1).every((t) => !t.startsWith('-') || listFlag(t))) || w.every(listFlag);
+    case 'branch': return (w.length === 1 && w[0] === '--show-current') || (w.includes('--list') && w.every((t) => t === '--list' || !t.startsWith('-') || listFlag(t))) || w.every(listFlag);
     case 'worktree': return w[0] === 'list' && (w.length === 1 || (w.length === 2 && w[1] === '--porcelain'));
     case 'stash': return w.length === 1 && w[0] === 'list';
     case 'tag': return !w.length || (w.length === 1 && /^(--list|-l)$/.test(w[0]));

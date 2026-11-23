@@ -76,7 +76,7 @@ import { PlayBook, PlayError, PAGE_SECRETS, PLAY_EVENTS, TEAPOT, hexCommit, ledg
 import { parseStatusJson } from '../lib/status-json.js';
 import { autoModeEnvironment, remotesOf } from '../lib/auto-env.js';
 import { GIT_SETTING_CHANGE, goAheadCovers, ORG_REMOTES, PR_STAGES, setApiPort, setStateDir } from '../lib/hard-lines.js';
-import { jobRepo, verifiedJobContext } from '../lib/auto-context.js';
+import { jobRepo, slugWorktreeOf, verifiedJobContext } from '../lib/auto-context.js';
 import { guessedWorktree, guessWords, jobTerminals, ownBranch, ownCodeDir, ownLane, ownWorktree } from '../lib/locate.js';
 import { autoGitFacts, gitIsAncestor, gitRemoteDefault, gitWorktrees } from '../lib/auto-git.js';
 import { readStack } from '../lib/stack.js';
@@ -300,8 +300,9 @@ export async function createRunner(config) {
     // The profile's folders for this job's stack parts, and for every other job Starbase knows (never this job's).
     const stackWorktrees = repoFor ? (stack?.sections ?? []).filter((s) => typeof s?.name === 'string').map((s) => stackNames(rules, repoFor, { slug, section: s.name }).worktree) : [];
     const otherWorktrees = repoFor ? all.filter((x) => x.dir !== run.featureDir).map((x) => path.resolve(repoFor, fillPattern(rules.worktree, { slug: path.basename(x.dir) }))) : [];
+    const slugWorktree = slugWorktreeOf({ repo: repoFor, slug, profileWorktree, otherWorktrees });
     const v = await verifiedJobContext({
-      featureDir: run.featureDir, slug, f, recordedRepo, knownRepos, profileWorktree, stackWorktrees, otherWorktrees, stack,
+      featureDir: run.featureDir, slug, f, recordedRepo, knownRepos, profileWorktree, slugWorktree, stackWorktrees, otherWorktrees, stack,
       git: {
         worktrees: (repo, { fresh = false } = {}) => gitWorktrees({ repo, exec: gitStdout, cache: autoGitCache, fresh }),
         defaultBranch: async (repo) => (await Promise.all([...new Set([orgRemote, ...ORG_REMOTES].filter(Boolean))].map((remote) => gitRemoteDefault({ repo, remote, exec: gitStdout, cache: autoGitCache })))).filter(Boolean),
@@ -318,7 +319,7 @@ export async function createRunner(config) {
         if (hit?.branch && v.branches.includes(hit.branch)) worktreeBranches[wt] = hit.branch;
       }
     }
-    return { f, repo: v.repo, worktrees: v.worktrees, specDirs: v.specDirs, branches: v.branches, mainCheckout: v.mainCheckout, setup: { worktrees: [profileWorktree, ...stackWorktrees].filter(Boolean), taken: v.listedBranches ?? [], never: v.neverBranches ?? [], worktreeBranches } };
+    return { f, repo: v.repo, worktrees: v.worktrees, specDirs: v.specDirs, branches: v.branches, mainCheckout: v.mainCheckout, setup: { worktrees: [profileWorktree, slugWorktree, ...stackWorktrees].filter(Boolean), taken: v.listedBranches ?? [], never: v.neverBranches ?? [], worktreeBranches } };
   }
   // The repository Starbase recorded for a job: the one you set (sessions.json), else the one the
   // start handler wrote in its new-job audit line. null for a job Starbase did not make.
@@ -351,8 +352,10 @@ export async function createRunner(config) {
   // 3 second limit (lib/auto-git.js), so a slow answer never holds the server; a failed one gives a ctx
   // that stops pushes. The job's branches are its own and its stack's parts.
   const autoGitCache = new Map();
+  // Claude Code's own name for a folder under ~/.claude/projects: every character but a letter or a digit is a dash.
+  const projectFolderName = (cwd) => String(cwd ?? '').replace(/[^A-Za-z0-9]/g, '-');
   const gitSettingCalls = new Set(); // runs whose last call may have changed a git setting
-  // call: { toolName, input } when the context is for one call: a commit it names for the org branch is placed by git first (I2).
+  // call: { toolName, input } when the context is for one call: a commit it names for the org branch or the worktree is placed by git first (I2).
   async function autoCtxFor(run, call = null) {
     const { repo, worktrees, specDirs, branches, mainCheckout, setup } = await jobContext(run);
     const hit = repo && local.registry ? await local.registry.profileFor(repo).catch(() => null) : null;
@@ -366,7 +369,7 @@ export async function createRunner(config) {
     const orgRemote = [stackRules(profile).org, ...ORG_REMOTES].filter(Boolean).find((name) => facts.remoteUrl(name));
     const orgRepo = orgRemote ? /github\.com[:/]+([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/i.exec(facts.remoteUrl(orgRemote))?.[1] ?? null : null;
     // Each commit the call names, checked against the org remote's main: true, false, or null when git can't say.
-    const shas = call?.toolName === 'Bash' && /\bgh\b/.test(String(call.input?.command ?? '')) ? [...new Set(String(call.input.command).match(/\b[0-9a-f]{40}\b/g) ?? [])].slice(0, 4) : [];
+    const shas = call?.toolName === 'Bash' && /\bgh\b|\bworktree\b/.test(String(call.input?.command ?? '')) ? [...new Set(String(call.input.command).match(/\b[0-9a-f]{40}\b/g) ?? [])].slice(0, 4) : [];
     const orgShas = {};
     for (const sha of shas) orgShas[sha] = orgRemote && mainCheckout ? await gitIsAncestor({ repo: mainCheckout, sha, ref: `refs/remotes/${orgRemote}/main`, exec: gitStdout, cache: autoGitCache }) : null; // the remote's own ref, never a branch or tag of that name (N5)
     // The files the profile copies from the main checkout into a worktree (filesToCopy), {app} filled.
@@ -377,6 +380,10 @@ export async function createRunner(config) {
       remoteUrl: facts.remoteUrl, currentBranch: facts.currentBranch, branches, stateDir: state.dir, apiPort: PORT,
       // Read without a question, never changed: the repository's own checkout and the session's read folders (C5).
       mainCheckout, readRoots: [SKILLS_DIR, AGENTS_DIR].filter(Boolean),
+      // Read too, never run from (Nov 23): the session's own saved outputs and the wireframes folder; the other jobs' folders are
+      // a question for the Approver.
+      lookRoots: [...(run.sessionId ? [path.join(PROJECTS_DIR, projectFolderName(run.cwd), run.sessionId, 'tool-results')] : []), path.join(CLAUDE_DIR, 'wireframes')],
+      askRoots: [FEATURES_DIR],
       orgRemote: orgRemote ?? null, orgRepo, orgShas, filesToCopy,
       // The workflow's set-up from the main checkout (N7): where the worktree may be made, and from what.
       setup: { ...setup, starts: orgRemote ? [`${orgRemote}/main`, ...(setup?.never ?? []).map((b) => `${orgRemote}/${b}`)] : [] },
