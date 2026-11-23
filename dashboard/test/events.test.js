@@ -142,6 +142,11 @@ test('snapshot: each job lands in one group', () => {
   assert.equal(groupFor({ needsYou: true, stageState: 'waiting' }), 'needs-you');
   assert.equal(groupFor({ stageState: 'done' }), 'done');
   assert.equal(groupFor({ closed: { as: 'dropped' }, stageState: 'idle' }), 'done');
+  // What Auto is answering (autoHas) is never Needs you: a card, or a gate, which is also work going on.
+  assert.equal(groupFor({ permissions: 1, working: true, autoHas: true }), 'running');
+  assert.equal(groupFor({ needsYou: true, stageState: 'waiting', autoHas: true }), 'running');
+  assert.equal(groupFor({ needsYou: true, limitPaused: '2026-10-15T20:00:00Z', autoHas: true }), 'paused');
+  assert.equal(groupFor({ permissions: 1, autoHas: true, closed: { as: 'done' } }), 'done');
   assert.equal(groupFor({ stageState: 'idle' }), 'idle');
   assert.equal(groupFor({ stageState: 'working', working: false }), 'idle');
   // The finish line (lib/finish.js): past it is Shipping, in main is Done; what needs you still wins.

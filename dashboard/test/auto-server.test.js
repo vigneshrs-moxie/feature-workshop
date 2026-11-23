@@ -2552,6 +2552,76 @@ test('I4: a card Auto is still deciding shows as "Auto is deciding" in Working',
   } finally { release(); await w.idle().catch(() => {}); await w.stop(); }
 });
 
+test('a card Auto is deciding is not Needs you on the page: its group, the count, the card and its event say it is Auto\'s', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  let release;
+  const hung = new Promise((r) => { release = r; });
+  const w = await world({ query: cardQuery([FETCH], outcomes), ask: async () => { await hung; return allow(); }, jobStatus: WORKING });
+  const seen = [];
+  w.runner.on('permission', (_job, p) => seen.push(p));
+  try {
+    await raise(w);
+    await w.until(() => w.asks.length === 1, 'the ask');
+    const snap = await w.runner.read.snapshot();
+    const job = snap.jobs.find((c) => c.slug === w.slug);
+    assert.equal(job.autoHas, true);
+    assert.equal(job.group, 'running');
+    assert.equal(snap.needsYou, 0);
+    assert.deepEqual(snap.permissions.map((p) => p.autoHas), [true], 'the card is marked Auto\'s');
+    assert.deepEqual(seen.map((p) => p.autoHas), [true], 'and so is its event, sent once');
+    assert.equal((await w.runner.read.features()).stats.needsYou, 0);
+  } finally { release(); await w.idle().catch(() => {}); await w.stop(); }
+  assert.equal(outcomes[0]?.result.behavior, 'allow');
+});
+
+test('a card Auto leaves to the person is sent again without Auto\'s mark, and the job is Needs you', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const w = await world({ query: cardQuery([FETCH], outcomes), ask: () => failure(), jobStatus: WORKING });
+  const seen = [];
+  w.runner.on('permission', (_job, p) => seen.push(p));
+  try {
+    await raise(w);
+    await w.until(async () => (await w.record()).stopped, 'the stop');
+    await w.until(() => seen.length === 2, 'the card sent again');
+    assert.deepEqual(seen.map((p) => p.autoHas === true), [true, false]);
+    assert.equal(seen[0].id, seen[1].id);
+    const snap = await w.runner.read.snapshot();
+    assert.equal(snap.jobs.find((c) => c.slug === w.slug).group, 'needs-you');
+    assert.equal(snap.needsYou, 1);
+    assert.deepEqual(snap.permissions.map((p) => p.autoHas === true), [false]);
+  } finally { await clear(w); await w.stop(); }
+});
+
+test('a card on a job not in Auto is never marked Auto\'s, and is Needs you at once', { timeout: 30_000 }, async () => {
+  const outcomes = [];
+  const w = await world({ auto: null, query: cardQuery([FETCH], outcomes), jobStatus: WORKING });
+  const seen = [];
+  w.runner.on('permission', (_job, p) => seen.push(p));
+  try {
+    await raise(w);
+    await w.until(() => seen.length === 1, 'the card');
+    assert.equal(seen[0].autoHas, undefined);
+    const snap = await w.runner.read.snapshot();
+    assert.equal(snap.jobs.find((c) => c.slug === w.slug).group, 'needs-you');
+    assert.equal(snap.permissions[0].autoHas, undefined);
+  } finally { await clear(w); await w.stop(); }
+});
+
+test('a gate Auto is deciding is not Needs you on the page', { timeout: 30_000 }, async () => {
+  let release;
+  const hung = new Promise((r) => { release = r; });
+  const w = await world({ ask: async (task) => { await hung; return goodAnswer(task); } });
+  try {
+    const passing = w.pass();
+    await w.until(() => w.asks.length === 1, 'the ask');
+    const snap = await w.runner.read.snapshot();
+    assert.equal(snap.jobs.find((c) => c.slug === w.slug).group, 'running');
+    assert.equal(snap.needsYou, 0);
+    release();
+    await passing;
+  } finally { release(); await w.idle().catch(() => {}); await w.stop(); }
+});
+
 test('I4: a stop whose audit line cannot be written still tells the person', { timeout: 30_000 }, async () => {
   const notes = [];
   let rec = { ...autoRecord(null, { on: true, now: OLD }) };

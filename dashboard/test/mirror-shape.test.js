@@ -507,3 +507,9 @@ test('a lane sentence goes up scrubbed: in the board’s card and in the job row
   assert.deepEqual(jobRow(plain), { slug: 'customer-notes', title: 'Count the rows', ticket: null, stage: 'test', state: 'needs-you', stateWords: plain.laneReason, now: plain.laneReason, updatedAt: '2026-11-12T09:00:00Z' });
   assert.deepEqual(jobRow({ ...none, headline: 'Spec ready' }), { slug: 'old-laptop', title: 'Old laptop job', ticket: null, stage: null, state: null, stateWords: null, now: 'Spec ready', updatedAt: null });
 });
+
+test('a card Auto is answering goes up marked so, and no other card carries the mark', () => {
+  const p = { id: 'p', slug: 'x', kind: 'permission', toolName: 'Bash', input: { command: 'ls' }, plain: { headline: 'Run a command' } };
+  assert.equal(permissionCard({ ...p, autoHas: true }).autoHas, true);
+  assert.equal('autoHas' in permissionCard(p), false);
+});

@@ -52,7 +52,7 @@ import { LocalRunner } from '../lib/local.js';
 import { History, historyMarkdown } from '../lib/history.js';
 import { removeWorktree, checkWorktree } from '../lib/close.js';
 import { FLOWS, SKIPPABLE, PROVIDABLE, REVIEWERS, FABLE_POINTS, OPUS, FABLE, currentModel, FOREMAN_MODEL_IDS, MODEL_IDS, MODEL_CHOICES, defaultsFor, normalize as normalizeOptions, readOptions, writeOptions, writeAutoOption, describeOptions, foremanModel, levelsForClient, optionsAtLevel, isLevel, normalizeTicket, ticketSlug, ticketBranch, startFromTicket, shortTitle, slugName, TICKET_KEY_PROBLEM } from '../lib/options.js';
-import { groupCards, laneFor } from '../lib/snapshot.js';
+import { autoHas, groupCards, laneFor } from '../lib/snapshot.js';
 import { FINISH_LINES, FINISH_LINE_INFO, finishLineReached } from '../lib/finish.js';
 import { NUDGE_IDS, nudgesFor } from '../lib/nudges.js';
 import { buildThread, pageThread } from '../lib/thread.js';
@@ -1689,7 +1689,19 @@ export async function createRunner(config) {
     const pending = driver.pendingPermissions();
     // Never the lane of a branch only guessed (ownLane); a job just starting has no record yet.
     const bySlug = new Map(list.map((f) => [f.slug, f]));
-    return cards.map((c) => ({ ...c, ...laneFor(c, { lane: ownLane(bySlug.get(c.slug) ?? c, flowLanes), pending: pending.filter((p) => p.slug === c.slug), handled: (id) => auto.handlingCard(id) }) }));
+    return cards.map((c) => {
+      const waits = { pending: pending.filter((p) => p.slug === c.slug), handled: (id) => auto.handlingCard(id) };
+      // autoHas: what waits here is Auto's to answer, so nothing counts it as waiting for the person (lib/snapshot.js).
+      return { ...c, ...(autoHas(c, waits) ? { autoHas: true } : {}), ...laneFor(c, { lane: ownLane(bySlug.get(c.slug) ?? c, flowLanes), ...waits }) };
+    });
+  }
+  // The waiting cards with Auto's mark on those it is answering, by their job's card (as boardCards made them).
+  function markedPermissions(cards) {
+    const bySlug = new Map(cards.map((c) => [c.slug, c]));
+    return driver.pendingPermissions().map((p) => {
+      const a = bySlug.get(p.slug)?.auto;
+      return a?.on === true && !a.stopped && a.yours !== true && auto.handlingCard(p.id) ? { ...p, autoHas: true } : p;
+    });
   }
 
 
@@ -2278,6 +2290,8 @@ export async function createRunner(config) {
     changed: () => { driver.applyModes().catch(() => {}); settingsChanged(); invalidate(); },
     // A job stopped or finished: its Auto start place is free, so a waiting tagged ticket starts now, not at the next Inbox poll.
     freed: () => { invalidate(); runAutoStart(); },
+    // Auto is done with a card that still waits: it is the person's now, and the pages are told.
+    left: (card) => { invalidate(); showPermission(card); },
   });
   waitingToTestOf = (dir) => auto.waitingToTest(dir);
 
@@ -2348,10 +2362,24 @@ export async function createRunner(config) {
     state.sessionFor(p.featureDir).then((record) => {
       // Auto handles a card only while it is on and not stopped; a stopped Auto job's cards are his, told as on any job.
       // leftWaiting: a card that reaches Auto after it stopped (queued behind the card it stopped on) is told here too.
-      if (record?.auto?.on === true && !record.auto.stopped) return auto.onPermission(p, { leftWaiting: tellPermission });
+      if (record?.auto?.on === true && !record.auto.stopped) {
+        const handling = auto.onPermission(p, { leftWaiting: tellPermission });
+        showPermission(p);
+        return handling;
+      }
+      showPermission(p);
       return tellPermission(p);
-    }).catch((err) => { console.error('permission:', err.message); tellPermission(p); });
+    }).catch((err) => { console.error('permission:', err.message); showPermission(p); tellPermission(p); });
   });
+  // The card to the pages, once Auto has taken it up or not: marked Auto's (autoHas) while it handles it, so that no page counts
+  // it as waiting for the person, and sent again without the mark when Auto leaves it to him (createAuto's `left`). Not a card
+  // that has gone meanwhile: the pages were told so first.
+  function showPermission(p) {
+    if (!driver.pendingRequest(p.id)) return;
+    const shown = auto.handlingCard(p.id) ? { ...p, autoHas: true } : p;
+    broadcast('permission', shown);
+    events.emit('permission', p.slug, shown);
+  }
   driver.on('permission-gone', (p) => auto.cardGone(p.id));
   const toldErrors = new Set();
   const endedRuns = new Set();
@@ -2381,7 +2409,6 @@ export async function createRunner(config) {
     flowLocalAt = Date.now();
     flow.refresh({ network: false }).catch(() => {});
   }
-  driver.on('permission', (p) => { broadcast('permission', p); events.emit('permission', p.slug, p); });
   driver.on('permission-gone', (p) => { broadcast('permission-gone', p); events.emit('permission-gone', p.slug ?? null, p); });
   // Where a steered message is (queued, delivered, acted-on, cancelled): the new UI only.
   driver.on('steer', (s) => {
@@ -4176,7 +4203,7 @@ export async function createRunner(config) {
       return {
         meta: await meta(pageMeta), jobs,
         needsYou: jobs.filter((j) => j.group === 'needs-you').length, autoQueue,
-        permissions: driver.pendingPermissions(), usage: limits.view(), planUsage: planUsage.view(), runTypical, generatedAt: new Date().toISOString(),
+        permissions: markedPermissions(jobs), usage: limits.view(), planUsage: planUsage.view(), runTypical, generatedAt: new Date().toISOString(),
       };
     },
     // Notifications outside the browser: how they reach macOS here, and the last 50.
@@ -4194,7 +4221,7 @@ export async function createRunner(config) {
       const open = cards.filter((c) => !c.closed);
       const stats = {
         today: spend.today, week: spend.week, featuresUsd: totalUsd,
-        needsYou: open.filter((c) => c.needsYou).length,
+        needsYou: open.filter((c) => c.needsYou && !c.autoHas).length,
         workingAgents: agents.filter((a) => a.state === 'running').length + cards.filter((c) => c.starting).length,
         workingFeatures: cards.filter((c) => c.working).length,
         quiet: list.filter((f) => f.quiet).length,
@@ -4203,7 +4230,7 @@ export async function createRunner(config) {
         dropped: cards.filter((c) => c.closed?.as === 'dropped').length,
         projects: new Set(cards.map((c) => c.project.name)).size,
       };
-      return { features: cards, needsYou: stats.needsYou, totalUsd, stats, permissions: driver.pendingPermissions(), usage: limits.view(), generatedAt: new Date().toISOString() };
+      return { features: cards, needsYou: stats.needsYou, totalUsd, stats, permissions: markedPermissions(cards), usage: limits.view(), generatedAt: new Date().toISOString() };
     },
     runs: async () => ({ runs: driver.list(), permissions: driver.pendingPermissions() }),
     // The play ledger (lib/play.js ledgerView): crew met, quests done, achievements, secrets found.

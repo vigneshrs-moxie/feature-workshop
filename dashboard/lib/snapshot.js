@@ -1,6 +1,7 @@
 // Which group a job sits in on the new UI's Jobs pane, worked out here so every page agrees.
 //
 //   needs-you  waiting for you: a permission or question card, or a brief waiting for your answer
+//              (never what an Auto job's Auto is answering: card.autoHas, below)
 //   running    the Foreman or a crew member is working on it right now
 //   paused     stopped by a Claude usage limit, carrying on once it resets (only that: a reply you
 //              stopped yourself leaves the job waiting for your next message, which is idle)
@@ -21,9 +22,11 @@ export const GROUPS = ['needs-you', 'running', 'paused', 'idle', 'shipping', 'do
 
 export function groupFor(card) {
   if (card.closed) return 'done'; // marked done or dropped, and nothing has happened since
-  if (card.permissions > 0) return 'needs-you'; // a card is waiting for a click, even mid-reply
+  const yours = card.autoHas !== true; // what waits is the person's, not Auto's to answer
+  if (yours && card.permissions > 0) return 'needs-you'; // a card is waiting for a click, even mid-reply
   if (card.working || card.starting) return 'running';
   if (card.limitPaused) return 'paused';
+  if (!yours) return 'running';
   if (card.needsYou) return 'needs-you';
   if (card.finish?.landed === 'main') return 'done'; // the real end, whatever the finish line
   if (card.finish?.reached) return 'shipping'; // past your finish line, waiting on other people
@@ -81,24 +84,39 @@ function openPr(lane) {
   return null;
 }
 
+const cardsOf = (card, pending) => (pending.length ? pending : Array.from({ length: Number(card.permissions) || 0 }, () => ({})));
+// A card waits that Auto is not handling (handled(id): runner/auto.js handlingCard; one it left, one raised before Auto was
+// switched on).
+const leftToPerson = (cards, handled) => typeof handled === 'function' && cards.some((p) => p?.id && !handled(p.id));
+
+/**
+ * Is what waits on this job (a card, a gate) Auto's to answer? The one rule behind the lane's "Auto is deciding", the group,
+ * the Needs you counts and the page's alerts: Auto is on, not stopped, the person has not made the step theirs, and no card
+ * waits that Auto is not handling.
+ */
+export function autoHas(card, { pending = [], handled = null } = {}) {
+  if (card.closed || card.auto?.on !== true || card.auto.stopped || card.auto.yours === true) return false;
+  const cards = cardsOf(card, pending);
+  return Boolean(cards.length || card.needsYou) && !leftToPerson(cards, handled);
+}
+
 export function laneFor(card, { lane = null, pending = [], handled = null } = {}) {
   const needs = (laneReason) => ({ lane: 'needs-you', laneReason });
   if (card.closed) return { lane: 'done', laneReason: card.closed.as === 'dropped' ? 'Dropped' : 'Marked done' };
 
   // Cards waiting for a click: permissions, a crew member's question, PR feedback.
-  const cards = pending.length ? pending : Array.from({ length: Number(card.permissions) || 0 }, () => ({}));
+  const cards = cardsOf(card, pending);
   // An Auto job (lib/auto.js) with a gate or a card waiting: Auto is deciding it, unless it stopped, or a card waits that
-  // Auto is not handling (handled(id): runner/auto.js handlingCard; one it left, one raised before Auto was switched on),
-  // which then shows as any card does.
-  const leftToYou = typeof handled === 'function' && cards.some((p) => p?.id && !handled(p.id));
+  // Auto is not handling, which then shows as any card does.
   if (card.auto?.on === true && (cards.length || card.needsYou)) {
     if (card.auto.stopped) return needs(`Auto stopped: ${card.auto.stopped.reason ?? 'it waits for you'}`);
     // The person wrote to this job while its step waited (the runner's boardCards, lib/auto.js wroteWhileWaiting): the step is
     // theirs from that moment, in the words Auto's stop writes a moment later, never "Auto is deciding".
     if (card.auto.yours === true) return needs(`Auto stopped: ${YOURS_NOW}`);
     // Its go-ahead into Test waits while another Auto job holds the test place (runner/auto.js): not waiting for the person.
-    if (card.auto.waitingToTest === true && !leftToYou) return { lane: 'working', laneReason: 'Waiting for its turn to test' };
-    if (!leftToYou) return { lane: 'working', laneReason: `Auto is deciding: ${STAGE_WORDS[card.stage] ?? 'the next step'}` };
+    const its = autoHas(card, { pending, handled });
+    if (card.auto.waitingToTest === true && its) return { lane: 'working', laneReason: 'Waiting for its turn to test' };
+    if (its) return { lane: 'working', laneReason: `Auto is deciding: ${STAGE_WORDS[card.stage] ?? 'the next step'}` };
   }
   if (cards.length) {
     // A review round's card (packet Q, lib/driver.js parkRoundCard) says what the reviewer asked for.

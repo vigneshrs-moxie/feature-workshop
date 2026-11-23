@@ -111,6 +111,7 @@ export function permissionCard(p) {
     },
     decisionReason: p.decisionReason ?? null, defaultToNo: Boolean(p.defaultToNo), canAllowForRun: Boolean(p.canAllowForRun),
     hardLine: p.hardLine ?? null, fromAutoMode: Boolean(p.fromAutoMode), draft: null, suggestions: [],
+    ...(p.autoHas === true ? { autoHas: true } : {}),
   };
 }
 

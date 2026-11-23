@@ -14,6 +14,7 @@
 //   raiseLevel(job, level)            apply the Foreman's suggested level (setLevelAutomatically)
 //   changed()           a record changed in a way other parts show (permission modes, the page)
 //   freed()             a job stopped or finished: its Auto start place is free now (the runner's runAutoStart)
+//   left(card)          Auto is done with a card that still waits: it is the person's now (the pages are told)
 //   state               audit() and auditFor()
 //   notify(n)           one notification { level, title, body, slug, key }
 //   stopping(slug, on)  Auto is about to write (on) or has finished writing (off) a stop and its notice: the job is not told "waiting" meanwhile
@@ -89,7 +90,7 @@ const isNotNow = (err) => {
 /** A stage after Test (review, the PRs): the job has left Test. An unknown stage is not. */
 const pastTest = (stage) => STAGE_IDS.indexOf(stage) > STAGE_IDS.indexOf('test');
 
-export function createAuto({ read, update, decide, askApprover, pendingCard = () => null, cardCtx = async () => null, raiseLevel = async () => {}, changed = () => {}, freed = () => {}, state, notify = () => {}, stopping = () => {}, now = () => new Date() }) {
+export function createAuto({ read, update, decide, askApprover, pendingCard = () => null, cardCtx = async () => null, raiseLevel = async () => {}, changed = () => {}, freed = () => {}, left = () => {}, state, notify = () => {}, stopping = () => {}, now = () => new Date() }) {
   let running = null;
   let again = false;
   // An answer the Approver gave that could not be sent "not now" is kept for that job and brief and sent
@@ -692,6 +693,7 @@ export function createAuto({ read, update, decide, askApprover, pendingCard = ()
         if (!cards.has(card.id) || !pendingCard(card.id)) return;
         // Done with, and it still waits: Auto has left it to the person (a stop, Auto gone, a card it never answers).
         cards.set(card.id, 'left');
+        try { left(card); } catch (err) { console.error(`auto card (${card.slug}):`, err.message); }
         await whenLeft(card, threw ? CARD_THREW : CARD_LEFT, { quiet, tell });
       })
       .catch((err) => console.error(`auto card (${card.slug}):`, err.message))
