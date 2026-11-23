@@ -146,6 +146,14 @@ test('flow: laneOf places a job from its PRs and refs', () => {
     pr(240, 'feature/x', 'open', { createdAt: '2026-11-18T09:00:00Z' })]);
   assert.equal(laneOf({ slug: 'x' }, jf(), later).pr2, null);
   assert.equal(laneOf({ slug: 'x' }, jf(), later).newRound, true);
+  // The matching org branch is made empty when the job starts (from main): it holds none of the work, so the job is not on it,
+  // and PR #1 is not open (ORBIT-526, Nov 23: Auto finished there with nothing pushed).
+  const empty = jf({ org: { exists: true, ahead: 0 }, vsMain: { ahead: 1, behind: 0 } });
+  assert.equal(place(rf(), empty), 'local');
+  assert.equal(place(rf(), { ...empty, fork: { exists: true, ahead: 0, behind: 0 } }), 'fork');
+  assert.equal(place(rf(), jf({ org: { exists: true } })), 'local', 'git could not count its commits');
+  assert.equal(place(rf(), jf({ org: { exists: true, ahead: 3 } })), 'org');
+  assert.equal(place(rf([pr(1, 'feature/x', 'merged')]), empty), 'org', 'a merged PR #1 says so whatever the count');
   // A clone of the org repo only (no fork): a branch on the org is on the org branch.
   assert.equal(place({ org: { slug: 'org/app' }, fork: null, staging: { ref: 's' }, prs: [], inMain: {} }, jf({ org: { exists: true } })), 'org');
   // A repo with no org remote and no staging: fork → main.

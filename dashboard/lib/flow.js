@@ -172,7 +172,13 @@ export async function gatherRepo({ repo, jobs, fetch = false, prs = null, git: g
       if (main) f.vsMain = await counts(dir, head, main);
       if (staging) f.vsStaging = await counts(dir, head, staging);
       if (forkName) f.fork = await exists(dir, `${forkName}/${j.branch}`) ? { exists: true, ...(await counts(dir, head, `${forkName}/${j.branch}`)) } : { exists: false };
-      if (orgName) f.org = { exists: await exists(dir, `${orgName}/${j.branch}`) };
+      // The matching org branch is made from main when the job starts: ahead counts what it holds that main doesn't.
+      if (orgName) {
+        const ref = `${orgName}/${j.branch}`;
+        f.org = { exists: await exists(dir, ref) };
+        const own = f.org.exists && main ? await counts(dir, ref, main) : null;
+        if (own) f.org.ahead = own.ahead;
+      }
       if (wt) f.dirty = (await gitFn(wt, ['status', '--porcelain'])).out.split('\n').filter(Boolean).length;
     }
     jobFacts.push(f);
@@ -216,7 +222,8 @@ export function laneOf(job, jf, repoFacts) {
   if (newRound) pr2 = null;
   let position = 'local';
   if (jf?.fork?.exists) position = 'fork';
-  if ((twoStep && (pr1?.state === 'merged' || jf?.org?.exists)) || (repoFacts.org && !repoFacts.fork && jf?.org?.exists)) position = 'org';
+  // With a fork, the org branch is there from the start, empty: only one that holds work, or a merged PR #1, places the job on it.
+  if ((twoStep && (pr1?.state === 'merged' || (jf?.org?.exists && jf.org.ahead > 0))) || (repoFacts.org && !repoFacts.fork && jf?.org?.exists)) position = 'org';
   if (newRound) position = pr1.state === 'merged' ? 'org' : jf?.fork?.exists ? 'fork' : position;
   else {
     if (hasStaging && toStaging?.state === 'merged') position = 'staging';
