@@ -9,8 +9,8 @@
 //   { kind: 'job', level, suggestedLevel, stageState, statusCard, step, failures, problem }
 // ctx = { worktrees, featureDir, specDirs, cwd, forkRemote, remoteUrl(name, dir), branches?, stateDir?, mainCheckout?, readRoots? }
 //   mainCheckout is the repository's own checkout and readRoots the session's read folders (skills, agents):
-//   places the job may read but not change. lookRoots (the session's own saved outputs, the wireframes folder) are read too;
-//   askRoots (the other jobs' folders) are read as a question. Neither is ever run from or changed.
+//   places the job may read but not change. lookRoots (the session's own saved outputs, the wireframes folder) are read too,
+//   and never run from or changed. Another job's folder is none of these.
 //   remoteUrl(name, dir) is the push address of that remote in that folder ('' means the branch's own
 //   push remote, as orgPushCheck looks it up), or null when git can't say. branches is the job's own
 //   branch and its stack's parts, when known.
@@ -270,7 +270,7 @@ function claudeSecret(q, home, ctx) {
   const dir = fold(path.join(home, '.claude'));
   if (!isInside(q, dir)) return false;
   if (q === fold(path.join(home, '.claude', '.credentials.json')) || /^settings[^/]*\.json$/.test(path.basename(q))) return true;
-  const open = [ctx.featureDir, ...(ctx.readRoots ?? []), ...(ctx.lookRoots ?? []), ...(ctx.askRoots ?? [])].filter((r) => typeof r === 'string' && path.isAbsolute(r));
+  const open = [ctx.featureDir, ...(ctx.readRoots ?? []), ...(ctx.lookRoots ?? [])].filter((r) => typeof r === 'string' && path.isAbsolute(r));
   return !open.some((r) => [path.resolve(r), physicalPath(r, null)].filter(Boolean).some((x) => fold(x) !== dir && isInside(q, fold(x))));
 }
 
@@ -479,9 +479,14 @@ function setupStep(command, ctx) {
     } else forms.push({ words: all[k].words.map((x) => x.t), sep });
   }
   let from = at;
-  if (forms.length > 1 && forms[0].words[0] === 'cd' && forms[0].words.length === 2 && forms[0].sep === '&&') {
-    from = physicalPath(forms.shift().words[1], at);
-    if (from !== main) return null;
+  // A leading cd counts only where the shell surely makes it: on its own (a piped cd runs in a subshell), to the main checkout
+  // written out whole (the shell reads .., ~ and patterns its own way).
+  if (forms.length > 1 && forms[0].words[0] === 'cd') {
+    const to = forms[0].words[1] ?? '';
+    if (forms[0].words.length !== 2 || all[0].sep !== '&&' || (all[0].redirects ?? []).length) return null;
+    if (!/^\/[\w./ -]+$/.test(to) || to.split('/').some((x) => x === '..' || x === '.') || physicalPath(to, null) !== main) return null;
+    from = main;
+    forms.shift();
   }
   // One form, or up to four of the git forms joined by && (R4): each is judged by its own form, and one wrong one is the whole line's.
   if (!forms.length || forms.length > 4 || forms.some((f, k) => (k < forms.length - 1 ? f.sep !== '&&' : Boolean(f.sep)))) return null;
@@ -495,6 +500,9 @@ function cutsOutput(part) {
   const w = part?.words?.map((x) => x.t) ?? [];
   return ['tail', 'head'].includes(w[0]) && (w.length === 1 || (w.length === 2 && /^-(n?\d+)$/.test(w[1])) || (w.length === 3 && w[1] === '-n' && /^\d+$/.test(w[2])));
 }
+
+// A branch or tag named like a whole commit: git may read the commit a worktree starts from as that name (Nov 23).
+const COMMIT_NAME = /^(refs\/(heads|tags)\/)?[0-9a-f]{40}$/i;
 
 // One set-up form. A leading -C names the main checkout and nothing else (R4).
 function setupForm(words, at, main, ctx) {
@@ -510,7 +518,7 @@ function setupForm(words, at, main, ctx) {
   const remotes = [ctx.forkRemote || 'origin', ctx.orgRemote].filter((r) => typeof r === 'string' && r && (() => { try { return Boolean(ctx.remoteUrl?.(r)); } catch { return false; } })());
   // Never HEAD, a full ref, a name that starts with a remote's name, or one git would read as a range or refuse (R11).
   const remoteNamed = (b) => { const first = b.split('/')[0]; return [ctx.forkRemote || 'origin', 'origin', ctx.orgRemote, ...ORG_REMOTES].includes(first) || (() => { try { return Boolean(ctx.remoteUrl?.(first)); } catch { return true; } })(); };
-  const branchName = (b) => /^[A-Za-z0-9][\w./-]*$/.test(b) && !b.includes('..') && !b.endsWith('/') && !b.endsWith('.') && !b.endsWith('.lock') && b !== 'HEAD' && !b.startsWith('refs/');
+  const branchName = (b) => /^[A-Za-z0-9][\w./-]*$/.test(b) && !b.includes('..') && !b.endsWith('/') && !b.endsWith('.') && !b.endsWith('.lock') && b !== 'HEAD' && !b.startsWith('refs/') && !COMMIT_NAME.test(b);
   const newBranch = (b) => branchName(b) && !(b.includes('/') && remoteNamed(b));
   if (w[0] === 'git' && w[1] === 'fetch' && (w.length === 3 || (w.length === 4 && w[3] === '--prune')) && remotes.includes(w[2])) return true;
   if (w[0] === 'git' && w[1] === 'ls-remote' && w.length === 5 && w[2] === '--heads' && remotes.includes(w[3]) && branchName(w[4])) return true;
@@ -2007,6 +2015,15 @@ const GIT_CFG_RISKY = /^(remote\.|branch\.|url\.|core\.(sshcommand|gitproxy|hook
 const GIT_CFG_RUNS = /^(diff\.external|sequence\.editor|pager\..+|.+\.textconv|core\.askpass|gpg\.program|gpg\.[^.]+\.program|interactive\.difffilter|merge\..+\.driver|mergetool\..+\.cmd|difftool\..+\.cmd|web\.browser|browser\..+\.cmd|man\..+\.cmd|trailer\..+\.(command|cmd)|sendemail\.(sendmailcmd|tocmd|cccmd|headercmd)|core\.alternaterefscommand|uploadpack\.packobjectshook)$/i;
 const normUrl = (u) => String(u ?? '').trim().replace(/\/+$/, '').replace(/\.git$/, '').toLowerCase();
 
+// Is this word of git branch or git tag a name being made (its first name, or a rename's last), not a start point or a name to delete?
+function namesNew(sub, sargs, word) {
+  const a = sargs.map((x) => x.t);
+  if (a.some((x) => /^(-d|-D|--delete|-v|--verify)$/.test(x))) return false;
+  const pos = sargs.filter((x, k) => !x.t.startsWith('-') && !/^(-m|--message|-F|--file|-u|--local-user|--set-upstream-to)$/.test(sub === 'branch' && a[k - 1] === '-m' ? '' : a[k - 1] ?? ''));
+  const moves = sub === 'branch' && a.some((x) => /^(-m|-M|-c|-C|--move|--copy)$/.test(x));
+  return word === (moves ? pos.at(-1) : pos[0]);
+}
+
 function gitStep(args, assigns, cwd, st, xargs) {
   const { ctx } = st;
   const hit = (rule) => st.hits.add(rule);
@@ -2061,7 +2078,11 @@ function gitStep(args, assigns, cwd, st, xargs) {
   if ((sub === 'branch' || sub === 'tag') && !readForm) {
     const orgs = [ctx.orgRemote, ...ORG_REMOTES].filter(Boolean);
     const names = sargs.filter((x, k) => !x.t.startsWith('-') && !/^(-m|--message|-F|--file|-u|--local-user|--contains|--points-at|--merged|--no-merged|--sort|--format)$/.test(a[k - 1] ?? ''));
-    if (names.some((x) => x.dyn || orgs.some((o) => x.t.startsWith(`${o}/`) || x.t.startsWith(`refs/heads/${o}/`) || x.t.startsWith(`refs/tags/${o}/`)))) hit('outside');
+    if (names.some((x) => x.dyn || (COMMIT_NAME.test(x.t) && namesNew(sub, sargs, x)) || orgs.some((o) => x.t.startsWith(`${o}/`) || x.t.startsWith(`refs/heads/${o}/`) || x.t.startsWith(`refs/tags/${o}/`)))) hit('outside');
+  }
+  // A new branch named like a commit, by checkout or switch.
+  if (sub === 'checkout' || sub === 'switch') {
+    if (a.some((x, k) => (/^(-b|-B|-c|-C|--create|--force-create|--orphan)$/.test(x) && COMMIT_NAME.test(a[k + 1] ?? '')) || COMMIT_NAME.test(/^(?:-[bBcC]|--(?:create|force-create|orphan)=)(.+)$/.exec(x)?.[1] ?? ''))) hit('outside');
   }
   if (sub === 'remote' && ['add', 'set-url', 'rename', 'remove', 'rm', 'set-head', 'set-branches'].includes(a[0])) { hit('push'); return; }
   // A branch's upstream set to anything but the fork redirects a later push (I6); any change of a git setting in the call holds a push in it.

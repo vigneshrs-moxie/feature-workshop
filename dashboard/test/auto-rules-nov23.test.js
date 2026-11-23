@@ -47,7 +47,7 @@ test.after(() => fs.rmSync(ROOT, { recursive: true, force: true }));
 const ctxOf = (cwd, over = {}) => ({
   worktrees: [P], featureDir: JOB, specDirs: [`${M}/docs/plans`], cwd, forkRemote: 'origin',
   remoteUrl: (name) => ({ '': FORK, origin: FORK, moxie: ORG }[name ?? ''] ?? null), currentBranch: cwd === M ? 'main' : null, branches: [],
-  stateDir: `${HOME}/.starbase`, apiPort: 4477, mainCheckout: M, readRoots: [SKILLS, AGENTS], lookRoots: [RESULTS, WIREFRAMES], askRoots: [FEATURES],
+  stateDir: `${HOME}/.starbase`, apiPort: 4477, mainCheckout: M, readRoots: [SKILLS, AGENTS], lookRoots: [RESULTS, WIREFRAMES],
   orgRemote: 'moxie', orgRepo: 'moxie-org/orbit', orgShas: { [SHA]: true, [LATER]: false },
   filesToCopy: [], setup: { worktrees: [P, W], taken: ['main', 'feature/taken'], never: ['main'], starts: ['moxie/main'], worktreeBranches: {} },
   tempDirs: [],
@@ -96,6 +96,25 @@ test('Nov 23 (1): every other worktree is refused as before', () => {
   ];
   const passed = rows.filter((c) => answer(c, ctxOf(M)) === 'pass' || answer(c, ctxOf(M)) === 'ask');
   assert.deepEqual(passed, []);
+});
+
+test('Nov 23 (1): only a cd the shell surely makes, to the main checkout written out, leads a set-up line', () => {
+  const add = `git worktree add -b ${B} ../${SLUG} moxie/main`;
+  fs.mkdirSync(`${JOB}/x`, { recursive: true });
+  fs.symlinkSync(`${M}/app`, `${JOB}/x/link`);
+  const cds = [`cd ${M} | tail -1`, `cd ${M} 2>&1 | head`, `cd ${M} 2>&1`, `cd ${JOB}/x/link/..`, "cd '~/Projects/orbit'", `cd '${M}/*'`, `cd ${M}/../orbit`, `cd ../../../Projects/orbit`, `cd ${M} ;`, `cd ${M} ||`];
+  for (const cd of cds) {
+    const join = /[;|]$/.test(cd) ? ' ' : ' && ';
+    for (const c of [`${cd}${join}git fetch moxie`, `${cd}${join}${add}`]) assert.notEqual(answer(c, ctxOf(JOB)), 'pass', c);
+  }
+  table([[JOB, `cd ${M} && git fetch moxie`, 'pass'], [JOB, `cd ${M}/ && ${add}`, 'pass']]);
+});
+
+test('Nov 23 (1): no branch or tag may be named like a commit, so a start written as a commit is that commit', () => {
+  const rows = [];
+  for (const c of [`git branch ${SHA}`, `git branch ${SHA} HEAD`, `git tag ${SHA}`, `git checkout -b ${SHA}`, `git switch -c ${SHA}`, `git branch -m x ${SHA}`, `git checkout -B ${SHA}`, `git switch --create ${SHA}`]) rows.push([W, c, 'stop:outside']);
+  rows.push([M, `git -C ${M} worktree add -b ${SHA} ${W} moxie/main`, 'stop:outside'], [W, 'git checkout -b feature/deadbeef', 'pass']);
+  table(rows, made);
 });
 
 test('Nov 23 (1): a worktree refused for how it is made says the form that works, and not "don\'t try it another way"', () => {
@@ -166,10 +185,10 @@ test('Nov 23 (3): listing branches, in any order of its words, is a read', () =>
   table(rows);
 });
 
-test('Nov 23 (3): the session\'s own saved outputs and the wireframes folder are read, other jobs\' folders are a question; the rest of ~/.claude stays secret', () => {
+test('Nov 23 (3): the session\'s own saved outputs and the wireframes folder are read; other jobs\' folders and the rest of ~/.claude stay secret', () => {
   table([
     [M, `cat ${RESULTS}/b1.txt | tail -n +12`, 'pass'], [JOB, `ls ${WIREFRAMES}/ ${JOB}`, 'pass'],
-    [M, `ls ${FEATURES} ${FEATURES}/orbit-471-other`, 'ask'], [M, `cat ${FEATURES}/orbit-471-other/spec.md`, 'ask'],
+    [M, `ls ${FEATURES} ${FEATURES}/orbit-471-other`, 'stop:outside'], [M, `cat ${FEATURES}/orbit-471-other/spec.md`, 'stop:outside'],
     [M, `cat ${HOME}/.claude/.credentials.json`, 'stop:outside'], [M, `cat ${HOME}/.claude/settings.json`, 'stop:outside'], [M, `ls ${HOME}/.claude`, 'stop:outside'],
     [M, `cat ${HOME}/.claude/projects/-Users-test-Projects-orbit/other.jsonl`, 'stop:outside'], [M, `grep -r token ${HOME}/.claude/projects`, 'stop:outside'],
     [M, `cat ${M}/app/.env.local`, 'stop:outside'], [M, `cat ${WIREFRAMES}/.env`, 'stop:outside'], [M, `cat ${FEATURES}/orbit-471-other/.env`, 'stop:outside'],

@@ -297,3 +297,16 @@ test('an Auto job waiting for its turn to test is working, with that reason', ()
   assert.deepEqual(laneFor(card({ needsYou: true, waitingFor: 'approval', stage: 'implement', auto: { ...auto, stopped } })), { lane: 'needs-you', laneReason: 'Auto stopped: the plan adds a migration' });
   assert.deepEqual(laneFor(card({ needsYou: true, waitingFor: 'approval', stage: 'implement', auto: { ...auto, on: false } })), { lane: 'needs-you', laneReason: 'Waiting for your go-ahead on the build' });
 });
+
+test('lanes: what waits on an Auto job is Auto\'s only while Auto can answer it', async () => {
+  const { autoHas } = await import('../lib/snapshot.js');
+  const auto = { on: true, stopped: null };
+  const gate = { needsYou: true, waitingFor: 'approval', stage: 'plan', auto };
+  assert.equal(autoHas(gate), true);
+  assert.equal(autoHas({ ...gate, permissions: 1 }, { pending: [{ id: 'a' }], handled: () => true }), true);
+  assert.equal(autoHas({ ...gate, permissions: 2 }, { pending: [{ id: 'a' }, { id: 'b' }], handled: (id) => id === 'a' }), false, 'a card Auto is not handling');
+  for (const [why, card] of Object.entries({
+    off: { ...gate, auto: { on: false } }, stopped: { ...gate, auto: { on: true, stopped: { reason: 'x' } } }, yours: { ...gate, auto: { ...auto, yours: true } },
+    closed: { ...gate, closed: { as: 'done' } }, 'nothing waits': { ...gate, needsYou: false }, 'the job is open in a terminal': { ...gate, lock: { owner: 'terminal' } }, 'no record': { needsYou: true },
+  })) assert.equal(autoHas(card), false, why);
+});

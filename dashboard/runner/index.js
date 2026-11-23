@@ -380,10 +380,8 @@ export async function createRunner(config) {
       remoteUrl: facts.remoteUrl, currentBranch: facts.currentBranch, branches, stateDir: state.dir, apiPort: PORT,
       // Read without a question, never changed: the repository's own checkout and the session's read folders (C5).
       mainCheckout, readRoots: [SKILLS_DIR, AGENTS_DIR].filter(Boolean),
-      // Read too, never run from (Nov 23): the session's own saved outputs and the wireframes folder; the other jobs' folders are
-      // a question for the Approver.
+      // Read too, never run from (Nov 23): the session's own saved outputs and the wireframes folder.
       lookRoots: [...(run.sessionId ? [path.join(PROJECTS_DIR, projectFolderName(run.cwd), run.sessionId, 'tool-results')] : []), path.join(CLAUDE_DIR, 'wireframes')],
-      askRoots: [FEATURES_DIR],
       orgRemote: orgRemote ?? null, orgRepo, orgShas, filesToCopy,
       // The workflow's set-up from the main checkout (N7): where the worktree may be made, and from what.
       setup: { ...setup, starts: orgRemote ? [`${orgRemote}/main`, ...(setup?.never ?? []).map((b) => `${orgRemote}/${b}`)] : [] },

@@ -91,11 +91,11 @@ const leftToPerson = (cards, handled) => typeof handled === 'function' && cards.
 
 /**
  * Is what waits on this job (a card, a gate) Auto's to answer? The one rule behind the lane's "Auto is deciding", the group,
- * the Needs you counts and the page's alerts: Auto is on, not stopped, the person has not made the step theirs, and no card
- * waits that Auto is not handling.
+ * the Needs you counts and the page's alerts: Auto is on, not stopped, the person has not made the step theirs, the job is not
+ * held elsewhere (a terminal, another Starbase: Auto's pass leaves it alone), and no card waits that Auto is not handling.
  */
 export function autoHas(card, { pending = [], handled = null } = {}) {
-  if (card.closed || card.auto?.on !== true || card.auto.stopped || card.auto.yours === true) return false;
+  if (card.closed || card.lock || card.auto?.on !== true || card.auto.stopped || card.auto.yours === true) return false;
   const cards = cardsOf(card, pending);
   return Boolean(cards.length || card.needsYou) && !leftToPerson(cards, handled);
 }
