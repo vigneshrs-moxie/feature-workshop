@@ -127,6 +127,21 @@ describe('alerting', () => {
     expect(notify).toHaveBeenCalledTimes(1);
   });
 
+  it('stays silent, title too, while Auto answers a card, and alerts once when Auto leaves it to you', () => {
+    localStorage.setItem(NOTIFY_KEY, 'on');
+    localStorage.setItem(CHIME_KEY, 'on');
+    const store = ready();
+    renderWith(store);
+    act(() => store.dispatch({ type: 'event', event: ev(11, 'permission', 'alpha', { ...permission('p1', 'alpha'), autoHas: true }) }));
+    expect(chime).not.toHaveBeenCalled();
+    expect(notify).not.toHaveBeenCalled();
+    expect(document.title).toBe('Starbase');
+    act(() => store.dispatch(permissionEvent(12, 'p1', 'alpha')));
+    expect(chime).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(document.title).toBe('(1) Starbase');
+  });
+
   it('alerts when a job newly enters Needs you', () => {
     localStorage.setItem(NOTIFY_KEY, 'on');
     const store = ready();

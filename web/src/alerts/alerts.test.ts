@@ -42,6 +42,15 @@ describe('what counts as newly needing you', () => {
     expect(newAlerts(attentionKeys(calm), { jobs: [job('alpha', 'needs-you', { parked: true })], permissions: [] }).map((a) => a.title)).toEqual(['Needs you: Job alpha']);
   });
 
+  it('a card Auto is answering is not an alert; handed back to you, it is, once', () => {
+    const auto = { jobs: [job('alpha', 'running', { autoHas: true })], permissions: [{ ...permission('p1', 'alpha'), autoHas: true }] };
+    expect([...attentionKeys(auto)]).toEqual([]);
+    expect(newAlerts(attentionKeys(calm), auto)).toEqual([]);
+    const yours = { jobs: [job('alpha', 'needs-you', { permissions: 1 })], permissions: [permission('p1', 'alpha')] };
+    expect(newAlerts(attentionKeys(auto), yours).map((a) => a.title)).toEqual(['Permission needed: Job alpha']);
+    expect(newAlerts(attentionKeys(yours), yours)).toEqual([]);
+  });
+
   it('stays quiet when something stops needing you', () => {
     const before = attentionKeys({ jobs: [job('alpha', 'needs-you')], permissions: [permission('p1', 'alpha')] });
     expect(newAlerts(before, calm)).toEqual([]);

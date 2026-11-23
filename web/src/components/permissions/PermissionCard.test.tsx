@@ -279,9 +279,9 @@ describe('Needs-you cards', () => {
     expect(within(groups[0]).getAllByRole('article').map((a) => a.getAttribute('aria-label'))).toEqual(['Permission: Change a file: a.ts', 'Permission: Run a command in the terminal']);
   });
 
-  it('says so when nothing waits', () => {
+  it('says so when nothing waits, or only a card Auto is answering', () => {
     const store: Store = createStore();
-    store.dispatch({ type: 'snapshot', snapshot: snapshot() });
+    store.dispatch({ type: 'snapshot', snapshot: snapshot({ permissions: [bash({ autoHas: true })] }) });
     render(<WorkshopContext.Provider value={{ store, api: {} as ApiClient }}><NeedsYouCards now={NOW} /></WorkshopContext.Provider>);
     expect(screen.getByText('No permission or question is waiting for you.')).toBeInTheDocument();
   });

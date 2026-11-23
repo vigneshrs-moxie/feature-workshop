@@ -28,7 +28,8 @@ export function JobCards({ slug, now }: { slug: string; now: Date }) {
 
 /** Every job's waiting cards, grouped by job. */
 export function NeedsYouCards({ now }: { now: Date }) {
-  const { permissions, jobs } = useWorkshopPick('permissions', 'jobs');
+  const { permissions: all, jobs } = useWorkshopPick('permissions', 'jobs');
+  const permissions = all.filter((p) => !p.autoHas); // not the ones Auto is answering
   if (!permissions.length) return <p className="muted">No permission or question is waiting for you.</p>;
   const order: string[] = [];
   const bySlug = new Map<string, Permission[]>();

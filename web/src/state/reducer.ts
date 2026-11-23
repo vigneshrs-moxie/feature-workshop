@@ -194,14 +194,16 @@ function applyEvent(state: WorkshopState, e: LiveEvent): WorkshopState {
       const p = d as unknown as Permission;
       if (typeof p.id !== 'string') return next;
       const slug = e.job ?? p.slug ?? null;
-      const known = state.permissions.some((x) => x.id === p.id);
-      next.permissions = known ? state.permissions.map((x) => (x.id === p.id ? p : x)) : [...state.permissions, p];
-      if (!known) {
+      const was = state.permissions.find((x) => x.id === p.id) ?? null;
+      next.permissions = was ? state.permissions.map((x) => (x.id === p.id ? p : x)) : [...state.permissions, p];
+      // A card Auto is answering is not the person's: its job stays where it is. Sent again without the
+      // mark (Auto left it), it moves the job like any new card.
+      const yours = !p.autoHas && (!was || was.autoHas === true);
+      if (!was || yours) {
         next.jobs = patchJob(state.jobs, slug, (j) => ({
           ...j,
-          permissions: (j.permissions ?? 0) + 1,
-          needsYou: true,
-          group: j.group === 'done' ? j.group : ('needs-you' as JobGroup),
+          permissions: (j.permissions ?? 0) + (was ? 0 : 1),
+          ...(yours ? { needsYou: true, autoHas: false, group: j.group === 'done' ? j.group : ('needs-you' as JobGroup) } : {}),
         }));
       }
       return next;

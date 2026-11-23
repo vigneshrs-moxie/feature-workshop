@@ -46,6 +46,18 @@ describe('reducer: events', () => {
     expect(reducer(s, { type: 'event', event: { v: 2, type: 'change', job: null, data: {}, seq: Number.NaN } })).toBe(s);
   });
 
+  it('a card Auto is answering is kept without moving its job to Needs you, until Auto leaves it to you', () => {
+    const p = permission('p1', 'alpha');
+    let s = run(hydrated(), { type: 'event', event: ev(11, 'permission', 'alpha', { ...p, autoHas: true }) });
+    expect(s.permissions).toEqual([{ ...p, autoHas: true }]);
+    expect(s.jobs.find((j) => j.slug === 'alpha')).toMatchObject({ group: 'idle', permissions: 1 });
+    expect(s.jobs.find((j) => j.slug === 'alpha')?.needsYou).toBeUndefined();
+    expect(needsYouCount(s)).toBe(0);
+    s = reducer(s, { type: 'event', event: ev(12, 'permission', 'alpha', p) });
+    expect(s.permissions).toEqual([p]);
+    expect(s.jobs.find((j) => j.slug === 'alpha')).toMatchObject({ group: 'needs-you', permissions: 1, needsYou: true });
+  });
+
   it('adds a permission card once and moves its job to Needs you at once', () => {
     const p = permission('p1', 'alpha');
     let s = run(hydrated(), { type: 'event', event: ev(11, 'permission', 'alpha', p) });

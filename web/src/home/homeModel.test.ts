@@ -216,6 +216,12 @@ describe('homeModel', () => {
     expect(q.map(oneKeyApprove)).toEqual([false, true, true, false, false]);
   });
 
+  it('leaves out what Auto is answering: a card it has taken up, and the gate of a job in Working', () => {
+    const jobs: Job[] = [job('auto', 'running', { waitingFor: 'approval', needsYou: true, autoHas: true, stage: 'plan' }), job('mine', 'needs-you', { waitingFor: 'permission' })];
+    const q = deskQueue(jobs, [{ ...permission('p1', 'auto'), autoHas: true }, permission('p2', 'mine')]);
+    expect(q.map((i) => i.key)).toEqual(['perm:p2']);
+  });
+
   it('a stopped Auto job\'s Needs you row is marked Auto', () => {
     const jobs: Job[] = [
       job('stopped', 'needs-you', { waitingFor: 'approval', stage: 'plan', auto: { on: true, ran: true, stopped: { reason: 'the Foreman says it is blocked' }, group: 'needs-you' } }),

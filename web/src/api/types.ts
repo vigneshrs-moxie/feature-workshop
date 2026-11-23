@@ -133,6 +133,8 @@ export interface Job {
   stage?: string;
   stageState?: string;
   needsYou?: boolean;
+  /** Auto is answering what waits on this job (a card or a gate): its group is never Needs you for it. */
+  autoHas?: boolean;
   working?: boolean;
   permissions?: number;
   waitingFor?: string | null;
@@ -505,6 +507,8 @@ export interface Permission {
   hardLine?: { line: string; reason: string } | null;
   /** Auto mode's safety model couldn't decide this one, so it came to you. */
   fromAutoMode?: boolean;
+  /** The job's Auto has taken this card up and is answering it: not waiting for you. Sent again without it when Auto leaves it to you. */
+  autoHas?: boolean;
   [key: string]: unknown;
 }
 

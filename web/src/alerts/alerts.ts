@@ -8,7 +8,8 @@
 // What counts as new: a job that has just entered Needs you, a permission card that has just
 // arrived (also for a job that was already in Needs you), or a decision that has just been parked
 // (left waiting 4 hours; the dashboard's gate-stale event). What was already there when the page
-// loaded never alerts.
+// loaded never alerts. A card the job's Auto is answering (autoHas) never alerts either: Auto allows or
+// refuses it, or leaves it to you, and it alerts then.
 import type { Job, Permission } from '../api/types';
 import { jobHref } from '../app/router';
 import type { WorkshopState } from '../state/reducer';
@@ -27,7 +28,7 @@ export function attentionKeys(state: Pick<WorkshopState, 'jobs' | 'permissions'>
   const keys = new Set<string>();
   for (const j of state.jobs) if (j.group === 'needs-you') keys.add(`job:${j.slug}`);
   for (const j of state.jobs) if (j.group === 'needs-you' && j.parked) keys.add(`parked:${j.slug}`);
-  for (const p of state.permissions) keys.add(`perm:${p.id}`);
+  for (const p of state.permissions) if (!p.autoHas) keys.add(`perm:${p.id}`);
   return keys;
 }
 
@@ -46,7 +47,7 @@ export function newAlerts(before: Set<string>, state: Pick<WorkshopState, 'jobs'
   const bySlug = new Map<string, Alert>();
   const jobOf = (slug: string) => state.jobs.find((j) => j.slug === slug);
   for (const p of state.permissions) {
-    if (before.has(`perm:${p.id}`) || bySlug.has(p.slug)) continue;
+    if (p.autoHas || before.has(`perm:${p.id}`) || bySlug.has(p.slug)) continue;
     const job = jobOf(p.slug);
     bySlug.set(p.slug, { slug: p.slug, title: `Permission needed: ${job?.title || p.slug}`, body: `${permissionText(p)}. Open the job to allow or deny it.` });
   }

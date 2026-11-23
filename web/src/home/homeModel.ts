@@ -427,6 +427,7 @@ export function deskQueue(jobs: readonly Job[], permissions: readonly Permission
     items.push({ kind: 'gate', key: `gate:${j.slug}`, slug: j.slug, title: j.title || j.slug, what, since: typeof j.waitingSince === 'string' ? j.waitingSince : null, waitingFor: j.waitingFor, auto: inAuto(j) });
   }
   for (const p of permissions) {
+    if (p.autoHas) continue; // Auto is answering it
     const job = jobs.find((j) => j.slug === p.slug);
     const kind = p.kind === 'question' ? 'question' : 'permission';
     items.push({
