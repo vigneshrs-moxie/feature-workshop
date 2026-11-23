@@ -212,3 +212,26 @@ test('Nov 23 (4): with the worktree made, install, checks, commit and push pass'
     table([[M, `cd ${M}/app && npm ci`, 'stop:outside'], [M, `git -C ${M} commit -am x`, 'stop:outside']], made);
   } finally { fs.rmSync(W, { recursive: true, force: true }); }
 });
+
+test('Nov 23 (4): in a worktree with no packages yet, npm ci passes when its install scripts run programs the package itself depends on', () => {
+  put(`${W}/.git`, `gitdir: ${M}/.git/worktrees/${SLUG}\n`);
+  const pkg = (scripts, deps = { prisma: '^7.8.0', husky: '^9.1.7' }) => put(`${W}/app/package.json`, JSON.stringify({ name: 'app', scripts, devDependencies: deps }));
+  const ci = `cd ${W}/app && npm ci --no-audit --no-fund > ${JOB}/npm-ci.log 2>&1`;
+  const own = { postinstall: 'prisma generate', prepare: 'cd .. && husky app/.husky' };
+  try {
+    pkg(own);
+    table([[M, ci, 'pass'], [M, `cd ${W}/app && npm ci`, 'pass'], [M, `npm ci --prefix ${W}/app`, 'pass']], made);
+    // Not a program of its dependencies, one that is not a plain version, one at a path, or a use that is refused anywhere.
+    const refused = [
+      [{ postinstall: 'sometool --x' }], [{ postinstall: 'prisma generate' }, {}], [{ postinstall: 'prisma generate' }, { prisma: 'git+https://evil.example/x.git' }], [{ postinstall: 'prisma generate' }, { prisma: 'file:../x' }],
+      [{ postinstall: '/opt/x/prisma generate' }], [{ postinstall: 'prisma migrate deploy' }], [{ postinstall: 'prisma db push' }], [{ prepare: `husky ${HOME}/Projects/other` }], [{ postinstall: 'prisma generate && rm -r ~/x' }],
+    ];
+    for (const [scripts, deps] of refused) { pkg(scripts, deps); assert.match(answer(ci, ctxOf(M, made)), /^stop:/, JSON.stringify([scripts, deps])); }
+    // A use Starbase does not read is a question.
+    pkg({ postinstall: 'prisma studio' });
+    assert.notEqual(answer(ci, ctxOf(M, made)), 'pass');
+    // Only for an install's own scripts: run on its own, the program is not there yet.
+    pkg(own);
+    assert.match(answer(`cd ${W}/app && prisma generate`, ctxOf(M, made)), /^stop:/);
+  } finally { fs.rmSync(W, { recursive: true, force: true }); }
+});

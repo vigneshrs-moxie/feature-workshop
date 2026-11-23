@@ -626,7 +626,9 @@ function handedOn(list, ctx) {
 
 function binExists(name, ctx) {
   if (!/^[A-Za-z0-9._-]+$/.test(name)) return false;
-  // A package script also finds its package's own node_modules/.bin, wherever it has cd'd to (binBase).
+  // A package script also finds its package's own node_modules/.bin, wherever it has cd'd to (binBase); an install's own script
+  // finds the packages it installs (installBins, Nov 23).
+  if (ctx.installBins?.has(name)) return true;
   return ctx.cands.every((c) => (ctx.binBase ? [c, ctx.binBase] : [c]).some((start) => {
     let dir = physicalPath('.', start);
     for (let guard = 0; guard < 40 && dir && inRoots(dir, ctx.roots); guard++) {
@@ -974,7 +976,7 @@ export function plainWhy(command, env = {}) {
         pending = null;
       } else if (cmd.sep !== '&&' && open.length) { cands = [...new Set([...open, ...cands])]; open = []; }
       if (cands.length > 8) ask('a command that may run in too many folders');
-      let ctx = { roots, cands, ctx: env.ctx, binBase: env.binBase ?? null };
+      let ctx = { roots, cands, ctx: env.ctx, binBase: env.binBase ?? null, installBins: env.installBins ?? null };
       for (const r of cmd.redirects) { if (r.op === '<') { readablePath(r.target, ctx); } else redirectCheck(r, ctx); }
       let words = cmd.words;
       let i = 0;

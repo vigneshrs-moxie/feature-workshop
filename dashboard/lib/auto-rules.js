@@ -714,7 +714,7 @@ function wholeSubshell(text) {
 }
 
 // Plain: Starbase understands every word of the command (lib/auto-plain.js).
-const plainEnv = (st, cwd) => ({ cwd: cwd ?? st.hint ?? st.ctx.cwd ?? null, roots: st.roots, ctx: st.ctx, binBase: st.scriptBin ?? null, known: (n) => Boolean(programGroup(n)) && !SHELLS.has(n) });
+const plainEnv = (st, cwd) => ({ cwd: cwd ?? st.hint ?? st.ctx.cwd ?? null, roots: st.roots, ctx: st.ctx, binBase: st.scriptBin ?? null, installBins: st.installBins ?? null, known: (n) => Boolean(programGroup(n)) && !SHELLS.has(n) });
 
 // Names a command defines as shell functions (their bodies are read as commands; a use of one is not an unknown program).
 function functionNames(command) {
@@ -1153,7 +1153,7 @@ function simple(ws, redirects, cwd, st, depth, viaXargs) {
   const known = psOk || byFile || (!cmdWord.t.includes('/') || ownBin) && (programGroup(cmd) || SHELLS.has(cmd) || cmd === 'eval' || cmd === 'source' || cmd === '.' || cmd === 'alias' || st.funcs.has(cmd.replace(/\(\)$/, '')));
   // A program found in the job's node_modules/.bin (as npx finds it, or a package script's own) and not otherwise known
   // is a question, not a stop; a few of its uses are plain (I2).
-  const localBin = !known && /^[\w.-]+$/.test(cmd) && (ownBin || (!cmdWord.t.includes('/') && binNear(cmd, cwd ?? st.hint ?? null, st)));
+  const localBin = !known && /^[\w.-]+$/.test(cmd) && (ownBin || (!cmdWord.t.includes('/') && (Boolean(st.installBins?.has(cmd)) || binNear(cmd, cwd ?? st.hint ?? null, st))));
   if (!known && !localBin) { hit('outside'); st.unknown = true; return; }
   if (localBin) {
     // husky pointed at a folder outside the job stops, whatever the use: that test runs first (R2, finding 6).
@@ -1666,6 +1666,7 @@ function packageScripts(cmd, args, cwd, st, depth = 0) {
     if (!x.startsWith('-')) rest.push([x, k]);
   }
   const names = [];
+  let installs = false;
   const sub = rest[0]?.[0];
   if (!sub) return;
   let at = -1; // the index of the script's name: the words after it are handed on
@@ -1677,6 +1678,7 @@ function packageScripts(cmd, args, cwd, st, depth = 0) {
     const valued = k >= 0 && /^(true|false)$/i.test(args[k + 1]?.t ?? '');
     if (valued) st.asks.push('--ignore-scripts with a value after it');
     if (k < 0 || valued) names.push('install', 'prepare', 'prepublish');
+    installs = true;
   }
   else if (cmd !== 'npm' && !PKG_BUILTIN.has(sub) && !(cmd === 'bun' && sub === 'test')) { names.push(sub); at = rest[0][1]; }
   // A name that may be a program: yarn, pnpm and bun run one when no script has the name (npm run fails; read as strictly).
@@ -1695,10 +1697,13 @@ function packageScripts(cmd, args, cwd, st, depth = 0) {
   }
   if (!file) return maybeBin ? at : undefined;
   let scripts;
+  let deps = {};
   try {
     const info = fs.statSync(file);
     if (info.size > MAX_SCRIPT) { st.hits.add('outside'); return; }
-    scripts = JSON.parse(fs.readFileSync(file, 'utf8'))?.scripts ?? {};
+    const pkg = JSON.parse(fs.readFileSync(file, 'utf8'));
+    scripts = pkg?.scripts ?? {};
+    deps = { ...pkg?.dependencies, ...pkg?.devDependencies };
   } catch { st.hits.add('outside'); return; }
   // The words handed on after the script's name: npm takes its own options before --; the others hand on everything.
   const after = at >= 0 ? args.slice(at + 1) : [];
@@ -1709,9 +1714,13 @@ function packageScripts(cmd, args, cwd, st, depth = 0) {
   // A script finds the programs in its package's own node_modules/.bin wherever it cd's to.
   const before = st.scriptBin;
   st.scriptBin = dir;
+  // An install's own scripts run after its packages are in: a program named like a package it installs from the registry (a plain
+  // version) is there by then, so it is read as one found in node_modules/.bin (a fresh worktree's npm ci, Nov 23).
+  const binsBefore = st.installBins;
+  st.installBins = installs ? new Set(Object.entries(deps).filter(([, v]) => typeof v === 'string' && /^[~^]?\d[\w.+-]*$/.test(v)).map(([n]) => n)) : undefined;
   try {
     for (const n of names) for (const key of [`pre${n}`, n, `post${n}`]) if (typeof scripts[key] === 'string') scanShell(scripts[key], dir, st, depth, key === n && at >= 0 ? tail : '');
-  } finally { st.scriptBin = before; }
+  } finally { st.scriptBin = before; st.installBins = binsBefore; }
   return maybeBin && typeof scripts[names[0]] !== 'string' ? at : undefined;
 }
 const shellQuote = (t) => (/^[\w@%+=:,./-]+$/.test(t) ? t : `'${t.replace(/'/g, "'\\''")}'`);
